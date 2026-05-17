@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.logging.Level;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.configuration.IntegerOption;
 import org.sosy_lab.common.configuration.InvalidConfigurationException;
@@ -37,6 +38,7 @@ import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.CPAcheckerResult.Result;
 import org.sosy_lab.cpachecker.core.counterexample.CounterexampleInfo;
+import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.core.interfaces.Statistics;
 import org.sosy_lab.cpachecker.core.interfaces.StatisticsProvider;
 import org.sosy_lab.cpachecker.core.reachedset.UnmodifiableReachedSet;
@@ -53,6 +55,7 @@ import org.sosy_lab.cpachecker.exceptions.RefinementFailedException;
 import org.sosy_lab.cpachecker.exceptions.RefinementFailedException.Reason;
 import org.sosy_lab.cpachecker.util.AbstractStates;
 import org.sosy_lab.cpachecker.util.LoopStructure;
+import org.sosy_lab.cpachecker.util.Pair;
 import org.sosy_lab.cpachecker.util.LoopStructure.Loop;
 import org.sosy_lab.cpachecker.util.cwriter.LoopCollectingEdgeVisitor;
 import org.sosy_lab.cpachecker.util.predicates.NewtonRefinementManager;
@@ -164,6 +167,10 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private final FormulaManagerView fmgr;
   private final PathFormulaManager pfmgr;
   private final InterpolationManager interpolationManager;
+  private final @Nullable List<InterpolationManager> allInterpolationManagers;
+  private final @Nullable VocabularyGuide vocabularyGuide;
+  private final @Nullable LLMConnector llmConnector;
+  private boolean useVGuide;
   private final RefinementStrategy strategy;
   private final Optional<NewtonRefinementManager> newtonManager;
   private final Optional<UCBRefinementManager> ucbManager;
@@ -180,7 +187,10 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       final PrefixProvider pPrefixProvider,
       final PrefixSelector pPrefixSelector,
       final PredicateCPAInvariantsManager pInvariantsManager,
-      final RefinementStrategy pStrategy)
+      final RefinementStrategy pStrategy,
+      final @Nullable List<InterpolationManager> pAllInterpolationManagers,
+      final @Nullable VocabularyGuide pVocabularyGuide,
+      final @Nullable LLMConnector pLlmConnector)
       throws InvalidConfigurationException {
     pConfig.inject(this, PredicateCPARefiner.class);
     logger = pLogger;
@@ -225,6 +235,11 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         "Using refinement for predicate analysis with "
             + strategy.getClass().getSimpleName()
             + " strategy.");
+
+    allInterpolationManagers = pAllInterpolationManagers;
+    vocabularyGuide = pVocabularyGuide;
+    llmConnector = pLlmConnector;
+    useVGuide = (allInterpolationManagers != null && vocabularyGuide != null);
   }
 
   /** Create list of formulas on path. */
@@ -397,8 +412,62 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       final BlockFormulas formulas)
       throws CPAException, InterruptedException {
 
-    return interpolationManager.buildCounterexampleTrace(
-        formulas, ImmutableList.copyOf(abstractionStatesTrace), Optional.of(allStatesTrace));
+    if (!useVGuide || allInterpolationManagers == null || vocabularyGuide == null) {
+      return interpolationManager.buildCounterexampleTrace(
+          formulas, ImmutableList.copyOf(abstractionStatesTrace), Optional.of(allStatesTrace));
+    }
+
+    // --- V-guided multi-strategy refinement ---
+    List<BooleanFormula> traceFormulas = formulas.getFormulas();
+    List<AbstractState> absStates = ImmutableList.copyOf(abstractionStatesTrace);
+
+    CounterexampleTraceInfo result0 =
+        interpolationManager.buildCounterexampleTrace(
+            formulas, absStates, Optional.of(allStatesTrace));
+    if (!result0.isSpurious()) {
+      return result0;
+    }
+    List<BooleanFormula> itp0 = result0.getInterpolants();
+
+    List<Pair<List<BooleanFormula>, String>> candidates = new ArrayList<>();
+    candidates.add(Pair.of(itp0, "SEQ_CPACHECKER/ZIGZAG"));
+
+    for (InterpolationManager im : allInterpolationManagers) {
+      try {
+        CounterexampleTraceInfo cex =
+            im.buildCounterexampleTrace(formulas, absStates, Optional.of(allStatesTrace));
+        if (!cex.isSpurious()) {
+          return cex;
+        }
+        candidates.add(Pair.of(cex.getInterpolants(), "extra"));
+      } catch (Exception e) {
+        logger.logDebugException(e, "Extra IM failed, skipping");
+      }
+    }
+
+    VocabularyGuide.ScoredResult best = vocabularyGuide.selectBest(candidates);
+    if (best == null) {
+      return result0;
+    }
+
+    double bestScore = best.score;
+    vocabularyGuide.recordSelected(best.predicates);
+    for (Pair<List<BooleanFormula>, String> c : candidates) {
+      vocabularyGuide.recordConsidered(c.getFirst());
+    }
+
+    if (bestScore < vocabularyGuide.getTau() && llmConnector != null) {
+      llmConnector.onShortfall();
+      for (BooleanFormula f : traceFormulas) {
+        llmConnector.addTrace(fmgr.dumpFormula(f).toString());
+      }
+    } else {
+      if (llmConnector != null) {
+        llmConnector.onGoodScore();
+      }
+    }
+
+    return CounterexampleTraceInfo.infeasible(best.predicates);
   }
 
   private CounterexampleTraceInfo performInvariantsRefinement(

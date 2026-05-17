@@ -3180,8 +3180,21 @@ cpa.predicate.refinement.usePathInvariants = false
 # use UCB predicates for the CPA-Refinement, experimental feature!
 cpa.predicate.refinement.useUCBRefinement = false
 
+# Use LLM vocabulary to guide interpolation strategy selection. When enabled,
+# computes 6 interpolation strategies and selects the one best matching an
+# LLM-maintained predicate vocabulary V.
+cpa.predicate.refinement.useVocabularyGuide = false
+
 # verify if the interpolants fulfill the interpolant properties
 cpa.predicate.refinement.verifyInterpolants = false
+
+# Subsumption weight for V-guided scoring (0..1). Remainder is variable
+# overlap.
+cpa.predicate.refinement.vocabularyGuideAlpha = 0.6
+
+# Threshold for CE-guided LLM update. When best strategy score < tau for 3
+# consecutive refinements, LLM is asked to generate additional predicates.
+cpa.predicate.refinement.vocabularyGuideTau = 0.2
 
 # Enable the option to allow detecting the allocation type by type of the LHS
 # of the assignment, e.g. char *arr = malloc(size) is detected as char[size]
