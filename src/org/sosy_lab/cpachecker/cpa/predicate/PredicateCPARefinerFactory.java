@@ -200,11 +200,13 @@ public final class PredicateCPARefinerFactory {
           ")");
 
       List<InterpolationManager> ims = new ArrayList<>(6);
+      List<String> imLabels = new ArrayList<>(6);
 
       String[][] configs = {
+        // Keep stock CPAchecker behavior first. This is the fallback candidate and tie-breaker.
+        {"SEQ_CPACHECKER", "ZIGZAG"},
         {"SEQ_CPACHECKER", "FORWARDS"},
         {"SEQ_CPACHECKER", "BACKWARDS"},
-        {"SEQ_CPACHECKER", "ZIGZAG"},
         {"TREE_WELLSCOPED", "ZIGZAG"},
         {"TREE_NESTED", "ZIGZAG"},
         {"TREE_WELLSCOPED", "LOOP_FREE_FIRST"},
@@ -226,6 +228,7 @@ public final class PredicateCPARefinerFactory {
                 c,
                 shutdownNotifier,
                 logger));
+        imLabels.add(cfg[0] + "/" + cfg[1]);
       }
 
       primaryInterpolationManager = ims.getFirst();
@@ -235,8 +238,8 @@ public final class PredicateCPARefinerFactory {
       LLMConnector llm =
           new LLMConnector(vg, solver, logger, shutdownNotifier, cfa, apiKey);
 
-      llm.initializeVocab();
       llm.start();
+      llm.requestInitialVocab();
 
       refiner =
           new PredicateCPARefiner(
@@ -253,6 +256,7 @@ public final class PredicateCPARefinerFactory {
               invariantsManager,
               pRefinementStrategy,
               ims.subList(1, ims.size()),
+              imLabels.subList(1, imLabels.size()),
               vg,
               llm);
     } else {
@@ -280,6 +284,7 @@ public final class PredicateCPARefinerFactory {
               prefixSelector,
               invariantsManager,
               pRefinementStrategy,
+              null,
               null,
               null,
               null);

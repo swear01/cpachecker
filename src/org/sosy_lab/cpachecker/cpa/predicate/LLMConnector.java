@@ -8,6 +8,8 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -19,6 +21,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
@@ -45,11 +51,18 @@ import org.sosy_lab.java_smt.api.NumeralFormula.IntegerFormula;
 public class LLMConnector {
 
   private static final String API_URL = "https://openrouter.ai/api/v1/chat/completions";
-  private static final String MODEL = "deepseek/deepseek-v4-pro";
+  private static final String DEFAULT_MODEL = "deepseek/deepseek-v4-pro";
+  private static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 600;
   private static final Pattern PREDICATE_PATTERN = Pattern.compile("\"([^\"]+)\"");
+  private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
   private static final long MAX_INTERVAL_MS = 300_000L;
   private static final int TRACE_BATCH_SIZE = 10;
   private static final int SHORTFALL_THRESHOLD = 3;
+
+  private enum RequestKind {
+    INITIAL,
+    CE_GUIDED
+  }
 
   private final VocabularyGuide vg;
   private final FormulaManagerView fmgr;
@@ -59,12 +72,18 @@ public class LLMConnector {
   private final ShutdownNotifier sd;
   private final CFA cfa;
   private final String apiKey;
+  private final String model;
+  private final int completionTokens;
+  private final int reasoningTokens;
+  private final int requestTimeoutSeconds;
   private final HttpClient http;
 
   private final AtomicBoolean initialized = new AtomicBoolean(false);
   private final AtomicBoolean running = new AtomicBoolean(false);
   private final List<String> pendingTraces = Collections.synchronizedList(new ArrayList<>());
+  private final BlockingQueue<RequestKind> requestQueue = new LinkedBlockingQueue<>();
   private final AtomicInteger shortfallCount = new AtomicInteger(0);
+  private final CountDownLatch initialVocabDone = new CountDownLatch(1);
 
   private long currentIntervalMs = 10_000L;
   private long lastCallTime = 0L;
@@ -84,13 +103,33 @@ public class LLMConnector {
     sd = pSd;
     cfa = pCfa;
     apiKey = pApiKey;
+    String configuredModel = System.getenv("OPENROUTER_MODEL");
+    model = configuredModel == null || configuredModel.isBlank() ? DEFAULT_MODEL : configuredModel;
+    completionTokens = readOptionalPositiveIntEnv("OPENROUTER_MAX_COMPLETION_TOKENS");
+    reasoningTokens = readOptionalPositiveIntEnv("OPENROUTER_REASONING_TOKENS");
+    requestTimeoutSeconds =
+        readPositiveIntEnv("OPENROUTER_TIMEOUT_SECONDS", DEFAULT_REQUEST_TIMEOUT_SECONDS);
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
   }
 
-  public void initializeVocab() {
-    if (!initialized.compareAndSet(false, true)) {
-      return;
+  public void requestInitialVocab() {
+    if (initialized.compareAndSet(false, true)) {
+      requestQueue.offer(RequestKind.INITIAL);
     }
+  }
+
+  public boolean requestInitialVocabAndWait(long timeout, TimeUnit unit) throws InterruptedException {
+    requestInitialVocab();
+    boolean finished = initialVocabDone.await(timeout, unit);
+    if (!finished) {
+      logger.log(
+          Level.WARNING, "LLM V_0 initialization did not finish within ", timeout, " ", unit);
+      return false;
+    }
+    return !vg.isEmpty();
+  }
+
+  private void initializeVocabBlocking() {
     logger.log(Level.INFO, "LLM: initializing V_0 from source code");
     try {
       StringBuilder code = new StringBuilder();
@@ -103,9 +142,13 @@ public class LLMConnector {
       if (!preds.isEmpty()) {
         vg.addPredicates(preds);
         logger.log(Level.INFO, "LLM: V_0 initialized with", preds.size(), "predicates");
+      } else {
+        logger.log(Level.WARNING, "LLM V_0 initialization produced no predicates");
       }
     } catch (Exception e) {
       logger.logUserException(Level.WARNING, e, "LLM V_0 initialization failed");
+    } finally {
+      initialVocabDone.countDown();
     }
   }
 
@@ -121,15 +164,17 @@ public class LLMConnector {
               lastCallTime = System.currentTimeMillis();
               while (!sd.shouldShutdown() && running.get()) {
                 try {
-                  long elapsed = System.currentTimeMillis() - lastCallTime;
-                  long waitMs = Math.max(0, currentIntervalMs - elapsed);
-                  if (waitMs > 0) {
-                    Thread.sleep(Math.min(waitMs, 5000));
-                  }
+                  RequestKind request = requestQueue.poll(currentIntervalMs, TimeUnit.MILLISECONDS);
                   if (sd.shouldShutdown()) {
                     break;
                   }
-                  backgroundUpdate();
+                  if (request == RequestKind.INITIAL) {
+                    initializeVocabBlocking();
+                  } else if (request == RequestKind.CE_GUIDED) {
+                    triggerCEUpdate();
+                  } else {
+                    backgroundUpdate();
+                  }
                 } catch (InterruptedException e) {
                   break;
                 } catch (Exception e) {
@@ -151,7 +196,7 @@ public class LLMConnector {
     int c = shortfallCount.incrementAndGet();
     if (c >= SHORTFALL_THRESHOLD) {
       shortfallCount.set(0);
-      triggerCEUpdate();
+      requestQueue.offer(RequestKind.CE_GUIDED);
     }
   }
 
@@ -162,44 +207,42 @@ public class LLMConnector {
   // ---- LLM API ----
 
   private String callLLM(String prompt) throws IOException, InterruptedException {
-    String body =
-        "{\"model\":\""
-            + MODEL
-            + "\",\"messages\":[{\"role\":\"user\",\"content\":"
-            + jsonEscape(prompt)
-            + "}],\"max_tokens\":1024}";
+    StringBuilder body =
+        new StringBuilder()
+            .append("{\"model\":\"")
+            .append(model)
+            .append("\",\"messages\":[{\"role\":\"user\",\"content\":")
+            .append(jsonEscape(prompt))
+            .append("}],\"temperature\":0");
+    if (completionTokens > 0) {
+      body.append(",\"max_completion_tokens\":").append(completionTokens);
+    }
+    if (reasoningTokens > 0) {
+      body.append(",\"reasoning\":{\"max_tokens\":")
+          .append(reasoningTokens)
+          .append(",\"exclude\":true}");
+    }
+    body.append("}");
 
     HttpRequest req =
         HttpRequest.newBuilder()
             .uri(URI.create(API_URL))
             .header("Authorization", "Bearer " + apiKey)
             .header("Content-Type", "application/json")
-            .timeout(Duration.ofSeconds(60))
-            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .timeout(Duration.ofSeconds(requestTimeoutSeconds))
+            .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
             .build();
 
     HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
     if (resp.statusCode() != 200) {
-      throw new IOException("LLM API error: " + resp.statusCode());
+      throw new IOException("LLM API error: " + resp.statusCode() + " " + resp.body());
     }
-    String r = resp.body();
-    int ci = r.indexOf("\"content\":\"");
-    if (ci < 0) {
-      throw new IOException("No content in LLM response");
+    JsonNode root = JSON_MAPPER.readTree(resp.body());
+    JsonNode content = root.at("/choices/0/message/content");
+    if (content.isMissingNode() || !content.isTextual()) {
+      throw new IOException("No textual content in LLM response: " + resp.body());
     }
-    int start = r.indexOf('"', ci + 11) + 1;
-    StringBuilder content = new StringBuilder();
-    for (int i = start; i < r.length(); i++) {
-      char c = r.charAt(i);
-      if (c == '\\' && i + 1 < r.length()) {
-        content.append(r.charAt(++i));
-      } else if (c == '"') {
-        break;
-      } else {
-        content.append(c);
-      }
-    }
-    return content.toString().replace("\\n", "\n").replace("\\t", "\t");
+    return content.asText();
   }
 
   private static String jsonEscape(String s) {
@@ -216,6 +259,32 @@ public class LLMConnector {
       }
     }
     return sb.append('"').toString();
+  }
+
+  private static int readPositiveIntEnv(String name, int fallback) {
+    String value = System.getenv(name);
+    if (value == null || value.isBlank()) {
+      return fallback;
+    }
+    try {
+      int parsed = Integer.parseInt(value);
+      return parsed > 0 ? parsed : fallback;
+    } catch (NumberFormatException e) {
+      return fallback;
+    }
+  }
+
+  private static int readOptionalPositiveIntEnv(String name) {
+    String value = System.getenv(name);
+    if (value == null || value.isBlank()) {
+      return 0;
+    }
+    try {
+      int parsed = Integer.parseInt(value);
+      return parsed > 0 ? parsed : 0;
+    } catch (NumberFormatException e) {
+      return 0;
+    }
   }
 
   // ---- Prompts ----

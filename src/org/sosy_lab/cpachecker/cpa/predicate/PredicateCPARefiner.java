@@ -168,6 +168,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private final PathFormulaManager pfmgr;
   private final InterpolationManager interpolationManager;
   private final @Nullable List<InterpolationManager> allInterpolationManagers;
+  private final @Nullable List<String> interpolationManagerLabels;
   private final @Nullable VocabularyGuide vocabularyGuide;
   private final @Nullable LLMConnector llmConnector;
   private boolean useVGuide;
@@ -189,6 +190,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       final PredicateCPAInvariantsManager pInvariantsManager,
       final RefinementStrategy pStrategy,
       final @Nullable List<InterpolationManager> pAllInterpolationManagers,
+      final @Nullable List<String> pInterpolationManagerLabels,
       final @Nullable VocabularyGuide pVocabularyGuide,
       final @Nullable LLMConnector pLlmConnector)
       throws InvalidConfigurationException {
@@ -237,6 +239,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
             + " strategy.");
 
     allInterpolationManagers = pAllInterpolationManagers;
+    interpolationManagerLabels = pInterpolationManagerLabels;
     vocabularyGuide = pVocabularyGuide;
     llmConnector = pLlmConnector;
     useVGuide = (allInterpolationManagers != null && vocabularyGuide != null);
@@ -421,6 +424,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     List<BooleanFormula> traceFormulas = formulas.getFormulas();
     List<AbstractState> absStates = ImmutableList.copyOf(abstractionStatesTrace);
 
+    // Stock CPAchecker refinement. This remains the safe fallback for low-confidence V-guidance.
     CounterexampleTraceInfo result0 =
         interpolationManager.buildCounterexampleTrace(
             formulas, absStates, Optional.of(allStatesTrace));
@@ -429,19 +433,30 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     }
     List<BooleanFormula> itp0 = result0.getInterpolants();
 
+    if (vocabularyGuide.isEmpty()) {
+      triggerVocabularyUpdate(traceFormulas);
+      logger.log(Level.FINE, "VocabularyGuide empty; falling back to stock interpolation.");
+      return result0;
+    }
+
     List<Pair<List<BooleanFormula>, String>> candidates = new ArrayList<>();
     candidates.add(Pair.of(itp0, "SEQ_CPACHECKER/ZIGZAG"));
 
-    for (InterpolationManager im : allInterpolationManagers) {
+    for (int i = 0; i < allInterpolationManagers.size(); i++) {
+      InterpolationManager im = allInterpolationManagers.get(i);
+      String label =
+          interpolationManagerLabels != null && i < interpolationManagerLabels.size()
+              ? interpolationManagerLabels.get(i)
+              : "extra-" + i;
       try {
         CounterexampleTraceInfo cex =
             im.buildCounterexampleTrace(formulas, absStates, Optional.of(allStatesTrace));
         if (!cex.isSpurious()) {
           return cex;
         }
-        candidates.add(Pair.of(cex.getInterpolants(), "extra"));
+        candidates.add(Pair.of(cex.getInterpolants(), label));
       } catch (Exception e) {
-        logger.logDebugException(e, "Extra IM failed, skipping");
+        logger.logDebugException(e, "Interpolation manager " + label + " failed, skipping");
       }
     }
 
@@ -456,18 +471,39 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       vocabularyGuide.recordConsidered(c.getFirst());
     }
 
-    if (bestScore < vocabularyGuide.getTau() && llmConnector != null) {
-      llmConnector.onShortfall();
-      for (BooleanFormula f : traceFormulas) {
-        llmConnector.addTrace(fmgr.dumpFormula(f).toString());
-      }
+    if (bestScore < vocabularyGuide.getTau()) {
+      triggerVocabularyUpdate(traceFormulas);
+      logger.log(
+          Level.FINE,
+          "VocabularyGuide score below threshold (",
+          bestScore,
+          " < ",
+          vocabularyGuide.getTau(),
+          "); falling back to stock interpolation.");
+      return result0;
     } else {
       if (llmConnector != null) {
         llmConnector.onGoodScore();
       }
     }
 
+    logger.log(
+        Level.FINE,
+        "VocabularyGuide selected interpolation strategy ",
+        best.label,
+        " with score ",
+        bestScore);
     return CounterexampleTraceInfo.infeasible(best.predicates);
+  }
+
+  private void triggerVocabularyUpdate(List<BooleanFormula> traceFormulas) {
+    if (llmConnector == null) {
+      return;
+    }
+    for (BooleanFormula f : traceFormulas) {
+      llmConnector.addTrace(fmgr.dumpFormula(f).toString());
+    }
+    llmConnector.onShortfall();
   }
 
   private CounterexampleTraceInfo performInvariantsRefinement(
