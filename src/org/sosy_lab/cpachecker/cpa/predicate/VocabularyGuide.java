@@ -35,11 +35,13 @@ public class VocabularyGuide {
   static class VocabEntry {
     final String locationKey;
     final String predicateText;
+    final Set<String> variableNames;
     volatile @Nullable BooleanFormula parsedFormula;
 
     VocabEntry(String pLocationKey, String pPredicateText) {
       locationKey = pLocationKey;
       predicateText = pPredicateText;
+      variableNames = extractVariableNamesFromText(pPredicateText);
     }
 
     @Override
@@ -194,19 +196,16 @@ public class VocabularyGuide {
   }
 
   public boolean hasVariableOverlap(String candidatePredicateText) {
-    if (solver == null || cachedVariableNames == null || cachedVariableNames.isEmpty()) {
+    if (candidatePredicateText == null || candidatePredicateText.isBlank()) {
       return false;
     }
-    FormulaManagerView fmgr = solver.getFormulaManager();
-    BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
-    IntegerFormulaManagerView ifmgr = fmgr.getIntegerFormulaManager();
-    BooleanFormula cand = parsePredicate(candidatePredicateText, bfmgr, ifmgr);
-    if (cand == null) {
+    Set<String> vVars = getVariableNames();
+    if (vVars.isEmpty()) {
       return false;
     }
-    Set<String> candVars = fmgr.extractVariableNames(cand);
+    Set<String> candVars = extractVariableNamesFromText(candidatePredicateText);
     for (String v : candVars) {
-      if (cachedVariableNames.contains(v)) {
+      if (vVars.contains(v)) {
         return true;
       }
     }
@@ -217,21 +216,9 @@ public class VocabularyGuide {
     if (cachedVariableNames != null) {
       return cachedVariableNames;
     }
-    if (solver == null) {
-      return Set.of();
-    }
-    FormulaManagerView fmgr = solver.getFormulaManager();
-    BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
-    IntegerFormulaManagerView ifmgr = fmgr.getIntegerFormulaManager();
     Set<String> allVars = new HashSet<>();
     for (VocabEntry e : vocab) {
-      BooleanFormula f = e.parsedFormula;
-      if (f == null) {
-        f = parseAndCache(e, bfmgr, ifmgr);
-      }
-      if (f != null) {
-        allVars.addAll(fmgr.extractVariableNames(f));
-      }
+      allVars.addAll(e.variableNames);
     }
     cachedVariableNames = allVars;
     return allVars;
@@ -244,6 +231,39 @@ public class VocabularyGuide {
     BooleanFormula f = parsePredicate(e.predicateText, bfmgr, ifmgr);
     e.parsedFormula = f;
     return f;
+  }
+
+  private static Set<String> extractVariableNamesFromText(String predicateText) {
+    Set<String> vars = new HashSet<>();
+    String text = predicateText.strip();
+    String[] ops = {" >= ", " <= ", " != ", " == ", " < ", " > "};
+    String leftPart = null;
+    String rightPart = null;
+    for (String op : ops) {
+      int idx = text.indexOf(op);
+      if (idx >= 0) {
+        leftPart = text.substring(0, idx).strip();
+        rightPart = text.substring(idx + op.length()).strip();
+        break;
+      }
+    }
+    if (leftPart != null) {
+      addIfVariable(vars, leftPart);
+    }
+    if (rightPart != null) {
+      addIfVariable(vars, rightPart);
+    }
+    return vars;
+  }
+
+  private static void addIfVariable(Set<String> vars, String token) {
+    if (token.isEmpty() || "NULL".equals(token)) {
+      return;
+    }
+    if (token.matches("-?\\d+")) {
+      return;
+    }
+    vars.add(token);
   }
 
   static @Nullable BooleanFormula parsePredicate(

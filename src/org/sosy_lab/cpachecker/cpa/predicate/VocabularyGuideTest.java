@@ -99,13 +99,14 @@ public class VocabularyGuideTest {
   }
 
   @Test
-  public void hasVariableOverlap_withNullSolver_returnsFalse() {
+  public void hasVariableOverlap_checksPredicateVariables() {
     VocabularyGuide vg = createEmpty();
     vg.addPredicate("loop L1", "i >= n", 0);
     vg.addPredicate("loop L2", "j > 10", 0);
 
-    // Without a solver, parsing is not possible — overlap check returns false
-    assertThat(vg.hasVariableOverlap("i >= 0")).isFalse();
-    assertThat(vg.getVariableNames()).isEmpty();
+    assertThat(vg.hasVariableOverlap("i >= 0")).isTrue();
+    assertThat(vg.hasVariableOverlap("k < 5")).isFalse();
+    assertThat(vg.hasVariableOverlap("i > j")).isTrue();
+    assertThat(vg.getVariableNames()).containsExactly("i", "n", "j");
   }
 }
