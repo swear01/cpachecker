@@ -212,6 +212,23 @@ public class VocabularyGuide {
     return false;
   }
 
+  public boolean hasVariableOverlap(BooleanFormula candidate) {
+    if (solver == null) {
+      return false;
+    }
+    Set<String> vVars = getVariableNames();
+    if (vVars.isEmpty()) {
+      return false;
+    }
+    Set<String> candVars = solver.getFormulaManager().extractVariableNames(candidate);
+    for (String v : candVars) {
+      if (vVars.contains(v)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public Set<String> getVariableNames() {
     if (cachedVariableNames != null) {
       return cachedVariableNames;

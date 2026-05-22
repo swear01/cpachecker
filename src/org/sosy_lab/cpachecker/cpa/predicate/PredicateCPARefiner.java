@@ -504,9 +504,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
         continue;
       }
-      Set<String> pVars = fmgr.extractVariableNames(p);
-      if (!pVars.isEmpty() && vocabularyGuide.hasVariableOverlap(
-          fmgr.dumpFormula(p).toString())) {
+      if (vocabularyGuide.hasVariableOverlap(p)) {
         filtered.add(p);
       }
     }
