@@ -8,73 +8,66 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate;
 
-import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.log.LogManager;
-import org.sosy_lab.cpachecker.util.Pair;
 import org.sosy_lab.cpachecker.util.predicates.smt.BooleanFormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
+import org.sosy_lab.cpachecker.util.predicates.smt.IntegerFormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
 import org.sosy_lab.java_smt.api.BooleanFormula;
-import org.sosy_lab.java_smt.api.ProverEnvironment;
-import org.sosy_lab.java_smt.api.SolverContext.ProverOptions;
-import org.sosy_lab.java_smt.api.SolverException;
+import org.sosy_lab.java_smt.api.NumeralFormula.IntegerFormula;
 
 /**
- * Dynamic Predicate Vocabulary V that guides interpolation strategy selection in CEGAR. V is
- * maintained by the LLM and used by the refiner to score candidate predicate sets.
+ * Dynamic Predicate Vocabulary V maintained by the LLM. Stores per-location predicates as strings,
+ * with lazy parsing to BooleanFormula. Supports variable-overlap filtering for predicate quality
+ * control.
  */
 public class VocabularyGuide {
 
   static class VocabEntry {
-    final BooleanFormula predicate;
-    final AtomicInteger considered = new AtomicInteger();
-    final AtomicInteger selected = new AtomicInteger();
+    final String locationKey;
+    final String predicateText;
+    volatile @Nullable BooleanFormula parsedFormula;
 
-    VocabEntry(BooleanFormula p) {
-      this.predicate = p;
+    VocabEntry(String pLocationKey, String pPredicateText) {
+      locationKey = pLocationKey;
+      predicateText = pPredicateText;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) {
+        return true;
+      }
+      if (!(o instanceof VocabEntry other)) {
+        return false;
+      }
+      return locationKey.equals(other.locationKey) && predicateText.equals(other.predicateText);
+    }
+
+    @Override
+    public int hashCode() {
+      return 31 * locationKey.hashCode() + predicateText.hashCode();
     }
   }
 
-  static class ScoredResult {
-    final ImmutableList<BooleanFormula> predicates;
-    final double score;
-    final String label;
-
-    ScoredResult(List<BooleanFormula> p, double s, String l) {
-      predicates = ImmutableList.copyOf(p);
-      score = s;
-      label = l;
-    }
-  }
-
-  private final Solver solver;
-  private final FormulaManagerView fmgr;
-  private final BooleanFormulaManagerView bfmgr;
+  private final @Nullable Solver solver;
   private final LogManager logger;
-  private final double alpha;
-  private final double tau;
 
   private final CopyOnWriteArrayList<VocabEntry> vocab = new CopyOnWriteArrayList<>();
+  private volatile Set<String> cachedVariableNames;
 
-  public VocabularyGuide(Solver pSolver, LogManager pLogger, double pAlpha, double pTau) {
+  public VocabularyGuide(@Nullable Solver pSolver, LogManager pLogger) {
     solver = pSolver;
-    fmgr = pSolver.getFormulaManager();
-    bfmgr = fmgr.getBooleanFormulaManager();
     logger = pLogger;
-    alpha = pAlpha;
-    tau = pTau;
   }
 
   public boolean isEmpty() {
@@ -85,151 +78,238 @@ public class VocabularyGuide {
     return vocab.size();
   }
 
-  public double getTau() {
-    return tau;
+  public void addPredicate(String locationKey, String predicateText, int unused) {
+    addPredicate(locationKey, predicateText);
   }
 
-  public void addPredicates(List<BooleanFormula> preds) {
-    for (BooleanFormula p : preds) {
-      if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
-        continue;
-      }
-      boolean exists = vocab.stream().anyMatch(e -> e.predicate.equals(p));
-      if (!exists) {
-        vocab.add(new VocabEntry(p));
-        logger.log(Level.FINE, "VocabularyGuide: ADD", p);
-      }
+  public void addPredicate(String locationKey, String predicateText) {
+    if (predicateText == null || predicateText.isBlank()) {
+      return;
     }
+    VocabEntry entry = new VocabEntry(locationKey, predicateText.strip());
+    if (!vocab.contains(entry)) {
+      vocab.add(entry);
+      cachedVariableNames = null;
+      logger.log(Level.FINE, "VocabularyGuide: ADD [", locationKey, "] ", predicateText);
+    }
+  }
+
+  public void addPredicates(String locationKey, List<String> predicateTexts) {
+    for (String text : predicateTexts) {
+      addPredicate(locationKey, text);
+    }
+  }
+
+  public void removePredicate(String locationKey, String predicateText) {
+    vocab.removeIf(e -> e.locationKey.equals(locationKey) && e.predicateText.equals(predicateText));
+    cachedVariableNames = null;
   }
 
   public void removePredicates(List<BooleanFormula> preds) {
-    Set<BooleanFormula> remove = new HashSet<>(preds);
-    vocab.removeIf(e -> remove.contains(e.predicate));
+    vocab.removeIf(e -> {
+      BooleanFormula pf = e.parsedFormula;
+      return pf != null && preds.contains(pf);
+    });
+    cachedVariableNames = null;
+  }
+
+  public void addPredicates(List<BooleanFormula> preds) {
+    if (solver == null) {
+      return;
+    }
+    BooleanFormulaManagerView bfmgr = solver.getFormulaManager().getBooleanFormulaManager();
+    for (BooleanFormula p : preds) {
+      if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
+        continue;
+      }
+      String text = p.toString();
+      boolean exists = vocab.stream().anyMatch(e -> e.predicateText.equals(text));
+      if (!exists) {
+        VocabEntry entry = new VocabEntry("", text);
+        entry.parsedFormula = p;
+        vocab.add(entry);
+        cachedVariableNames = null;
+        logger.log(Level.FINE, "VocabularyGuide: ADD (flat) ", p);
+      }
+    }
+  }
+
+  public List<String> getPredicateStringsForLocation(String locationKey) {
+    List<String> result = new ArrayList<>();
+    for (VocabEntry e : vocab) {
+      if (e.locationKey.equals(locationKey)) {
+        result.add(e.predicateText);
+      }
+    }
+    return result;
+  }
+
+  public List<String> getAllLocations() {
+    Set<String> locs = new LinkedHashSet<>();
+    for (VocabEntry e : vocab) {
+      locs.add(e.locationKey);
+    }
+    List<String> sorted = new ArrayList<>(locs);
+    sorted.sort(Comparator.naturalOrder());
+    return sorted;
+  }
+
+  public void clearAll() {
+    vocab.clear();
+    cachedVariableNames = null;
   }
 
   public List<BooleanFormula> getAllPredicates() {
-    return vocab.stream().map(e -> e.predicate).toList();
-  }
-
-  public void recordConsidered(List<BooleanFormula> preds) {
-    for (BooleanFormula p : preds) {
-      for (VocabEntry e : vocab) {
-        if (e.predicate.equals(p)) {
-          e.considered.incrementAndGet();
-        }
-      }
-    }
-  }
-
-  public void recordSelected(List<BooleanFormula> preds) {
-    for (BooleanFormula p : preds) {
-      for (VocabEntry e : vocab) {
-        if (e.predicate.equals(p)) {
-          e.selected.incrementAndGet();
-        }
-      }
-    }
-  }
-
-  public Map<String, Map<String, Integer>> getUsageStats() {
-    Map<String, Map<String, Integer>> stats = new LinkedHashMap<>();
+    List<BooleanFormula> result = new ArrayList<>();
     for (VocabEntry e : vocab) {
-      stats.put(
-          e.predicate.toString(),
-          Map.of("considered", e.considered.get(), "selected", e.selected.get()));
+      BooleanFormula f = e.parsedFormula;
+      if (f != null) {
+        result.add(f);
+      }
     }
-    return stats;
+    return result;
   }
 
-  public double score(List<BooleanFormula> preds) {
-    if (vocab.isEmpty() || preds.isEmpty()) {
-      return 0.0;
+  public List<BooleanFormula> getFormulasForLocation(String locationKey) {
+    if (solver == null) {
+      return List.of();
     }
-    return alpha * subsumptionScore(preds) + (1.0 - alpha) * varOverlapScore(preds);
+    FormulaManagerView fmgr = solver.getFormulaManager();
+    BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
+    IntegerFormulaManagerView ifmgr = fmgr.getIntegerFormulaManager();
+    List<BooleanFormula> result = new ArrayList<>();
+    for (VocabEntry e : vocab) {
+      if (!e.locationKey.equals(locationKey)) {
+        continue;
+      }
+      BooleanFormula f = e.parsedFormula;
+      if (f == null) {
+        f = parseAndCache(e, bfmgr, ifmgr);
+      }
+      if (f != null) {
+        result.add(f);
+      }
+    }
+    return result;
   }
 
-  public @Nullable ScoredResult selectBest(
-      List<Pair<List<BooleanFormula>, String>> candidates) {
-    if (candidates.isEmpty()) {
+  public boolean hasVariableOverlap(String candidatePredicateText) {
+    if (solver == null || cachedVariableNames == null || cachedVariableNames.isEmpty()) {
+      return false;
+    }
+    FormulaManagerView fmgr = solver.getFormulaManager();
+    BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
+    IntegerFormulaManagerView ifmgr = fmgr.getIntegerFormulaManager();
+    BooleanFormula cand = parsePredicate(candidatePredicateText, bfmgr, ifmgr);
+    if (cand == null) {
+      return false;
+    }
+    Set<String> candVars = fmgr.extractVariableNames(cand);
+    for (String v : candVars) {
+      if (cachedVariableNames.contains(v)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public Set<String> getVariableNames() {
+    if (cachedVariableNames != null) {
+      return cachedVariableNames;
+    }
+    if (solver == null) {
+      return Set.of();
+    }
+    FormulaManagerView fmgr = solver.getFormulaManager();
+    BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
+    IntegerFormulaManagerView ifmgr = fmgr.getIntegerFormulaManager();
+    Set<String> allVars = new HashSet<>();
+    for (VocabEntry e : vocab) {
+      BooleanFormula f = e.parsedFormula;
+      if (f == null) {
+        f = parseAndCache(e, bfmgr, ifmgr);
+      }
+      if (f != null) {
+        allVars.addAll(fmgr.extractVariableNames(f));
+      }
+    }
+    cachedVariableNames = allVars;
+    return allVars;
+  }
+
+  private static @Nullable BooleanFormula parseAndCache(
+      VocabEntry e,
+      BooleanFormulaManagerView bfmgr,
+      IntegerFormulaManagerView ifmgr) {
+    BooleanFormula f = parsePredicate(e.predicateText, bfmgr, ifmgr);
+    e.parsedFormula = f;
+    return f;
+  }
+
+  static @Nullable BooleanFormula parsePredicate(
+      String expr,
+      BooleanFormulaManagerView bfmgr,
+      IntegerFormulaManagerView ifmgr) {
+    expr = expr.strip();
+    try {
+      String[] parts;
+      String op;
+      if (expr.contains(" >= ")) {
+        parts = expr.split(" >= ");
+        op = ">=";
+      } else if (expr.contains(" <= ")) {
+        parts = expr.split(" <= ");
+        op = "<=";
+      } else if (expr.contains(" != ")) {
+        parts = expr.split(" != ");
+        op = "!=";
+      } else if (expr.contains(" == ")) {
+        parts = expr.split(" == ");
+        op = "==";
+      } else if (expr.contains(" < ")) {
+        parts = expr.split(" < ");
+        op = "<";
+      } else if (expr.contains(" > ")) {
+        parts = expr.split(" > ");
+        op = ">";
+      } else {
+        return null;
+      }
+      if (parts.length != 2) {
+        return null;
+      }
+      String left = parts[0].strip();
+      String right = parts[1].strip();
+      if ("NULL".equals(right)) {
+        return bfmgr.not(ifmgr.equal(ifmgr.makeVariable(left), ifmgr.makeNumber(0)));
+      }
+      IntegerFormula lv = ifmgr.makeVariable(left);
+      try {
+        long rv = Long.parseLong(right);
+        IntegerFormula rvf = ifmgr.makeNumber(rv);
+        return switch (op) {
+          case ">=" -> bfmgr.not(ifmgr.lessThan(lv, rvf));
+          case "<=" -> bfmgr.not(ifmgr.greaterThan(lv, rvf));
+          case "!=" -> bfmgr.not(ifmgr.equal(lv, rvf));
+          case "==" -> ifmgr.equal(lv, rvf);
+          case "<" -> ifmgr.lessThan(lv, rvf);
+          case ">" -> ifmgr.greaterThan(lv, rvf);
+          default -> null;
+        };
+      } catch (NumberFormatException e2) {
+        IntegerFormula rv2 = ifmgr.makeVariable(right);
+        return switch (op) {
+          case ">=" -> bfmgr.not(ifmgr.lessThan(lv, rv2));
+          case "<=" -> bfmgr.not(ifmgr.greaterThan(lv, rv2));
+          case "!=" -> bfmgr.not(ifmgr.equal(lv, rv2));
+          case "==" -> ifmgr.equal(lv, rv2);
+          case "<" -> ifmgr.lessThan(lv, rv2);
+          case ">" -> ifmgr.greaterThan(lv, rv2);
+          default -> null;
+        };
+      }
+    } catch (Exception e) {
       return null;
     }
-    ScoredResult best = null;
-    for (Pair<List<BooleanFormula>, String> c : candidates) {
-      double s = score(c.getFirst());
-      logger.log(Level.FINEST, "VG score: ", c.getSecond(), "=", s);
-      if (best == null || s > best.score) {
-        best = new ScoredResult(c.getFirst(), s, c.getSecond());
-      }
-    }
-    return best;
-  }
-
-  private double subsumptionScore(List<BooleanFormula> preds) {
-    int subsumed = 0;
-    int nonTrivial = 0;
-    for (BooleanFormula p : preds) {
-      if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
-        continue;
-      }
-      nonTrivial++;
-      BooleanFormula notP = bfmgr.not(p);
-      for (VocabEntry e : vocab) {
-        if (e.predicate.equals(p)) {
-          subsumed++;
-          break;
-        }
-        try (ProverEnvironment pe =
-            solver.newProverEnvironment(ProverOptions.GENERATE_MODELS)) {
-          pe.push(e.predicate);
-          pe.push(notP);
-          if (pe.isUnsat()) {
-            subsumed++;
-            break;
-          }
-        } catch (SolverException | InterruptedException ex) {
-          logger.logDebugException(ex, "SMT subsumption check error");
-        }
-      }
-    }
-    return nonTrivial == 0 ? 0.0 : (double) subsumed / nonTrivial;
-  }
-
-  private double varOverlapScore(List<BooleanFormula> preds) {
-    double sum = 0;
-    int count = 0;
-    for (BooleanFormula p : preds) {
-      if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
-        continue;
-      }
-      Set<String> pVars = fmgr.extractVariableNames(p);
-      if (pVars.isEmpty()) {
-        continue;
-      }
-      double best = 0.0;
-      for (VocabEntry e : vocab) {
-        Set<String> eVars = fmgr.extractVariableNames(e.predicate);
-        double j = jaccard(pVars, eVars);
-        if (j > best) {
-          best = j;
-        }
-      }
-      sum += best;
-      count++;
-    }
-    return count == 0 ? 0.0 : sum / count;
-  }
-
-  private static double jaccard(Set<String> a, Set<String> b) {
-    if (a.isEmpty() && b.isEmpty()) {
-      return 1.0;
-    }
-    if (a.isEmpty() || b.isEmpty()) {
-      return 0.0;
-    }
-    Set<String> inter = new HashSet<>(a);
-    inter.retainAll(b);
-    Set<String> union = new HashSet<>(a);
-    union.addAll(b);
-    return (double) inter.size() / union.size();
   }
 }

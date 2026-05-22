@@ -20,7 +20,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -28,18 +31,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.ShutdownNotifier;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.CFA;
-import org.sosy_lab.cpachecker.util.predicates.smt.BooleanFormulaManagerView;
-import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
-import org.sosy_lab.cpachecker.util.predicates.smt.IntegerFormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
-import org.sosy_lab.java_smt.api.BooleanFormula;
-import org.sosy_lab.java_smt.api.NumeralFormula.IntegerFormula;
 
 /**
  * Async LLM connector for maintaining the dynamic predicate vocabulary V via OpenRouter API.
@@ -53,7 +49,6 @@ public class LLMConnector {
   private static final String API_URL = "https://openrouter.ai/api/v1/chat/completions";
   private static final String DEFAULT_MODEL = "deepseek/deepseek-v4-pro";
   private static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 600;
-  private static final Pattern PREDICATE_PATTERN = Pattern.compile("\"([^\"]+)\"");
   private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
   private static final long MAX_INTERVAL_MS = 300_000L;
   private static final int TRACE_BATCH_SIZE = 10;
@@ -65,9 +60,6 @@ public class LLMConnector {
   }
 
   private final VocabularyGuide vg;
-  private final FormulaManagerView fmgr;
-  private final BooleanFormulaManagerView bfmgr;
-  private final IntegerFormulaManagerView ifmgr;
   private final LogManager logger;
   private final ShutdownNotifier sd;
   private final CFA cfa;
@@ -96,9 +88,6 @@ public class LLMConnector {
       CFA pCfa,
       String pApiKey) {
     vg = pVg;
-    fmgr = pSolver.getFormulaManager();
-    bfmgr = fmgr.getBooleanFormulaManager();
-    ifmgr = fmgr.getIntegerFormulaManager();
     logger = pLogger;
     sd = pSd;
     cfa = pCfa;
@@ -138,10 +127,15 @@ public class LLMConnector {
       }
       String prompt = buildInitPrompt(code.toString());
       String response = callLLM(prompt);
-      List<BooleanFormula> preds = parsePredicates(response);
-      if (!preds.isEmpty()) {
-        vg.addPredicates(preds);
-        logger.log(Level.INFO, "LLM: V_0 initialized with", preds.size(), "predicates");
+      Map<String, List<String>> locPreds = parseLocationPredicates(response);
+      int total = 0;
+      for (var entry : locPreds.entrySet()) {
+        vg.addPredicates(entry.getKey(), entry.getValue());
+        total += entry.getValue().size();
+      }
+      if (total > 0) {
+        logger.log(Level.INFO, "LLM: V_0 initialized with", total, "predicates across",
+            locPreds.size(), "locations");
       } else {
         logger.log(Level.WARNING, "LLM V_0 initialization produced no predicates");
       }
@@ -291,141 +285,95 @@ public class LLMConnector {
 
   private String buildInitPrompt(String sourceCode) {
     return "You are a software verification expert analyzing a C program.\n"
-        + "Given the source code below, generate a set of meaningful predicates\n"
-        + "that would be useful for verifying this program.\n"
-        + "Focus on loop invariants, bounds checks, null checks, and\n"
-        + "arithmetic relationships between variables.\n"
-        + "Output ONLY a JSON array of predicate strings, like:\n"
-        + "[\"i >= 0\", \"i < n\", \"ptr != NULL\", \"sum == i * (i + 1) / 2\"]\n"
+        + "Identify important program points (loop heads, function entries,\n"
+        + "key condition branches) and generate meaningful predicates for each.\n"
+        + "Output ONLY a JSON object mapping location descriptions to predicate arrays.\n"
+        + "Only produce predicates you are HIGHLY confident about.\n"
+        + "Format:\n"
+        + "{\n"
+        + "  \"loop at line 12\": [\"i >= 0\", \"i < n\", \"sum == i * (i + 1) / 2\"],\n"
+        + "  \"function foo entry\": [\"x != NULL\", \"len > 0\"]\n"
+        + "}\n"
         + "Source code:\n"
         + sourceCode;
   }
 
   private String buildUpdatePrompt(
-      String sourceCode, String traces, String vocabJson, String statsJson) {
-    return "You are a software verification expert. The system is using an LLM-maintained\n"
-        + "predicate vocabulary V to guide interpolation strategy selection in CEGAR.\n"
-        + "Current V: "
-        + vocabJson
-        + "\n"
-        + "Usage stats: "
-        + statsJson
-        + "\n"
-        + "New spurious traces (SMT formulas): "
-        + traces
-        + "\n"
-        + "Analyze the traces and the current V. Output ONLY a JSON object:\n"
-        + "{\"add\": [\"new predicate1\", \"new predicate2\"], \"remove\": [\"obsolete predicate\"]}\n"
-        + "Add predicates that capture higher-level semantics (loop invariants, variable bounds,\n"
-        + "pointer safety, arithmetic relationships) visible in the traces.\n"
-        + "Remove predicates that are clearly obsolete or subsumed.\n"
-        + "Source code for context:\n"
+      String sourceCode, String traces, String vocabJson) {
+    return "You are a software verification expert. CEGAR is using an LLM vocabulary V\n"
+        + "for predicate injection during refinement.\n"
+        + "Current V (location → predicates): " + vocabJson + "\n"
+        + "New spurious traces that V predicates were too weak to handle: " + traces + "\n"
+        + "Generate additional per-location predicates to strengthen V.\n"
+        + "Output ONLY a JSON object: {\"location\": [\"pred1\", ...], ...}\n"
+        + "Add predicates that capture semantics visible in the traces.\n"
+        + "Source code:\n"
         + sourceCode;
   }
 
   private String buildCEPrompt(String sourceCode, String traces, String vocabJson) {
-    return "You are a software verification expert. CEGAR is stuck - the current predicate\n"
-        + "vocabulary V is scoring poorly on a new spurious trace.\n"
-        + "Current V: "
-        + vocabJson
-        + "\n"
-        + "Current problematic trace (SMT formulas): "
-        + traces
-        + "\n"
-        + "Generate additional predicates specifically targeting the semantics of this trace.\n"
-        + "Output ONLY: {\"add\": [\"p1\", \"p2\", ...]}\n"
+    return "You are a software verification expert. CEGAR is stuck on a counterexample\n"
+        + "that the current vocabulary V cannot handle.\n"
+        + "Current V (location → predicates): " + vocabJson + "\n"
+        + "Problematic trace (SMT formulas): " + traces + "\n"
+        + "Generate targeted per-location predicates to rule out this trace.\n"
+        + "Output ONLY: {\"location\": [\"p1\", \"p2\", ...], ...}\n"
         + "Source code:\n"
         + sourceCode;
   }
 
   // ---- Predicate parsing ----
 
-  private List<BooleanFormula> parsePredicates(String llmOutput) {
-    List<BooleanFormula> result = new ArrayList<>();
+  static Map<String, List<String>> parseLocationPredicates(String llmOutput) {
+    if (llmOutput == null || llmOutput.isBlank()) {
+      return Map.of();
+    }
     try {
       String cleaned = llmOutput.trim();
       if (cleaned.contains("```")) {
         cleaned = cleaned.replaceAll("```(?:json)?\\s*", " ").replace("```", " ").trim();
       }
-      Matcher m = PREDICATE_PATTERN.matcher(cleaned);
-      while (m.find()) {
-        String pred = m.group(1);
-        if ("add".equals(pred) || "remove".equals(pred)) {
+      JsonNode root = JSON_MAPPER.readTree(cleaned);
+      if (!root.isObject()) {
+        return Map.of();
+      }
+      Map<String, List<String>> result = new LinkedHashMap<>();
+      var fields = root.fields();
+      while (fields.hasNext()) {
+        var field = fields.next();
+        String locationKey = field.getKey();
+        JsonNode predicatesNode = field.getValue();
+        if (!predicatesNode.isArray()) {
           continue;
         }
-        BooleanFormula f = parseExpression(pred);
-        if (f != null) {
-          result.add(f);
+        List<String> preds = new ArrayList<>();
+        for (JsonNode p : predicatesNode) {
+          if (p.isTextual()) {
+            String text = p.asText().strip();
+            if (!text.isEmpty()) {
+              preds.add(text);
+            }
+          }
+        }
+        if (!preds.isEmpty()) {
+          result.put(locationKey, preds);
         }
       }
+      return result;
     } catch (Exception e) {
-      logger.logDebugException(e, "Failed to parse LLM predicate output");
+      return Map.of();
     }
-    return result;
   }
 
-  private @Nullable BooleanFormula parseExpression(String expr) {
-    expr = expr.strip();
+  private String buildVocabJson() {
+    Map<String, List<String>> map = new LinkedHashMap<>();
+    for (String loc : vg.getAllLocations()) {
+      map.put(loc, vg.getPredicateStringsForLocation(loc));
+    }
     try {
-      String[] parts;
-      String op;
-      if (expr.contains(" >= ")) {
-        parts = expr.split(" >= ");
-        op = ">=";
-      } else if (expr.contains(" <= ")) {
-        parts = expr.split(" <= ");
-        op = "<=";
-      } else if (expr.contains(" != ")) {
-        parts = expr.split(" != ");
-        op = "!=";
-      } else if (expr.contains(" == ")) {
-        parts = expr.split(" == ");
-        op = "==";
-      } else if (expr.contains(" < ")) {
-        parts = expr.split(" < ");
-        op = "<";
-      } else if (expr.contains(" > ")) {
-        parts = expr.split(" > ");
-        op = ">";
-      } else {
-        return null;
-      }
-      if (parts.length != 2) {
-        return null;
-      }
-      String left = parts[0].strip();
-      String right = parts[1].strip();
-      if ("NULL".equals(right)) {
-        return bfmgr.not(ifmgr.equal(ifmgr.makeVariable(left), ifmgr.makeNumber(0)));
-      }
-      IntegerFormula lv = ifmgr.makeVariable(left);
-      try {
-        long rv = Long.parseLong(right);
-        IntegerFormula rvf = ifmgr.makeNumber(rv);
-        return switch (op) {
-          case ">=" -> bfmgr.not(ifmgr.lessThan(lv, rvf));
-          case "<=" -> bfmgr.not(ifmgr.greaterThan(lv, rvf));
-          case "!=" -> bfmgr.not(ifmgr.equal(lv, rvf));
-          case "==" -> ifmgr.equal(lv, rvf);
-          case "<" -> ifmgr.lessThan(lv, rvf);
-          case ">" -> ifmgr.greaterThan(lv, rvf);
-          default -> null;
-        };
-      } catch (NumberFormatException e2) {
-        IntegerFormula rv2 = ifmgr.makeVariable(right);
-        return switch (op) {
-          case ">=" -> bfmgr.not(ifmgr.lessThan(lv, rv2));
-          case "<=" -> bfmgr.not(ifmgr.greaterThan(lv, rv2));
-          case "!=" -> bfmgr.not(ifmgr.equal(lv, rv2));
-          case "==" -> ifmgr.equal(lv, rv2);
-          case "<" -> ifmgr.lessThan(lv, rv2);
-          case ">" -> ifmgr.greaterThan(lv, rv2);
-          default -> null;
-        };
-      }
+      return JSON_MAPPER.writeValueAsString(map);
     } catch (Exception e) {
-      logger.logDebugException(e, "Failed to parse expression: " + expr);
-      return null;
+      return "{}";
     }
   }
 
@@ -441,24 +389,24 @@ public class LLMConnector {
       pendingTraces.clear();
     }
     String source = readSource();
-    String vocabJson = vg.getAllPredicates().stream().map(Object::toString).toList().toString();
+    String vocabJson = buildVocabJson();
     String tracesStr = String.join("\n", traces);
-    String statsStr = vg.getUsageStats().toString();
 
-    String prompt = buildUpdatePrompt(source, tracesStr, vocabJson, statsStr);
+    String prompt = buildUpdatePrompt(source, tracesStr, vocabJson);
     try {
       String response = callLLM(prompt);
-      List<BooleanFormula> newPreds = parsePredicates(response);
-      if (!newPreds.isEmpty()) {
-        vg.addPredicates(newPreds);
+      Map<String, List<String>> locPreds = parseLocationPredicates(response);
+      int total = 0;
+      for (var entry : locPreds.entrySet()) {
+        vg.addPredicates(entry.getKey(), entry.getValue());
+        total += entry.getValue().size();
+      }
+      if (total > 0) {
         currentIntervalMs = Math.min(MAX_INTERVAL_MS, (long) (currentIntervalMs * 1.5));
         logger.log(
             Level.FINE,
-            "LLM: bg update, V size=",
-            vg.size(),
-            ", interval=",
-            currentIntervalMs / 1000,
-            "s");
+            "LLM: bg update, added", total, "predicates to", locPreds.size(),
+            "locations, V size=", vg.size());
       }
     } catch (Exception e) {
       logger.logDebugException(e, "LLM background update failed");
@@ -473,15 +421,20 @@ public class LLMConnector {
         traces = new ArrayList<>(pendingTraces);
       }
       String source = readSource();
-      String vocabJson = vg.getAllPredicates().stream().map(Object::toString).toList().toString();
+      String vocabJson = buildVocabJson();
       String tracesStr = String.join("\n", traces.isEmpty() ? List.of("(no traces)") : traces);
 
       String prompt = buildCEPrompt(source, tracesStr, vocabJson);
       String response = callLLM(prompt);
-      List<BooleanFormula> newPreds = parsePredicates(response);
-      if (!newPreds.isEmpty()) {
-        vg.addPredicates(newPreds);
-        logger.log(Level.INFO, "LLM: CE-guided update added", newPreds.size(), "predicates");
+      Map<String, List<String>> locPreds = parseLocationPredicates(response);
+      int total = 0;
+      for (var entry : locPreds.entrySet()) {
+        vg.addPredicates(entry.getKey(), entry.getValue());
+        total += entry.getValue().size();
+      }
+      if (total > 0) {
+        logger.log(Level.INFO, "LLM: CE-guided update added", total, "predicates across",
+            locPreds.size(), "locations");
       }
     } catch (Exception e) {
       logger.logDebugException(e, "LLM CE-guided update error");

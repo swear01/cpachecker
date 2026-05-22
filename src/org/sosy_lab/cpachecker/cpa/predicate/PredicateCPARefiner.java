@@ -55,7 +55,6 @@ import org.sosy_lab.cpachecker.exceptions.RefinementFailedException;
 import org.sosy_lab.cpachecker.exceptions.RefinementFailedException.Reason;
 import org.sosy_lab.cpachecker.util.AbstractStates;
 import org.sosy_lab.cpachecker.util.LoopStructure;
-import org.sosy_lab.cpachecker.util.Pair;
 import org.sosy_lab.cpachecker.util.LoopStructure.Loop;
 import org.sosy_lab.cpachecker.util.cwriter.LoopCollectingEdgeVisitor;
 import org.sosy_lab.cpachecker.util.predicates.NewtonRefinementManager;
@@ -65,6 +64,7 @@ import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTrace
 import org.sosy_lab.cpachecker.util.predicates.interpolation.InterpolationManager;
 import org.sosy_lab.cpachecker.util.predicates.pathformula.PathFormulaManager;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
+import org.sosy_lab.cpachecker.util.predicates.smt.BooleanFormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
 import org.sosy_lab.cpachecker.util.refinement.InfeasiblePrefix;
 import org.sosy_lab.cpachecker.util.refinement.PrefixProvider;
@@ -75,6 +75,9 @@ import org.sosy_lab.cpachecker.util.statistics.StatKind;
 import org.sosy_lab.cpachecker.util.statistics.StatTimer;
 import org.sosy_lab.cpachecker.util.statistics.StatisticsWriter;
 import org.sosy_lab.java_smt.api.BooleanFormula;
+import org.sosy_lab.java_smt.api.ProverEnvironment;
+import org.sosy_lab.java_smt.api.SolverContext.ProverOptions;
+import org.sosy_lab.java_smt.api.SolverException;
 
 /**
  * This class provides a basic refiner implementation for predicate analysis. When a counterexample
@@ -167,8 +170,6 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private final FormulaManagerView fmgr;
   private final PathFormulaManager pfmgr;
   private final InterpolationManager interpolationManager;
-  private final @Nullable List<InterpolationManager> allInterpolationManagers;
-  private final @Nullable List<String> interpolationManagerLabels;
   private final @Nullable VocabularyGuide vocabularyGuide;
   private final @Nullable LLMConnector llmConnector;
   private boolean useVGuide;
@@ -238,11 +239,9 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
             + strategy.getClass().getSimpleName()
             + " strategy.");
 
-    allInterpolationManagers = pAllInterpolationManagers;
-    interpolationManagerLabels = pInterpolationManagerLabels;
     vocabularyGuide = pVocabularyGuide;
     llmConnector = pLlmConnector;
-    useVGuide = (allInterpolationManagers != null && vocabularyGuide != null);
+    useVGuide = (vocabularyGuide != null);
   }
 
   /** Create list of formulas on path. */
@@ -303,11 +302,16 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       if (counterexample.isSpurious() && (stopAfter < 0 || refinements <= stopAfter)) {
         logger.log(Level.FINEST, "Error trace is spurious, refining the abstraction");
 
+        List<BooleanFormula> predicates = counterexample.getInterpolants();
+        if (useVGuide && vocabularyGuide != null && !vocabularyGuide.isEmpty()) {
+          predicates = filterPredicatesByV(predicates);
+        }
+
         boolean trackFurtherCEX =
             strategy.performRefinement(
                 pReached,
                 abstractionStatesTrace,
-                counterexample.getInterpolants(),
+                predicates,
                 repeatedCounterexample && !wereInvariantsUsedInLastRefinement);
 
         if (!trackFurtherCEX) {
@@ -415,85 +419,68 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       final BlockFormulas formulas)
       throws CPAException, InterruptedException {
 
-    if (!useVGuide || allInterpolationManagers == null || vocabularyGuide == null) {
+    if (!useVGuide || vocabularyGuide == null || vocabularyGuide.isEmpty()) {
       return interpolationManager.buildCounterexampleTrace(
           formulas, ImmutableList.copyOf(abstractionStatesTrace), Optional.of(allStatesTrace));
     }
 
-    // --- V-guided multi-strategy refinement ---
-    List<BooleanFormula> traceFormulas = formulas.getFormulas();
+    // --- V-guided predicate injection ---
     List<AbstractState> absStates = ImmutableList.copyOf(abstractionStatesTrace);
+    List<BooleanFormula> injectedPredicates = new ArrayList<>();
+    BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
 
-    // Stock CPAchecker refinement. This remains the safe fallback for low-confidence V-guidance.
-    CounterexampleTraceInfo result0 =
-        interpolationManager.buildCounterexampleTrace(
-            formulas, absStates, Optional.of(allStatesTrace));
-    if (!result0.isSpurious()) {
-      return result0;
-    }
-    List<BooleanFormula> itp0 = result0.getInterpolants();
+    for (int i = 0; i < absStates.size(); i++) {
+      AbstractState state = absStates.get(i);
+      CFANode node = extractLocation(state);
+      if (node == null) {
+        continue;
+      }
 
-    if (vocabularyGuide.isEmpty()) {
-      triggerVocabularyUpdate(traceFormulas);
-      logger.log(Level.FINE, "VocabularyGuide empty; falling back to stock interpolation.");
-      return result0;
-    }
+      String locKey = locationKeyForNode(node);
+      if (locKey == null) {
+        continue;
+      }
 
-    List<Pair<List<BooleanFormula>, String>> candidates = new ArrayList<>();
-    candidates.add(Pair.of(itp0, "SEQ_CPACHECKER/ZIGZAG"));
+      List<BooleanFormula> locPreds = vocabularyGuide.getFormulasForLocation(locKey);
+      if (locPreds.isEmpty()) {
+        continue;
+      }
 
-    for (int i = 0; i < allInterpolationManagers.size(); i++) {
-      InterpolationManager im = allInterpolationManagers.get(i);
-      String label =
-          interpolationManagerLabels != null && i < interpolationManagerLabels.size()
-              ? interpolationManagerLabels.get(i)
-              : "extra-" + i;
-      try {
-        CounterexampleTraceInfo cex =
-            im.buildCounterexampleTrace(formulas, absStates, Optional.of(allStatesTrace));
-        if (!cex.isSpurious()) {
-          return cex;
+      BooleanFormula blockFormula = formulas.getFormulas().get(i);
+      for (BooleanFormula p : locPreds) {
+        if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
+          continue;
         }
-        candidates.add(Pair.of(cex.getInterpolants(), label));
-      } catch (Exception e) {
-        logger.logDebugException(e, "Interpolation manager " + label + " failed, skipping");
+        try (ProverEnvironment pe =
+            solver.newProverEnvironment(ProverOptions.GENERATE_MODELS)) {
+          pe.push(blockFormula);
+          pe.push(bfmgr.not(p));
+          if (pe.isUnsat()) {
+            injectedPredicates.add(p);
+          }
+        } catch (SolverException se) {
+          logger.logDebugException(se, "SMT validate failed for V predicate");
+        }
       }
     }
 
-    VocabularyGuide.ScoredResult best = vocabularyGuide.selectBest(candidates);
-    if (best == null) {
-      return result0;
+    if (injectedPredicates.isEmpty()) {
+      triggerVocabularyUpdate(formulas.getFormulas());
+      logger.log(Level.FINE, "No valid V predicates for this trace; falling back to interpolation.");
+      return interpolationManager.buildCounterexampleTrace(
+          formulas, absStates, Optional.of(allStatesTrace));
     }
 
-    double bestScore = best.score;
-    vocabularyGuide.recordSelected(best.predicates);
-    for (Pair<List<BooleanFormula>, String> c : candidates) {
-      vocabularyGuide.recordConsidered(c.getFirst());
-    }
-
-    if (bestScore < vocabularyGuide.getTau()) {
-      triggerVocabularyUpdate(traceFormulas);
-      logger.log(
-          Level.FINE,
-          "VocabularyGuide score below threshold (",
-          bestScore,
-          " < ",
-          vocabularyGuide.getTau(),
-          "); falling back to stock interpolation.");
-      return result0;
-    } else {
-      if (llmConnector != null) {
-        llmConnector.onGoodScore();
-      }
+    if (llmConnector != null) {
+      llmConnector.onGoodScore();
     }
 
     logger.log(
         Level.FINE,
-        "VocabularyGuide selected interpolation strategy ",
-        best.label,
-        " with score ",
-        bestScore);
-    return CounterexampleTraceInfo.infeasible(best.predicates);
+        "V-injected ",
+        injectedPredicates.size(),
+        " predicates for refinement");
+    return CounterexampleTraceInfo.infeasible(injectedPredicates);
   }
 
   private void triggerVocabularyUpdate(List<BooleanFormula> traceFormulas) {
@@ -504,6 +491,48 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       llmConnector.addTrace(fmgr.dumpFormula(f).toString());
     }
     llmConnector.onShortfall();
+  }
+
+  private List<BooleanFormula> filterPredicatesByV(List<BooleanFormula> predicates) {
+    if (vocabularyGuide == null || vocabularyGuide.isEmpty()) {
+      return predicates;
+    }
+    vocabularyGuide.getVariableNames();
+    List<BooleanFormula> filtered = new ArrayList<>();
+    BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
+    for (BooleanFormula p : predicates) {
+      if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
+        continue;
+      }
+      Set<String> pVars = fmgr.extractVariableNames(p);
+      if (!pVars.isEmpty() && vocabularyGuide.hasVariableOverlap(
+          fmgr.dumpFormula(p).toString())) {
+        filtered.add(p);
+      }
+    }
+    if (filtered.size() < predicates.size()) {
+      logger.log(
+          Level.FINE,
+          "V-filter: kept ",
+          filtered.size(),
+          " of ",
+          predicates.size(),
+          " predicates");
+    }
+    return filtered.isEmpty() ? predicates : filtered;
+  }
+
+  private @Nullable String locationKeyForNode(CFANode node) {
+    String funcName = node.getFunctionName();
+    if (funcName == null) {
+      return null;
+    }
+    for (String loc : vocabularyGuide.getAllLocations()) {
+      if (loc.contains(funcName)) {
+        return loc;
+      }
+    }
+    return null;
   }
 
   private CounterexampleTraceInfo performInvariantsRefinement(

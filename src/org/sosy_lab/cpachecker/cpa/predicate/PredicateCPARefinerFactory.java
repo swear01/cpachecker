@@ -12,8 +12,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -61,23 +59,10 @@ public final class PredicateCPARefinerFactory {
   @Option(
       secure = true,
       description =
-          "Use LLM vocabulary to guide interpolation strategy selection. When enabled, computes"
-              + " 6 interpolation strategies and selects the one best matching an LLM-maintained"
-              + " predicate vocabulary V.")
+          "Use LLM vocabulary V to inject predicates during CEGAR refinement. V predicates are"
+              + " SMT-validated and used in place of interpolation when strong enough, with"
+              + " automatic fallback to stock interpolation.")
   private boolean useVocabularyGuide = false;
-
-  @Option(
-      secure = true,
-      description =
-          "Subsumption weight for V-guided scoring (0..1). Remainder is variable overlap.")
-  private double vocabularyGuideAlpha = 0.6;
-
-  @Option(
-      secure = true,
-      description =
-          "Threshold for CE-guided LLM update. When best strategy score < tau for"
-              + " 3 consecutive refinements, LLM is asked to generate additional predicates.")
-  private double vocabularyGuideTau = 0.2;
 
   private final PredicateCPA predicateCpa;
 
@@ -191,50 +176,19 @@ public final class PredicateCPARefinerFactory {
             "useVocabularyGuide=true but OPENROUTER_API_KEY environment variable is not set");
       }
 
-      logger.log(
-          Level.INFO,
-          "Vocabulary-guided CEGAR enabled (alpha=",
-          vocabularyGuideAlpha,
-          ", tau=",
-          vocabularyGuideTau,
-          ")");
+      logger.log(Level.INFO, "Vocabulary-guided CEGAR enabled (predicate injection mode)");
 
-      List<InterpolationManager> ims = new ArrayList<>(6);
-      List<String> imLabels = new ArrayList<>(6);
+      primaryInterpolationManager =
+          new InterpolationManager(
+              pfmgr,
+              solver,
+              loopStructure,
+              variableClassification,
+              config,
+              shutdownNotifier,
+              logger);
 
-      String[][] configs = {
-        // Keep stock CPAchecker behavior first. This is the fallback candidate and tie-breaker.
-        {"SEQ_CPACHECKER", "ZIGZAG"},
-        {"SEQ_CPACHECKER", "FORWARDS"},
-        {"SEQ_CPACHECKER", "BACKWARDS"},
-        {"TREE_WELLSCOPED", "ZIGZAG"},
-        {"TREE_NESTED", "ZIGZAG"},
-        {"TREE_WELLSCOPED", "LOOP_FREE_FIRST"},
-      };
-
-      for (String[] cfg : configs) {
-        Configuration c =
-            Configuration.builder()
-                .copyFrom(config)
-                .setOption("cpa.predicate.refinement.strategy", cfg[0])
-                .setOption("cpa.predicate.refinement.cexTraceCheckDirection", cfg[1])
-                .build();
-        ims.add(
-            new InterpolationManager(
-                pfmgr,
-                solver,
-                loopStructure,
-                variableClassification,
-                c,
-                shutdownNotifier,
-                logger));
-        imLabels.add(cfg[0] + "/" + cfg[1]);
-      }
-
-      primaryInterpolationManager = ims.getFirst();
-
-      VocabularyGuide vg =
-          new VocabularyGuide(solver, logger, vocabularyGuideAlpha, vocabularyGuideTau);
+      VocabularyGuide vg = new VocabularyGuide(solver, logger);
       LLMConnector llm =
           new LLMConnector(vg, solver, logger, shutdownNotifier, cfa, apiKey);
 
@@ -255,8 +209,8 @@ public final class PredicateCPARefinerFactory {
               prefixSelector,
               invariantsManager,
               pRefinementStrategy,
-              ims.subList(1, ims.size()),
-              imLabels.subList(1, imLabels.size()),
+              null,
+              null,
               vg,
               llm);
     } else {
