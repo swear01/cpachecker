@@ -13,21 +13,25 @@ import static com.google.common.truth.Truth.assertThat;
 import java.util.List;
 import org.junit.Test;
 import org.sosy_lab.common.log.LogManager;
+import org.sosy_lab.cpachecker.util.predicates.smt.BooleanFormulaManagerView;
+import org.sosy_lab.cpachecker.util.predicates.smt.IntegerFormulaManagerView;
+import org.sosy_lab.cpachecker.util.predicates.smt.SolverViewBasedTest0;
+import org.sosy_lab.java_smt.api.BooleanFormula;
 
-public class VocabularyGuideTest {
+public class VocabularyGuideTest extends SolverViewBasedTest0 {
 
-  private static VocabularyGuide createEmpty() {
-    return new VocabularyGuide(null, LogManager.createTestLogManager());
+  private VocabularyGuide create() {
+    return new VocabularyGuide(solver, LogManager.createTestLogManager());
   }
 
   @Test
   public void isEmpty_byDefault() {
-    assertThat(createEmpty().isEmpty()).isTrue();
+    assertThat(create().isEmpty()).isTrue();
   }
 
   @Test
   public void addPredicateWithLocation_retrievableByLocation() {
-    VocabularyGuide vg = createEmpty();
+    VocabularyGuide vg = create();
     vg.addPredicate("loop L1", "i >= 0", 0);
     vg.addPredicate("loop L1", "i < n", 0);
     vg.addPredicate("function foo", "x != NULL", 0);
@@ -47,9 +51,9 @@ public class VocabularyGuideTest {
 
   @Test
   public void addPredicates_withSameLocation_appendsNotReplaces() {
-    VocabularyGuide vg = createEmpty();
+    VocabularyGuide vg = create();
     vg.addPredicate("loop L1", "i >= 0", 0);
-    vg.addPredicate("loop L1", "i >= 0", 0); // duplicate: should be ignored
+    vg.addPredicate("loop L1", "i >= 0", 0);
     vg.addPredicate("loop L1", "i < n", 0);
 
     assertThat(vg.size()).isEqualTo(2);
@@ -57,7 +61,7 @@ public class VocabularyGuideTest {
 
   @Test
   public void removePredicates_removesByLocationAndText() {
-    VocabularyGuide vg = createEmpty();
+    VocabularyGuide vg = create();
     vg.addPredicate("loop L1", "i >= 0", 0);
     vg.addPredicate("loop L1", "i < n", 0);
     vg.addPredicate("function foo", "x != NULL", 0);
@@ -69,7 +73,7 @@ public class VocabularyGuideTest {
 
   @Test
   public void getAllLocations_returnsUniqueLocationsSorted() {
-    VocabularyGuide vg = createEmpty();
+    VocabularyGuide vg = create();
     vg.addPredicate("loop L1", "i >= 0", 0);
     vg.addPredicate("loop L1", "i < n", 0);
     vg.addPredicate("function foo", "x != NULL", 0);
@@ -80,7 +84,7 @@ public class VocabularyGuideTest {
 
   @Test
   public void addPredicateBatch_addsMultipleForSameLocation() {
-    VocabularyGuide vg = createEmpty();
+    VocabularyGuide vg = create();
     vg.addPredicates("loop L1", List.of("i >= 0", "i < n", "sum == 0"));
 
     assertThat(vg.size()).isEqualTo(3);
@@ -90,7 +94,7 @@ public class VocabularyGuideTest {
 
   @Test
   public void clearAll_emptiesVocabulary() {
-    VocabularyGuide vg = createEmpty();
+    VocabularyGuide vg = create();
     vg.addPredicate("loop L1", "i >= 0", 0);
     vg.clearAll();
 
@@ -99,14 +103,24 @@ public class VocabularyGuideTest {
   }
 
   @Test
-  public void hasVariableOverlap_checksPredicateVariables() {
-    VocabularyGuide vg = createEmpty();
+  public void hasVariableOverlap_withSolver() {
+    VocabularyGuide vg = create();
     vg.addPredicate("loop L1", "i >= n", 0);
     vg.addPredicate("loop L2", "j > 10", 0);
 
-    assertThat(vg.hasVariableOverlap("i >= 0")).isTrue();
-    assertThat(vg.hasVariableOverlap("k < 5")).isFalse();
-    assertThat(vg.hasVariableOverlap("i > j")).isTrue();
-    assertThat(vg.getVariableNames()).containsExactly("i", "n", "j");
+    BooleanFormulaManagerView bfmgrv = bmgrv;
+    IntegerFormulaManagerView ifmgrv = imgrv;
+
+    assertThat(vg.hasVariableOverlap(parse("i >= 0", bfmgrv, ifmgrv))).isTrue();
+    assertThat(vg.hasVariableOverlap(parse("k < 5", bfmgrv, ifmgrv))).isFalse();
+    assertThat(vg.hasVariableOverlap(parse("i > j", bfmgrv, ifmgrv))).isTrue();
+    assertThat(vg.getVariableNames()).containsExactly("i", "j", "n");
+  }
+
+  private static BooleanFormula parse(
+      String expr,
+      BooleanFormulaManagerView bfmgr,
+      IntegerFormulaManagerView ifmgr) {
+    return VocabularyGuide.parsePredicate(expr, bfmgr, ifmgr);
   }
 }

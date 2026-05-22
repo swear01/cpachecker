@@ -195,23 +195,6 @@ public class VocabularyGuide {
     return result;
   }
 
-  public boolean hasVariableOverlap(String candidatePredicateText) {
-    if (candidatePredicateText == null || candidatePredicateText.isBlank()) {
-      return false;
-    }
-    Set<String> vVars = getVariableNames();
-    if (vVars.isEmpty()) {
-      return false;
-    }
-    Set<String> candVars = extractVariableNamesFromText(candidatePredicateText);
-    for (String v : candVars) {
-      if (vVars.contains(v)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   public boolean hasVariableOverlap(BooleanFormula candidate) {
     if (solver == null) {
       return false;
