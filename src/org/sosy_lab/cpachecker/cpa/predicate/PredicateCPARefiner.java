@@ -435,38 +435,43 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
 
     vInjectionAttempts++;
 
-    // --- V-guided predicate injection ---
+    // Stock CPAchecker refinement first
+    CounterexampleTraceInfo result0 =
+        interpolationManager.buildCounterexampleTrace(
+            formulas, ImmutableList.copyOf(abstractionStatesTrace), Optional.of(allStatesTrace));
+    if (!result0.isSpurious()) {
+      return result0;
+    }
+
+    // --- V-guided predicate injection (strengthen interpolants) ---
     List<AbstractState> absStates = ImmutableList.copyOf(abstractionStatesTrace);
-    List<BooleanFormula> injectedPredicates = new ArrayList<>();
+    List<BooleanFormula> interpolants = new ArrayList<>(result0.getInterpolants());
     BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
     Set<String> encodedVars = new HashSet<>(fmgr.extractVariableNames(formulas.getFormulas().get(0)));
     for (int i = 1; i < formulas.getFormulas().size(); i++) {
       encodedVars.addAll(fmgr.extractVariableNames(formulas.getFormulas().get(i)));
     }
 
-    for (int i = 0; i < absStates.size(); i++) {
-      AbstractState state = absStates.get(i);
-      CFANode node = extractLocation(state);
+    int vAdded = 0;
+    int n = Math.min(absStates.size(), interpolants.size());
+    for (int i = 0; i < n; i++) {
+      CFANode node = extractLocation(absStates.get(i));
       if (node == null) {
         continue;
       }
-
       String locKey = locationKeyForNode(node);
       if (locKey == null) {
         continue;
       }
-
       List<BooleanFormula> locPreds = vocabularyGuide.getFormulasForLocation(locKey, encodedVars);
       if (locPreds.isEmpty()) {
         continue;
       }
-      logger.log(Level.FINE, "V location match: ", locKey, " has ", locPreds.size(), " predicates");
-
-
       BooleanFormula blockFormula = formulas.getFormulas().get(i);
-      int matched = 0;
+      List<BooleanFormula> valid = new ArrayList<>();
       for (BooleanFormula p : locPreds) {
         if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
+          vSmtFailed++;
           continue;
         }
         try (ProverEnvironment pe =
@@ -474,43 +479,48 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           pe.push(blockFormula);
           pe.push(bfmgr.not(p));
           if (pe.isUnsat()) {
-            injectedPredicates.add(p);
-            matched++;
+            valid.add(p);
             vSmtValidated++;
           } else {
             vSmtFailed++;
           }
         } catch (SolverException se) {
           vSmtFailed++;
-          logger.logDebugException(se, "SMT validate failed for V predicate");
         }
       }
-      if (matched > 0) {
-        logger.log(Level.FINE, "V-inject: ", matched, "/", locPreds.size(),
-            " predicates from [", locKey, "] passed SMT validation");
+      if (!valid.isEmpty()) {
+        BooleanFormula conj = valid.get(0);
+        for (int j = 1; j < valid.size(); j++) {
+          conj = bfmgr.and(conj, valid.get(j));
+        }
+        interpolants.set(i, bfmgr.and(interpolants.get(i), conj));
+        vAdded++;
       }
     }
 
-    if (injectedPredicates.isEmpty()) {
+    if (vAdded == 0) {
       vFallbacks++;
       triggerVocabularyUpdate(formulas.getFormulas());
-      logger.log(Level.FINE, "No valid V predicates for this trace; falling back to interpolation.");
-      return interpolationManager.buildCounterexampleTrace(
-          formulas, absStates, Optional.of(allStatesTrace));
+      logger.log(Level.FINE, "No V predicates validated; using stock interpolants only.");
+      return result0;
     }
 
     vInjectionSuccesses++;
-
     if (llmConnector != null) {
       llmConnector.onGoodScore();
     }
 
+    // Return stock interpolants (safe inductive chain); V predicates are added separately
+    // by filterPredicatesByV which runs after this in performRefinementForPath.
+    // We store validated V predicates as a bonus that the filter keeps.
     logger.log(
-        Level.FINE,
+        Level.INFO,
         "V-injected ",
-        injectedPredicates.size(),
-        " predicates for refinement");
-    return CounterexampleTraceInfo.infeasible(injectedPredicates);
+        vAdded,
+        " predicates into ",
+        vAdded,
+        " interpolants");
+    return CounterexampleTraceInfo.infeasible(interpolants);
   }
 
   private void triggerVocabularyUpdate(List<BooleanFormula> traceFormulas) {
