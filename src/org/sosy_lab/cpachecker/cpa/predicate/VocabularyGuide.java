@@ -243,8 +243,16 @@ public class VocabularyGuide {
       return null;
     }
     try {
-      return parseSexp(expr, fmgr, encodedVariableNames);
-    } catch (UnsupportedOperationException e) {
+      BooleanFormula result = parseSexp(expr, fmgr, encodedVariableNames);
+      if (result != null) {
+        try {
+          fmgr.getBooleanFormulaManager().isTrue(result);
+        } catch (Exception e) {
+          return null;
+        }
+      }
+      return result;
+    } catch (Exception e) {
       return null;
     }
   }

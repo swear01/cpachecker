@@ -316,9 +316,9 @@ public class LLMConnector {
         + "Below are the program's verification points (use EXACTLY these labels\n"
         + "like \"N18\" as JSON keys). Generate meaningful SMT-LIB2 predicates for each\n"
         + "point you are confident about. Skip points you are unsure about.\n"
-        + "Output ONLY a JSON object.\n"
+        + "Output ONLY a JSON object. Use SMT-LIB2 prefix notation.\n"
         + "Format:\n"
-        + "{\"N18\": [\"(>= i 0)\", \"(< i n)\"], \"N12\": [\"(= x 3)\"]}\n"
+        + "{\"N18\": [\"(>= x 0)\", \"(< i n)\"], \"N12\": [\"(= x 0)\"]}\n"
         + "\n"
         + buildAbaNodeList()
         + "\n"

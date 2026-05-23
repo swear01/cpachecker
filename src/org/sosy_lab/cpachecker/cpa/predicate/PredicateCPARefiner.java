@@ -446,6 +446,8 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     // --- V-guided predicate injection (strengthen interpolants) ---
     List<AbstractState> absStates = ImmutableList.copyOf(abstractionStatesTrace);
     List<BooleanFormula> interpolants = new ArrayList<>(result0.getInterpolants());
+    logger.log(Level.INFO, "V interpolants: absStates=", absStates.size(),
+        " interpolants=", interpolants.size());
     BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
     Set<String> encodedVars = new HashSet<>(fmgr.extractVariableNames(formulas.getFormulas().get(0)));
     for (int i = 1; i < formulas.getFormulas().size(); i++) {
@@ -510,17 +512,15 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       llmConnector.onGoodScore();
     }
 
-    // Return stock interpolants (safe inductive chain); V predicates are added separately
-    // by filterPredicatesByV which runs after this in performRefinementForPath.
-    // We store validated V predicates as a bonus that the filter keeps.
+    // Return stock interpolants (safe inductive chain) until strengthen crash is fixed
     logger.log(
         Level.INFO,
         "V-injected ",
         vAdded,
         " predicates into ",
         vAdded,
-        " interpolants");
-    return CounterexampleTraceInfo.infeasible(interpolants);
+        " interpolants (returning stock interpolation to avoid assertion crash)");
+    return result0;
   }
 
   private void triggerVocabularyUpdate(List<BooleanFormula> traceFormulas) {
