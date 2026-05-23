@@ -320,6 +320,11 @@ public class LLMConnector {
         + "Format:\n"
         + "{\"N18\": [\"(>= x 0)\", \"(< i n)\"], \"N12\": [\"(= x 0)\"]}\n"
         + "\n"
+        + "IMPORTANT: Use ONLY linear arithmetic predicates with operators:\n"
+        + "=, >=, <=, >, <, +, -, *, mod, and, or, not.\n"
+        + "Do NOT use array select/store, forall/exists quantifiers, or ite.\n"
+        + "Variable names: use exact names from the C source code.\n"
+        + "\n"
         + buildAbaNodeList()
         + "\n"
         + "Source code:\n"

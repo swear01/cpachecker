@@ -282,34 +282,53 @@ public class VocabularyGuide {
     return switch (op) {
       case "and" -> {
         BooleanFormula result = parseSexpArg(args.get(0), fmgr, encodedVariableNames);
+        if (result == null) yield null;
         for (int i = 1; i < args.size(); i++) {
-          result = bfmgr.and(result, parseSexpArg(args.get(i), fmgr, encodedVariableNames));
+          BooleanFormula next = parseSexpArg(args.get(i), fmgr, encodedVariableNames);
+          if (next == null) yield null;
+          result = bfmgr.and(result, next);
         }
         yield result;
       }
       case "or" -> {
         BooleanFormula result = parseSexpArg(args.get(0), fmgr, encodedVariableNames);
+        if (result == null) yield null;
         for (int i = 1; i < args.size(); i++) {
-          result = bfmgr.or(result, parseSexpArg(args.get(i), fmgr, encodedVariableNames));
+          BooleanFormula next = parseSexpArg(args.get(i), fmgr, encodedVariableNames);
+          if (next == null) yield null;
+          result = bfmgr.or(result, next);
         }
         yield result;
       }
-      case "not" -> bfmgr.not(parseSexpArg(args.get(0), fmgr, encodedVariableNames));
-      case "=" -> bvmgr.equal(
-          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
-          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames));
-      case ">=" -> bvmgr.greaterOrEquals(
-          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
-          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames), true);
-      case "<=" -> bvmgr.lessOrEquals(
-          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
-          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames), true);
-      case ">" -> bvmgr.greaterThan(
-          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
-          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames), true);
-      case "<" -> bvmgr.lessThan(
-          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
-          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames), true);
+      case "not" -> {
+        BooleanFormula arg = parseSexpArg(args.get(0), fmgr, encodedVariableNames);
+        yield arg != null ? bfmgr.not(arg) : null;
+      }
+      case "=" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
+        yield (left != null && right != null) ? bvmgr.equal(left, right) : null;
+      }
+      case ">=" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
+        yield (left != null && right != null) ? bvmgr.greaterOrEquals(left, right, true) : null;
+      }
+      case "<=" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
+        yield (left != null && right != null) ? bvmgr.lessOrEquals(left, right, true) : null;
+      }
+      case ">" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
+        yield (left != null && right != null) ? bvmgr.greaterThan(left, right, true) : null;
+      }
+      case "<" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
+        yield (left != null && right != null) ? bvmgr.lessThan(left, right, true) : null;
+      }
       default -> null;
     };
   }
@@ -353,18 +372,26 @@ public class VocabularyGuide {
     List<String> args = tokens.subList(1, tokens.size());
 
     return switch (op) {
-      case "+" -> bvmgr.add(
-          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
-          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames));
-      case "-" -> bvmgr.subtract(
-          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
-          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames));
-      case "*" -> bvmgr.multiply(
-          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
-          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames));
-      case "mod" -> bvmgr.remainder(
-          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
-          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames), false);
+      case "+" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
+        yield (left != null && right != null) ? bvmgr.add(left, right) : null;
+      }
+      case "-" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
+        yield (left != null && right != null) ? bvmgr.subtract(left, right) : null;
+      }
+      case "*" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
+        yield (left != null && right != null) ? bvmgr.multiply(left, right) : null;
+      }
+      case "mod" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
+        yield (left != null && right != null) ? bvmgr.remainder(left, right, false) : null;
+      }
       default -> null;
     };
   }
