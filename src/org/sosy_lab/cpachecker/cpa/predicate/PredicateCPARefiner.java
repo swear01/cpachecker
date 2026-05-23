@@ -522,7 +522,6 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     if (vocabularyGuide == null || vocabularyGuide.isEmpty()) {
       return predicates;
     }
-    vocabularyGuide.getVariableNames();
     List<BooleanFormula> filtered = new ArrayList<>();
     BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
     for (BooleanFormula p : predicates) {
