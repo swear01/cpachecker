@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
@@ -35,6 +36,9 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.ShutdownNotifier;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.CFA;
+import org.sosy_lab.cpachecker.cfa.model.CFANode;
+import org.sosy_lab.cpachecker.cfa.model.FunctionEntryNode;
+import org.sosy_lab.cpachecker.util.LoopStructure;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
 
 /**
@@ -136,6 +140,9 @@ public class LLMConnector {
       if (total > 0) {
         logger.log(Level.INFO, "LLM: V_0 initialized with", total, "predicates across",
             locPreds.size(), "locations");
+        for (var entry : locPreds.entrySet()) {
+          logger.log(Level.INFO, "  [", entry.getKey(), "] -> ", entry.getValue());
+        }
       } else {
         logger.log(Level.WARNING, "LLM V_0 initialization produced no predicates");
       }
@@ -283,17 +290,38 @@ public class LLMConnector {
 
   // ---- Prompts ----
 
+  private String buildAbaNodeList() {
+    StringBuilder sb = new StringBuilder("Program verification points (use EXACTLY these labels):\n");
+
+    for (FunctionEntryNode fn : cfa.getAllFunctions().values()) {
+      sb.append("  N").append(fn.getNodeNumber())
+        .append(" (function ").append(fn.getFunctionName()).append(" entry)\n");
+    }
+
+    Optional<LoopStructure> ls = cfa.getLoopStructure();
+    if (ls.isPresent()) {
+      for (LoopStructure.Loop loop : ls.orElseThrow().getAllLoops()) {
+        for (CFANode head : loop.getLoopHeads()) {
+          sb.append("  N").append(head.getNodeNumber())
+            .append(" (function ").append(head.getFunctionName())
+            .append(" loop head)\n");
+        }
+      }
+    }
+    return sb.toString();
+  }
+
   private String buildInitPrompt(String sourceCode) {
     return "You are a software verification expert analyzing a C program.\n"
-        + "Identify important program points (loop heads, function entries,\n"
-        + "key condition branches) and generate meaningful predicates for each.\n"
-        + "Output ONLY a JSON object mapping location descriptions to predicate arrays.\n"
-        + "Only produce predicates you are HIGHLY confident about.\n"
+        + "Below are the program's verification points (use EXACTLY these labels\n"
+        + "like \"N18\" as JSON keys). Generate meaningful SMT-LIB2 predicates for each\n"
+        + "point you are confident about. Skip points you are unsure about.\n"
+        + "Output ONLY a JSON object.\n"
         + "Format:\n"
-        + "{\n"
-        + "  \"loop at line 12\": [\"i >= 0\", \"i < n\", \"sum == i * (i + 1) / 2\"],\n"
-        + "  \"function foo entry\": [\"x != NULL\", \"len > 0\"]\n"
-        + "}\n"
+        + "{\"N18\": [\"(>= i 0)\", \"(< i n)\"], \"N12\": [\"(= x 3)\"]}\n"
+        + "\n"
+        + buildAbaNodeList()
+        + "\n"
         + "Source code:\n"
         + sourceCode;
   }

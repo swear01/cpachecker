@@ -150,6 +150,15 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   /** Number of performed refinements */
   private int refinements = 0;
 
+  // V-guided statistics
+  private int vInjectionAttempts = 0;
+  private int vInjectionSuccesses = 0;
+  private int vSmtValidated = 0;
+  private int vSmtFailed = 0;
+  private int vFilterKept = 0;
+  private int vFilterDropped = 0;
+  private int vFallbacks = 0;
+
   // the previously analyzed counterexample to detect repeated counterexamples
   private final Set<ImmutableList<CFANode>> lastErrorPaths = new HashSet<>();
 
@@ -424,6 +433,8 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           formulas, ImmutableList.copyOf(abstractionStatesTrace), Optional.of(allStatesTrace));
     }
 
+    vInjectionAttempts++;
+
     // --- V-guided predicate injection ---
     List<AbstractState> absStates = ImmutableList.copyOf(abstractionStatesTrace);
     List<BooleanFormula> injectedPredicates = new ArrayList<>();
@@ -445,8 +456,10 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       if (locPreds.isEmpty()) {
         continue;
       }
+      logger.log(Level.FINE, "V location match: ", locKey, " has ", locPreds.size(), " predicates");
 
       BooleanFormula blockFormula = formulas.getFormulas().get(i);
+      int matched = 0;
       for (BooleanFormula p : locPreds) {
         if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
           continue;
@@ -457,19 +470,31 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           pe.push(bfmgr.not(p));
           if (pe.isUnsat()) {
             injectedPredicates.add(p);
+            matched++;
+            vSmtValidated++;
+          } else {
+            vSmtFailed++;
           }
         } catch (SolverException se) {
+          vSmtFailed++;
           logger.logDebugException(se, "SMT validate failed for V predicate");
         }
+      }
+      if (matched > 0) {
+        logger.log(Level.INFO, "V-inject: ", matched, "/", locPreds.size(),
+            " predicates from [", locKey, "] passed SMT validation");
       }
     }
 
     if (injectedPredicates.isEmpty()) {
+      vFallbacks++;
       triggerVocabularyUpdate(formulas.getFormulas());
       logger.log(Level.FINE, "No valid V predicates for this trace; falling back to interpolation.");
       return interpolationManager.buildCounterexampleTrace(
           formulas, absStates, Optional.of(allStatesTrace));
     }
+
+    vInjectionSuccesses++;
 
     if (llmConnector != null) {
       llmConnector.onGoodScore();
@@ -502,10 +527,14 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
     for (BooleanFormula p : predicates) {
       if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
+        vFilterDropped++;
         continue;
       }
       if (vocabularyGuide.hasVariableOverlap(p)) {
         filtered.add(p);
+        vFilterKept++;
+      } else {
+        vFilterDropped++;
       }
     }
     if (filtered.size() < predicates.size()) {
@@ -521,12 +550,9 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   }
 
   private @Nullable String locationKeyForNode(CFANode node) {
-    String funcName = node.getFunctionName();
-    if (funcName == null) {
-      return null;
-    }
+    String prefix = "N" + node.getNodeNumber();
     for (String loc : vocabularyGuide.getAllLocations()) {
-      if (loc.contains(funcName)) {
+      if (loc.startsWith(prefix)) {
         return loc;
       }
     }
@@ -776,6 +802,18 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           w1.put(prefixExtractionTime);
           w1.put(prefixSelectionTime);
         }
+      }
+
+      if (vInjectionAttempts > 0) {
+        w0.spacer();
+        w0.put("V-injection attempts", vInjectionAttempts);
+        StatisticsWriter wv = w0.beginLevel();
+        wv.put("V-injection successes", vInjectionSuccesses);
+        wv.put("V-injection fallbacks", vFallbacks);
+        wv.put("V SMT-validated predicates", vSmtValidated);
+        wv.put("V SMT-failed predicates", vSmtFailed);
+        wv.put("V-filter kept predicates", vFilterKept);
+        wv.put("V-filter dropped predicates", vFilterDropped);
       }
 
       interpolationManager.printStatistics(w1);
