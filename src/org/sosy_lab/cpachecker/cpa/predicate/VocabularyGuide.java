@@ -16,14 +16,14 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.util.predicates.smt.BooleanFormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
-import org.sosy_lab.cpachecker.util.predicates.smt.IntegerFormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
 import org.sosy_lab.java_smt.api.BooleanFormula;
-import org.sosy_lab.java_smt.api.NumeralFormula.IntegerFormula;
 
 /**
  * Dynamic Predicate Vocabulary V maintained by the LLM. Stores per-location predicates as strings,
@@ -35,13 +35,11 @@ public class VocabularyGuide {
   static class VocabEntry {
     final String locationKey;
     final String predicateText;
-    final Set<String> variableNames;
     volatile @Nullable BooleanFormula parsedFormula;
 
     VocabEntry(String pLocationKey, String pPredicateText) {
       locationKey = pLocationKey;
       predicateText = pPredicateText;
-      variableNames = extractVariableNamesFromText(pPredicateText);
     }
 
     @Override
@@ -177,8 +175,6 @@ public class VocabularyGuide {
       return List.of();
     }
     FormulaManagerView fmgr = solver.getFormulaManager();
-    BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
-    IntegerFormulaManagerView ifmgr = fmgr.getIntegerFormulaManager();
     List<BooleanFormula> result = new ArrayList<>();
     for (VocabEntry e : vocab) {
       if (!e.locationKey.equals(locationKey)) {
@@ -186,7 +182,7 @@ public class VocabularyGuide {
       }
       BooleanFormula f = e.parsedFormula;
       if (f == null) {
-        f = parseAndCache(e, bfmgr, ifmgr);
+        f = parseAndCache(e, fmgr);
       }
       if (f != null) {
         result.add(f);
@@ -216,120 +212,79 @@ public class VocabularyGuide {
     if (cachedVariableNames != null) {
       return cachedVariableNames;
     }
+    if (solver == null) {
+      return Set.of();
+    }
+    FormulaManagerView fmgr = solver.getFormulaManager();
     Set<String> allVars = new HashSet<>();
     for (VocabEntry e : vocab) {
-      allVars.addAll(e.variableNames);
+      BooleanFormula f = e.parsedFormula;
+      if (f == null) {
+        f = parseAndCache(e, fmgr);
+      }
+      if (f != null) {
+        allVars.addAll(fmgr.extractVariableNames(f));
+      }
     }
     cachedVariableNames = allVars;
     return allVars;
   }
 
   private static @Nullable BooleanFormula parseAndCache(
-      VocabEntry e,
-      BooleanFormulaManagerView bfmgr,
-      IntegerFormulaManagerView ifmgr) {
-    BooleanFormula f = parsePredicate(e.predicateText, bfmgr, ifmgr);
+      VocabEntry e, FormulaManagerView fmgr) {
+    BooleanFormula f = parsePredicate(e.predicateText, fmgr);
     e.parsedFormula = f;
     return f;
   }
 
-  private static Set<String> extractVariableNamesFromText(String predicateText) {
-    Set<String> vars = new HashSet<>();
-    String text = predicateText.strip();
-    String[] ops = {" >= ", " <= ", " != ", " == ", " < ", " > "};
-    String leftPart = null;
-    String rightPart = null;
-    for (String op : ops) {
-      int idx = text.indexOf(op);
-      if (idx >= 0) {
-        leftPart = text.substring(0, idx).strip();
-        rightPart = text.substring(idx + op.length()).strip();
-        break;
-      }
-    }
-    if (leftPart != null) {
-      addIfVariable(vars, leftPart);
-    }
-    if (rightPart != null) {
-      addIfVariable(vars, rightPart);
-    }
-    return vars;
-  }
-
-  private static void addIfVariable(Set<String> vars, String token) {
-    if (token.isEmpty() || "NULL".equals(token)) {
-      return;
-    }
-    if (token.matches("-?\\d+")) {
-      return;
-    }
-    vars.add(token);
-  }
-
   static @Nullable BooleanFormula parsePredicate(
-      String expr,
-      BooleanFormulaManagerView bfmgr,
-      IntegerFormulaManagerView ifmgr) {
-    expr = expr.strip();
+      String expr, FormulaManagerView fmgr) {
     try {
-      String[] parts;
-      String op;
-      if (expr.contains(" >= ")) {
-        parts = expr.split(" >= ");
-        op = ">=";
-      } else if (expr.contains(" <= ")) {
-        parts = expr.split(" <= ");
-        op = "<=";
-      } else if (expr.contains(" != ")) {
-        parts = expr.split(" != ");
-        op = "!=";
-      } else if (expr.contains(" == ")) {
-        parts = expr.split(" == ");
-        op = "==";
-      } else if (expr.contains(" < ")) {
-        parts = expr.split(" < ");
-        op = "<";
-      } else if (expr.contains(" > ")) {
-        parts = expr.split(" > ");
-        op = ">";
-      } else {
-        return null;
-      }
-      if (parts.length != 2) {
-        return null;
-      }
-      String left = parts[0].strip();
-      String right = parts[1].strip();
-      if ("NULL".equals(right)) {
-        return bfmgr.not(ifmgr.equal(ifmgr.makeVariable(left), ifmgr.makeNumber(0)));
-      }
-      IntegerFormula lv = ifmgr.makeVariable(left);
+      return fmgr.parse("(assert " + expr + ")");
+    } catch (IllegalArgumentException first) {
       try {
-        long rv = Long.parseLong(right);
-        IntegerFormula rvf = ifmgr.makeNumber(rv);
-        return switch (op) {
-          case ">=" -> bfmgr.not(ifmgr.lessThan(lv, rvf));
-          case "<=" -> bfmgr.not(ifmgr.greaterThan(lv, rvf));
-          case "!=" -> bfmgr.not(ifmgr.equal(lv, rvf));
-          case "==" -> ifmgr.equal(lv, rvf);
-          case "<" -> ifmgr.lessThan(lv, rvf);
-          case ">" -> ifmgr.greaterThan(lv, rvf);
-          default -> null;
-        };
-      } catch (NumberFormatException e2) {
-        IntegerFormula rv2 = ifmgr.makeVariable(right);
-        return switch (op) {
-          case ">=" -> bfmgr.not(ifmgr.lessThan(lv, rv2));
-          case "<=" -> bfmgr.not(ifmgr.greaterThan(lv, rv2));
-          case "!=" -> bfmgr.not(ifmgr.equal(lv, rv2));
-          case "==" -> ifmgr.equal(lv, rv2);
-          case "<" -> ifmgr.lessThan(lv, rv2);
-          case ">" -> ifmgr.greaterThan(lv, rv2);
-          default -> null;
-        };
+        Set<String> vars = new HashSet<>();
+        Matcher m = IDENTIFIER_PATTERN.matcher(expr);
+        while (m.find()) {
+          String v = m.group(1);
+          if (!SMT_RESERVED_WORDS.contains(v) && !v.matches("\\d+")) {
+            vars.add(v);
+          }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String v : vars) {
+          sb.append("(declare-fun ").append(v).append(" () Int) ");
+        }
+        sb.append("(assert ").append(expr).append(")");
+        return fmgr.parse(sb.toString());
+      } catch (IllegalArgumentException second) {
+        return null;
       }
-    } catch (Exception e) {
-      return null;
     }
   }
+
+  private static final Pattern IDENTIFIER_PATTERN =
+      Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b");
+
+  private static final Set<String> SMT_RESERVED_WORDS =
+      Set.of(
+          "assert",
+          "declare",
+          "fun",
+          "mod",
+          "div",
+          "and",
+          "or",
+          "not",
+          "ite",
+          "true",
+          "false",
+          "Int",
+          "Bool",
+          "Array",
+          "BitVec",
+          "Float16",
+          "Float32",
+          "Float64",
+          "RoundingMode");
 }

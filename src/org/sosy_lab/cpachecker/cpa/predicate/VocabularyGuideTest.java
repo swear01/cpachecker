@@ -13,8 +13,7 @@ import static com.google.common.truth.Truth.assertThat;
 import java.util.List;
 import org.junit.Test;
 import org.sosy_lab.common.log.LogManager;
-import org.sosy_lab.cpachecker.util.predicates.smt.BooleanFormulaManagerView;
-import org.sosy_lab.cpachecker.util.predicates.smt.IntegerFormulaManagerView;
+import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.SolverViewBasedTest0;
 import org.sosy_lab.java_smt.api.BooleanFormula;
 
@@ -105,22 +104,36 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   @Test
   public void hasVariableOverlap_withSolver() {
     VocabularyGuide vg = create();
-    vg.addPredicate("loop L1", "i >= n", 0);
-    vg.addPredicate("loop L2", "j > 10", 0);
+    vg.addPredicate("loop L1", "(>= i n)", 0);
+    vg.addPredicate("loop L2", "(> j 10)", 0);
 
-    BooleanFormulaManagerView bfmgrv = bmgrv;
-    IntegerFormulaManagerView ifmgrv = imgrv;
+    FormulaManagerView fmgr = mgrv;
 
-    assertThat(vg.hasVariableOverlap(parse("i >= 0", bfmgrv, ifmgrv))).isTrue();
-    assertThat(vg.hasVariableOverlap(parse("k < 5", bfmgrv, ifmgrv))).isFalse();
-    assertThat(vg.hasVariableOverlap(parse("i > j", bfmgrv, ifmgrv))).isTrue();
+    assertThat(vg.hasVariableOverlap(parse("(>= i 0)", fmgr))).isTrue();
+    assertThat(vg.hasVariableOverlap(parse("(< k 5)", fmgr))).isFalse();
+    assertThat(vg.hasVariableOverlap(parse("(> i j)", fmgr))).isTrue();
     assertThat(vg.getVariableNames()).containsExactly("i", "j", "n");
+  }
+
+  @Test
+  public void addPredicate_moduloFormula_parsesWithSolver() {
+    VocabularyGuide vg = create();
+    vg.addPredicate("N18", "(= (mod x 2) 0)", 0);
+    vg.addPredicate("N18", "(<= (+ x 2) 100)", 0);
+    vg.addPredicate("N24", "(= (mod y 2) 1)", 0);
+
+    assertThat(vg.size()).isEqualTo(3);
+
+    List<BooleanFormula> formulas = vg.getFormulasForLocation("N18");
+    assertThat(formulas).hasSize(2);
+
+    assertThat(vg.getVariableNames()).contains("x");
+    assertThat(vg.hasVariableOverlap(formulas.get(0))).isTrue();
   }
 
   private static BooleanFormula parse(
       String expr,
-      BooleanFormulaManagerView bfmgr,
-      IntegerFormulaManagerView ifmgr) {
-    return VocabularyGuide.parsePredicate(expr, bfmgr, ifmgr);
+      FormulaManagerView fmgr) {
+    return VocabularyGuide.parsePredicate(expr, fmgr);
   }
 }
