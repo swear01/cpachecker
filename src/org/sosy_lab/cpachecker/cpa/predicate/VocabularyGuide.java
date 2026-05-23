@@ -16,14 +16,16 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.util.predicates.smt.BooleanFormulaManagerView;
+import org.sosy_lab.cpachecker.util.predicates.smt.BitvectorFormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
 import org.sosy_lab.java_smt.api.BooleanFormula;
+import org.sosy_lab.java_smt.api.BitvectorFormula;
+import org.sosy_lab.java_smt.api.Formula;
+import org.sosy_lab.java_smt.api.FormulaType;
 
 /**
  * Dynamic Predicate Vocabulary V maintained by the LLM. Stores per-location predicates as strings,
@@ -166,7 +168,8 @@ public class VocabularyGuide {
     return result;
   }
 
-  public List<BooleanFormula> getFormulasForLocation(String locationKey) {
+  public List<BooleanFormula> getFormulasForLocation(
+      String locationKey, Set<String> encodedVariableNames) {
     if (solver == null) {
       return List.of();
     }
@@ -178,7 +181,7 @@ public class VocabularyGuide {
       }
       BooleanFormula f = e.parsedFormula;
       if (f == null) {
-        f = parseAndCache(e, fmgr);
+        f = parseAndCache(e, fmgr, encodedVariableNames);
       }
       if (f != null) {
         result.add(f);
@@ -216,7 +219,7 @@ public class VocabularyGuide {
     for (VocabEntry e : vocab) {
       BooleanFormula f = e.parsedFormula;
       if (f == null) {
-        f = parseAndCache(e, fmgr);
+        f = parseAndCache(e, fmgr, Set.of());
       }
       if (f != null) {
         allVars.addAll(fmgr.extractVariableNames(f));
@@ -227,60 +230,180 @@ public class VocabularyGuide {
   }
 
   private static @Nullable BooleanFormula parseAndCache(
-      VocabEntry e, FormulaManagerView fmgr) {
-    BooleanFormula f = parsePredicate(e.predicateText, fmgr);
+      VocabEntry e, FormulaManagerView fmgr, Set<String> encodedVariableNames) {
+    BooleanFormula f = parsePredicate(e.predicateText, fmgr, encodedVariableNames);
     e.parsedFormula = f;
     return f;
   }
 
   static @Nullable BooleanFormula parsePredicate(
-      String expr, FormulaManagerView fmgr) {
+      String expr, FormulaManagerView fmgr, Set<String> encodedVariableNames) {
+    expr = expr.strip();
+    if (expr.isEmpty() || !expr.startsWith("(")) {
+      return null;
+    }
     try {
-      return fmgr.parse("(assert " + expr + ")");
-    } catch (IllegalArgumentException first) {
-      try {
-        Set<String> vars = new HashSet<>();
-        Matcher m = IDENTIFIER_PATTERN.matcher(expr);
-        while (m.find()) {
-          String v = m.group(1);
-          if (!SMT_RESERVED_WORDS.contains(v) && !v.matches("\\d+")) {
-            vars.add(v);
-          }
-        }
-        StringBuilder sb = new StringBuilder();
-        for (String v : vars) {
-          sb.append("(declare-fun ").append(v).append(" () Int) ");
-        }
-        sb.append("(assert ").append(expr).append(")");
-        return fmgr.parse(sb.toString());
-      } catch (IllegalArgumentException second) {
-        return null;
-      }
+      return parseSexp(expr, fmgr, encodedVariableNames);
+    } catch (UnsupportedOperationException e) {
+      return null;
     }
   }
 
-  private static final Pattern IDENTIFIER_PATTERN =
-      Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b");
+  private static BooleanFormula parseSexp(
+      String expr, FormulaManagerView fmgr, Set<String> encodedVariableNames) {
+    expr = expr.strip();
+    if (!expr.startsWith("(") || !expr.endsWith(")")) {
+      return null;
+    }
+    String inner = expr.substring(1, expr.length() - 1).trim();
+    if (inner.isEmpty()) {
+      return null;
+    }
 
-  private static final Set<String> SMT_RESERVED_WORDS =
-      Set.of(
-          "assert",
-          "declare",
-          "fun",
-          "mod",
-          "div",
-          "and",
-          "or",
-          "not",
-          "ite",
-          "true",
-          "false",
-          "Int",
-          "Bool",
-          "Array",
-          "BitVec",
-          "Float16",
-          "Float32",
-          "Float64",
-          "RoundingMode");
+    List<String> tokens = tokenizeSexp(inner);
+    if (tokens.isEmpty()) {
+      return null;
+    }
+
+    String op = tokens.get(0);
+    List<String> args = tokens.subList(1, tokens.size());
+
+    BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
+    BitvectorFormulaManagerView bvmgr = fmgr.getBitvectorFormulaManager();
+
+    return switch (op) {
+      case "and" -> {
+        BooleanFormula result = parseSexpArg(args.get(0), fmgr, encodedVariableNames);
+        for (int i = 1; i < args.size(); i++) {
+          result = bfmgr.and(result, parseSexpArg(args.get(i), fmgr, encodedVariableNames));
+        }
+        yield result;
+      }
+      case "or" -> {
+        BooleanFormula result = parseSexpArg(args.get(0), fmgr, encodedVariableNames);
+        for (int i = 1; i < args.size(); i++) {
+          result = bfmgr.or(result, parseSexpArg(args.get(i), fmgr, encodedVariableNames));
+        }
+        yield result;
+      }
+      case "not" -> bfmgr.not(parseSexpArg(args.get(0), fmgr, encodedVariableNames));
+      case "=" -> bvmgr.equal(
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
+          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames));
+      case ">=" -> bvmgr.greaterOrEquals(
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
+          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames), true);
+      case "<=" -> bvmgr.lessOrEquals(
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
+          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames), true);
+      case ">" -> bvmgr.greaterThan(
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
+          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames), true);
+      case "<" -> bvmgr.lessThan(
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
+          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames), true);
+      default -> null;
+    };
+  }
+
+  private static BooleanFormula parseSexpArg(
+      String token, FormulaManagerView fmgr, Set<String> encodedVariableNames) {
+    token = token.strip();
+    if (token.startsWith("(")) {
+      return parseSexp(token, fmgr, encodedVariableNames);
+    }
+    return null;
+  }
+
+  private static BitvectorFormula parseBvExpr(
+      String token, FormulaManagerView fmgr, BitvectorFormulaManagerView bvmgr,
+      Set<String> encodedVariableNames) {
+    token = token.strip();
+    if (token.startsWith("(")) {
+      return parseBvSexp(token, fmgr, bvmgr, encodedVariableNames);
+    }
+    if (token.matches("-?\\d+")) {
+      return bvmgr.makeBitvector(32, Long.parseLong(token));
+    }
+    String encoded = resolveVariableName(token, encodedVariableNames);
+    return bvmgr.makeVariable(32, encoded);
+  }
+
+  private static BitvectorFormula parseBvSexp(
+      String expr, FormulaManagerView fmgr, BitvectorFormulaManagerView bvmgr,
+      Set<String> encodedVariableNames) {
+    expr = expr.strip();
+    if (!expr.startsWith("(") || !expr.endsWith(")")) {
+      return null;
+    }
+    String inner = expr.substring(1, expr.length() - 1).trim();
+    List<String> tokens = tokenizeSexp(inner);
+    if (tokens.isEmpty()) {
+      return null;
+    }
+    String op = tokens.get(0);
+    List<String> args = tokens.subList(1, tokens.size());
+
+    return switch (op) {
+      case "+" -> bvmgr.add(
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
+          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames));
+      case "-" -> bvmgr.subtract(
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
+          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames));
+      case "*" -> bvmgr.multiply(
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
+          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames));
+      case "mod" -> bvmgr.remainder(
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames),
+          parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames), false);
+      default -> null;
+    };
+  }
+
+  private static String resolveVariableName(String simpleName, Set<String> encodedNames) {
+    for (String encoded : encodedNames) {
+      if (encoded.endsWith("::" + simpleName + "@")
+          || encoded.contains("::" + simpleName + "@")) {
+        return encoded;
+      }
+    }
+    for (String encoded : encodedNames) {
+      if (encoded.endsWith(simpleName) || encoded.contains("::" + simpleName)) {
+        return encoded;
+      }
+    }
+    return simpleName;
+  }
+
+  private static List<String> tokenizeSexp(String inner) {
+    List<String> tokens = new ArrayList<>();
+    int i = 0;
+    while (i < inner.length()) {
+      char c = inner.charAt(i);
+      if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+        i++;
+        continue;
+      }
+      if (c == '(') {
+        int depth = 1;
+        int start = i;
+        i++;
+        while (i < inner.length() && depth > 0) {
+          if (inner.charAt(i) == '(') depth++;
+          else if (inner.charAt(i) == ')') depth--;
+          i++;
+        }
+        tokens.add(inner.substring(start, i));
+        continue;
+      }
+      int start = i;
+      while (i < inner.length() && inner.charAt(i) != ' '
+          && inner.charAt(i) != '\t' && inner.charAt(i) != '\n') {
+        i++;
+      }
+      tokens.add(inner.substring(start, i));
+    }
+    return tokens;
+  }
 }

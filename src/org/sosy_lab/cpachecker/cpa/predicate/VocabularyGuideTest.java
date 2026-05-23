@@ -11,6 +11,7 @@ package org.sosy_lab.cpachecker.cpa.predicate;
 import static com.google.common.truth.Truth.assertThat;
 
 import java.util.List;
+import java.util.Set;
 import org.junit.Test;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
@@ -124,7 +125,7 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
 
     assertThat(vg.size()).isEqualTo(3);
 
-    List<BooleanFormula> formulas = vg.getFormulasForLocation("N18");
+    List<BooleanFormula> formulas = vg.getFormulasForLocation("N18", Set.of());
     assertThat(formulas).hasSize(2);
 
     assertThat(vg.getVariableNames()).contains("x");
@@ -134,6 +135,6 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   private static BooleanFormula parse(
       String expr,
       FormulaManagerView fmgr) {
-    return VocabularyGuide.parsePredicate(expr, fmgr);
+    return VocabularyGuide.parsePredicate(expr, fmgr, Set.of());
   }
 }

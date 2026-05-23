@@ -439,6 +439,10 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     List<AbstractState> absStates = ImmutableList.copyOf(abstractionStatesTrace);
     List<BooleanFormula> injectedPredicates = new ArrayList<>();
     BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
+    Set<String> encodedVars = new HashSet<>(fmgr.extractVariableNames(formulas.getFormulas().get(0)));
+    for (int i = 1; i < formulas.getFormulas().size(); i++) {
+      encodedVars.addAll(fmgr.extractVariableNames(formulas.getFormulas().get(i)));
+    }
 
     for (int i = 0; i < absStates.size(); i++) {
       AbstractState state = absStates.get(i);
@@ -452,7 +456,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         continue;
       }
 
-      List<BooleanFormula> locPreds = vocabularyGuide.getFormulasForLocation(locKey);
+      List<BooleanFormula> locPreds = vocabularyGuide.getFormulasForLocation(locKey, encodedVars);
       if (locPreds.isEmpty()) {
         continue;
       }
