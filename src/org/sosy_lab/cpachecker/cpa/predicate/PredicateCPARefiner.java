@@ -312,9 +312,8 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         logger.log(Level.FINEST, "Error trace is spurious, refining the abstraction");
 
         List<BooleanFormula> predicates = counterexample.getInterpolants();
-        if (useVGuide && vocabularyGuide != null && !vocabularyGuide.isEmpty()) {
-          predicates = filterPredicatesByV(predicates);
-        }
+        logger.log(Level.INFO, "refinement #", refinements, ": predicates=", predicates.size(),
+            " traceStates=", abstractionStatesTrace.size());
 
         boolean trackFurtherCEX =
             strategy.performRefinement(
@@ -541,7 +540,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
     for (BooleanFormula p : predicates) {
       if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
-        vFilterDropped++;
+        filtered.add(p);
         continue;
       }
       if (vocabularyGuide.hasVariableOverlap(p)) {
