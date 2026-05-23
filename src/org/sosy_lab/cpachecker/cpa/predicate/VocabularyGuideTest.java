@@ -31,9 +31,9 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   @Test
   public void addPredicateWithLocation_retrievableByLocation() {
     VocabularyGuide vg = create();
-    vg.addPredicate("loop L1", "i >= 0", 0);
-    vg.addPredicate("loop L1", "i < n", 0);
-    vg.addPredicate("function foo", "x != NULL", 0);
+    vg.addPredicate("loop L1", "i >= 0");
+    vg.addPredicate("loop L1", "i < n");
+    vg.addPredicate("function foo", "x != NULL");
 
     assertThat(vg.size()).isEqualTo(3);
     assertThat(vg.isEmpty()).isFalse();
@@ -51,9 +51,9 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   @Test
   public void addPredicates_withSameLocation_appendsNotReplaces() {
     VocabularyGuide vg = create();
-    vg.addPredicate("loop L1", "i >= 0", 0);
-    vg.addPredicate("loop L1", "i >= 0", 0);
-    vg.addPredicate("loop L1", "i < n", 0);
+    vg.addPredicate("loop L1", "i >= 0");
+    vg.addPredicate("loop L1", "i >= 0");
+    vg.addPredicate("loop L1", "i < n");
 
     assertThat(vg.size()).isEqualTo(2);
   }
@@ -61,9 +61,9 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   @Test
   public void removePredicates_removesByLocationAndText() {
     VocabularyGuide vg = create();
-    vg.addPredicate("loop L1", "i >= 0", 0);
-    vg.addPredicate("loop L1", "i < n", 0);
-    vg.addPredicate("function foo", "x != NULL", 0);
+    vg.addPredicate("loop L1", "i >= 0");
+    vg.addPredicate("loop L1", "i < n");
+    vg.addPredicate("function foo", "x != NULL");
 
     vg.removePredicate("loop L1", "i < n");
     assertThat(vg.size()).isEqualTo(2);
@@ -73,10 +73,10 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   @Test
   public void getAllLocations_returnsUniqueLocationsSorted() {
     VocabularyGuide vg = create();
-    vg.addPredicate("loop L1", "i >= 0", 0);
-    vg.addPredicate("loop L1", "i < n", 0);
-    vg.addPredicate("function foo", "x != NULL", 0);
-    vg.addPredicate("loop L2", "j > 0", 0);
+    vg.addPredicate("loop L1", "i >= 0");
+    vg.addPredicate("loop L1", "i < n");
+    vg.addPredicate("function foo", "x != NULL");
+    vg.addPredicate("loop L2", "j > 0");
 
     assertThat(vg.getAllLocations()).containsExactly("function foo", "loop L1", "loop L2");
   }
@@ -94,7 +94,7 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   @Test
   public void clearAll_emptiesVocabulary() {
     VocabularyGuide vg = create();
-    vg.addPredicate("loop L1", "i >= 0", 0);
+    vg.addPredicate("loop L1", "i >= 0");
     vg.clearAll();
 
     assertThat(vg.isEmpty()).isTrue();
@@ -104,8 +104,8 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   @Test
   public void hasVariableOverlap_withSolver() {
     VocabularyGuide vg = create();
-    vg.addPredicate("loop L1", "(>= i n)", 0);
-    vg.addPredicate("loop L2", "(> j 10)", 0);
+    vg.addPredicate("loop L1", "(>= i n)");
+    vg.addPredicate("loop L2", "(> j 10)");
 
     FormulaManagerView fmgr = mgrv;
 
@@ -118,9 +118,9 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   @Test
   public void addPredicate_moduloFormula_parsesWithSolver() {
     VocabularyGuide vg = create();
-    vg.addPredicate("N18", "(= (mod x 2) 0)", 0);
-    vg.addPredicate("N18", "(<= (+ x 2) 100)", 0);
-    vg.addPredicate("N24", "(= (mod y 2) 1)", 0);
+    vg.addPredicate("N18", "(= (mod x 2) 0)");
+    vg.addPredicate("N18", "(<= (+ x 2) 100)");
+    vg.addPredicate("N24", "(= (mod y 2) 1)");
 
     assertThat(vg.size()).isEqualTo(3);
 

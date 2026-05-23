@@ -78,10 +78,6 @@ public class VocabularyGuide {
     return vocab.size();
   }
 
-  public void addPredicate(String locationKey, String predicateText, int unused) {
-    addPredicate(locationKey, predicateText);
-  }
-
   public void addPredicate(String locationKey, String predicateText) {
     if (predicateText == null || predicateText.isBlank()) {
       return;
