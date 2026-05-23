@@ -192,8 +192,8 @@ public final class PredicateCPARefinerFactory {
       LLMConnector llm =
           new LLMConnector(vg, solver, logger, shutdownNotifier, cfa, apiKey);
 
+      llm.initializeVocabBlocking();
       llm.start();
-      llm.requestInitialVocab();
 
       refiner =
           new PredicateCPARefiner(

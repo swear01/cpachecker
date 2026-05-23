@@ -122,7 +122,7 @@ public class LLMConnector {
     return !vg.isEmpty();
   }
 
-  private void initializeVocabBlocking() {
+  public void initializeVocabBlocking() {
     logger.log(Level.INFO, "LLM: initializing V_0 from source code");
     try {
       StringBuilder code = new StringBuilder();
@@ -369,7 +369,7 @@ public class LLMConnector {
       var fields = root.fields();
       while (fields.hasNext()) {
         var field = fields.next();
-        String locationKey = field.getKey();
+        String locationKey = field.getKey().strip();
         JsonNode predicatesNode = field.getValue();
         if (!predicatesNode.isArray()) {
           continue;

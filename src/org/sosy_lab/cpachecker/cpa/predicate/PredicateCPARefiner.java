@@ -458,6 +458,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       }
       logger.log(Level.FINE, "V location match: ", locKey, " has ", locPreds.size(), " predicates");
 
+
       BooleanFormula blockFormula = formulas.getFormulas().get(i);
       int matched = 0;
       for (BooleanFormula p : locPreds) {
@@ -481,7 +482,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         }
       }
       if (matched > 0) {
-        logger.log(Level.INFO, "V-inject: ", matched, "/", locPreds.size(),
+        logger.log(Level.FINE, "V-inject: ", matched, "/", locPreds.size(),
             " predicates from [", locKey, "] passed SMT validation");
       }
     }
@@ -549,9 +550,9 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   }
 
   private @Nullable String locationKeyForNode(CFANode node) {
-    String prefix = "N" + node.getNodeNumber();
+    String target = "N" + node.getNodeNumber();
     for (String loc : vocabularyGuide.getAllLocations()) {
-      if (loc.startsWith(prefix)) {
+      if (loc.startsWith(target)) {
         return loc;
       }
     }
