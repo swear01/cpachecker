@@ -211,8 +211,8 @@ public final class PredicateCPARefinerFactory {
               pRefinementStrategy,
               null,
               null,
-              vg,
-              llm);
+               vg,
+               llm);
     } else {
       primaryInterpolationManager =
           new InterpolationManager(
@@ -238,10 +238,10 @@ public final class PredicateCPARefinerFactory {
               prefixSelector,
               invariantsManager,
               pRefinementStrategy,
-              null,
-              null,
-              null,
-              null);
+               null,
+               null,
+               null,
+               null);
     }
 
     if (performInitialStaticRefinement) {

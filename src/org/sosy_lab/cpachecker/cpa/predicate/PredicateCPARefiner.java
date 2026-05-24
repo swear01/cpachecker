@@ -511,15 +511,14 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       llmConnector.onGoodScore();
     }
 
-    // Return stock interpolants (safe inductive chain) until strengthen crash is fixed
     logger.log(
         Level.INFO,
         "V-injected ",
         vAdded,
         " predicates into ",
         vAdded,
-        " interpolants (returning stock interpolation to avoid assertion crash)");
-    return result0;
+        " interpolants");
+    return CounterexampleTraceInfo.infeasible(interpolants);
   }
 
   private void triggerVocabularyUpdate(List<BooleanFormula> traceFormulas) {
