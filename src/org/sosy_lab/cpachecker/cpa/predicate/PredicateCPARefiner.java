@@ -430,8 +430,6 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           formulas, ImmutableList.copyOf(abstractionStatesTrace), Optional.of(allStatesTrace));
     }
 
-    vInjectionAttempts++;
-
     // Stock CPAchecker refinement first
     CounterexampleTraceInfo result0 =
         interpolationManager.buildCounterexampleTrace(
@@ -440,11 +438,11 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       return result0;
     }
 
+    vInjectionAttempts++;
+
     // --- V-guided predicate injection (strengthen interpolants) ---
     List<AbstractState> absStates = ImmutableList.copyOf(abstractionStatesTrace);
     List<BooleanFormula> interpolants = new ArrayList<>(result0.getInterpolants());
-    logger.log(Level.INFO, "V interpolants: absStates=", absStates.size(),
-        " interpolants=", interpolants.size());
     BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
     Set<String> encodedVars = new HashSet<>(fmgr.extractVariableNames(formulas.getFormulas().get(0)));
     for (int i = 1; i < formulas.getFormulas().size(); i++) {
