@@ -156,6 +156,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private int vSmtValidated = 0;
   private int vSmtFailed = 0;
   private int vFallbacks = 0;
+  private int vAbstractionCandidates = 0;
 
   // the previously analyzed counterexample to detect repeated counterexamples
   private final Set<ImmutableList<CFANode>> lastErrorPaths = new HashSet<>();
@@ -478,16 +479,17 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           if (pe.isUnsat()) {
             valid.add(p);
             vSmtValidated++;
-            logger.log(Level.INFO, "V-FATE [", locKey, "] PASS: ",
+            logger.log(Level.INFO, "V-FATE [", locKey, "] ENTAILED: ",
                 fmgr.dumpFormula(p).toString().replace("\n", " "));
           } else {
             vSmtFailed++;
-            logger.log(Level.INFO, "V-FATE [", locKey, "] FAIL: ",
+            vAbstractionCandidates++;
+            logger.log(Level.INFO, "V-FATE [", locKey, "] ABSTRACTION-CANDIDATE: ",
                 fmgr.dumpFormula(p).toString().replace("\n", " "));
           }
         } catch (SolverException se) {
           vSmtFailed++;
-          logger.log(Level.INFO, "V-FATE [", locKey, "] ERROR: ",
+          logger.log(Level.INFO, "V-FATE [", locKey, "] PARSE-ERROR: ",
               fmgr.dumpFormula(p).toString().replace("\n", " "));
         }
       }
@@ -796,6 +798,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         wv.put("V-injection fallbacks", vFallbacks);
         wv.put("V SMT-validated predicates", vSmtValidated);
         wv.put("V SMT-failed predicates", vSmtFailed);
+        wv.put("V abstraction-candidate predicates", vAbstractionCandidates);
       }
 
       interpolationManager.printStatistics(w1);
