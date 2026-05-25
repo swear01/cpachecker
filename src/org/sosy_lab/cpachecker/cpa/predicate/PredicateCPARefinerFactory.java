@@ -170,10 +170,10 @@ public final class PredicateCPARefinerFactory {
     InterpolationManager primaryInterpolationManager;
 
     if (useVocabularyGuide) {
-      String apiKey = System.getenv("OPENROUTER_API_KEY");
+      String apiKey = System.getenv("DEEPSEEK_API_KEY");
       if (apiKey == null || apiKey.isBlank()) {
         throw new InvalidConfigurationException(
-            "useVocabularyGuide=true but OPENROUTER_API_KEY environment variable is not set");
+            "useVocabularyGuide=true but DEEPSEEK_API_KEY environment variable is not set");
       }
 
       logger.log(Level.INFO, "Vocabulary-guided CEGAR enabled (predicate injection mode)");
