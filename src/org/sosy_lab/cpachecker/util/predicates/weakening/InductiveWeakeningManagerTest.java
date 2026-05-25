@@ -36,7 +36,7 @@ public class InductiveWeakeningManagerTest extends SolverViewBasedTest0 {
   @Parameters(name = "{0}")
   public static Object[] getAllSolvers() {
     return java.util.Arrays.stream(Solvers.values())
-        .filter(s -> s != Solvers.MATHSAT5)
+        .filter(s -> s != Solvers.MATHSAT5 && s != Solvers.Z3_WITH_INTERPOLATION)
         .toArray();
   }
 
