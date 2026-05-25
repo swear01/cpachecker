@@ -155,8 +155,6 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private int vInjectionSuccesses = 0;
   private int vSmtValidated = 0;
   private int vSmtFailed = 0;
-  private int vFilterKept = 0;
-  private int vFilterDropped = 0;
   private int vFallbacks = 0;
 
   // the previously analyzed counterexample to detect repeated counterexamples
@@ -531,36 +529,6 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     llmConnector.onShortfall();
   }
 
-  private List<BooleanFormula> filterPredicatesByV(List<BooleanFormula> predicates) {
-    if (vocabularyGuide == null || vocabularyGuide.isEmpty()) {
-      return predicates;
-    }
-    List<BooleanFormula> filtered = new ArrayList<>();
-    BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
-    for (BooleanFormula p : predicates) {
-      if (bfmgr.isTrue(p) || bfmgr.isFalse(p)) {
-        filtered.add(p);
-        continue;
-      }
-      if (vocabularyGuide.hasVariableOverlap(p)) {
-        filtered.add(p);
-        vFilterKept++;
-      } else {
-        vFilterDropped++;
-      }
-    }
-    if (filtered.size() < predicates.size()) {
-      logger.log(
-          Level.FINE,
-          "V-filter: kept ",
-          filtered.size(),
-          " of ",
-          predicates.size(),
-          " predicates");
-    }
-    return filtered.isEmpty() ? predicates : filtered;
-  }
-
   private @Nullable String locationKeyForNode(CFANode node) {
     String target = "N" + node.getNodeNumber();
     for (String loc : vocabularyGuide.getAllLocations()) {
@@ -824,8 +792,6 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         wv.put("V-injection fallbacks", vFallbacks);
         wv.put("V SMT-validated predicates", vSmtValidated);
         wv.put("V SMT-failed predicates", vSmtFailed);
-        wv.put("V-filter kept predicates", vFilterKept);
-        wv.put("V-filter dropped predicates", vFilterDropped);
       }
 
       interpolationManager.printStatistics(w1);
