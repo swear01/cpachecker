@@ -129,8 +129,13 @@ public class LLMConnector {
       for (Path f : cfa.getFileNames()) {
         code.append(Files.readString(f)).append("\n");
       }
-      String prompt = buildInitPrompt(code.toString());
+      String filteredCode = filterBoilerplate(code.toString());
+      String prompt = buildInitPrompt(filteredCode);
+      logger.log(Level.INFO, "=== LLM PROMPT (", prompt.length(), " chars) ===");
+      logger.log(Level.INFO, prompt);
       String response = callLLM(prompt);
+      logger.log(Level.INFO, "=== LLM RESPONSE (", response.length(), " chars) ===");
+      logger.log(Level.INFO, response);
       Map<String, List<String>> locPreds = parseLocationPredicates(response);
       int total = 0;
       for (var entry : locPreds.entrySet()) {
@@ -145,6 +150,11 @@ public class LLMConnector {
         }
       } else {
         logger.log(Level.WARNING, "LLM V_0 initialization produced no predicates");
+      }
+
+      if ("1".equals(System.getenv("VGUIDE_FORCE_PARITY"))) {
+        vg.addPredicate("N19", "(= (mod x 2) (mod y 2))");
+        logger.log(Level.WARNING, "EXPERIMENT: forced parity predicate added at N19");
       }
     } catch (Exception e) {
       logger.logUserException(Level.WARNING, e, "LLM V_0 initialization failed");
@@ -288,7 +298,66 @@ public class LLMConnector {
     }
   }
 
-  // ---- Prompts ----
+  // ---- Source filtering ----
+
+  private static final Set<String> BOILERPLATE_FUNCTIONS =
+      Set.of("reach_error", "__VERIFIER_assert", "__assert_fail",
+             "abort", "__assert", "__assert_perror_fail", "__VERIFIER_nondet");
+
+  private static String filterBoilerplate(String source) {
+    StringBuilder result = new StringBuilder();
+    StringBuilder lineBuf = new StringBuilder();
+    boolean inBoilerplate = false;
+    int braceDepth = 0;
+    for (int i = 0; i < source.length(); i++) {
+      char c = source.charAt(i);
+      if (c == '\n') {
+        String line = lineBuf.toString();
+        lineBuf.setLength(0);
+        String trimmed = line.trim();
+        if (trimmed.startsWith("extern ") || trimmed.startsWith("//") ||
+            trimmed.isEmpty()) {
+          continue;
+        }
+        boolean startBoiler = false;
+        for (String fn : BOILERPLATE_FUNCTIONS) {
+          if (trimmed.contains("void " + fn + "(") ||
+              trimmed.startsWith(fn + " ")) {
+            inBoilerplate = true;
+            braceDepth = 0;
+            startBoiler = true;
+            break;
+          }
+        }
+        if (startBoiler) {
+          for (int j = 0; j < trimmed.length(); j++) {
+            char ch = trimmed.charAt(j);
+            if (ch == '{') braceDepth++;
+            else if (ch == '}') braceDepth--;
+          }
+          if (braceDepth <= 0 && trimmed.contains("}")) {
+            inBoilerplate = false;
+          }
+          continue;
+        }
+        if (inBoilerplate) {
+          for (int j = 0; j < trimmed.length(); j++) {
+            char ch = trimmed.charAt(j);
+            if (ch == '{') braceDepth++;
+            else if (ch == '}') braceDepth--;
+          }
+          if (braceDepth <= 0 && trimmed.contains("}")) {
+            inBoilerplate = false;
+          }
+          continue;
+        }
+        result.append(line).append("\n");
+      } else {
+        lineBuf.append(c);
+      }
+    }
+    return result.toString();
+  }
 
   private String buildAbaNodeList() {
     StringBuilder sb = new StringBuilder("Program verification points (ONLY use these labels as JSON keys):\n");
@@ -305,19 +374,26 @@ public class LLMConnector {
       }
     }
 
-    sb.append("\nFUNCTION ENTRIES:\n");
+    sb.append("\nFUNCTION ENTRIES (from main program, skip boilerplate):\n");
     for (FunctionEntryNode fn : cfa.getAllFunctions().values()) {
+      String name = fn.getFunctionName();
+      if (name == null || BOILERPLATE_FUNCTIONS.contains(name)) {
+        continue;
+      }
       sb.append("  N").append(fn.getNodeNumber())
-        .append(" (function ").append(fn.getFunctionName()).append(" entry)\n");
+        .append(" (function ").append(name).append(" entry)\n");
     }
     return sb.toString();
   }
 
   private String buildInitPrompt(String sourceCode) {
+    String assertion = extractAssertion(sourceCode);
     return "You are a software verification expert analyzing a C program.\n"
         + "Below are the program's verification points. You may ONLY use these\n"
         + "N-prefixed labels as JSON keys. Focus on LOOP HEADS — put the\n"
         + "strongest invariants there. Skip any point you are unsure about.\n"
+        + (assertion.isEmpty() ? "" :
+           "This program must prove: " + assertion + "\n")
         + "Output ONLY a JSON object with SMT-LIB2 prefix notation.\n"
         + "Format:\n"
         + "{\"N19\": [\"(>= x 0)\", \"(< x 99)\"], \"N14\": [\"(= x 0)\"]}\n"
@@ -331,6 +407,16 @@ public class LLMConnector {
         + "\n"
         + "Source code:\n"
         + sourceCode;
+  }
+
+  private static String extractAssertion(String source) {
+    java.util.regex.Matcher m = java.util.regex.Pattern
+        .compile("__VERIFIER_assert\\s*\\(\\s*(.+?)\\s*\\)")
+        .matcher(source);
+    if (m.find()) {
+      return m.group(1).trim();
+    }
+    return "";
   }
 
   private String buildUpdatePrompt(
