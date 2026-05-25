@@ -50,9 +50,9 @@ import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
  */
 public class LLMConnector {
 
-  private static final String API_URL = "https://openrouter.ai/api/v1/chat/completions";
-  private static final String DEFAULT_MODEL = "deepseek/deepseek-v4-pro";
-  private static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 600;
+  private static final String API_URL = "https://api.deepseek.com/chat/completions";
+  private static final String DEFAULT_MODEL = "deepseek-chat";
+  private static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 120;
   private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
   private static final long MAX_INTERVAL_MS = 300_000L;
   private static final int TRACE_BATCH_SIZE = 10;
@@ -96,7 +96,7 @@ public class LLMConnector {
     sd = pSd;
     cfa = pCfa;
     apiKey = pApiKey;
-    String configuredModel = System.getenv("OPENROUTER_MODEL");
+    String configuredModel = System.getenv("DEEPSEEK_MODEL");
     model = configuredModel == null || configuredModel.isBlank() ? DEFAULT_MODEL : configuredModel;
     completionTokens = readOptionalPositiveIntEnv("OPENROUTER_MAX_COMPLETION_TOKENS");
     reasoningTokens = readOptionalPositiveIntEnv("OPENROUTER_REASONING_TOKENS");
@@ -152,14 +152,15 @@ public class LLMConnector {
         logger.log(Level.WARNING, "LLM V_0 initialization produced no predicates");
       }
 
-      if ("1".equals(System.getenv("VGUIDE_FORCE_PARITY"))) {
-        vg.addPredicate("N19", "(= (mod x 2) (mod y 2))");
-        logger.log(Level.WARNING, "EXPERIMENT: forced parity predicate added at N19");
-      }
     } catch (Exception e) {
       logger.logUserException(Level.WARNING, e, "LLM V_0 initialization failed");
     } finally {
       initialVocabDone.countDown();
+    }
+
+    if ("1".equals(System.getenv("VGUIDE_FORCE_PARITY"))) {
+      vg.addPredicate("N19", "(= (mod x 2) (mod y 2))");
+      logger.log(Level.WARNING, "EXPERIMENT: forced parity predicate added at N19");
     }
   }
 
@@ -364,7 +365,7 @@ public class LLMConnector {
 
     Optional<LoopStructure> ls = cfa.getLoopStructure();
     if (ls.isPresent()) {
-      sb.append("\nLOOP HEADS (most important — put your strongest invariants here):\n");
+      sb.append("\nLOOP HEADS (most important — abstraction predicates are especially useful here):\n");
       for (LoopStructure.Loop loop : ls.orElseThrow().getAllLoops()) {
         for (CFANode head : loop.getLoopHeads()) {
           sb.append("  N").append(head.getNodeNumber())
@@ -374,7 +375,7 @@ public class LLMConnector {
       }
     }
 
-    sb.append("\nFUNCTION ENTRIES (from main program, skip boilerplate):\n");
+    sb.append("\nFUNCTION ENTRIES (predicates useful in precision here, skip boilerplate):\n");
     for (FunctionEntryNode fn : cfa.getAllFunctions().values()) {
       String name = fn.getFunctionName();
       if (name == null || BOILERPLATE_FUNCTIONS.contains(name)) {
@@ -388,15 +389,31 @@ public class LLMConnector {
 
   private String buildInitPrompt(String sourceCode) {
     String assertion = extractAssertion(sourceCode);
-    return "You are a software verification expert analyzing a C program.\n"
-        + "Below are the program's verification points. You may ONLY use these\n"
-        + "N-prefixed labels as JSON keys. Focus on LOOP HEADS — put the\n"
-        + "strongest invariants there. Skip any point you are unsure about.\n"
+    return "You are helping a CEGAR-based predicate abstraction verifier.\n"
+        + "Your task is NOT to generate complete loop invariants.\n"
+        + "Your task is to propose candidate abstraction predicates.\n"
+        + "\n"
+        + "A useful predicate does NOT need to be true at the location.\n"
+        + "It does NOT need to be implied by the current block formula.\n"
+        + "Instead, it should help the verifier distinguish relevant states,\n"
+        + "split spurious counterexamples, and prove the target assertion.\n"
+        + "\n"
+        + "Below are the program's verification points. You may ONLY use\n"
+        + "these N-prefixed labels as JSON keys. Focus on LOOP HEADS.\n"
         + (assertion.isEmpty() ? "" :
-           "This program must prove: " + assertion + "\n")
+           "Target assertion to prove: " + assertion + "\n"
+           + "Generate predicates that help prove this assertion.\n"
+           + "The assertion predicate itself is useful even if not always true.\n"
+           + "\n")
         + "Output ONLY a JSON object with SMT-LIB2 prefix notation.\n"
         + "Format:\n"
-        + "{\"N19\": [\"(>= x 0)\", \"(< x 99)\"], \"N14\": [\"(= x 0)\"]}\n"
+        + "{\"N19\": [\"(= (mod x 2) (mod y 2))\", \"(>= x 0)\", \"(< x 99)\"]}\n"
+        + "\n"
+        + "Prefer predicates that:\n"
+        + "1. mention variables in the target assertion,\n"
+        + "2. capture relations between variables,\n"
+        + "3. capture branch conditions or loop guards,\n"
+        + "4. capture modular/arithmetic properties relevant to the assertion.\n"
         + "\n"
         + "IMPORTANT: Use ONLY predicates with operators:\n"
         + "=, >=, <=, >, <, +, -, *, mod, and, or, not.\n"
