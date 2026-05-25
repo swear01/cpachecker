@@ -478,11 +478,17 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           if (pe.isUnsat()) {
             valid.add(p);
             vSmtValidated++;
+            logger.log(Level.INFO, "V-FATE [", locKey, "] PASS: ",
+                fmgr.dumpFormula(p).toString().replace("\n", " "));
           } else {
             vSmtFailed++;
+            logger.log(Level.INFO, "V-FATE [", locKey, "] FAIL: ",
+                fmgr.dumpFormula(p).toString().replace("\n", " "));
           }
         } catch (SolverException se) {
           vSmtFailed++;
+          logger.log(Level.INFO, "V-FATE [", locKey, "] ERROR: ",
+              fmgr.dumpFormula(p).toString().replace("\n", " "));
         }
       }
       if (!valid.isEmpty()) {
