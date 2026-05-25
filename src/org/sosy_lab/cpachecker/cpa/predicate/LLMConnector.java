@@ -291,15 +291,11 @@ public class LLMConnector {
   // ---- Prompts ----
 
   private String buildAbaNodeList() {
-    StringBuilder sb = new StringBuilder("Program verification points (use EXACTLY these labels):\n");
-
-    for (FunctionEntryNode fn : cfa.getAllFunctions().values()) {
-      sb.append("  N").append(fn.getNodeNumber())
-        .append(" (function ").append(fn.getFunctionName()).append(" entry)\n");
-    }
+    StringBuilder sb = new StringBuilder("Program verification points (ONLY use these labels as JSON keys):\n");
 
     Optional<LoopStructure> ls = cfa.getLoopStructure();
     if (ls.isPresent()) {
+      sb.append("\nLOOP HEADS (most important — put your strongest invariants here):\n");
       for (LoopStructure.Loop loop : ls.orElseThrow().getAllLoops()) {
         for (CFANode head : loop.getLoopHeads()) {
           sb.append("  N").append(head.getNodeNumber())
@@ -308,19 +304,25 @@ public class LLMConnector {
         }
       }
     }
+
+    sb.append("\nFUNCTION ENTRIES:\n");
+    for (FunctionEntryNode fn : cfa.getAllFunctions().values()) {
+      sb.append("  N").append(fn.getNodeNumber())
+        .append(" (function ").append(fn.getFunctionName()).append(" entry)\n");
+    }
     return sb.toString();
   }
 
   private String buildInitPrompt(String sourceCode) {
     return "You are a software verification expert analyzing a C program.\n"
-        + "Below are the program's verification points (use EXACTLY these labels\n"
-        + "like \"N18\" as JSON keys). Generate meaningful SMT-LIB2 predicates for each\n"
-        + "point you are confident about. Skip points you are unsure about.\n"
-        + "Output ONLY a JSON object. Use SMT-LIB2 prefix notation.\n"
+        + "Below are the program's verification points. You may ONLY use these\n"
+        + "N-prefixed labels as JSON keys. Focus on LOOP HEADS — put the\n"
+        + "strongest invariants there. Skip any point you are unsure about.\n"
+        + "Output ONLY a JSON object with SMT-LIB2 prefix notation.\n"
         + "Format:\n"
-        + "{\"N18\": [\"(>= x 0)\", \"(< i n)\"], \"N12\": [\"(= x 0)\"]}\n"
+        + "{\"N19\": [\"(>= x 0)\", \"(< x 99)\"], \"N14\": [\"(= x 0)\"]}\n"
         + "\n"
-        + "IMPORTANT: Use ONLY linear arithmetic predicates with operators:\n"
+        + "IMPORTANT: Use ONLY predicates with operators:\n"
         + "=, >=, <=, >, <, +, -, *, mod, and, or, not.\n"
         + "Do NOT use array select/store, forall/exists quantifiers, or ite.\n"
         + "Variable names: use exact names from the C source code.\n"
