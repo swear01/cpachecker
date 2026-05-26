@@ -22,7 +22,7 @@ run_cpa() {
   timeout "$LLM_TIMEOUT" "$CPA_SH" \
     --heap "$HEAP" --predicateAnalysis --stats --no-output-files \
     --timelimit "${TIMELIMIT}s" --spec "$SPEC" "$@" \
-    > "$outlog" 2>&1 || true
+    > "$outlog" 2>&1 < /dev/null || true
 }
 
 extract_refs() { grep "Number of predicate refinements:" "$1" | grep -oP '\d+' | head -1; }
