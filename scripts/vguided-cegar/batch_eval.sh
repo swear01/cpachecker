@@ -65,13 +65,38 @@ stage_stock() {
 
   echo "benchmark,category,stock_refs,result,time_s" > "$outcsv"
 
+  # Process in parallel using background jobs + wait
+  local max_jobs=${PARALLEL:-1}
+  local running=0
+  local tmpdir="$outdir/.tmp"
+  mkdir -p "$tmpdir"
+
   while IFS='|' read -r category name prog; do
     [ -f "$prog" ] || continue
-    echo "[stock] $name ($category)" >&2
-    local stock_info=$(run_stock "$prog" "$outdir" "$name")
-    echo "$name,$category,$stock_info" >> "$outcsv"
+
+    # Wait if at max parallelism
+    while [ "$running" -ge "$max_jobs" ]; do
+      wait -n 2>/dev/null || true
+      running=$((running - 1))
+    done
+
+    (
+      echo "[stock] $name ($category)" >&2
+      local stock_info=$(run_stock "$prog" "$outdir" "$name")
+      echo "$name,$category,$stock_info" > "$tmpdir/${name}.result"
+    ) &
+    running=$((running + 1))
   done < "$candidates"
 
+  wait
+
+  # Merge results in original order
+  while IFS='|' read -r category name prog; do
+    [ -f "$prog" ] || continue
+    cat "$tmpdir/${name}.result" 2>/dev/null
+  done < "$candidates" >> "$outcsv"
+
+  rm -rf "$tmpdir"
   echo "Stage A done. Results: $outcsv"
 }
 
