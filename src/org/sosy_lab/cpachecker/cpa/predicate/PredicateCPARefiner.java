@@ -164,6 +164,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private int vFallbacks = 0;
   private int vAbstractionCandidates = 0;
   private Map<CFANode, Set<BooleanFormula>> pendingAbstractionCandidates = new LinkedHashMap<>();
+  private boolean vPrecisionInjected = false;
 
   // the previously analyzed counterexample to detect repeated counterexamples
   private final Set<ImmutableList<CFANode>> lastErrorPaths = new HashSet<>();
@@ -550,9 +551,16 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   }
 
   private void injectAbstractionCandidates(ARGReachedSet pReached) {
-    if (predAbsManager == null || pendingAbstractionCandidates.isEmpty()) {
+    if (vPrecisionInjected) return;
+    if (predAbsManager == null) return;
+
+    if ("1".equals(System.getenv("VGUIDE_INJECT_TOP1_PARITY_ONCE"))) {
+      injectTop1ParityOnce(pReached);
+      vPrecisionInjected = true;
       return;
     }
+
+    if (pendingAbstractionCandidates.isEmpty()) return;
     Map<CFANode, Set<BooleanFormula>> candidates = new LinkedHashMap<>(pendingAbstractionCandidates);
     pendingAbstractionCandidates.clear();
 
@@ -587,6 +595,39 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
 
     logger.log(Level.INFO, "V precision-injected ", total,
         " abstraction-candidates as local predicates");
+  }
+
+  private void injectTop1ParityOnce(ARGReachedSet pReached) {
+    if (pendingAbstractionCandidates.isEmpty()) {
+      logger.log(Level.WARNING, "V top1 parity: no abstraction candidates available yet");
+      return;
+    }
+    AbstractState firstState = pReached.asReachedSet().getFirstState();
+    if (firstState == null) return;
+    Precision currentPrec = pReached.asReachedSet().getPrecision(firstState);
+    PredicatePrecision currentPredPrec =
+        Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
+    if (currentPredPrec == null) return;
+
+    List<AbstractionPredicate> absPreds = new ArrayList<>();
+    for (var entry : pendingAbstractionCandidates.entrySet()) {
+      for (BooleanFormula bf : entry.getValue()) {
+        try {
+          absPreds.add(predAbsManager.getPredicateFor(bf));
+        } catch (Exception e) {
+          logger.logDebugException(e, "V top1 parity: AbstractionPredicate failed");
+        }
+      }
+    }
+    pendingAbstractionCandidates.clear();
+    if (absPreds.isEmpty()) return;
+
+    PredicatePrecision newPredPrec = currentPredPrec.addGlobalPredicates(absPreds);
+    pReached.updatePrecisionGlobally(
+        newPredPrec, p -> p instanceof PredicatePrecision);
+
+    logger.log(Level.WARNING, "V one-shot precision injected ",
+        absPreds.size(), " abstraction-candidates (first batch, once)");
   }
 
   private @Nullable String locationKeyForNode(CFANode node) {
