@@ -560,6 +560,11 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       return;
     }
 
+    if (!"1".equals(System.getenv("VGUIDE_INJECT_PRECISION"))) {
+      pendingAbstractionCandidates.clear();
+      return;
+    }
+
     if (pendingAbstractionCandidates.isEmpty()) return;
     Map<CFANode, Set<BooleanFormula>> candidates = new LinkedHashMap<>(pendingAbstractionCandidates);
     pendingAbstractionCandidates.clear();
