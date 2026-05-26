@@ -4,7 +4,8 @@
 #   Stage A: ./batch_eval.sh stock <candidates.txt> <outdir>
 #   Stage B: ./batch_eval.sh vmodes <filtered.csv> <outdir>
 #   Full:    ./batch_eval.sh all <candidates.txt> <outdir>
-set -euo pipefail
+# No strict error checking — this is a batch script
+# that handles individual failures gracefully
 
 REPO="$(dirname "$0")/../.."
 CPA_SH="$REPO/scripts/cpa.sh"
@@ -21,7 +22,7 @@ run_cpa() {
   timeout "$LLM_TIMEOUT" "$CPA_SH" \
     --heap "$HEAP" --predicateAnalysis --stats --no-output-files \
     --timelimit "${TIMELIMIT}s" --spec "$SPEC" "$@" \
-    > "$outlog" 2>&1
+    > "$outlog" 2>&1 || true
 }
 
 extract_refs() { grep "Number of predicate refinements:" "$1" | grep -oP '\d+' | head -1; }
