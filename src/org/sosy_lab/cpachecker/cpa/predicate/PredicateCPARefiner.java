@@ -615,10 +615,14 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     if (currentPredPrec == null) return;
 
     List<AbstractionPredicate> absPreds = new ArrayList<>();
+    boolean onlyFirst = "1".equals(System.getenv("VGUIDE_TOP1_ONLY_EQ"));
+    int count = 0;
     for (var entry : pendingAbstractionCandidates.entrySet()) {
       for (BooleanFormula bf : entry.getValue()) {
+        if (onlyFirst && count > 0) continue;
         try {
           absPreds.add(predAbsManager.getPredicateFor(bf));
+          count++;
         } catch (Exception e) {
           logger.logDebugException(e, "V top1 parity: AbstractionPredicate failed");
         }
