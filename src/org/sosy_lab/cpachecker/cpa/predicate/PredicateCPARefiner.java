@@ -16,6 +16,7 @@ import static org.sosy_lab.cpachecker.util.statistics.StatisticsWriter.writingSt
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.base.Predicates;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -39,6 +40,7 @@ import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.CPAcheckerResult.Result;
 import org.sosy_lab.cpachecker.core.counterexample.CounterexampleInfo;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
+import org.sosy_lab.cpachecker.core.interfaces.Precision;
 import org.sosy_lab.cpachecker.core.interfaces.Statistics;
 import org.sosy_lab.cpachecker.core.interfaces.StatisticsProvider;
 import org.sosy_lab.cpachecker.core.reachedset.UnmodifiableReachedSet;
@@ -55,6 +57,8 @@ import org.sosy_lab.cpachecker.exceptions.RefinementFailedException;
 import org.sosy_lab.cpachecker.exceptions.RefinementFailedException.Reason;
 import org.sosy_lab.cpachecker.util.AbstractStates;
 import org.sosy_lab.cpachecker.util.LoopStructure;
+import org.sosy_lab.cpachecker.util.Precisions;
+import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
 import org.sosy_lab.cpachecker.util.LoopStructure.Loop;
 import org.sosy_lab.cpachecker.util.cwriter.LoopCollectingEdgeVisitor;
 import org.sosy_lab.cpachecker.util.predicates.NewtonRefinementManager;
@@ -157,6 +161,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private int vSmtFailed = 0;
   private int vFallbacks = 0;
   private int vAbstractionCandidates = 0;
+  private List<BooleanFormula> pendingAbstractionCandidates = new ArrayList<>();
 
   // the previously analyzed counterexample to detect repeated counterexamples
   private final Set<ImmutableList<CFANode>> lastErrorPaths = new HashSet<>();
@@ -182,6 +187,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private final @Nullable LLMConnector llmConnector;
   private boolean useVGuide;
   private final RefinementStrategy strategy;
+  private final @Nullable PredicateAbstractionManager predAbsManager;
   private final Optional<NewtonRefinementManager> newtonManager;
   private final Optional<UCBRefinementManager> ucbManager;
 
@@ -201,7 +207,8 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       final @Nullable List<InterpolationManager> pAllInterpolationManagers,
       final @Nullable List<String> pInterpolationManagerLabels,
       final @Nullable VocabularyGuide pVocabularyGuide,
-      final @Nullable LLMConnector pLlmConnector)
+      final @Nullable LLMConnector pLlmConnector,
+      final @Nullable PredicateAbstractionManager pPredAbsManager)
       throws InvalidConfigurationException {
     pConfig.inject(this, PredicateCPARefiner.class);
     logger = pLogger;
@@ -250,6 +257,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     vocabularyGuide = pVocabularyGuide;
     llmConnector = pLlmConnector;
     useVGuide = (vocabularyGuide != null);
+    predAbsManager = pPredAbsManager;
   }
 
   /** Create list of formulas on path. */
@@ -320,6 +328,8 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
                 abstractionStatesTrace,
                 predicates,
                 repeatedCounterexample && !wereInvariantsUsedInLastRefinement);
+
+        injectAbstractionCandidates(pReached);
 
         if (!trackFurtherCEX) {
           // when trackFurtherCEX is false, we only track 'one' CEX, otherwise we track all of them.
@@ -484,6 +494,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           } else {
             vSmtFailed++;
             vAbstractionCandidates++;
+            pendingAbstractionCandidates.add(p);
             logger.log(Level.INFO, "V-FATE [", locKey, "] ABSTRACTION-CANDIDATE: ",
                 fmgr.dumpFormula(p).toString().replace("\n", " "));
           }
@@ -533,6 +544,46 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       llmConnector.addTrace(fmgr.dumpFormula(f).toString());
     }
     llmConnector.onShortfall();
+  }
+
+  private void injectAbstractionCandidates(ARGReachedSet pReached) {
+    if (predAbsManager == null || pendingAbstractionCandidates.isEmpty()) {
+      pendingAbstractionCandidates.clear();
+      return;
+    }
+    List<AbstractionPredicate> absPreds = new ArrayList<>();
+    for (BooleanFormula bf : pendingAbstractionCandidates) {
+      try {
+        absPreds.add(predAbsManager.getPredicateFor(bf));
+      } catch (Exception e) {
+        logger.logDebugException(e, "Failed to create AbstractionPredicate");
+      }
+    }
+    pendingAbstractionCandidates.clear();
+    if (absPreds.isEmpty()) {
+      return;
+    }
+
+    AbstractState firstState = pReached.asReachedSet().getFirstState();
+    if (firstState == null) {
+      return;
+    }
+    Precision currentPrec = pReached.asReachedSet().getPrecision(firstState);
+    PredicatePrecision currentPredPrec =
+        Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
+    if (currentPredPrec == null) {
+      return;
+    }
+
+    PredicatePrecision newPredPrec = currentPredPrec.addGlobalPredicates(absPreds);
+    pReached.updatePrecisionGlobally(
+        newPredPrec, Predicates.instanceOf(PredicatePrecision.class));
+
+    logger.log(
+        Level.INFO,
+        "V precision-injected ",
+        absPreds.size(),
+        " abstraction-candidates as global predicates");
   }
 
   private @Nullable String locationKeyForNode(CFANode node) {
