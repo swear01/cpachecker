@@ -23,6 +23,8 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -161,7 +163,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private int vSmtFailed = 0;
   private int vFallbacks = 0;
   private int vAbstractionCandidates = 0;
-  private List<BooleanFormula> pendingAbstractionCandidates = new ArrayList<>();
+  private Map<CFANode, Set<BooleanFormula>> pendingAbstractionCandidates = new LinkedHashMap<>();
 
   // the previously analyzed counterexample to detect repeated counterexamples
   private final Set<ImmutableList<CFANode>> lastErrorPaths = new HashSet<>();
@@ -494,7 +496,8 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           } else {
             vSmtFailed++;
             vAbstractionCandidates++;
-            pendingAbstractionCandidates.add(p);
+            pendingAbstractionCandidates
+                .computeIfAbsent(node, k -> new LinkedHashSet<>()).add(p);
             logger.log(Level.INFO, "V-FATE [", locKey, "] ABSTRACTION-CANDIDATE: ",
                 fmgr.dumpFormula(p).toString().replace("\n", " "));
           }
@@ -548,42 +551,42 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
 
   private void injectAbstractionCandidates(ARGReachedSet pReached) {
     if (predAbsManager == null || pendingAbstractionCandidates.isEmpty()) {
-      pendingAbstractionCandidates.clear();
       return;
     }
-    List<AbstractionPredicate> absPreds = new ArrayList<>();
-    for (BooleanFormula bf : pendingAbstractionCandidates) {
-      try {
-        absPreds.add(predAbsManager.getPredicateFor(bf));
-      } catch (Exception e) {
-        logger.logDebugException(e, "Failed to create AbstractionPredicate");
-      }
-    }
+    Map<CFANode, Set<BooleanFormula>> candidates = new LinkedHashMap<>(pendingAbstractionCandidates);
     pendingAbstractionCandidates.clear();
-    if (absPreds.isEmpty()) {
-      return;
-    }
 
     AbstractState firstState = pReached.asReachedSet().getFirstState();
-    if (firstState == null) {
-      return;
-    }
+    if (firstState == null) return;
     Precision currentPrec = pReached.asReachedSet().getPrecision(firstState);
     PredicatePrecision currentPredPrec =
         Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
-    if (currentPredPrec == null) {
-      return;
+    if (currentPredPrec == null) return;
+
+    int total = 0;
+    List<Map.Entry<CFANode, AbstractionPredicate>> entries = new ArrayList<>();
+    for (var entry : candidates.entrySet()) {
+      CFANode node = entry.getKey();
+      for (BooleanFormula bf : entry.getValue()) {
+        try {
+          entries.add(Map.entry(node, predAbsManager.getPredicateFor(bf)));
+          total++;
+        } catch (Exception e) {
+          logger.logDebugException(e, "Failed to create AbstractionPredicate");
+        }
+      }
+      logger.log(Level.INFO, "V precision-candidate at N", node.getNodeNumber(),
+          ": ", entry.getValue().size(), " unique predicates");
     }
 
-    PredicatePrecision newPredPrec = currentPredPrec.addGlobalPredicates(absPreds);
+    if (entries.isEmpty()) return;
+
+    PredicatePrecision newPredPrec = currentPredPrec.addLocalPredicates(entries);
     pReached.updatePrecisionGlobally(
         newPredPrec, Predicates.instanceOf(PredicatePrecision.class));
 
-    logger.log(
-        Level.INFO,
-        "V precision-injected ",
-        absPreds.size(),
-        " abstraction-candidates as global predicates");
+    logger.log(Level.INFO, "V precision-injected ", total,
+        " abstraction-candidates as local predicates");
   }
 
   private @Nullable String locationKeyForNode(CFANode node) {
