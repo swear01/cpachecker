@@ -560,6 +560,12 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       return;
     }
 
+    if ("1".equals(System.getenv("VGUIDE_INJECT_ASSERTION_ORACLE_ONCE"))) {
+      injectAssertionOracleOnce(pReached);
+      vPrecisionInjected = true;
+      return;
+    }
+
     if (!"1".equals(System.getenv("VGUIDE_INJECT_PRECISION"))) {
       pendingAbstractionCandidates.clear();
       return;
@@ -637,6 +643,39 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
 
     logger.log(Level.WARNING, "V one-shot precision injected ",
         absPreds.size(), " abstraction-candidates (first batch, once)");
+  }
+
+  private void injectAssertionOracleOnce(ARGReachedSet pReached) {
+    if (pendingAbstractionCandidates.isEmpty()) {
+      logger.log(Level.WARNING, "V assertion oracle: no candidates available yet, retrying next refinement");
+      return;
+    }
+    AbstractState firstState = pReached.asReachedSet().getFirstState();
+    if (firstState == null) return;
+    Precision currentPrec = pReached.asReachedSet().getPrecision(firstState);
+    PredicatePrecision currentPredPrec =
+        Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
+    if (currentPredPrec == null) return;
+
+    List<AbstractionPredicate> absPreds = new ArrayList<>();
+    for (var entry : pendingAbstractionCandidates.entrySet()) {
+      for (BooleanFormula bf : entry.getValue()) {
+        try {
+          absPreds.add(predAbsManager.getPredicateFor(bf));
+        } catch (Exception e) {
+          logger.logDebugException(e, "V assertion oracle: AbstractionPredicate failed");
+        }
+      }
+    }
+    pendingAbstractionCandidates.clear();
+    if (absPreds.isEmpty()) return;
+
+    PredicatePrecision newPredPrec = currentPredPrec.addGlobalPredicates(absPreds);
+    pReached.updatePrecisionGlobally(
+        newPredPrec, p -> p instanceof PredicatePrecision);
+
+    logger.log(Level.WARNING, "V assertion oracle precision injected ",
+        absPreds.size(), " predicates (from first abstraction candidates)");
   }
 
   private @Nullable String locationKeyForNode(CFANode node) {
