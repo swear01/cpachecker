@@ -164,6 +164,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private int vFallbacks = 0;
   private int vAbstractionCandidates = 0;
   private Map<CFANode, Set<BooleanFormula>> pendingAbstractionCandidates = new LinkedHashMap<>();
+  private Set<String> lastEncodedVars = Set.of();
   private boolean vPrecisionInjected = false;
 
   // the previously analyzed counterexample to detect repeated counterexamples
@@ -462,6 +463,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     for (int i = 1; i < formulas.getFormulas().size(); i++) {
       encodedVars.addAll(fmgr.extractVariableNames(formulas.getFormulas().get(i)));
     }
+    lastEncodedVars = encodedVars;
 
     int vAdded = 0;
     int n = Math.min(absStates.size(), interpolants.size());
@@ -646,10 +648,25 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   }
 
   private void injectAssertionOracleOnce(ARGReachedSet pReached) {
-    if (pendingAbstractionCandidates.isEmpty()) {
-      logger.log(Level.WARNING, "V assertion oracle: no candidates available yet, retrying next refinement");
+    String rawPred = System.getenv("VGUIDE_ASSERTION_PREDICATE");
+    if (rawPred == null || rawPred.isBlank()) {
+      // Fallback: use pending abstraction candidates (backward compat)
+      if (pendingAbstractionCandidates.isEmpty()) {
+        logger.log(Level.WARNING, "V assertion oracle: no predicate set, no candidates available");
+        return;
+      }
+      injectTop1ParityOnce(pReached);
       return;
     }
+
+    BooleanFormula assertionPred = VocabularyGuide.parsePredicate(
+        rawPred, fmgr, lastEncodedVars);
+    if (assertionPred == null) {
+      logger.log(Level.WARNING, "V assertion oracle: parse failed for: ", rawPred,
+          " encodedVars=", lastEncodedVars.size());
+      return;
+    }
+
     AbstractState firstState = pReached.asReachedSet().getFirstState();
     if (firstState == null) return;
     Precision currentPrec = pReached.asReachedSet().getPrecision(firstState);
@@ -657,25 +674,20 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
     if (currentPredPrec == null) return;
 
-    List<AbstractionPredicate> absPreds = new ArrayList<>();
-    for (var entry : pendingAbstractionCandidates.entrySet()) {
-      for (BooleanFormula bf : entry.getValue()) {
-        try {
-          absPreds.add(predAbsManager.getPredicateFor(bf));
-        } catch (Exception e) {
-          logger.logDebugException(e, "V assertion oracle: AbstractionPredicate failed");
-        }
-      }
+    AbstractionPredicate absPred;
+    try {
+      absPred = predAbsManager.getPredicateFor(assertionPred);
+    } catch (Exception e) {
+      logger.log(Level.WARNING, "V assertion oracle: AbstractionPredicate creation failed");
+      return;
     }
-    pendingAbstractionCandidates.clear();
-    if (absPreds.isEmpty()) return;
 
-    PredicatePrecision newPredPrec = currentPredPrec.addGlobalPredicates(absPreds);
+    PredicatePrecision newPredPrec = currentPredPrec.addGlobalPredicates(List.of(absPred));
     pReached.updatePrecisionGlobally(
         newPredPrec, p -> p instanceof PredicatePrecision);
 
-    logger.log(Level.WARNING, "V assertion oracle precision injected ",
-        absPreds.size(), " predicates (from first abstraction candidates)");
+    logger.log(Level.WARNING, "V assertion oracle precision injected (1 predicate)");
+    logger.log(Level.WARNING, "  predicate: ", this.fmgr.dumpFormula(assertionPred));
   }
 
   private @Nullable String locationKeyForNode(CFANode node) {
