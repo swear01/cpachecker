@@ -569,7 +569,13 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     }
 
     if (!"1".equals(System.getenv("VGUIDE_INJECT_PRECISION"))) {
-      pendingAbstractionCandidates.clear();
+      String topK = System.getenv("VGUIDE_PRECISION_TOP_K");
+      if (topK != null && !topK.isBlank() && !pendingAbstractionCandidates.isEmpty()) {
+        injectRankedTopK(pReached, Integer.parseInt(topK));
+        vPrecisionInjected = true;
+      } else {
+        pendingAbstractionCandidates.clear();
+      }
       return;
     }
 
@@ -688,6 +694,57 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
 
     logger.log(Level.WARNING, "V assertion oracle precision injected (1 predicate)");
     logger.log(Level.WARNING, "  predicate: ", this.fmgr.dumpFormula(assertionPred));
+  }
+
+  private void injectRankedTopK(ARGReachedSet pReached, int k) {
+    if (pendingAbstractionCandidates.isEmpty()) return;
+    AbstractState firstState = pReached.asReachedSet().getFirstState();
+    if (firstState == null) return;
+    Precision currentPrec = pReached.asReachedSet().getPrecision(firstState);
+    PredicatePrecision currentPredPrec =
+        Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
+    if (currentPredPrec == null) return;
+
+    // Collect all candidates with their formula text for ranking
+    record Scored(AbstractionPredicate pred, int score) {}
+    List<Scored> scored = new ArrayList<>();
+    for (var entry : pendingAbstractionCandidates.entrySet()) {
+      for (BooleanFormula bf : entry.getValue()) {
+        try {
+          AbstractionPredicate ap = predAbsManager.getPredicateFor(bf);
+          String text = fmgr.dumpFormula(bf).toString();
+          int s = 0;
+          // Relational predicate (>1 variable): +3
+          Set<String> vars = fmgr.extractVariableNames(bf);
+          if (vars.size() >= 2) s += 3;
+          // Contains mod: +2
+          if (text.contains("bvurem") || text.contains("mod")) s += 2;
+          // Shorter formula: +1
+          if (text.length() < 400) s += 1;
+          // Loop-head location: +1 (all candidates are at loop heads)
+          if (entry.getKey().getFunctionName() != null) s += 1;
+          scored.add(new Scored(ap, s));
+        } catch (Exception e) {
+          logger.logDebugException(e, "V ranked top-k: AbstractionPredicate failed");
+        }
+      }
+    }
+    pendingAbstractionCandidates.clear();
+    if (scored.isEmpty()) return;
+
+    // Sort by score descending, take top K
+    scored.sort((a, b) -> Integer.compare(b.score, a.score));
+    List<AbstractionPredicate> selected = new ArrayList<>();
+    for (int i = 0; i < Math.min(k, scored.size()); i++) {
+      selected.add(scored.get(i).pred);
+    }
+
+    PredicatePrecision newPredPrec = currentPredPrec.addGlobalPredicates(selected);
+    pReached.updatePrecisionGlobally(
+        newPredPrec, p -> p instanceof PredicatePrecision);
+
+    logger.log(Level.WARNING, "V ranked top-", k, " precision injected ",
+        selected.size(), " predicates (from ", scored.size(), " candidates)");
   }
 
   private @Nullable String locationKeyForNode(CFANode node) {
