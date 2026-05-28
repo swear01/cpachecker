@@ -568,6 +568,12 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       return;
     }
 
+    if ("1".equals(System.getenv("VGUIDE_INJECT_REPAIR_PREDICATES_ONCE"))) {
+      injectRepairPredicatesOnce(pReached);
+      vPrecisionInjected = true;
+      return;
+    }
+
     if (!"1".equals(System.getenv("VGUIDE_INJECT_PRECISION"))) {
       String topK = System.getenv("VGUIDE_PRECISION_TOP_K");
       if (topK != null && !topK.isBlank() && !pendingAbstractionCandidates.isEmpty()) {
@@ -694,6 +700,89 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
 
     logger.log(Level.WARNING, "V assertion oracle precision injected (1 predicate)");
     logger.log(Level.WARNING, "  predicate: ", this.fmgr.dumpFormula(assertionPred));
+  }
+
+  private void injectRepairPredicatesOnce(ARGReachedSet pReached) {
+    String repairFile = System.getenv("VGUIDE_REPAIR_CANDIDATES_FILE");
+    if (repairFile == null || repairFile.isBlank()) {
+      logger.log(Level.WARNING, "V B4 repair: VGUIDE_REPAIR_CANDIDATES_FILE not set");
+      return;
+    }
+    java.nio.file.Path path = java.nio.file.Path.of(repairFile);
+    if (!java.nio.file.Files.exists(path)) {
+      logger.log(Level.WARNING, "V B4 repair: file not found: ", repairFile);
+      return;
+    }
+    String jsonText;
+    try {
+      jsonText = java.nio.file.Files.readString(path);
+    } catch (Exception e) {
+      logger.log(Level.WARNING, "V B4 repair: read failed: ", e.getMessage());
+      return;
+    }
+
+    // Parse JSON: {"location": ["pred1", "pred2", ...], ...}
+    Map<String, List<String>> locPreds;
+    try {
+      locPreds = LLMConnector.parseLocationPredicates(jsonText);
+    } catch (Exception e) {
+      logger.log(Level.WARNING, "V B4 repair: JSON parse failed: ", e.getMessage());
+      return;
+    }
+    if (locPreds.isEmpty()) {
+      logger.log(Level.WARNING, "V B4 repair: no predicates in file");
+      return;
+    }
+
+    // Parse predicates with encoded variable names
+    int parsed = 0;
+    int failed = 0;
+    List<BooleanFormula> validPreds = new ArrayList<>();
+    for (var entry : locPreds.entrySet()) {
+      for (String text : entry.getValue()) {
+        BooleanFormula f = VocabularyGuide.parsePredicate(text, fmgr, lastEncodedVars);
+        if (f != null) {
+          validPreds.add(f);
+          parsed++;
+        } else {
+          failed++;
+        }
+      }
+    }
+
+    logger.log(Level.INFO, "V B4 repair: parsed ", parsed, " predicates, ", failed, " failed");
+
+    if (validPreds.isEmpty()) return;
+
+    AbstractState firstState = pReached.asReachedSet().getFirstState();
+    if (firstState == null) return;
+    Precision currentPrec = pReached.asReachedSet().getPrecision(firstState);
+    PredicatePrecision currentPredPrec =
+        Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
+    if (currentPredPrec == null) return;
+
+    List<AbstractionPredicate> absPreds = new ArrayList<>();
+    for (BooleanFormula bf : validPreds) {
+      try {
+        absPreds.add(predAbsManager.getPredicateFor(bf));
+      } catch (Exception e) {
+        logger.logDebugException(e, "V B4 repair: AbstractionPredicate failed");
+      }
+    }
+
+    int topK = 5;
+    try { topK = Integer.parseInt(System.getenv().getOrDefault("VGUIDE_B4_REPAIR_TOP_K", "5")); }
+    catch (NumberFormatException ex) { logger.logDebugException(ex, "VGUIDE_B4_REPAIR_TOP_K parse failed"); }
+    if (absPreds.size() > topK) {
+      absPreds = absPreds.subList(0, topK);
+    }
+
+    PredicatePrecision newPredPrec = currentPredPrec.addGlobalPredicates(absPreds);
+    pReached.updatePrecisionGlobally(
+        newPredPrec, p -> p instanceof PredicatePrecision);
+
+    logger.log(Level.WARNING, "V B4 repair injected ", absPreds.size(),
+        " predicates (from ", validPreds.size(), " candidates, top-", topK, ")");
   }
 
   private void injectRankedTopK(ARGReachedSet pReached, int k) {
@@ -1027,14 +1116,14 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         java.nio.file.Files.createDirectories(dir);
         StringBuilder json = new StringBuilder();
         json.append("{\n");
-        json.append("  \"result\": \"").append(result).append("\",\n");
+        json.append("  \"result\": \"").append(escapeJson(String.valueOf(result))).append("\",\n");
         json.append("  \"refinements\": ").append(totalRefinement.getUpdateCount()).append(",\n");
         json.append("  \"v_injection_attempts\": ").append(vInjectionAttempts).append(",\n");
         json.append("  \"v_injection_successes\": ").append(vInjectionSuccesses).append(",\n");
         json.append("  \"v_smt_validated\": ").append(vSmtValidated).append(",\n");
         json.append("  \"v_smt_failed\": ").append(vSmtFailed).append(",\n");
         json.append("  \"v_abstraction_candidates\": ").append(vAbstractionCandidates).append(",\n");
-        json.append("  \"use_v_guide\": ").append(useVGuide).append(",\n");
+        json.append("  \"v_fallbacks\": ").append(vFallbacks).append(",\n");
         json.append("  \"vocabulary_size\": ").append(vocabularyGuide != null ? vocabularyGuide.size() : 0)
             .append(",\n");
         json.append("  \"vocabulary_entries\": [");
@@ -1047,6 +1136,16 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
               json.append("\n    {\"location\": \"").append(escapeJson(loc))
                   .append("\", \"predicate\": \"").append(escapeJson(pred)).append("\"}");
             }
+          }
+        }
+        json.append("\n  ],\n");
+        json.append("  \"abstraction_locations\": [");
+        if (vocabularyGuide != null) {
+          boolean first = true;
+          for (String loc : vocabularyGuide.getAllLocations()) {
+            if (!first) json.append(",");
+            first = false;
+            json.append("\n    \"").append(escapeJson(loc)).append("\"");
           }
         }
         json.append("\n  ]\n");
