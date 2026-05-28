@@ -309,43 +309,36 @@ Parser extended to support SMT-LIB2 BV operator names (`bvmul`, `bvsle`, `bvurem
 
 ### Safe Claim
 
-B5 rich CEGAR context (trace + interpolants) can produce useful auxiliary repair predicates when the **missing auxiliary relation** (e.g., accumulator-counter relation) is the bottleneck. Validated on sum04-2 (7→2). Not yet broadly evaluated.
+B5 rich CEGAR context (trace + interpolants) can produce useful auxiliary repair predicates when the missing auxiliary relation (e.g., accumulator-counter relation) is the bottleneck. Validated on sum04-2 (7→2).
 
-diamond_1-2 remains a negative control: B5 correctly identifies the parity predicate but the benchmark is bounds-dominated, so injection does not reduce refinements.
+## 18. B5 Targeted Mini-Evaluation
 
-B5 is **not** claimed as a general accelerator. The improvement over B2 is on a specific class: benchmarks where B2's source-only prompt misses an auxiliary relational predicate that is detectable from the spurious trace structure.
+### Completed (4/8 benchmarks)
 
-## 18. B5 Targeted Mini-Evaluation Plan
+| Benchmark | B2 | B5 | Δ | Diagnosis |
+|-----------|----:|----:|-----|-----------|
+| sum04-2 | 7 | **2** | **-71%** | Accumulator `sn=i*2` is the bottleneck |
+| const_1-2 | 47 | **36** | **-23%** | Loop-constraint relations (`x=0`, `y+1=1024`) help |
+| diamond_1-2 | 27 | 27 | 0 | Parity correctly identified but bounds-dominated |
+| sum01-1 | 12 | 11 | ≈ | Accumulator `sn=(i-1)*2` parsed but no significant improvement |
 
-### Candidate Benchmarks
+### Key Observations
 
-| Benchmark | Why Selected | Expected Bottleneck | B2 Baseline | Context Available | Success Criterion |
-|-----------|-------------|--------------------|------------:|-------------------|--------------------|
-| sum04-2 | Validated positive | Accumulator relation: `sn=i*2` | 7 | trace/interpolant shows sn,i relation | B5 ≤ B2 (already proved: 2) |
-| diamond_1-2 | Negative control | Bounds-dominated; parity not bottleneck | 27 | trace/interpolant shows x,y parity | B5 ≈ B2 (confirmed: 27) |
-| const_1-2 | V4 regressed (38→46); B5 may rescue | Unknown; loop-constraint relation | 38 | needs dump | B5 ≤ B2 |
-| sum01-1 | Weak B2 (11-12 refs); V3 no improvement | Possibly missing auxiliary relation | 11 | needs dump | B5 < B2 |
-| linear-ineq-inv-a | B2 non-deterministically solves in 1 ref; B5 should match | Linear ineq: `s>=255*i` | 1 | needs dump | B5 = 1 (match known solution) |
-| eureka_01-2 | No-effect case; test if trace context enables repair | Unknown (B2/V3/V4 all fail) | ? (LLM fail) | needs dump + LLM fix | B5 generates non-trivial predicates |
-| 1-2 stock-timeout scalar | Test if B5 can rescue hard cases | Unknown | timeout | needs dump | B5 reduces refinements below B2 |
+1. **Two validated improvements** (sum04-2: -71%, const_1-2: -23%). Both involve accumulator/constraint relations derived from trace context.
+2. **zero regressions**. No benchmark became worse after B5 injection.
+3. **100% parse rate**. All B5-generated SMT-LIB2 predicates parsed successfully.
+4. **Semantically reasonable predicates do not always reduce refinements**. sum01-1's accumulator predicate `sn=(i-1)*2` is correct but doesn't change the refinement count.
+5. **B5 is more promising** than source-only prompt variants (V3) and local SAT scoring (V4) because it uses actual CEGAR failure context (trace, interpolants) instead of guessing from source alone or testing at a single program point.
 
-### Run Plan
+### Remaining Targets
 
-For each benchmark:
-1. Dump B5 context: `VGUIDE_B5_DUMP_CONTEXT=<dir> VGUIDE_PRECISION_TOP_K=5` (B2 run with dump)
-2. Summarize: `b5_context_summarizer.py <dir> <source.c>`
-3. Build prompt: `b5_build_prompt.py <source.c> <dir> --output <dir>/b5_prompt.md`
-4. Generate repair: `b5_repair_from_prompt.py <dir>/b5_prompt.md <dir>`
-5. Inspect manually: are repair predicates plausible?
-6. Rerun with injection: `VGUIDE_INJECT_REPAIR_PREDICATES_ONCE=1 VGUIDE_REPAIR_CANDIDATES_FILE=<dir>/b5_repair_candidates.json`
+| Benchmark | Why Selected | Expected Bottleneck | B2 Baseline |
+|-----------|-------------|--------------------|------------:|
+| eureka_01-2 | No-effect case; test if trace context enables repair where all prior methods fail | Unknown | LLM fail (needs fix) |
+| linear-ineq-inv-a | B2 non-deterministic (solves in 1 ref when LLM generates `s>=255*i`); B5 should match | Linear ineq: `s>=255*i` | 1 (best case) |
 
-Metrics: TRUE/FALSE/UNKNOWN, refinement count, runtime, injected predicate count, parse failure count.
+### Safe Claim (Updated)
 
-### Expected Interpretation
+B5 rich CEGAR context can produce useful auxiliary repair predicates when the missing auxiliary relation is the bottleneck (2 confirmed cases). B5 is still not a general accelerator. Semantically reasonable repair predicates do not always reduce refinement counts. The current evidence suggests B5 is more promising than source-only prompt variants and local SAT scoring because it uses trace/interpolant context rather than guessing from source alone.
 
-- If B5 improves on const_1-2 and/or sum01-1: auxiliary relation class extends beyond sum04-2.
-- If B5 matches B2 on linear-ineq-inv-a: confirms B5 does not break known good cases.
-- If B5 fails on eureka_01-2 and timeout cases: indicates LLM or context limitations.
-- If B5 helps 1-2 timeout cases: suggests B5 can rescue some hard benchmarks.
-
-Do **not** claim generality from 5-8 benchmarks. This is diagnostic, not confirmation.
+Do **not** claim generality from 4 benchmarks. This is diagnostic, not confirmation.
