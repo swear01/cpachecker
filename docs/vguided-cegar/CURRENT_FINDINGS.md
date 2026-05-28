@@ -416,3 +416,48 @@ This shifts the research question from "Can LLMs guess useful predicates?" (B2: 
 - B5 does not replace B2 — source-only prompting still works on diamond_1-1.
 - B5 does not handle bounds-dominated, array-heavy, or already-solved benchmarks.
 - 6 benchmarks is diagnostic validation, not statistical evidence.
+
+## 20. B5 Interpolant-Gap Prompt Validation (Negative Result)
+
+### Date/Metadata
+
+- Date: 2026-05-29
+- Commit: `7f14dfad` (gap prompt) → results below
+- Prompt variant: explicit Step 1 (identify gap) + Step 2 (generate predicates)
+
+### What Changed
+
+The B5 prompt was updated to include explicit interpolant-gap reasoning before predicate generation:
+
+1. What do the current interpolants already express?
+2. What does the assertion require?
+3. What relation is missing between interpolants and assertion?
+4. Where should the predicate be tracked in the trace?
+5. Then generate repair predicates.
+
+### Validation Set (4 benchmarks)
+
+| Benchmark | B2 | B5-gap | Δ | Parsed | Diagnosis |
+|-----------|----:|-------:|-----|-------:|-----------|
+| sum04-2 | 2 | **6** | **-4** | 0/1 | **Parser failure**: LLM copied SSA names `\|main::sn@2\|` from interpolants; B2 luckily solved in 2 |
+| const_1-2 | 35 | **46** | **-11** | 2/2 | **Regression**: `x=0` predicates made refinements worse |
+| diamond_1-2 | 27 | 27 | 0 | 2/2 | No effect (expected, bounds-dominated) |
+| sum01-1 | 12 | 11 | ≈ | 0/5 | **Parser failure**: LLM copied SSA names from interpolants |
+
+### Root Cause
+
+The interpolant-gap prompt instructs the LLM to "look at the interpolants" where variables are in SSA-encoded form (`|main::sn@2|`, `|main::i@3|`). The LLM copies these encoded names verbatim into its predicate output, which the parser cannot handle.
+
+Additionally, on const_1-2, the gap prompt produced `x=0` at two locations which, when injected, caused worse refinement behavior (35→46). The previous B5 without gap prompt was B5=36 (improvement). The structured gap analysis appears to push the LLM toward simpler but less effective predicates.
+
+### Decision
+
+**Revert the interpolant-gap prompt.** The structured gap analysis adds a reasoning step that:
+1. Causes parser failures by encouraging SSA-encoded variable names in output
+2. May degrade predicate quality compared to the original B5 prompt
+
+The original B5 prompt (trace/interpolant context + simple repair request) produced the best results (2/6 improved, 0 regressions). Adding explicit gap reasoning before predicate generation is **harmful** — it changes the LLM's output behavior in undesirable ways.
+
+### Updated Safe Claim
+
+The original B5 prompt (trace + interpolant context, no explicit gap analysis step) is the validated variant. Explicit structured gap reasoning degrades rather than improves B5 performance. The LLM already performs implicit gap analysis when given rich CEGAR context; forcing explicit reasoning first produces worse predicates.
