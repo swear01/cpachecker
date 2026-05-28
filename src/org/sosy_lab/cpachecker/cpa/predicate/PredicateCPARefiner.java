@@ -168,6 +168,9 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private Set<String> lastEncodedVars = Set.of();
   private boolean vPrecisionInjected = false;
   private PredicateScorer v4Scorer;
+  private B5ContextDumper b5Dumper;
+  private Map<CFANode, Set<BooleanFormula>> b5Entailed = new LinkedHashMap<>();
+  private Map<CFANode, Set<BooleanFormula>> b5Injected = new LinkedHashMap<>();
 
   // the previously analyzed counterexample to detect repeated counterexamples
   private final Set<ImmutableList<CFANode>> lastErrorPaths = new HashSet<>();
@@ -265,6 +268,17 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     useVGuide = (vocabularyGuide != null);
     predAbsManager = pPredAbsManager;
     v4Scorer = new PredicateScorer(solver, fmgr, logger);
+    String b5Dir = System.getenv("VGUIDE_B5_DUMP_CONTEXT");
+    int b5Limit = 3;
+    try {
+      String envLimit = System.getenv("VGUIDE_B5_DUMP_LIMIT");
+      if (envLimit != null && !envLimit.isBlank()) {
+        b5Limit = Integer.parseInt(envLimit);
+      }
+    } catch (NumberFormatException e) {
+      // use default
+    }
+    b5Dumper = new B5ContextDumper(b5Dir, b5Limit, fmgr, logger);
   }
 
   /** Create list of formulas on path. */
@@ -335,6 +349,10 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
                 abstractionStatesTrace,
                 predicates,
                 repeatedCounterexample && !wereInvariantsUsedInLastRefinement);
+
+        b5Dumper.dumpRefinement(refinements, allStatesTrace, abstractionStatesTrace,
+            formulas, counterexample, pReached,
+            pendingAbstractionCandidates, b5Injected, b5Entailed);
 
         injectAbstractionCandidates(pReached);
 
@@ -448,6 +466,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           formulas, ImmutableList.copyOf(abstractionStatesTrace), Optional.of(allStatesTrace));
     }
 
+    b5Entailed.clear();
     // Stock CPAchecker refinement first
     CounterexampleTraceInfo result0 =
         interpolationManager.buildCounterexampleTrace(
@@ -497,6 +516,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           if (pe.isUnsat()) {
             valid.add(p);
             vSmtValidated++;
+            b5Entailed.computeIfAbsent(node, k -> new LinkedHashSet<>()).add(p);
             logger.log(Level.INFO, "V-FATE [", locKey, "] ENTAILED: ",
                 fmgr.dumpFormula(p).toString().replace("\n", " "));
           } else {
