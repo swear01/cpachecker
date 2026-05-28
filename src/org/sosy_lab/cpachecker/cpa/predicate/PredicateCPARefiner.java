@@ -164,8 +164,10 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private int vFallbacks = 0;
   private int vAbstractionCandidates = 0;
   private Map<CFANode, Set<BooleanFormula>> pendingAbstractionCandidates = new LinkedHashMap<>();
+  private Map<CFANode, BooleanFormula> v4BlockContext = new LinkedHashMap<>();
   private Set<String> lastEncodedVars = Set.of();
   private boolean vPrecisionInjected = false;
+  private PredicateScorer v4Scorer;
 
   // the previously analyzed counterexample to detect repeated counterexamples
   private final Set<ImmutableList<CFANode>> lastErrorPaths = new HashSet<>();
@@ -262,6 +264,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     llmConnector = pLlmConnector;
     useVGuide = (vocabularyGuide != null);
     predAbsManager = pPredAbsManager;
+    v4Scorer = new PredicateScorer(solver, fmgr, logger);
   }
 
   /** Create list of formulas on path. */
@@ -501,6 +504,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
             vAbstractionCandidates++;
             pendingAbstractionCandidates
                 .computeIfAbsent(node, k -> new LinkedHashSet<>()).add(p);
+            v4BlockContext.putIfAbsent(node, blockFormula);
             logger.log(Level.INFO, "V-FATE [", locKey, "] ABSTRACTION-CANDIDATE: ",
                 fmgr.dumpFormula(p).toString().replace("\n", " "));
           }
@@ -577,7 +581,11 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     if (!"1".equals(System.getenv("VGUIDE_INJECT_PRECISION"))) {
       String topK = System.getenv("VGUIDE_PRECISION_TOP_K");
       if (topK != null && !topK.isBlank() && !pendingAbstractionCandidates.isEmpty()) {
-        injectRankedTopK(pReached, Integer.parseInt(topK));
+        if ("1".equals(System.getenv("VGUIDE_PRECISION_V4"))) {
+          injectRankedTopKV4(pReached, Integer.parseInt(topK));
+        } else {
+          injectRankedTopK(pReached, Integer.parseInt(topK));
+        }
         vPrecisionInjected = true;
       } else {
         pendingAbstractionCandidates.clear();
@@ -836,6 +844,95 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
 
     logger.log(Level.WARNING, "V ranked top-", k, " precision injected ",
         selected.size(), " predicates (from ", scored.size(), " candidates)");
+  }
+
+  private void injectRankedTopKV4(ARGReachedSet pReached, int k) {
+    if (pendingAbstractionCandidates.isEmpty()) return;
+    AbstractState firstState = pReached.asReachedSet().getFirstState();
+    if (firstState == null) return;
+    Precision currentPrec = pReached.asReachedSet().getPrecision(firstState);
+    PredicatePrecision currentPredPrec =
+        Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
+    if (currentPredPrec == null) return;
+
+    List<AbstractionPredicate> selected = new ArrayList<>();
+    int totalCandidates = 0;
+    int totalScored = 0;
+    int totalRejected = 0;
+    StringBuilder scoreLog = new StringBuilder();
+
+    for (var entry : pendingAbstractionCandidates.entrySet()) {
+      CFANode node = entry.getKey();
+      BooleanFormula blockFormula = v4BlockContext.get(node);
+      boolean isLoopHead = node.getFunctionName() != null;
+      List<BooleanFormula> candList = new ArrayList<>(entry.getValue());
+      totalCandidates += candList.size();
+
+      if (blockFormula == null) {
+        logger.log(Level.FINE, "V4: no block context for N", node.getNodeNumber(), ", fallback to ranker");
+        for (BooleanFormula bf : candList) {
+          try {
+            int s = 1;
+            String text = fmgr.dumpFormula(bf).toString();
+            Set<String> vars = fmgr.extractVariableNames(bf);
+            if (vars.size() >= 2) s += 3;
+            if (text.contains("bvurem") || text.contains("mod")) s += 2;
+            if (text.contains("bvmul") || text.contains("*")) s += 3;
+            if (text.length() < 400) s += 1;
+            if (isLoopHead) s += 1;
+            AbstractionPredicate ap = predAbsManager.getPredicateFor(bf);
+            selected.add(ap);
+            totalScored++;
+            scoreLog.append("N").append(node.getNodeNumber()).append(" fallback=").append(s).append(" ");
+          } catch (Exception e) {
+            totalRejected++;
+            logger.logDebugException(e, "V4: AbstractionPredicate failed");
+          }
+        }
+        continue;
+      }
+
+      PredicateScorer.RankedPredicates ranked =
+          v4Scorer.scoreAndRank(blockFormula, candList, fmgr, isLoopHead, k);
+
+      totalScored += ranked.allScores().size();
+      totalRejected += ranked.rejected().size();
+
+      for (var scoredEntry : ranked.allScores().entrySet()) {
+        scoreLog.append("N").append(node.getNodeNumber())
+            .append("=").append(scoredEntry.getValue()).append(" ");
+      }
+      for (BooleanFormula rejectedBf : ranked.rejected()) {
+        String rText = fmgr.dumpFormula(rejectedBf).toString().replace("\n", " ");
+        int maxLen = 80;
+        scoreLog.append("N").append(node.getNodeNumber())
+            .append(" REJECT(").append(rText.substring(0, Math.min(rText.length(), maxLen)))
+            .append(") ");
+      }
+
+      for (BooleanFormula bf : ranked.predicates()) {
+        try {
+          AbstractionPredicate ap = predAbsManager.getPredicateFor(bf);
+          selected.add(ap);
+        } catch (Exception e) {
+          logger.logDebugException(e, "V4: AbstractionPredicate failed");
+        }
+      }
+    }
+
+    pendingAbstractionCandidates.clear();
+    v4BlockContext.clear();
+
+    if (selected.isEmpty()) return;
+
+    PredicatePrecision newPredPrec = currentPredPrec.addGlobalPredicates(selected);
+    pReached.updatePrecisionGlobally(
+        newPredPrec, p -> p instanceof PredicatePrecision);
+
+    logger.log(Level.WARNING, "V4 scored top-", k, " precision injected ",
+        selected.size(), " predicates (scored=", totalScored, " rejected=",
+        totalRejected, " candidates=", totalCandidates, ")");
+    logger.log(Level.INFO, "V4 scores: ", scoreLog.toString());
   }
 
   private @Nullable String locationKeyForNode(CFANode node) {

@@ -206,11 +206,64 @@ The question shifts from "how to prompt the LLM better" to **"how to use LLM pre
 
 The LLM can generate useful predicates, but current integration methods (global precision injection, simple entailment gate) do not yield broad improvement across benchmarks.
 
-## 15. Next Step
+## 15. V4 Validation: Usefulness-Aware Scoring Is Also Not the Bottleneck
 
-- B2 remains the source-only baseline.
-- V3 is documented as a negative result.
+### What V4 Was
+
+V4 = usefulness-aware predicate filtering before precision injection, using SAT-based scoring:
+
+1. Reject trivial (TRUE/FALSE) and contradictory (blockFormula ∧ p UNSAT) predicates.
+2. SAT-test each candidate: blockFormula ∧ p SAT and blockFormula ∧ ¬p SAT both needed.
+   - Both SAT → non-constant → high value (base 5).
+   - blockFormula ∧ ¬p UNSAT → entailed → lower value (base 1, B1 already handles).
+3. Apply bonuses: relational +3, accumulator +3, modulo +2, concise +1, loop-head +1.
+4. Select top-k by score, inject globally.
+
+Injection: `VGUIDE_PRECISION_V4=1` + `VGUIDE_PRECISION_TOP_K=5`.
+
+New class: `PredicateScorer` (with 12 unit tests, all passing).
+
+### Validation Set (7 benchmarks)
+
+| Benchmark | B2 | V4 | Interpretation |
+|---|---:|---:|----|
+| diamond_1-1 | 2 | 2 | no difference |
+| diamond_1-2 | 27 | 27 | bounds-dominated, no difference |
+| linear-ineq-inv-a | 1 | 1 | B2 already finds key predicate |
+| sum01-1 | 12 | 12 | no difference |
+| sum04-2 | 2 | **6** | V4 injected 0 predicates (all rejected/scored too low) |
+| const_1-2 | 38 | **46** | V4 regression |
+| eureka_01-2 | failed | failed | LLM/API failure |
+
+### Observed V4 Behavior
+
+- On sum04-2: V4 rejected all candidates (injected 0 predicates), while B2 injected some and achieved 2 refinements.
+- On const_1-2: V4 degraded (38→46).
+- On benchmarks where both B2 and V4 inject predicates (diamond_1-1, diamond_1-2, sum01-1): no difference.
+- The SAT filter rejects candidates that B2's simple heuristic keeps and that turn out to be useful.
+
+### Conclusion
+
+V4's SAT-based usefulness filter does **not** improve over B2's simple heuristic.
+On benchmarks where B2 already performs well (like sum04-2), V4 over-filters and causes regression.
+
+The problem: blockFormula at the first loop-head visit is too weak as a context for SAT testing.
+A predicate like `(= s (* i v))` is not true at the first visit (s=0, i=0, v=nondet),
+so `blockFormula ∧ (s != i*v)` is SAT (s=0, i=0, v=5, s=0 != 0*5=0? Wait, 0==0 so s=i*v at the first visit if v=arbitrary...).
+
+Actually the deeper issue: the blockFormula does not capture the **inductive structure** needed to evaluate whether a predicate is useful as an abstraction feature. What matters is whether the predicate helps track the relationship between variables across the loop, not whether it's non-trivial at one program point.
+
+### Safe Claim
+
+SAT-based predicate filtering using single-program-point block formulas is insufficient to identify useful abstraction predicates. The signal/noise discrimination requires context from the full CEGAR loop (interpolants, spurious traces), not just local SMT checks.
+
+## 16. Updated Direction
+
+- B2 remains the source-only baseline (simple heuristic, usable as reference).
+- V3 is negative: diversified prompting does not help.
+- V4 is negative: local SAT-based filtering does not help and can regress.
 - B4 is not validated as a rescue mechanism.
-- The next research direction: improve **predicate injection/usage strategy** (not prompt design).
-- Do not run large-scale evaluations until a new integration method is designed.
-- Do not optimize diamond_1-1 or individual benchmarks.
+- The predicate integration strategy (how CPAchecker uses LLM predicates) is the unresolved bottleneck.
+- Next investigation: **stronger CEGAR feedback** — use interpolant predicates and spurious counterexample traces to guide predicate selection, not just pre-injection SAT scoring.
+- Do not run large-scale evaluations until a new integration method is tested on a small set.
+- Do not optimize individual benchmarks.
