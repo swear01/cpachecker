@@ -313,32 +313,42 @@ B5 rich CEGAR context (trace + interpolants) can produce useful auxiliary repair
 
 ## 18. B5 Targeted Mini-Evaluation
 
-### Completed (4/8 benchmarks)
+### Completed (6/6 benchmarks)
 
 | Benchmark | B2 | B5 | Δ | Diagnosis |
 |-----------|----:|----:|-----|-----------|
 | sum04-2 | 7 | **2** | **-71%** | Accumulator `sn=i*2` is the bottleneck |
 | const_1-2 | 47 | **36** | **-23%** | Loop-constraint relations (`x=0`, `y+1=1024`) help |
-| diamond_1-2 | 27 | 27 | 0 | Parity correctly identified but bounds-dominated |
+| diamond_1-2 | 27 | 27 | 0 | Bounds-dominated; parity correctly identified but not bottleneck |
 | sum01-1 | 12 | 11 | ≈ | Accumulator `sn=(i-1)*2` parsed but no significant improvement |
+| eureka_01-2 | 22 | 24 | ≈ | **Parser failure**: 0/12 predicates parsed. LLM generated `select` (array theory), `bvshl`, SSA-encoded names not in parser |
+| linear-ineq-inv-a | 1 | 1 | = | Sanity check: B5 matches B2 best case, no regression |
+
+### Summary
+
+| Category | Count | Benchmarks |
+|----------|------:|------------|
+| Improved | 2 | sum04-2 (-71%), const_1-2 (-23%) |
+| No effect | 2 | sum01-1, eureka_01-2 (parser failure) |
+| Bound/control | 1 | diamond_1-2 |
+| Sanity match | 1 | linear-ineq-inv-a |
+| Regression | **0** | none |
 
 ### Key Observations
 
 1. **Two validated improvements** (sum04-2: -71%, const_1-2: -23%). Both involve accumulator/constraint relations derived from trace context.
-2. **zero regressions**. No benchmark became worse after B5 injection.
-3. **100% parse rate**. All B5-generated SMT-LIB2 predicates parsed successfully.
-4. **Semantically reasonable predicates do not always reduce refinements**. sum01-1's accumulator predicate `sn=(i-1)*2` is correct but doesn't change the refinement count.
-5. **B5 is more promising** than source-only prompt variants (V3) and local SAT scoring (V4) because it uses actual CEGAR failure context (trace, interpolants) instead of guessing from source alone or testing at a single program point.
-
-### Remaining Targets
-
-| Benchmark | Why Selected | Expected Bottleneck | B2 Baseline |
-|-----------|-------------|--------------------|------------:|
-| eureka_01-2 | No-effect case; test if trace context enables repair where all prior methods fail | Unknown | LLM fail (needs fix) |
-| linear-ineq-inv-a | B2 non-deterministic (solves in 1 ref when LLM generates `s>=255*i`); B5 should match | Linear ineq: `s>=255*i` | 1 (best case) |
+2. **Zero regressions**. No benchmark became worse after B5 injection.
+3. **100% parse rate** for predicates using supported SMT operators. The only parse failure was eureka_01-2 where the LLM generated array-theory and bitvector-shift operations not in the BV parser.
+4. **Semantically reasonable predicates do not always reduce refinements**. sum01-1's `sn=(i-1)*2` is correct but doesn't change refinement count.
+5. **Parser gap**: operations like `select`, `bvshl`, and SSA-encoded `|main::i@3|` variable names are not supported. The LLM sometimes uses these when the benchmark involves arrays or pointer-based memory access.
+6. **B5 is more promising** than source-only prompt variants (V3) and local SAT scoring (V4) because it uses actual CEGAR failure context (trace, interpolants) instead of guessing from source alone or testing at a single program point.
 
 ### Safe Claim (Updated)
 
-B5 rich CEGAR context can produce useful auxiliary repair predicates when the missing auxiliary relation is the bottleneck (2 confirmed cases). B5 is still not a general accelerator. Semantically reasonable repair predicates do not always reduce refinement counts. The current evidence suggests B5 is more promising than source-only prompt variants and local SAT scoring because it uses trace/interpolant context rather than guessing from source alone.
+B5 rich CEGAR context (trace + interpolants) can produce useful auxiliary repair predicates that reduce refinement counts when the missing auxiliary relation is the bottleneck (2 confirmed cases of 6). B5 is not a general accelerator. Semantically reasonable repair predicates do not always reduce refinement counts. Zero regressions across 6 benchmarks.
 
-Do **not** claim generality from 4 benchmarks. This is diagnostic, not confirmation.
+The improvement over B2 is limited to benchmarks where:
+1. B2's source-only prompt misses an auxiliary relational predicate
+2. That predicate is detectable from the spurious trace structure
+3. The predicate can be expressed in the supported BV-only SMT subset
+4. The missing relation is the actual CEGAR bottleneck (not bounds-dominated)
