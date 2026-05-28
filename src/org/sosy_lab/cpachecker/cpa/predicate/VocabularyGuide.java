@@ -329,6 +329,10 @@ public class VocabularyGuide {
         BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
         yield (left != null && right != null) ? bvmgr.lessThan(left, right, true) : null;
       }
+      case "bvslt" -> parseSexp("(< " + args.get(0) + " " + args.get(1) + ")", fmgr, encodedVariableNames);
+      case "bvsgt" -> parseSexp("(> " + args.get(0) + " " + args.get(1) + ")", fmgr, encodedVariableNames);
+      case "bvsle" -> parseSexp("(<= " + args.get(0) + " " + args.get(1) + ")", fmgr, encodedVariableNames);
+      case "bvsge" -> parseSexp("(>= " + args.get(0) + " " + args.get(1) + ")", fmgr, encodedVariableNames);
       default -> null;
     };
   }
@@ -391,6 +395,18 @@ public class VocabularyGuide {
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames);
         BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames);
         yield (left != null && right != null) ? bvmgr.remainder(left, right, false) : null;
+      }
+      case "bvadd" -> parseBvSexp("(+ " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames);
+      case "bvmul" -> parseBvSexp("(* " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames);
+      case "bvsub" -> parseBvSexp("(- " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames);
+      case "bvurem" -> parseBvSexp("(mod " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames);
+      case "bvneg" -> parseBvSexp("(- 0 " + args.get(0) + ")", fmgr, bvmgr, encodedVariableNames);
+      case "_" -> {
+        if (args.size() == 2 && args.get(0).startsWith("bv") && args.get(1).equals("32")) {
+          String val = args.get(0).substring(2);
+          yield bvmgr.makeBitvector(32, Long.parseLong(val));
+        }
+        yield null;
       }
       default -> null;
     };
