@@ -153,12 +153,64 @@ Cache contract: `prompt[k]` must be a strict prefix of `prompt[k+1]`, except aft
 - Refinement reduction equals runtime speedup.
 - One benchmark rescue proves generality.
 
-## 14. Next Step
+## 14. V3 Validation: Diversified Prompting Is Not the Main Bottleneck
 
-1. Validate the `linear-ineq-inv-a` B4 rescue (reproducibility).
-2. Build a targeted B4 benchmark set from hard/B2-failed cases.
-3. Run B4 only on the target set.
-4. Compare B2 vs B4.
-5. Update report with validated B4 results.
+### What V3 Was
 
-Do not continue optimizing diamond_1-1. Do not tune V2 further until B4 target evaluation is done.
+V3 = single-call diversified predicate proposal + bucket-aware ranking + top-k precision injection.
+
+| Mode | LLM input | LLM output | Selection | Formal runs |
+|------|-----------|------------|-----------|-------------|
+| B2 | source + assertion | flat predicate list | all candidates | 1 |
+| V3 | source + assertion + predicate buckets | structured candidate set (DIRECT, LOOP-RELATION, GUARD, BOUNDS) | bucket-aware ranking + top-k | 1 |
+
+The hypothesis: asking the LLM proactively for different predicate classes (especially auxiliary loop-carried relations, accumulator-counter relations) would produce higher-quality predicate sets than B2's flat source-only prompt.
+
+### Validation Set (8 benchmarks, VGUIDE_PRECISION_TOP_K=5)
+
+| Benchmark | B2 | V3 | Interpretation |
+|---|---:|---:|----|
+| linear-ineq-inv-a | 1 | 1 | B2 already finds key predicate |
+| diamond_1-1 | 1 | 2 | V3 no improvement |
+| diamond_1-2 | 26 | 27 | bounds-dominated / no precision gain |
+| sum01-1 | 11 | 12 | no improvement |
+| sum04-2 | 6 | 7 | no improvement |
+| const_1-2 | 48 | 38 | one positive case (+21%) |
+| eureka_01-2 | LLM failed | LLM failed | API or unsupported benchmark |
+| array-1 | 2 | 3 | no improvement |
+
+### Conclusion
+
+V3's bucketed prompt and accumulator emphasis do **not** systematically improve over B2.
+The main bottleneck is **not prompt format alone**.
+
+- On 6/8 benchmarks, V3 ≈ B2 (within ±1 refinement).
+- On 1 benchmark (const_1-2), V3 shows modest improvement (48→38) — insufficient to claim generality.
+- On 1 benchmark (eureka_01-2), both modes failed due to LLM/API issues.
+
+Result classification:
+- **V3 is negative/weak**: diversified prompting is not the next main method.
+- **B2 remains the source-only baseline.**
+- **B4 is not validated**: the linear-ineq-inv-a B4 rescue (89→2) was a B2 non-determinism artifact, not CEGAR feedback effect. Re-running B2 on linear-ineq-inv-a sometimes produces 1 refinement (when LLM non-deterministically generates `s>=255*i`).
+
+### Actual Bottleneck Hypotheses
+
+The question shifts from "how to prompt the LLM better" to **"how to use LLM predicates more effectively in CPAchecker"**:
+
+1. **Location-specific precision injection** — predicates should be injected only at locations where they are likely true, not globally
+2. **Stronger CEGAR feedback** — spurious traces and interpolants should guide which predicates are useful
+3. **Predicate usefulness testing** — verify predicates before injection (e.g., test on concrete counterexample traces)
+4. **Auxiliary predicate support** — beyond assertion copies, need predicates about intermediate program relations (e.g., relationship between loop variables before they reach the assertion)
+
+### Safe Claim
+
+The LLM can generate useful predicates, but current integration methods (global precision injection, simple entailment gate) do not yield broad improvement across benchmarks.
+
+## 15. Next Step
+
+- B2 remains the source-only baseline.
+- V3 is documented as a negative result.
+- B4 is not validated as a rescue mechanism.
+- The next research direction: improve **predicate injection/usage strategy** (not prompt design).
+- Do not run large-scale evaluations until a new integration method is designed.
+- Do not optimize diamond_1-1 or individual benchmarks.
