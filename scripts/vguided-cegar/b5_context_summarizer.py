@@ -17,6 +17,46 @@ def clean_variable_name(encoded_name):
         return f"{cname}{idx}"
     return encoded_name
 
+def extract_assertion(source_code):
+    """Extract assertion expression from C source, handling nested parens."""
+    for m in re.finditer(r'__VERIFIER_assert\s*\(', source_code):
+        start = m.end()
+        depth = 1
+        i = start
+        while i < len(source_code) and depth > 0:
+            if source_code[i] == '(':
+                depth += 1
+            elif source_code[i] == ')':
+                depth -= 1
+            i += 1
+        if depth != 0:
+            continue
+        expr = source_code[start:i-1].strip()
+        # Skip function definitions
+        if re.match(r'^(int|unsigned|long|char|void|short|float|double|bool|_Bool)\s+\w+\s*$', expr):
+            continue
+        return expr
+    return ""
+
+def extract_assertion_variables(assertion_expr):
+    """Extract variable names from assertion expression."""
+    return list(set(re.findall(r'\b([a-zA-Z_]\w*)\b', assertion_expr)))
+
+def summarize_assertion(source_code):
+    """Summarize assertion for markdown output."""
+    lines = []
+    assertion = extract_assertion(source_code)
+    lines.append("## Assertion")
+    lines.append("")
+    if assertion:
+        lines.append(f"- **Expression**: `{assertion}`")
+        vars_ = extract_assertion_variables(assertion)
+        lines.append(f"- **Variables**: {', '.join(vars_) if vars_ else 'none'}")
+    else:
+        lines.append("- Not found in source")
+    lines.append("")
+    return "".join(l + "\n" for l in lines)
+
 def extract_simple_atoms(smt_text):
     """Extract simple comparison atoms from SMT-LIB2 dump."""
     atoms = []
@@ -305,7 +345,7 @@ def generate_repair_instructions(d, context):
 
     return "".join(l + "\n" for l in lines)
 
-def summarize(json_path, output_path):
+def summarize(json_path, output_path, source_code=None):
     """Main summarizer: convert one JSON dump to Markdown."""
     with open(json_path) as f:
         d = json.load(f)
@@ -315,6 +355,9 @@ def summarize(json_path, output_path):
 
     sections.append(f"# B5 CEGAR Context — Refinement {ref_idx}\n")
     sections.append(f"\nStatus: {d.get('verification_status', 'unknown')}\n")
+
+    if source_code:
+        sections.append(summarize_assertion(source_code))
 
     sections.append(summarize_trace(d))
     sections.append(summarize_interpolants(d))
@@ -333,10 +376,25 @@ def summarize(json_path, output_path):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 b5_context_summarizer.py <dump_dir> [<dump_dir> ...]")
+        print("Usage: python3 b5_context_summarizer.py <dump_dir> [source.c|source.i]")
         sys.exit(1)
 
+    source_code = None
+    source_arg_index = len(sys.argv)
+    for arg in sys.argv[1:]:
+        if arg.endswith('.c') or arg.endswith('.i'):
+            try:
+                source_code = Path(arg).read_text()
+                print(f"  source: {arg} ({len(source_code)} chars)")
+                print(f"  assertion: {extract_assertion(source_code)}")
+            except Exception as e:
+                print(f"  source: {arg} FAILED ({e})")
+            source_arg_index = sys.argv.index(arg)
+            break
+
     for dump_dir in sys.argv[1:]:
+        if dump_dir.endswith('.c') or dump_dir.endswith('.i'):
+            continue
         dump_path = Path(dump_dir)
         if not dump_path.is_dir():
             print(f"Not a directory: {dump_dir}")
@@ -345,7 +403,7 @@ def main():
         json_files = sorted(dump_path.glob("refinement_*.json"))
         for jf in json_files:
             out_file = jf.with_suffix(".md")
-            summary = summarize(str(jf), str(out_file))
+            summary = summarize(str(jf), str(out_file), source_code)
             size = len(summary)
             lines = summary.count('\n')
             print(f"  {jf.name} → {out_file.name} ({lines} lines, {size} chars)")
