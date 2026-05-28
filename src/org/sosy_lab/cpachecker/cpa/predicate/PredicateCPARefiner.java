@@ -1015,6 +1015,52 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
 
       interpolationManager.printStatistics(w1);
       w1.putIfUpdatedAtLeastOnce(errorPathProcessing);
+
+      dumpB4Context(result);
+    }
+
+    private void dumpB4Context(Result result) {
+      String dumpDir = System.getenv("VGUIDE_B4_DUMP_CONTEXT");
+      if (dumpDir == null || dumpDir.isBlank()) return;
+      try {
+        java.nio.file.Path dir = java.nio.file.Path.of(dumpDir);
+        java.nio.file.Files.createDirectories(dir);
+        StringBuilder json = new StringBuilder();
+        json.append("{\n");
+        json.append("  \"result\": \"").append(result).append("\",\n");
+        json.append("  \"refinements\": ").append(totalRefinement.getUpdateCount()).append(",\n");
+        json.append("  \"v_injection_attempts\": ").append(vInjectionAttempts).append(",\n");
+        json.append("  \"v_injection_successes\": ").append(vInjectionSuccesses).append(",\n");
+        json.append("  \"v_smt_validated\": ").append(vSmtValidated).append(",\n");
+        json.append("  \"v_smt_failed\": ").append(vSmtFailed).append(",\n");
+        json.append("  \"v_abstraction_candidates\": ").append(vAbstractionCandidates).append(",\n");
+        json.append("  \"use_v_guide\": ").append(useVGuide).append(",\n");
+        json.append("  \"vocabulary_size\": ").append(vocabularyGuide != null ? vocabularyGuide.size() : 0)
+            .append(",\n");
+        json.append("  \"vocabulary_entries\": [");
+        if (vocabularyGuide != null) {
+          boolean first = true;
+          for (String loc : vocabularyGuide.getAllLocations()) {
+            for (String pred : vocabularyGuide.getPredicateStringsForLocation(loc)) {
+              if (!first) json.append(",");
+              first = false;
+              json.append("\n    {\"location\": \"").append(escapeJson(loc))
+                  .append("\", \"predicate\": \"").append(escapeJson(pred)).append("\"}");
+            }
+          }
+        }
+        json.append("\n  ]\n");
+        json.append("}\n");
+        java.nio.file.Files.writeString(dir.resolve("b4_context.json"), json.toString());
+        logger.log(Level.INFO, "V B4 context dumped to ", dumpDir);
+      } catch (Exception e) {
+        logger.logDebugException(e, "V B4 context dump failed");
+      }
+    }
+
+    private static String escapeJson(String s) {
+      return s.replace("\\", "\\\\").replace("\"", "\\\"")
+              .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
     @Override
