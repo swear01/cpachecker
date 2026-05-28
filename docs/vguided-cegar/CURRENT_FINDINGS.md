@@ -263,7 +263,89 @@ SAT-based predicate filtering using single-program-point block formulas is insuf
 - V3 is negative: diversified prompting does not help.
 - V4 is negative: local SAT-based filtering does not help and can regress.
 - B4 is not validated as a rescue mechanism.
-- The predicate integration strategy (how CPAchecker uses LLM predicates) is the unresolved bottleneck.
-- Next investigation: **stronger CEGAR feedback** — use interpolant predicates and spurious counterexample traces to guide predicate selection, not just pre-injection SAT scoring.
+- B5 is the current investigation: **rich CEGAR context (trace + interpolants) → LLM repair → precision injection**.
 - Do not run large-scale evaluations until a new integration method is tested on a small set.
 - Do not optimize individual benchmarks.
+
+## 17. B5: Trace/Interpolant-Guided LLM Predicate Repair
+
+### What B5 Is
+
+B5 replaces source-only and local-SAT approaches with full CEGAR failure context:
+
+| Phase | What | Status |
+|-------|------|--------|
+| Phase 1 | Dump CEGAR context (ARGPath, CFA edges, block formulas, interpolants, precision, candidate fates) to JSON | Done (`B5ContextDumper.java`) |
+| Phase 2 | Summarize context to compact Markdown + call DeepSeek to generate repair predicates | Done (`b5_context_summarizer.py`, `b5_build_prompt.py`, `b5_repair_from_prompt.py`) |
+| Phase 3 | Parse repair predicates, inject into precision, rerun CPAchecker | Smoke-tested on 2 benchmarks |
+
+### Context Provided to LLM
+
+- Source code
+- Target assertion (with variable extraction)
+- Spurious counterexample trace (CFA locations + edges with branch conditions)
+- Block formulas per abstraction state (SMT-LIB2, compressed)
+- Interpolants per abstraction state (SMT-LIB2, atoms extracted)
+- Current precision (global predicates)
+- LLM candidate fates (entailed / abstraction-candidates / injected)
+
+### Phase 2 Smoke Test
+
+| Benchmark | Predicates | Novel? | LLM Reasoning |
+|-----------|-----------|--------|---------------|
+| sum04-2 | `(= sn (bvmul i (_ bv2 32)))`, `(bvsle i (_ bv8 32))`, `(bvsge i (_ bv1 32))` | 3/3 new | "the CEGAR loop is getting stuck on traces where the loop doesn't execute but sn is neither 0 nor 16" |
+| diamond_1-2 | `(= (bvurem x 2) (bvurem y 2))` | 1/1 new | "the abstraction doesn't track the relationship between x's parity and y's parity through loop iterations" |
+
+The LLM produces reasoned explanations of why the benchmark is failing and generates targeted SMT-LIB2 BV predicates.
+
+### Phase 3 Rerun
+
+| Benchmark | B2 | B5 | Δ | Injected | Diagnosis |
+|-----------|----:|----:|-----|----------|-----------|
+| sum04-2 | 7 | **2** | **-71%** | 3/3 parsed | Accumulator relation `sn=i*2` is the missing bottleneck |
+| diamond_1-2 | 27 | 27 | 0 | 1/1 parsed | Parity correctly identified but bounds-dominated |
+
+Parser extended to support SMT-LIB2 BV operator names (`bvmul`, `bvsle`, `bvurem`, `(_ bvN 32)` constants).
+
+### Safe Claim
+
+B5 rich CEGAR context (trace + interpolants) can produce useful auxiliary repair predicates when the **missing auxiliary relation** (e.g., accumulator-counter relation) is the bottleneck. Validated on sum04-2 (7→2). Not yet broadly evaluated.
+
+diamond_1-2 remains a negative control: B5 correctly identifies the parity predicate but the benchmark is bounds-dominated, so injection does not reduce refinements.
+
+B5 is **not** claimed as a general accelerator. The improvement over B2 is on a specific class: benchmarks where B2's source-only prompt misses an auxiliary relational predicate that is detectable from the spurious trace structure.
+
+## 18. B5 Targeted Mini-Evaluation Plan
+
+### Candidate Benchmarks
+
+| Benchmark | Why Selected | Expected Bottleneck | B2 Baseline | Context Available | Success Criterion |
+|-----------|-------------|--------------------|------------:|-------------------|--------------------|
+| sum04-2 | Validated positive | Accumulator relation: `sn=i*2` | 7 | trace/interpolant shows sn,i relation | B5 ≤ B2 (already proved: 2) |
+| diamond_1-2 | Negative control | Bounds-dominated; parity not bottleneck | 27 | trace/interpolant shows x,y parity | B5 ≈ B2 (confirmed: 27) |
+| const_1-2 | V4 regressed (38→46); B5 may rescue | Unknown; loop-constraint relation | 38 | needs dump | B5 ≤ B2 |
+| sum01-1 | Weak B2 (11-12 refs); V3 no improvement | Possibly missing auxiliary relation | 11 | needs dump | B5 < B2 |
+| linear-ineq-inv-a | B2 non-deterministically solves in 1 ref; B5 should match | Linear ineq: `s>=255*i` | 1 | needs dump | B5 = 1 (match known solution) |
+| eureka_01-2 | No-effect case; test if trace context enables repair | Unknown (B2/V3/V4 all fail) | ? (LLM fail) | needs dump + LLM fix | B5 generates non-trivial predicates |
+| 1-2 stock-timeout scalar | Test if B5 can rescue hard cases | Unknown | timeout | needs dump | B5 reduces refinements below B2 |
+
+### Run Plan
+
+For each benchmark:
+1. Dump B5 context: `VGUIDE_B5_DUMP_CONTEXT=<dir> VGUIDE_PRECISION_TOP_K=5` (B2 run with dump)
+2. Summarize: `b5_context_summarizer.py <dir> <source.c>`
+3. Build prompt: `b5_build_prompt.py <source.c> <dir> --output <dir>/b5_prompt.md`
+4. Generate repair: `b5_repair_from_prompt.py <dir>/b5_prompt.md <dir>`
+5. Inspect manually: are repair predicates plausible?
+6. Rerun with injection: `VGUIDE_INJECT_REPAIR_PREDICATES_ONCE=1 VGUIDE_REPAIR_CANDIDATES_FILE=<dir>/b5_repair_candidates.json`
+
+Metrics: TRUE/FALSE/UNKNOWN, refinement count, runtime, injected predicate count, parse failure count.
+
+### Expected Interpretation
+
+- If B5 improves on const_1-2 and/or sum01-1: auxiliary relation class extends beyond sum04-2.
+- If B5 matches B2 on linear-ineq-inv-a: confirms B5 does not break known good cases.
+- If B5 fails on eureka_01-2 and timeout cases: indicates LLM or context limitations.
+- If B5 helps 1-2 timeout cases: suggests B5 can rescue some hard benchmarks.
+
+Do **not** claim generality from 5-8 benchmarks. This is diagnostic, not confirmation.
