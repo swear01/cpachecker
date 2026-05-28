@@ -136,3 +136,35 @@ This avoids wasting LLM calls and formal runs on benchmarks that B5 cannot help.
 - **Interpolant analysis is manual**: Currently requires inspection of dumped interpolants. Automating "bounds-only" detection would improve scalability.
 - **Parser support detection is post-hoc**: You only know the parser limitation AFTER the LLM generates predicates. Pre-classification requires heuristics (e.g., does the source use arrays/pointers?).
 - **Does not guarantee improvement**: The classifier identifies cases where B5 is WORTH TRYING, not where B5 will definitely help.
+
+## 8. Interpolant-Gap Prompt Validation (Planned)
+
+### Objective
+
+Validate whether the structured interpolant-gap analysis prompt (Step 1: Identify Gap → Step 2: Generate Predicates) improves B5 performance, especially on no-effect cases where the original B5 prompt produced semantically correct predicates that didn't reduce refinements.
+
+### 4-Case Validation Set
+
+| Benchmark | Purpose | Expected |
+|-----------|---------|----------|
+| sum04-2 | Should maintain positive | B5-gap ≈ B5 (2 refs) |
+| const_1-2 | Should maintain moderate positive | B5-gap ≥ B5 (36 refs or better) |
+| diamond_1-2 | Classifier says WEAK; should remain no-effect | B5-gap ≈ B5 (27 refs) |
+| sum01-1 | Key test: gap prompt may help no-effect case | B5-gap ≤ B5 (≤11 refs) |
+
+### Validation Steps
+
+1. Re-run B5 (original prompt) to get fresh reference numbers.
+2. Run B5-gap (structured Step 1 + Step 2 prompt) on each benchmark.
+3. Compare: result, refinements, generated predicates, parse rate.
+4. Check whether sum01-1's no-effect behavior changes with the gap-structured prompt.
+
+### NOT validation targets
+
+- eureka_01-2: parser-limited, not a prompt quality issue.
+- linear-ineq-inv-a: already solved by B2, B5 adds nothing.
+- Any new benchmark not in the original mini-evaluation.
+
+### Timeline
+
+No timeline. Run after applicability classifier logic is finalized.
