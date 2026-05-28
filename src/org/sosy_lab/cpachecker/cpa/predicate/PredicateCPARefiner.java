@@ -802,16 +802,18 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         try {
           AbstractionPredicate ap = predAbsManager.getPredicateFor(bf);
           String text = fmgr.dumpFormula(bf).toString();
-          int s = 0;
-          // Relational predicate (>1 variable): +3
-          Set<String> vars = fmgr.extractVariableNames(bf);
-          if (vars.size() >= 2) s += 3;
-          // Contains mod: +2
-          if (text.contains("bvurem") || text.contains("mod")) s += 2;
-          // Shorter formula: +1
-          if (text.length() < 400) s += 1;
-          // Loop-head location: +1 (all candidates are at loop heads)
-          if (entry.getKey().getFunctionName() != null) s += 1;
+           int s = 0;
+           // Relational predicate (>1 variable): +3
+           Set<String> vars = fmgr.extractVariableNames(bf);
+           if (vars.size() >= 2) s += 3;
+           // Contains mod: +2
+           if (text.contains("bvurem") || text.contains("mod")) s += 2;
+           // Accumulator relation (contains *): +3
+           if (text.contains("bvmul") || text.contains("*")) s += 3;
+           // Shorter formula: +1
+           if (text.length() < 400) s += 1;
+           // Loop-head location: +1
+           if (entry.getKey().getFunctionName() != null) s += 1;
           scored.add(new Scored(ap, s));
         } catch (Exception e) {
           logger.logDebugException(e, "V ranked top-k: AbstractionPredicate failed");
