@@ -352,3 +352,67 @@ The improvement over B2 is limited to benchmarks where:
 2. That predicate is detectable from the spurious trace structure
 3. The predicate can be expressed in the supported BV-only SMT subset
 4. The missing relation is the actual CEGAR bottleneck (not bounds-dominated)
+
+## 19. Research Synthesis
+
+### Method Comparison
+
+| Mode | LLM Input | Selection | Predicate Source | 1-LLM-Call | Result |
+|------|-----------|-----------|-----------------|:----------:|--------|
+| B2 | Source code only | Weak heuristic (all candidates) | LLM guesses from source | Yes | Effective on 1-2 relational cases, unstable |
+| V3 | Source + predicate buckets | Bucket-aware ranking + top-k | LLM generates diversified classes | Yes | **Negative**: no improvement over B2 |
+| V4 | Source + local SAT filter | SAT-based usefulness scoring | LLM candidates scored by blockFormula | Yes | **Negative**: over-filters, regresses on sum04-2 |
+| B5 | Source + trace + interpolants + precision | LLM ranks based on CEGAR feedback | LLM repairs from CEGAR context | Yes | **2/6 improved, 0 regressions** |
+
+### Narrative Arc
+
+The project started with the hypothesis that LLMs could generate useful abstraction predicates for CEGAR. The progression of methods tells a clear story:
+
+**B2 (source-only):** "Just give the LLM the source code." This works on diamond_1-1 but is unstable — predicate quality depends on LLM non-determinism, and the LLM has no information about why CPAchecker is failing.
+
+**V3 (diversified prompting):** "Ask the LLM for different types of predicates." Prompt engineering (DIRECT, LOOP-RELATION, GUARD, BOUNDS buckets) does not systematically improve predicate quality. This was a critical negative result that ruled out prompt format as the main bottleneck.
+
+**V4 (local SAT scoring):** "Filter predicates using blockFormula SAT tests." Single-program-point SAT checks over-filter, rejecting useful predicates that are not true at the first loop visit. Scoring without CEGAR context fails.
+
+**B5 (CEGAR-rich feedback):** "Give the LLM the trace, interpolants, and current precision." The LLM sees what CPAchecker's interpolation engine has learned and where the gaps are. This is the first method beyond source-only prompting to show targeted improvement (sum04-2: -71%, const_1-2: -23%), with zero regressions.
+
+### Why B5 Works When Others Don't
+
+B5's advantage is not in prompt design or scoring heuristics — it's in **information content**:
+
+| Information | B2 | V3 | V4 | B5 |
+|------------|:--:|:--:|:--:|:--:|
+| Source code | Yes | Yes | Yes | Yes |
+| Assertion expression | Yes | Yes | Yes | Yes |
+| Spurious counterexample trace | | | | Yes |
+| CFA edge branch conditions | | | | Yes |
+| Block formulas (SSA-SMT) | | | | Yes |
+| Interpolants per abstraction state | | | | Yes |
+| Current precision predicates | | | | Yes |
+| LLM candidate fates | | | | Yes |
+
+The LLM can now answer: "What relation is CPAchecker missing that would rule out this specific counterexample trace?" — not just "What predicates might be relevant for this source code?"
+
+### Limitations
+
+1. **Bounds-dominated benchmarks**: If the CEGAR bottleneck is learning numeric bounds (diamond_1-2, sum01-1), auxiliary relational predicates don't help.
+2. **Parser subset**: Predicates must use supported BV operations (`+`, `-`, `*`, `mod`, `<`, `<=`, `>`, `>=`, `=`). Array theory (`select`), bitvector shifts (`bvshl`), and pointer-level SSA names are not supported.
+3. **Benchmarks already solved by B2**: linear-ineq-inv-a solves in 1 refinement either way.
+4. **Non-scalar benchmarks**: Array-heavy or pointer-intensive benchmarks (eureka_01-2) generate predicates in theories the parser doesn't support.
+5. **One-shot injection**: B5 currently injects repair predicates once. Multi-round repair is not tested.
+
+### What B5 Proves
+
+B5 demonstrates that **rich CEGAR context is actionable by an LLM**. Given trace and interpolant information, the LLM can:
+- Identify why a specific counterexample is spurious
+- Propose auxiliary relational predicates that address the gap
+- Produce correct SMT-LIB2 syntax (within the BV subset)
+
+This shifts the research question from "Can LLMs guess useful predicates?" (B2: yes, sometimes) to "Can CEGAR feedback guide LLM repair?" (B5: yes, for targeted cases).
+
+### What B5 Does NOT Prove
+
+- B5 is not a general-purpose accelerator for CPAchecker.
+- B5 does not replace B2 — source-only prompting still works on diamond_1-1.
+- B5 does not handle bounds-dominated, array-heavy, or already-solved benchmarks.
+- 6 benchmarks is diagnostic validation, not statistical evidence.
