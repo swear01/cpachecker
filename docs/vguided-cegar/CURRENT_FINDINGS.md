@@ -461,3 +461,51 @@ The original B5 prompt (trace/interpolant context + simple repair request) produ
 ### Updated Safe Claim
 
 The original B5 prompt (trace + interpolant context, no explicit gap analysis step) is the validated variant. Explicit structured gap reasoning degrades rather than improves B5 performance. The LLM already performs implicit gap analysis when given rich CEGAR context; forcing explicit reasoning first produces worse predicates.
+
+## 21. B5 Validator-Protected Extension (Weak Result)
+
+### Date/Metadata
+
+- Date: 2026-05-29
+- Commit: `4dcde6f7` (pre-run state)
+- Validator: integrated, all 18 tests passing
+
+### Target Selection
+
+5 new benchmarks selected by source-level code pattern (relational assertions, loop structures):
+
+| Benchmark | Classifier | Reason | Result |
+|-----------|-----------|--------|--------|
+| multivar_1-1 | RUN | Relational x=y | B2=2, B5=1 (weak) |
+| multivar_1-2 | RUN | Relational y=x+1 | B2=0, prompt build failed |
+| phases_1-1 | RUN | Multi-phase loop | B2=5, B5=4 (weak) |
+| nested_1-1 | WEAK | Nested loops | B2=4, B5=3 (weak) |
+| count_up_down-1 | WEAK | Counting pattern | B2=2, B5=1 (weak) |
+
+### Results
+
+- **0/5 improved** (no ≥2-ref delta). All deltas are 1 refinement (statistically negligible at baselines ≤5).
+- **1/5 workflow failure** (multivar_1-2: B2=0 refinements → no dump context).
+- **0 regressions**.
+- **0 parser failures**. Validator accepted all 17 generated predicates — output contract worked perfectly but wasn't needed (original B5 prompt already produces clean predicates).
+
+### Validator Performance
+
+- 17/17 predicates passed output contract.
+- No SSA-encoded names, no `.def_*` terms, no unsupported operators.
+- Validator confirmed working; rejection only needed for B5-gap-style prompts.
+
+### Root Cause: Selection Failure
+
+All 5 benchmarks had B2 ≤5 refinements. The classifier's key criterion (B2 refs ≥20) could not be applied without running B2 first. Source-level pattern matching is insufficient to predict difficulty — structurally similar benchmarks can be trivially solved by B2.
+
+### Updated Safe Claim
+
+B5's applicability depends on **B2 difficulty**, not source-level code patterns. Benchmarks where B2 already solves in ≤5 refinements should be classified SKIP regardless of assertion type. Future selection must include a B2 pre-scan step.
+
+### Next Recommendation
+
+1. Classifier must require B2 pre-run data (refinement count, result).
+2. Target the 60 "timeout-incomparable" cases from the 127-benchmark scan — these are cases where B2 couldn't finish and may benefit from B5.
+3. Run B2 pre-scan on timeout-incomparable subset, filter to B2 refs ≥10 or UNKNOWN/TIMEOUT, then apply classifier.
+4. Do not add more easy benchmarks.
