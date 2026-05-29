@@ -316,3 +316,80 @@ This gives the LLM a concrete picture of **why CEGAR is failing** at this benchm
 6. **Evaluation**: run target benchmark set, compare B2 vs B5
 
 Do not implement until Step 1 (access points) is confirmed correct.
+
+## 10. Validated Prompt (Original B5)
+
+The validated B5 repair prompt has the structure:
+
+```
+SOURCE CODE
+TARGET ASSERTION
+CEGAR FAILURE CONTEXT (per-refinement: trace, branch conditions, interpolants, block formulas, abstraction states, precision, candidate fates)
+REPAIR TASK: "Generate abstraction predicates that would help CPAchecker rule out these spurious traces and prove the assertion. Avoid already-entailed predicates. Avoid duplicates. Prefer relational predicates. Output JSON: {\"N<node>\": [\"(pred1)\", ...]}"
+SMT-LIB2 BV SYNTAX GUIDE
+OUTPUT FORMAT SPECIFICATION
+```
+
+The LLM receives rich CEGAR context and is asked to generate repair predicates with simple rules. There is **no** explicit "find the gap" or "analyze interpolants" instruction. The LLM performs implicit gap analysis from the context.
+
+Validated results: sum04-2 (7→2), const_1-2 (47→36), 0 regressions on 6 benchmarks.
+
+## 11. Rejected Variant: Explicit Interpolant-Gap Prompt (B5-gap)
+
+### What Was Tested
+
+The B5 prompt was extended with explicit gap-analysis instructions:
+
+```
+Step 1: Identify the Interpolant Gap
+  1. What do the current interpolants already express?
+  2. What does the assertion require?
+  3. What relation is MISSING?
+  4. Where should the predicate be tracked?
+Step 2: Generate Repair Predicates
+```
+
+### Results (4 benchmarks, 2026-05-29)
+
+| Benchmark | Original B5 | B5-gap | Δ |
+|-----------|:-----------:|:------:|-----|
+| sum04-2 | 2 (improvement) | 6 (regression) | -4 |
+| const_1-2 | 36 (improvement) | 46 (regression) | -10 |
+| diamond_1-2 | 27 | 27 | 0 |
+| sum01-1 | 11 | 11 | 0 |
+
+### Root Cause
+
+1. **SSA-encoded variable names**: The gap prompt instructs the LLM to "look at the interpolants" where variables appear in SSA-encoded form (`|main::sn@2|`, `|main::i@3|`). The LLM copies these encoded names verbatim into its output, which the parser cannot handle. Result: 0/1 parsed on sum04-2, 0/5 parsed on sum01-1.
+
+2. **Degraded predicate quality**: On const_1-2, the gap prompt produced `x=0` (a simple unary predicate) instead of the accumulator/constraint relations that the original B5 produced. Injection worsened refinements (35→46 vs. original B5's 47→36).
+
+3. **Explicit reasoning side effect**: Forcing the LLM to produce explicit gap analysis before predicates shifts its attention to low-level SMT syntax, degrading its ability to generate correct source-level repair predicates.
+
+### Decision
+
+**B5-gap is rejected.** The original B5 prompt (implied gap reasoning) is the validated variant.
+
+The lesson: **CEGAR context should be provided as background evidence, but the LLM must not be asked to explicitly reason over low-level SMT/SSA formulas. The LLM performs implicit gap analysis from rich context; forcing explicit analysis over encoded formulas degrades output quality.**
+
+## 12. Output Contract (Prompt Discipline)
+
+To prevent regressions like B5-gap, all B5 repair prompts must enforce:
+
+### Allowed Output
+
+- Source-level variable names: `x`, `y`, `i`, `sn`, `distance`, etc.
+- Supported SMT-LIB2 BV operators: `=`, `<`, `>`, `<=`, `>=`, `+`, `-`, `*`, `mod` (or aliases `bvslt`, `bvsgt`, `bvsle`, `bvsge`, `bvadd`, `bvsub`, `bvmul`, `bvurem`)
+- Numeric constants: `(_ bv5 32)` or simple integers in parser-supported forms
+
+### Forbidden Output
+
+- SSA-encoded variable names: `|main::sn@2|`, `|main::i@3|`
+- Internal solver symbols: `.def_43`, `.def_69`
+- Raw interpolant terms copied verbatim
+- Array theory: `select`, `store` (parser does not support)
+- Bitvector shift/bitslice: `bvshl`, `bvlshr`, `(_ extract ...)` (parser does not support)
+
+### Contract Enforcement (Future)
+
+A pre-injection validator can check repair candidates and reject those containing forbidden symbols, returning the diagnostic `REJECTED_INTERNAL_SYMBOL`. This would enable safe multi-round repair with feedback: "Your previous output used internal encoded variables. Use source-level names only."

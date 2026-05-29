@@ -168,3 +168,36 @@ Validate whether the structured interpolant-gap analysis prompt (Step 1: Identif
 ### Timeline
 
 No timeline. Run after applicability classifier logic is finalized.
+
+## 9. Prompt Variant Validation: B5-gap (Rejected)
+
+### Tested
+
+Explicit interpolant-gap prompt (Step 1: Identify Gap → Step 2: Generate Predicates).
+
+### Result (2026-05-29)
+
+| Benchmark | Original B5 | B5-gap | Outcome |
+|-----------|:-----------:|:------:|---------|
+| sum04-2 | 2 | 6 | Regression (parser failure: SSA names) |
+| const_1-2 | 36 | 46 | Regression (degraded predicate quality) |
+| diamond_1-2 | 27 | 27 | No effect |
+| sum01-1 | 11 | 11 | Parser failure (SSA names) |
+
+### Root Cause
+
+Explicit gap analysis causes the LLM to copy SSA-encoded variable names (`|main::sn@2|`) from interpolants and produce lower-quality predicates.
+
+### Decision
+
+**Rejected.** Original B5 prompt (simple repair request, no explicit gap analysis) is the validated variant. The LLM performs implicit gap analysis from rich context; forcing explicit analysis over low-level SMT formulas is harmful.
+
+## 10. Output Discipline
+
+All B5 repair prompts must enforce:
+
+**Forbidden output:** `|main::var@k|` (SSA names), `.def_*` (internal symbols), raw interpolant terms.
+
+**Allowed output:** source-level variable names (`x`, `y`, `i`, `sn`) and supported BV operators.
+
+This prevents parser failures caused by LLM copying SSA-encoded symbols from the provided CEGAR context.
