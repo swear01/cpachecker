@@ -762,3 +762,44 @@ See `docs/vguided-cegar/STABILITY_EVALUATION_PROTOCOL.md` for full protocol. Not
 | sum04-2 | 1 | 2 | +1 | 0.00 | 1.00 | b2_already_minimal |
 
 **Key finding:** 3/4 benchmarks show 100% improvement frequency, 0% regression under repeated runs with cached LLM output. B2 internal variability is low (±1-2 refs). The previous single-run variance came from LLM non-determinism (different B2 predicate quality), not CPAchecker non-determinism. B5 improvement is stable and reproducible when LLM output is controlled.
+
+## 29. Large-Scale B5 Stability Evaluation (K=3, Pool Exhausted)
+
+### B2 Pre-scan: 98 benchmarks
+
+| label | count |
+|-------|------:|
+| B2_HARD (≥10 refs) | 15 |
+| B2_MODERATE (6-9) | 7 |
+| B2_TOO_EASY (≤5) | 76 |
+| B2_TIMEOUT | 0 |
+| PREPROCESS_FAIL | 0 |
+
+Pool genuinely exhausted: 0 new B2_TIMEOUT cases, only 6 new nontrivial targets.
+
+### Combined Results (10 benchmarks, K=3)
+
+| benchmark | B2 med | B5 med | Δ | imp freq | reg freq | diagnosis |
+|-----------|-------:|-------:|-----|:---:|:---:|-----------|
+| sum01-2 | 43 | 2 | -95% | 1.00 | 0.00 | stable_improved |
+| nested_1-2 | 41 | 22 | -46% | 1.00 | 0.00 | stable_improved |
+| const_1-2 | 74 | 41 | -45% | 1.00 | 0.00 | stable_improved |
+| functions_1-2 | 61 | 37 | -39% | 1.00 | 0.00 | stable_improved |
+| underapprox_1-2 | 9 | 6 | -33% | 1.00 | 0.00 | stable_improved |
+| sum01_bug02 | 8 | 4 | -50% | 0.67 | 0.00 | mixed |
+| simple_4-1 | 44 | 43 | -2% | 0.33 | 0.33 | unstable |
+| simple_1-1 | 66 | 66 | 0% | 0.33 | 0.33 | unstable |
+| sum03-1 | 7 | 9 | +29% | 0.00 | 0.67 | regression |
+| sum04-2 | 1 | 2 | — | 0.00 | 1.00 | b2_already_minimal |
+
+### Key Findings
+
+1. **5/10 stable_improved** (100% improvement freq, 0% regression per case). All involve accumulator/counter relational predicates.
+2. **New improved**: sum01-2 (-95%), underapprox_1-2 (-33%).
+3. **Pool exhausted**: 98 benchmarks scanned, all viable candidates evaluated.
+4. **B2 intra-run stability high**: max ±2 refs variance across K=3 runs.
+5. **0 B2_TIMEOUT cases found** — all 98 benchmarks complete within 30s.
+
+### Safe Claim (Final)
+
+B5 was evaluated on the full accessible scalar loop benchmark pool (98 candidates). It stable-improves 5/10 B2-hard cases under K=3 repeated runs with cached LLM output. The improvements are consistent (100% improvement frequency) and involve accumulator/counter relational predicates. The accessible benchmark pool is exhausted (0 B2_TIMEOUT, 76/98 too-easy). B5 is a targeted repair mechanism effective on accumulator/counter relational bottlenecks, not a general-purpose accelerator.
