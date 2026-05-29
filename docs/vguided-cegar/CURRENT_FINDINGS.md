@@ -718,4 +718,36 @@ Implemented LLM record/replay to control for LLM output nondeterminism:
 
 ### Safe Claim (Final)
 
-B5 trace/interpolant-guided LLM predicate repair was evaluated on 14 benchmarks across 4 evaluation rounds. It improved 4 B2-hard cases with accumulator/counter/parity bottlenecks and produced zero algorithm-level regressions. The method is limited by B2 LLM non-determinism, parser subset coverage, and the benchmark pool's overall easiness. B5 is not a general-purpose accelerator but a targeted repair mechanism for cases where CEGAR's bottleneck is a missing auxiliary relational predicate detectable from spurious trace structure.
+B5 trace/interpolant-guided LLM predicate repair was evaluated on 14 benchmarks across 4 evaluation rounds. It improved 4 B2-hard cases with accumulator/counter/parity bottlenecks and produced zero algorithm-level regressions. The method is limited by B2 LLM non-determinism, parser subset coverage, CPAchecker verification non-determinism, and the benchmark pool's overall easiness. B5 is not a general-purpose accelerator but a targeted repair mechanism for cases where CEGAR's bottleneck is a missing auxiliary relational predicate detectable from spurious trace structure.
+
+## 27. Replay Limitation: Verifier-Side Nondeterminism
+
+### LLM Replay Status
+
+- Java B2 LLM record/replay works: cached predicate responses reused, cache hits confirmed.
+- Python B5 LLM record/replay works when prompt is byte-identical.
+
+### CPAchecker Nondeterminism
+
+Even with identical cached LLM output, CPAchecker produces different refinement counts:
+- sum04-2: record=7, replay=2 under same B2 predicates.
+- Cause: BDD variable ordering sensitivity, solver path variability, memory/heap state.
+
+### B5 Prompt Instability
+
+B5 repair prompt depends on per-run CEGAR dump context (block formulas, interpolants with SSA encoding). Different B2 runs produce different SSA indices → different prompt → replay cache miss.
+
+### Conclusion
+
+Full end-to-end deterministic replay is not achievable with current architecture. The LLM output is controllable via caching, but the verifier is fundamentally non-deterministic. Future evaluation should use repeated paired runs with cached LLM outputs rather than single-shot comparisons.
+
+## 28. Stability Evaluation Protocol (Pending)
+
+To account for verifier non-determinism, the next evaluation should run K repeated B2 and B5 runs per benchmark (K=5), reporting distributions rather than point estimates:
+
+- Median, min, max refinement counts per mode
+- Improvement frequency: proportion of runs where B5_refs < B2_refs
+- Regression frequency: proportion of runs where B5_refs > B2_refs
+- Solved rate per mode
+
+See `docs/vguided-cegar/STABILITY_EVALUATION_PROTOCOL.md` for full protocol. Not yet executed.
