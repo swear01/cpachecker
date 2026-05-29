@@ -597,3 +597,33 @@ Initial Phase A run: 3/4 benchmarks had 100% validator rejection (REJECT_INTERNA
 ### Safe Claim
 
 Validator-protected B5 was evaluated on 8 B2-hard or B2-timeout targets selected after a B2 pre-scan gate. The variable-name discipline fix eliminated SSA-name contamination. B5 improved 2/5 runnable hard cases, with 0 regressions. B2-timeout targets without refinement dumps cannot use the current B5 pipeline. B5 remains a targeted repair method.
+
+## 24. B5 Timeout/No-Dump Diagnosis
+
+### Issue
+
+Phase B of the selected-target evaluation reported 3 "workflow failures" classified as B2_TIMEOUT. These targets produced no B5 context dumps, preventing the offline repair pipeline.
+
+### Investigation
+
+| benchmark | prior label | actual cause | evidence |
+|-----------|-------------|--------------|----------|
+| sum01-2 | B2_TIMEOUT | **B2_TOO_EASY** (2 refs) | B2 actually solved. Broad grep matched "timelimit" keyword. Dumps exist. |
+| sum03-1 | B2_TIMEOUT | **PRECOMPILATION_FAILURE** | `bits/wordsize.h` missing. Analysis time=0.000s. `.i` version exists. |
+| terminator_03-2 | B2_TIMEOUT | **PRECOMPILATION_FAILURE** | Same header missing. `.i` version exists. |
+
+### Root Cause
+
+1. **sum01-2**: Script misclassification — the grep for "TIMEOUT" matched the `--timelimit` argument in CPAchecker output, not an actual timeout.
+2. **sum03-1, terminator_03-2**: The `.c` files include `<assert.h>` which requires 32-bit development headers (`bits/wordsize.h`) not installed on this system. Preprocessed `.i` files exist and work correctly.
+
+### Decision
+
+B5 timeout snapshot is **NOT needed**. The failures are preprocessor/script issues, not verifier timeouts:
+1. Use `.i` (preprocessed) files for benchmarks requiring system headers.
+2. Fix timeout detection in batch scripts to distinguish preprocessor failures from true timeouts.
+3. B5 dump hooks and context collection are functioning correctly — they produce context whenever refinement occurs.
+
+### Safe Claim
+
+The three Phase B no-dump cases are not evidence of verifier-timeout limitations in B5. They are caused by preprocessor failure on missing 32-bit headers (.c not compilable) and a script grep bug (misclassifying completed runs as timeout). B5 context dumping works correctly when the verifier produces refinements.
