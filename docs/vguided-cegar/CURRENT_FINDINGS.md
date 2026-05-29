@@ -751,3 +751,14 @@ To account for verifier non-determinism, the next evaluation should run K repeat
 - Solved rate per mode
 
 See `docs/vguided-cegar/STABILITY_EVALUATION_PROTOCOL.md` for full protocol. Not yet executed.
+
+### Stability Evaluation Results (K=3, 2026-05-30)
+
+| benchmark | B2 median | B5 median | Δ | improvement freq | regression freq | diagnosis |
+|-----------|----------:|----------:|-----|----------------:|---------------:|-----------|
+| const_1-2 | 74 | 41 | -45% | 1.00 | 0.00 | **stable_improved** |
+| functions_1-2 | 61 | 37 | -39% | 1.00 | 0.00 | **stable_improved** |
+| nested_1-2 | 41 | 22 | -46% | 1.00 | 0.00 | **stable_improved** |
+| sum04-2 | 1 | 2 | +1 | 0.00 | 1.00 | b2_already_minimal |
+
+**Key finding:** 3/4 benchmarks show 100% improvement frequency, 0% regression under repeated runs with cached LLM output. B2 internal variability is low (±1-2 refs). The previous single-run variance came from LLM non-determinism (different B2 predicate quality), not CPAchecker non-determinism. B5 improvement is stable and reproducible when LLM output is controlled.

@@ -4,8 +4,8 @@
 
 set -euo pipefail
 
-K=${1:-5}
-if [[ "$1" == "--quick" ]]; then K=${2:-3}; fi
+K=${K:-5}
+if [ "$K" -eq "$K" ] 2>/dev/null; then :; else K=5; fi
 
 BASE="results/vguided-cegar/stability_eval"
 CACHE="$BASE/cache"
