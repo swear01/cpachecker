@@ -627,3 +627,36 @@ B5 timeout snapshot is **NOT needed**. The failures are preprocessor/script issu
 ### Safe Claim
 
 The three Phase B no-dump cases are not evidence of verifier-timeout limitations in B5. They are caused by preprocessor failure on missing 32-bit headers (.c not compilable) and a script grep bug (misclassifying completed runs as timeout). B5 context dumping works correctly when the verifier produces refinements.
+
+## 25. Corrected B5 Target Selection
+
+### Pipeline Fixes
+
+1. **Grep bug**: Timeout detection used broad pattern matching `--timelimit` flag. Fixed to check only `Verification result:` field.
+2. **Preprocessor failures**: sum03-1 and terminator_03-2 used `.c` files that fail on missing `bits/wordsize.h`. Switched to `.i` preprocessed versions.
+
+### Corrected Pre-scan (12 benchmarks)
+
+| label | count |
+|-------|------:|
+| B2_HARD | 5 |
+| B2_MODERATE | 3 |
+| B2_TOO_EASY | 2 |
+| PREPROCESS_FAIL | 2 |
+
+### B5 Results on Corrected Targets
+
+| benchmark | B2 | B5 | Δ | diagnosis |
+|-----------|----:|----:|-----|-----------|
+| sum01-2 | 2 | 38 | -36 | regression (LLM nondeterminism) |
+| sum03-1 | 7 | 7 | 0 | no_effect |
+| sum01_bug02 | 7 | 8 | -1 | regression |
+| underapprox_1-2 | 6 | 5 | +1 | weak_improvement |
+
+### Key Finding
+
+The pipeline fixes are correct but the candidate pool is mostly moderate/low-difficulty (≤7 B2 refs). The weak results are due to insufficient headroom, not pipeline defects. sum01-2 specifically showed extreme LLM non-determinism (pre-scan 37 refs, this run 2 refs).
+
+### Safe Claim
+
+The corrected B2 pre-scan pipeline correctly identifies difficulty labels. The remaining B2_MODERATE/TOO_EASY benchmarks in the candidate pool do not provide sufficient headroom for meaningful B5 improvement. The validated improved cases (sum04-2, const_1-2, functions_1-2, nested_1-2) remain the strongest evidence for B5.
