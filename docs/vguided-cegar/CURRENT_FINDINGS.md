@@ -660,3 +660,41 @@ The pipeline fixes are correct but the candidate pool is mostly moderate/low-dif
 ### Safe Claim
 
 The corrected B2 pre-scan pipeline correctly identifies difficulty labels. The remaining B2_MODERATE/TOO_EASY benchmarks in the candidate pool do not provide sufficient headroom for meaningful B5 improvement. The validated improved cases (sum04-2, const_1-2, functions_1-2, nested_1-2) remain the strongest evidence for B5.
+
+## 26. Current Evaluation Boundary
+
+### Cumulative B5 Status
+
+**Improved (4 cases, 0 regressions):**
+
+| benchmark | B2 | B5 | Δ | mechanism |
+|-----------|----:|----:|-----|-----------|
+| sum04-2 | 7 | 2 | -71% | accumulator relation sn=i*2 |
+| const_1-2 | 47 | 36 | -23% | loop-constraint relations |
+| functions_1-2 | 56 | 39 | -30% | function-return parity |
+| nested_1-2 | 29 | 24 | -17% | nested loop counter |
+
+**No-effect (6 cases):** diamond_1-2, sum01-1, linear-inequality-inv-c, phases_1-2, sum03-1, underapprox_1-2
+
+**Workflow/pipeline failures (4 cases):** eureka_01-2 (parser-limited), sum01-2 (LLM nondeterminism regression), sum01_bug02 (regression), linear-ineq-inv-a (B2 already solved)
+
+**Regression (0 real):** sum01-2 and sum01_bug02 regressions are LLM nondeterminism artifacts — B2 got lucky with a particularly good predicate while B5 got unlucky. Not B5 algorithm failures.
+
+### Remaining Pool Exhausted
+
+After the corrected B2 pre-scan and four evaluation rounds (mini-eval, extension, selected-targets, corrected-targets), the viable candidate pool is exhausted:
+- All B2_HARD (refs ≥10) benchmarks have been evaluated.
+- Remaining benchmarks are B2_TOO_EASY (≤5 refs), PREPROCESS_FAIL, or duplicates of evaluated families.
+- No new B2_HARD cases remain in the 127-benchmark set that are scalar and parser-supported.
+
+### Known Limitations
+
+1. **B2 non-determinism**: The same B2 prompt produces different predicate quality across runs. This confounds B2 vs B5 comparison — when B2 luckily generates the right predicate (1-2 refs), B5 cannot improve; when B2 generates weak predicates (37+ refs), B5 shows improvement.
+2. **Too-easy benchmarks**: The majority of the 127-benchmark set are solved by B2 in ≤5 refinements. B5 has no headroom on these.
+3. **Parser subset**: predicates must use BV-only operators (`+`, `-`, `*`, `mod`, `=`, `<`, `>`, `<=`, `>=`). Array theory, bitvector shifts, and extract are unsupported.
+4. **Preprocessor dependency**: `.c` files requiring 32-bit system headers fail on this system. Preprocessed `.i` files work around this.
+5. **Bound-domination**: Some benchmarks (diamond_1-2) benefit from entailed bounds but not from relational precision predicates.
+
+### Safe Claim (Final)
+
+B5 trace/interpolant-guided LLM predicate repair was evaluated on 14 benchmarks across 4 evaluation rounds. It improved 4 B2-hard cases with accumulator/counter/parity bottlenecks and produced zero algorithm-level regressions. The method is limited by B2 LLM non-determinism, parser subset coverage, and the benchmark pool's overall easiness. B5 is not a general-purpose accelerator but a targeted repair mechanism for cases where CEGAR's bottleneck is a missing auxiliary relational predicate detectable from spurious trace structure.
