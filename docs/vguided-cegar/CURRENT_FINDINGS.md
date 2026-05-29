@@ -694,6 +694,27 @@ After the corrected B2 pre-scan and four evaluation rounds (mini-eval, extension
 3. **Parser subset**: predicates must use BV-only operators (`+`, `-`, `*`, `mod`, `=`, `<`, `>`, `<=`, `>=`). Array theory, bitvector shifts, and extract are unsupported.
 4. **Preprocessor dependency**: `.c` files requiring 32-bit system headers fail on this system. Preprocessed `.i` files work around this.
 5. **Bound-domination**: Some benchmarks (diamond_1-2) benefit from entailed bounds but not from relational precision predicates.
+6. **CPAchecker non-determinism**: Even with identical LLM-generated predicates, CPAchecker produces different refinement counts across runs (sum04-2: 7 vs 2). BDD variable ordering and solver variability prevent fully deterministic verification results.
+
+### Deterministic Replay Evaluation
+
+Implemented LLM record/replay to control for LLM output nondeterminism:
+- Java B2: replay works (same cached predicate response injected every run)
+- Python B5: replay fails because prompt content depends on per-run CEGAR dump context
+
+**Record-mode B2 vs B5 comparison (4 targets):**
+
+| benchmark | B2 | B5 | Δ |
+|-----------|----:|----:|-----|
+| sum04-2 | 7 | 1 | +6 |
+| const_1-2 | 30 | 39 | -9 |
+| functions_1-2 | 37 | 35 | +2 |
+| nested_1-2 | 22 | 22 | 0 |
+
+- LLM replay works for B2: same predicates, cache hits confirmed.
+- CPAchecker itself is non-deterministic: sum04-2 record=7, replay=2 under identical LLM output.
+- B5 prompt instability: CEGAR dump context varies per run, so B5 repair prompt cannot be cached for replay.
+- Full end-to-end deterministic replay is infeasible with current architecture.
 
 ### Safe Claim (Final)
 

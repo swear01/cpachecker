@@ -118,3 +118,43 @@ In `b5_repair_from_prompt.py`:
 3. **Enables sensitivity analysis**: Re-record with different LLM runs to see if improvement is robust.
 4. **Makes results reproducible**: Any researcher can replay the exact cached predicates.
 5. **Enables controlled experiments**: Vary one factor at a time (e.g., B2 predicates only, B5 predicates only, both).
+
+## 6. Implementation Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Java LLM record/replay | **Implemented** | Cache hit confirmed. B2 predicates identical across runs. |
+| Python B5 record/replay | **Implemented** | Cache miss in replay because prompt depends on per-run CEGAR dump context. |
+| Cache format | **Implemented** | SHA-256 hash, prompt.txt, response.txt, metadata.json |
+| Replay cache miss behavior | **Implemented** | Java: IOException. Python: sys.exit(1). |
+
+## 7. Replay Evaluation Results (2026-05-29)
+
+### B2 Java replay: works
+
+- All 4 benchmarks: cache hits confirmed, same LLM response injected.
+- BUT CPAchecker produces different refinement counts: sum04-2 record=7, replay=2.
+- Root cause: CPAchecker internal nondeterminism (BDD ordering, solver paths).
+- Conclusion: LLM output is reproducible, CPAchecker verification is not.
+
+### B5 Python replay: does NOT work
+
+- All 4 benchmarks: cache miss.
+- Root cause: B5 repair prompt includes per-run CEGAR dump context (block formulas, interpolants) with run-specific SSA encoding. Different B2 run → different prompt → different hash.
+- Conclusion: B5 prompt is not stable enough for replay caching.
+
+### Fixed comparison (record-only)
+
+| benchmark | B2 | B5 | Δ |
+|-----------|----:|----:|-----|
+| sum04-2 | 7 | 1 | +6 |
+| const_1-2 | 30 | 39 | -9 |
+| functions_1-2 | 37 | 35 | +2 |
+| nested_1-2 | 22 | 22 | 0 |
+
+## 8. Conclusion
+
+Full end-to-end deterministic replay is infeasible with current architecture:
+1. Java LLM caching works but CPAchecker verification is non-deterministic.
+2. Python B5 repair prompt cannot be cached because dump context varies per run.
+3. The LLM is controlled, but the verifier is not.
