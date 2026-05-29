@@ -5,10 +5,12 @@ Usage: python3 b5_repair_from_prompt.py <prompt.md> <dump_dir> [--output <out_di
 """
 
 import json
+import hashlib
 import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -32,6 +34,49 @@ def call_deepseek(prompt, api_key):
         return result.get("choices", [{}])[0].get("message", {}).get("content", "")
     except Exception as e:
         return f"API_ERROR: {e}"
+
+
+def sha256(text):
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def llm_cache_dir():
+    d = os.environ.get("VGUIDE_LLM_CACHE_DIR", "")
+    return Path(d) if d else None
+
+
+def load_cached_response(prompt_hash):
+    cache = llm_cache_dir()
+    if not cache:
+        return None
+    response_file = cache / prompt_hash / "response.txt"
+    if response_file.exists():
+        return response_file.read_text()
+    return None
+
+
+def save_cached_call(prompt_hash, prompt_text, response_text, call_site, benchmark=""):
+    cache = llm_cache_dir()
+    if not cache:
+        return
+    try:
+        d = cache / prompt_hash
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "prompt.txt").write_text(prompt_text)
+        (d / "response.txt").write_text(response_text)
+        meta = {
+            "hash": prompt_hash,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "model": "deepseek-chat",
+            "call_site": call_site,
+            "benchmark": benchmark,
+            "prompt_chars": len(prompt_text),
+            "response_chars": len(response_text),
+        }
+        (d / "metadata.json").write_text(json.dumps(meta, indent=2))
+        print(f"  LLM record saved: {prompt_hash}")
+    except Exception as e:
+        print(f"  WARNING: failed to save LLM cache: {e}")
 
 
 def parse_candidates(raw_output):
@@ -228,9 +273,25 @@ def main():
     existing = load_context(dump_dir)
     print(f"  existing: entailed={len(existing['entailed'])} candidates={len(existing['candidates'])} precision={len(existing['global_precision'])}")
 
-    # Call DeepSeek
-    print("  calling DeepSeek...")
-    raw_output = call_deepseek(prompt, api_key)
+    # Call DeepSeek (with record/replay support)
+    prompt_hash = sha256(prompt)
+    print(f"  prompt hash: {prompt_hash}")
+    record_mode = os.environ.get("VGUIDE_LLM_RECORD", "") == "1"
+    replay_mode = os.environ.get("VGUIDE_LLM_REPLAY", "") == "1"
+
+    if replay_mode:
+        cached = load_cached_response(prompt_hash)
+        if cached is None:
+            print(f"  ERROR: replay cache miss for hash {prompt_hash}")
+            sys.exit(1)
+        print("  LLM replay hit")
+        raw_output = cached
+    else:
+        print("  calling DeepSeek...")
+        raw_output = call_deepseek(prompt, api_key)
+        if record_mode:
+            bench_name = os.path.splitext(os.path.basename(prompt_file))[0]
+            save_cached_call(prompt_hash, prompt, raw_output, "B5_PYTHON", bench_name)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     raw_file = Path(out_dir) / "b5_llm_raw_response.txt"

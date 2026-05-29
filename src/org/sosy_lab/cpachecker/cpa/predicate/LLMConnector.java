@@ -15,11 +15,16 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +79,10 @@ public class LLMConnector {
   private final int requestTimeoutSeconds;
   private final HttpClient http;
 
+  private final boolean recordMode;
+  private final boolean replayMode;
+  private final @Nullable Path cacheDir;
+
   private final AtomicBoolean initialized = new AtomicBoolean(false);
   private final AtomicBoolean running = new AtomicBoolean(false);
   private final List<String> pendingTraces = Collections.synchronizedList(new ArrayList<>());
@@ -103,6 +112,15 @@ public class LLMConnector {
     requestTimeoutSeconds =
         readPositiveIntEnv("OPENROUTER_TIMEOUT_SECONDS", DEFAULT_REQUEST_TIMEOUT_SECONDS);
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
+    recordMode = "1".equals(System.getenv("VGUIDE_LLM_RECORD"));
+    replayMode = "1".equals(System.getenv("VGUIDE_LLM_REPLAY"));
+    cacheDir = Optional.ofNullable(System.getenv("VGUIDE_LLM_CACHE_DIR"))
+        .filter(s -> !s.isBlank())
+        .map(Path::of)
+        .orElse(null);
+    if (recordMode && replayMode) {
+      throw new IllegalArgumentException("VGUIDE_LLM_RECORD and VGUIDE_LLM_REPLAY cannot both be set");
+    }
   }
 
   public void requestInitialVocab() {
@@ -219,6 +237,18 @@ public class LLMConnector {
   // ---- LLM API ----
 
   private String callLLM(String prompt) throws IOException, InterruptedException {
+    String promptHash = sha256(prompt);
+    logger.log(Level.INFO, "LLM prompt hash: ", promptHash);
+
+    if (replayMode) {
+      String cached = loadCachedResponse(promptHash);
+      if (cached != null) {
+        logger.log(Level.INFO, "LLM replay hit: ", promptHash);
+        return cached;
+      }
+      throw new IOException("LLM replay cache miss for hash " + promptHash);
+    }
+
     StringBuilder body =
         new StringBuilder()
             .append("{\"model\":\"")
@@ -254,7 +284,64 @@ public class LLMConnector {
     if (content.isMissingNode() || !content.isTextual()) {
       throw new IOException("No textual content in LLM response: " + resp.body());
     }
-    return content.asText();
+    String responseText = content.asText();
+
+    if (recordMode) {
+      saveCachedCall(promptHash, prompt, responseText, "B2_JAVA");
+    }
+
+    return responseText;
+  }
+
+  private static String sha256(String input) {
+    try {
+      MessageDigest md = MessageDigest.getInstance("SHA-256");
+      byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(hash);
+    } catch (NoSuchAlgorithmException e) {
+      throw new RuntimeException("SHA-256 not available", e);
+    }
+  }
+
+  private @Nullable String loadCachedResponse(String hash) {
+    if (cacheDir == null) return null;
+    Path responseFile = cacheDir.resolve(hash).resolve("response.txt");
+    if (!Files.exists(responseFile)) return null;
+    try {
+      return Files.readString(responseFile, StandardCharsets.UTF_8);
+    } catch (IOException e) {
+      logger.logUserException(Level.WARNING, e, "Failed to load LLM cached response: " + hash);
+      return null;
+    }
+  }
+
+  private void saveCachedCall(String hash, String prompt, String response, String callSite) {
+    if (cacheDir == null) return;
+    try {
+      Path dir = cacheDir.resolve(hash);
+      Files.createDirectories(dir);
+      Files.writeString(dir.resolve("prompt.txt"), prompt, StandardCharsets.UTF_8);
+      Files.writeString(dir.resolve("response.txt"), response, StandardCharsets.UTF_8);
+      StringBuilder meta =
+          new StringBuilder()
+              .append("{\"hash\":\"")
+              .append(hash)
+              .append("\",\"timestamp\":\"")
+              .append(Instant.now().toString())
+              .append("\",\"model\":\"")
+              .append(model)
+              .append("\",\"call_site\":\"")
+              .append(callSite)
+              .append("\",\"prompt_chars\":")
+              .append(prompt.length())
+              .append(",\"response_chars\":")
+              .append(response.length())
+              .append("}");
+      Files.writeString(dir.resolve("metadata.json"), meta.toString(), StandardCharsets.UTF_8);
+      logger.log(Level.INFO, "LLM record saved: ", hash);
+    } catch (IOException e) {
+      logger.logUserException(Level.WARNING, e, "Failed to save LLM cached call: " + hash);
+    }
   }
 
   private static String jsonEscape(String s) {
