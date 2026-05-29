@@ -244,6 +244,21 @@ def main():
     total = sum(len(v) for v in candidates.values()) if candidates else 0
     print(f"  parsed: {total} predicates from {len(candidates)} locations")
 
+    # Validate candidates against output contract
+    from b5_validate_candidates import validate_candidates as vc_validate
+    valid_candidates, rejected_list, validation_report = vc_validate(candidates)
+    validated_file = Path(out_dir) / "repair_candidates_validated.json"
+    rejected_file = Path(out_dir) / "rejected_candidates.json"
+    validated_file.write_text(json.dumps(valid_candidates, indent=2))
+    rejected_file.write_text(json.dumps(rejected_list, indent=2))
+    valid_total = sum(len(v) for v in valid_candidates.values()) if valid_candidates else 0
+    rejected_total = sum(len(v) for v in rejected_list) if rejected_list else 0
+    print(f"  validated: {valid_total} accepted, {rejected_total} rejected")
+    if rejected_total > 0:
+        print("  rejected reasons:")
+        for r in rejected_list[:5]:
+            print(f"    [{r['reason']}] {r.get('location','?')}: {r['predicate'][:80]}")
+
     # Analyze predicates
     print()
     print("=== Diagnosis Table ===")
