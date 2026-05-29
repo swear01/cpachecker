@@ -551,3 +551,49 @@ Previous validator-protected extension (Section 21) selected 5 benchmarks by sou
 ### Safe Claim
 
 A B2 difficulty pre-scan is required before applying the B5 applicability classifier. Source-level code patterns alone cannot predict B2 difficulty or B5 usefulness. Of 24 pre-scanned benchmarks, only 4 are sufficiently hard (refs ≥10) and 11 timed out — these are the viable B5 candidate pool.
+
+## 23. B5 Selected-Target Evaluation
+
+### Prompt Fix
+
+Initial Phase A run: 3/4 benchmarks had 100% validator rejection (REJECT_INTERNAL_SYMBOL). The original B5 prompt caused LLM to copy SSA-encoded names (`|main::x@2|`) on harder benchmarks with complex CFA. Fixed by adding "Variable Names (CRITICAL)" section to prompt: LLM must use source-level C variable names only, never internal symbols.
+
+### Phase A (B2_HARD, with fix)
+
+| benchmark | classifier | B2 | B5 | Δ | diagnosis |
+|-----------|-----------|----:|----:|-----|-----------|
+| functions_1-2 | RUN | 56 | 39 | -17 (30%) | improved |
+| nested_1-2 | RUN | 29 | 24 | -5 (17%) | improved |
+| linear-inequality-inv-c | RUN | 22 | 22 | 0 | no_effect |
+| phases_1-2 | WEAK | 12 | 12 | 0 | no_effect |
+
+### Phase B (B2_TIMEOUT)
+
+| benchmark | classifier | B2 | B5 | diagnosis |
+|-----------|-----------|-----|-----|-----------|
+| sum01-2 | RUN | 2 refs | 2 | no_effect (too-easy) |
+| sum03-1 | RUN | TIMEOUT | — | workflow_failure (no dumps) |
+| terminator_03-2 | WEAK | TIMEOUT | — | workflow_failure (no dumps) |
+| vogal-1 | PARSER_LIMITED | TIMEOUT | — | workflow_failure (no dumps) |
+
+### Aggregate (8 benchmarks)
+
+| category | count |
+|----------|------:|
+| improved | 2 |
+| no_effect | 3 |
+| workflow_failure | 3 |
+| regression | 0 |
+| validator_rejected_all | 0 |
+
+### Key Findings
+
+1. **Variable-name discipline required**: The B5 prompt MUST explicitly forbid SSA-encoded names. The validator caught 52/52 contaminated predicates before the fix; 0/24 rejected after the fix.
+2. **2 new improved cases**: functions_1-2 (-30%), nested_1-2 (-17%) extend B5 beyond the initial mini-evaluation.
+3. **3 B2_TIMEOUT cases failed**: B5 requires at least one refinement dump for context. Benchmarks that timeout before any refinement cannot use B5.
+4. **0 regressions**: Consistent with all prior B5 evaluations (4/6 mini-eval + 2/5 extension + 2/8 selected-targets = cumulative 0 regressions).
+5. **Cumulative improved cases**: sum04-2, const_1-2, functions_1-2, nested_1-2 (4 total).
+
+### Safe Claim
+
+Validator-protected B5 was evaluated on 8 B2-hard or B2-timeout targets selected after a B2 pre-scan gate. The variable-name discipline fix eliminated SSA-name contamination. B5 improved 2/5 runnable hard cases, with 0 regressions. B2-timeout targets without refinement dumps cannot use the current B5 pipeline. B5 remains a targeted repair method.

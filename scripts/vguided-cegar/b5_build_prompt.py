@@ -109,6 +109,15 @@ def build_prompt(benchmark_path, summary_dir):
     sections.append("- `(= s (bvmul i (_ bv255 32)))` — accumulator relation\n")
     sections.append("- `(bvsge i (_ bv0 32))` — signed non-negative\n\n")
 
+    sections.append("### Variable Names (CRITICAL)\n\n")
+    sections.append("Use ONLY source-level C variable names (e.g., `x`, `y`, `i`, `sn`, `s`, `n`).\n")
+    sections.append("**NEVER** use CPAchecker internal variable names:\n")
+    sections.append("- `|main::x@2|` — forbidden (internal SSA-encoded)\n")
+    sections.append("- `|main::i|` — forbidden (internal pipe-notation)\n")
+    sections.append("- `.def_43` — forbidden (internal solver term)\n")
+    sections.append("- Variables containing `@` or `::` or `|` are invalid.\n")
+    sections.append("Copy the variable names from the SOURCE CODE section, not from the block formulas or interpolants.\n\n")
+
     sections.append("### Output Format\n\n")
     sections.append("Output ONLY a JSON object mapping CFA node numbers to predicate lists:\n\n")
     sections.append("```json\n")
