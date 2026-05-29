@@ -509,3 +509,45 @@ B5's applicability depends on **B2 difficulty**, not source-level code patterns.
 2. Target the 60 "timeout-incomparable" cases from the 127-benchmark scan — these are cases where B2 couldn't finish and may benefit from B5.
 3. Run B2 pre-scan on timeout-incomparable subset, filter to B2 refs ≥10 or UNKNOWN/TIMEOUT, then apply classifier.
 4. Do not add more easy benchmarks.
+
+## 22. B2 Pre-scan Gate for B5 Target Selection
+
+### Motivation
+
+Previous validator-protected extension (Section 21) selected 5 benchmarks by source-level code patterns. All 5 had B2 ≤5 refinements — too easy for B5 to show meaningful improvement. The classifier cannot operate without B2 difficulty data.
+
+### Method
+
+1. Recover 60 timeout-incomparable benchmarks from the 127-benchmark scan.
+2. Run B2 on 24 candidate benchmarks (scalar, not previously evaluated).
+3. Classify by difficulty: B2_HARD (refs ≥10), B2_MODERATE (6-9), B2_TOO_EASY (≤5), B2_TIMEOUT, B2_WORKFLOW_FAIL.
+4. Apply B5 classifier only to B2_HARD and B2_TIMEOUT cases.
+
+### Pre-scan Results (24 benchmarks)
+
+| Difficulty | Count | Benchmarks |
+|------------|------:|------------|
+| B2_HARD (refs ≥10) | 4 | functions_1-2 (38), linear-inequality-inv-c (23), nested_1-2 (21), phases_1-2 (12) |
+| B2_TIMEOUT | 11 | sum01-2, sum03-1, sum03-2, sum04-1, sum01_bug02, trex01-2, terminator_03-2, string-1, string-2, vogal-1, vogal-2 |
+| B2_MODERATE | 1 | underapprox_1-2 (6) |
+| B2_TOO_EASY (≤5) | 6 | functions_1-1 (2), overflow_1-1 (2), bin-suffix-5 (2), even (1), mod4 (1), odd (2) |
+| B2_WORKFLOW_FAIL | 2 | heavy-1, heavy-2 (0 refs) |
+
+### Next B5 Targets (selected, not yet run)
+
+8 benchmarks selected: 5 RUN, 2 WEAK, 1 PARSER_LIMITED sanity.
+
+| benchmark | difficulty | classifier | B2 refs | expected bottleneck |
+|-----------|-----------|-----------|--------:|---------------------|
+| functions_1-2 | B2_HARD | RUN | 38 | function-return relation |
+| nested_1-2 | B2_HARD | RUN | 21 | nested loop counter relation |
+| linear-inequality-inv-c | B2_HARD | RUN | 23 | linear accumulator relation |
+| sum01-2 | B2_TIMEOUT | RUN | ? | accumulator relation sn=n*a |
+| sum03-1 | B2_TIMEOUT | RUN | ? | accumulator relation sn=x*a |
+| phases_1-2 | B2_HARD | WEAK | 12 | phase-dependent relation |
+| terminator_03-2 | B2_TIMEOUT | WEAK | ? | conditional relational bounds |
+| vogal-1 | B2_TIMEOUT | PARSER_LIMITED | ? | array sanity check |
+
+### Safe Claim
+
+A B2 difficulty pre-scan is required before applying the B5 applicability classifier. Source-level code patterns alone cannot predict B2 difficulty or B5 usefulness. Of 24 pre-scanned benchmarks, only 4 are sufficiently hard (refs ≥10) and 11 timed out — these are the viable B5 candidate pool.
