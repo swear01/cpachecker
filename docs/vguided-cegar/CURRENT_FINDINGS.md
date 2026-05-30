@@ -803,3 +803,34 @@ Pool genuinely exhausted: 0 new B2_TIMEOUT cases, only 6 new nontrivial targets.
 ### Safe Claim (Final)
 
 B5 was evaluated on the full accessible scalar loop benchmark pool (98 candidates). It stable-improves 5/10 B2-hard cases under K=3 repeated runs with cached LLM output. The improvements are consistent (100% improvement frequency) and involve accumulator/counter relational predicates. The accessible benchmark pool is exhausted (0 B2_TIMEOUT, 76/98 too-easy). B5 is a targeted repair mechanism effective on accumulator/counter relational bottlenecks, not a general-purpose accelerator.
+
+## 30. B5-MR: Multi-Round Repair (Smoke Validated)
+
+### Design
+
+Multi-round B5 repair accumulates predicates across successive CEGAR rounds:
+1. Run B2 baseline → dump context
+2. LLM repair → validate → inject
+3. Rerun → dump updated context → repair again
+4. Repeat until solved, stagnation, or budget exhausted
+
+Each round uses the full original B5 prompt (SMT syntax guide + output contract) with appended multi-round context.
+
+### Smoke Results (3 HARD_SOLVED targets, 3×60s)
+
+| benchmark | B2 | R1 | R2 | R3 | best | total inj |
+|-----------|----:|----:|----:|----:|-----:|----------:|
+| simple_1-1 | 81 | 86 | 79 | 53 | -35% | 2 |
+| const_1-2 | 49 | 54 | 50 | 50 | 0% | 4 |
+| sum01-2 | 53 | 46 | 3 | 2 | **-96%** | 7 |
+
+### Key Findings
+
+1. **B5-MR functionally works**: New predicates appear across rounds (1-3 per round).
+2. **sum01-2**: 53→2 over 3 rounds — cumulative predicate accumulation enabled dramatic refinement drop.
+3. **Not all rounds add value**: const_1-2 added predicates but refinements stayed flat.
+4. **No solved-from-UNKNOWN yet**: All targets were B2-solved at 60s. Harder benchmarks needed.
+
+### Limitation
+
+Current accessible pool lacks B2_UNSOLVED/TIMEOUT benchmarks. B5-MR cannot yet demonstrate solved-from-UNKNOWN rescue. External harder benchmarks are required (see `HARD_BENCHMARK_SEARCH_PLAN.md`).
