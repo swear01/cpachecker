@@ -108,7 +108,17 @@ public class LLMConnector {
     String configuredModel = System.getenv("DEEPSEEK_MODEL");
     model = configuredModel == null || configuredModel.isBlank() ? DEFAULT_MODEL : configuredModel;
     completionTokens = readOptionalPositiveIntEnv("OPENROUTER_MAX_COMPLETION_TOKENS");
-    reasoningTokens = readOptionalPositiveIntEnv("OPENROUTER_REASONING_TOKENS");
+    int rawReasoningTokens = readOptionalPositiveIntEnv("OPENROUTER_REASONING_TOKENS");
+    String effortEnv = System.getenv("VGUIDE_LLM_REASONING_EFFORT");
+    if (effortEnv != null && !effortEnv.isBlank() && !"default".equalsIgnoreCase(effortEnv)) {
+      rawReasoningTokens = switch (effortEnv.toLowerCase()) {
+        case "low" -> 0;
+        case "medium" -> 1024;
+        case "high" -> 4096;
+        default -> rawReasoningTokens;
+      };
+    }
+    reasoningTokens = rawReasoningTokens;
     requestTimeoutSeconds =
         readPositiveIntEnv("OPENROUTER_TIMEOUT_SECONDS", DEFAULT_REQUEST_TIMEOUT_SECONDS);
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();

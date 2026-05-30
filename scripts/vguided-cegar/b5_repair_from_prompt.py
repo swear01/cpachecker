@@ -17,12 +17,18 @@ from pathlib import Path
 def call_deepseek(prompt, api_key):
     """Call DeepSeek API and return raw response text."""
     import json as j
-    body = j.dumps({
+    body_obj = {
         "model": "deepseek-chat",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0,
         "max_completion_tokens": 1024
-    })
+    }
+    # Reasoning effort configuration
+    effort = os.environ.get("VGUIDE_LLM_REASONING_EFFORT", "default")
+    reasoning_tokens = {"low": 0, "medium": 1024, "high": 4096}.get(effort, 0)
+    if effort != "default":
+        body_obj["reasoning"] = {"max_tokens": reasoning_tokens, "exclude": True}
+    body = j.dumps(body_obj)
     try:
         resp = subprocess.run([
             "curl", "-s", "https://api.deepseek.com/chat/completions",

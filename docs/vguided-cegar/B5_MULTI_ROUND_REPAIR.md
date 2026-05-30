@@ -219,3 +219,40 @@ Output JSON: {"N<node>": ["(pred1)", ...]}
 5. One-target smoke test
 6. If smoke succeeds: small evaluation (≤5 targets)
 7. Full evaluation only if smoke shows rescue potential
+
+## 9. Solved-from-UNKNOWN Evaluation Policy
+
+### Primary Target (Strong Rescue)
+
+The 300s verifier budget is the primary evaluation point:
+
+```
+baseline no-LLM @300s UNKNOWN/TIMEOUT
+B5-MR @300s TRUE/FALSE
+```
+
+### Secondary Target (Resource-Bounded Rescue)
+
+```
+baseline no-LLM @60s UNKNOWN/TIMEOUT
+B5-MR solves under comparable budget
+```
+
+Resource-bounded rescue is secondary evidence only. Do not lower the verifier budget to manufacture easy wins.
+
+### Current Status
+
+B5-MR has demonstrated refinement reduction on HARD_SOLVED cases (sum01-2 53→2) but has not yet demonstrated solved-from-UNKNOWN. The current local benchmark pool has no clean B2@300s UNKNOWN target.
+
+## 10. LLM Reasoning Effort Configuration
+
+Env var `VGUIDE_LLM_REASONING_EFFORT`:
+
+| effort | DeepSeek reasoning tokens |
+|--------|--------------------------:|
+| default | not sent (provider default) |
+| low | 0 (no chain-of-thought) |
+| medium | 1024 |
+| high | 4096 |
+
+Implemented in both Java LLMConnector and Python repair script.
