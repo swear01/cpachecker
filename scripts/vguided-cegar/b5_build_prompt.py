@@ -79,6 +79,53 @@ def build_prompt(benchmark_path, summary_dir):
         sections.append(content)
         sections.append("\n---\n\n")
 
+    # --- VARIABLE NAME TABLE ---
+    # Extract source-level variables from source code
+    source_vars = set(re.findall(r'\b([a-zA-Z_]\w*)\b', source))
+    # Filter keywords and common symbols
+    keywords = {'int','unsigned','void','char','long','short','float','double','bool','_Bool',
+                'if','else','while','for','return','main','include','assert','ERROR',
+                'extern','sizeof','const','typedef','static','auto','register','goto','break',
+                'continue','switch','case','default','struct','union','enum','NULL',
+                '__VERIFIER_assert','__VERIFIER_nondet_int','__VERIFIER_nondet_uint',
+                'reach_error','abort','cond','__assert_fail','__extension__','__attribute__',
+                '__nothrow__','__leaf__','__noreturn__','__PRETTY_FUNCTION__','_Bool'}
+    source_vars = sorted(v for v in source_vars if v not in keywords and not v.startswith('__') and len(v) <= 20)
+
+    # Collect SSA-encoded names from context JSONs for mapping
+    context_dir = Path(summary_dir)
+    ssa_to_source = {}
+    for jf in sorted(context_dir.glob("refinement_*.json")):
+        try:
+            import json
+            d = json.loads(jf.read_text())
+            for bf in d.get('block_formulas', []):
+                smt = bf.get('smt', '')
+                # Extract |main::var@N| patterns
+                for m in re.finditer(r'\|([^|]+)::([^@]+)(@\d+)?\|', smt):
+                    source_name = m.group(2)
+                    ssa_to_source[source_name] = source_name
+        except Exception:
+            pass
+
+    if source_vars:
+        sections.append("## Variable Name Contract (CRITICAL)\n\n")
+        sections.append("The CEGAR context above contains CPAchecker internal variable names in SSA-encoded form.\n")
+        sections.append("These are displayed as debugging context only. You MUST translate them to source-level names.\n\n")
+
+        sections.append("| Source Variable | DO NOT USE (internal names you may see below) |\n")
+        sections.append("|-----------------|------------------------------------------------|\n")
+        for v in source_vars[:12]:
+            internal_examples = f"`|main::{v}|`, `|main::{v}@1|`, `|main::{v}@2|`"
+            sections.append(f"| `{v}` | {internal_examples} |\n")
+        sections.append("\n")
+
+        sections.append("**Allowed output:** `(= k i)`, `(> k (- n j))`, `(bvsge i (_ bv0 32))`\n")
+        sections.append("**Forbidden output:** `(= |main::k| |main::i|)`, `(= .def_43 (_ bv0 32))`\n")
+        sections.append("\n")
+        sections.append("When reading interpolants below, first translate internal names to source names.\n")
+        sections.append("Then write predicates using ONLY the source variable names listed above.\n\n")
+
     # --- REPAIR TASK ---
     sections.append("## Repair Task\n\n")
     sections.append("You are analyzing a CPAchecker CEGAR run that is stuck on the benchmark above.\n")
