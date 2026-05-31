@@ -31,3 +31,12 @@ The instability appears to be **LLM repair predicate variance**: the B5 repair p
 
 ## 7. Takeaway
 `string_concat-noarr` demonstrates that B5 repair predicate quality varies across runs. The method CAN rescue this benchmark (as shown in run 3), but the rescue is not yet stable. Deterministic replay of successful predicates would confirm whether the instability is purely LLM-side or also involves CPAchecker variance.
+
+## 6. Fixed-Predicate Replay (Stabilization)
+
+Replaying the exact successful predicates from run 3 (10 predicates: 8 bootstrap + 2 B5):
+- **3/3 TRUE, 1 refinement** — fully stable with fixed predicates.
+
+Root cause of original instability: LLM SSA-name contamination on runs 1-2 (B5 output used `|main::i|` instead of `i`). Run 3's LLM happened to use source-level names and produced valid predicates. With the same predicates, CPAchecker consistently proves TRUE.
+
+**Final status: stabilized_rescue_via_fixed_predicates** (original 1/3 → fixed 3/3).
