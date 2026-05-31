@@ -42,3 +42,17 @@ On `up`: neither `k=i` alone nor `k=n-j` alone is sufficient. The combination of
 1. Stabilize string_concat-noarr (deterministic replay).
 2. Search for harder benchmarks from external SV-COMP suites.
 3. Test whether local precision injection (per-CFANode) improves unstable cases.
+
+## Level 1 Array-Present Scalar Extension
+
+A follow-up question was whether the scalar pipeline can handle benchmarks that contain arrays syntactically but whose proof bottleneck remains scalar.
+
+**Result**: 6 RUN_ARRAY_SCALAR candidates evaluated. 4/6 bootstrap-only rescued (TRUE, 1-8 refs). 6/6 context unlocked. 0 select/store predicates generated. No array theory was implemented.
+
+This extends the candidate pool beyond purely scalar-looking programs without requiring parser changes.
+
+## Updated Limitations
+
+- Level 1 is array-present scalar-bottleneck only — not full array theory.
+- Level 2 (select/store) is future work, not yet supported.
+- Pointer/heap/aliasing remains out of scope.
