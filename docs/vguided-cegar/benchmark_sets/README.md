@@ -1,7 +1,15 @@
 # Benchmark manifest 清單
 
-與 **官方** `~/sv-benchmarks-vguide`（`sosy-lab/sv-benchmarks` 之 `c/loop*` + `c/loops*` sparse）對齊。  
-重生：`./scripts/vguided-cegar/run.sh bench-reclassify`
+與 **官方** `~/sv-benchmarks-vguide`（[`sosy-lab/sv-benchmarks`](https://github.com/sosy-lab/sv-benchmarks) sparse）對齊。
+
+| 路徑 | 內容 |
+|------|------|
+| `~/sv-benchmarks-vguide/` | git clone 根目錄 |
+| **`~/sv-benchmarks-vguide/c/`** | **`SV_BENCHMARKS`** — 所有 benchmark 原始檔 |
+| `c/ReachSafety-*.set` | SV-COMP **ReachSafety** 子類定義（競賽 category） |
+
+下載：`run.sh bench-setup --profile=reachsafety`（全 ReachSafety）或 `--profile=loops-full`（僅 Loops 類）。  
+重生 manifest：`./scripts/vguided-cegar/run.sh bench-reclassify`
 
 ## `full_scalar` 是 SV-COMP 的哪個 category？
 

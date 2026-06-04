@@ -5,7 +5,7 @@
 ## 0. 一次性環境
 
 ```bash
-# Benchmark：官方 sv-benchmarks 的**所有 c/loop* + loops***（sparse，~33MB，非整庫）
+# Benchmark：官方 sv-benchmarks sparse（**非整庫 138k 檔**）
 cd /home/swear01/cpachecker
 chmod +x scripts/vguided-cegar/run.sh scripts/vguided-cegar/setup_benchmarks.sh
 ./scripts/vguided-cegar/run.sh bench-setup
@@ -22,7 +22,10 @@ ant -f /home/swear01/cpachecker/build.xml build-project
 
 | 路徑 | 用途 |
 |------|------|
-| `~/sv-benchmarks-vguide/` | [sosy-lab/sv-benchmarks](https://github.com/sosy-lab/sv-benchmarks) **sparse：全部 `c/loop*`、`c/loops*`、`c/bitvector-loops`**（~33MB） |
+| `~/sv-benchmarks-vguide/` | [sosy-lab/sv-benchmarks](https://github.com/sosy-lab/sv-benchmarks) sparse checkout |
+| `~/sv-benchmarks-vguide/c/` | **`SV_BENCHMARKS`**：實際 `.i`/`.c` 程式根目錄 |
+| profile `loops-full` | **ReachSafety-Loops.set** 內所有目錄 + `bitvector-loops`（loop 完整） |
+| profile `reachsafety` | 全部 **`c/ReachSafety-*.set`** 任務樹（**~2GB**，含 Arrays/Heap/Loops/…） |
 | `~/cpachecker` 或 clone 路徑 | 本 repo |
 | `output/vguide/` | CPA artifacts、`round_*/prompt.txt` |
 
@@ -35,7 +38,9 @@ DeepSeek rate limit **~500/min** → 預設 **平行**（`PARALLEL=8` CPA、`16`
 ```bash
 ./scripts/vguided-cegar/run.sh help
 
-./scripts/vguided-cegar/run.sh bench-setup       # sparse 下載 + 以現有 CSV 重生 list
+./scripts/vguided-cegar/run.sh bench-setup --profile=reachsafety   # ReachSafety 全類（建議）
+./scripts/vguided-cegar/run.sh bench-setup --profile=loops-full  # 僅 loop 相關完整
+./scripts/vguided-cegar/run.sh bench-setup       # 同 loops-full（預設）
 ./scripts/vguided-cegar/run.sh bench-reclassify # **推薦**：官方樹上重跑 classifier + list
 ./scripts/vguided-cegar/run.sh bench-regen       # 只重生 list（不重新 classify）
 
