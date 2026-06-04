@@ -9,7 +9,8 @@
 
 | 對照 | 說明 |
 |------|------|
-| **SV-COMP track（成績對照用）** | **ReachSafety-Loops**（reachability + loops 子類；見報告與 `compare_official_reference.py` 的 FMPA2 predicate proxy） |
+| **SV-COMP track（成績對照用）** | **ReachSafety-Loops**（reachability + loops 子類） |
+| **實驗數字對照 baseline** | 本機 **`--mode stock`** batch（同 config、無 LLM），輸出 `full_scalar_stock_interval15/`；`compare_official_reference.py --baseline stock`。FMPA2 僅 `--baseline fmpa2` legacy。見報告 **§4.4** |
 | **我們的 `full_scalar`** | 從上述 loop 目錄 discover 後，classifier **`RUN_SCALAR`**，再排除 `id_build` / `half_2` / `seq-3` → **217 題** |
 | **`full_array_scalar`** | 另 manifest：**`RUN_ARRAY_SCALAR`**，8 題（如 `heapsort`），不併入 `full_scalar` |
 

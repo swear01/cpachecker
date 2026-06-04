@@ -14,7 +14,7 @@
 | **LLM 多抽卡** | **程式已實作**；**實驗尚未執行**（目前 batch 皆 `K=1`） |
 | **Benchmark** | 官方 sparse `~/sv-benchmarks-vguide`，`full_scalar` **217 題** |
 | **實驗** | **`tier_s_15s` `full_scalar` 217/217 完成**（`K=1`，見 §4.5–§4.6）；tier40 **118 題**（封存） |
-| **主要發現** | 對 FMPA2 proxy（180 題重疊）**59 變好 / 5 變差**；**heapsort**：proxy 不穩→VGuide TRUE，**stock 亦 TRUE**（§4.2）；**1 題 infrastructure ERROR**（`watermelon`，§4.5.1） |
+| **主要發現** | 對照改為 **同設定 stock baseline**（§4.4，跑完後填數）；舊 FMPA2 proxy 僅 legacy；**heapsort** 見 §4.2；**1 題 ERROR**（`watermelon`，§4.5.1） |
 | **後續改進** | §8：prompt／離線 L3／ensemble／NO_SPURIOUS（**不要求** LLM 產 Craig） |
 
 ---
@@ -36,7 +36,7 @@
 | 元件 | 說明 |
 |------|------|
 | `run.sh` / `run_benchmark_set.sh` | 單一入口；**邊跑邊寫 CSV** |
-| `compare_official_reference.py` | 對照 FMPA2 predicate proxy，不需重跑 stock |
+| `compare_official_reference.py` | VGuide vs **本地 stock log**（同 config、無 LLM）；`--baseline fmpa2` 僅 legacy |
 | `LLM_ENSEMBLE.md` | 多抽卡行為、`maxLlmRounds` 語意、合併說明 |
 
 ### 2.3 Benchmark
@@ -199,16 +199,52 @@ RULES 中「violations are discarded automatically」指的是 **Java 端 L1/L2/
 
 TRUE 45 / FALSE 21 / UNKNOWN 52；排程 40s interval，多為 ~1 LLM/題。
 
-### 4.4 與官方 proxy（FMPA2 predicate @300s）
+### 4.4 對照 baseline：同設定 stock（無 LLM）
 
-| 批次 | 可比題數 | 變好 | 持平 | 變差 |
-|------|----------|------|------|------|
-| tier40（封存） | 86 | **27** | 54 | **5** |
-| **tier_s_15s（全量）** | **180** | **59** | **116** | **5** |
+**主對照**為本機重跑的 **stock PredicateCPA**：與 VGuide **完全相同** 的 CPA 設定，只差 `useVocabularyGuide=false`（不呼叫 LLM）。
 
-指令：`python3 scripts/vguided-cegar/compare_official_reference.py --vguide-logs output/vguide/experiments/full_scalar_vguide_interval15/logs --manifest docs/vguided-cegar/benchmark_sets/full_scalar.list`
+| | **Stock baseline** | **VGuide** |
+|--|-------------------|------------|
+| 設定檔 | `config/predicateAnalysis-vguide.properties`（含 `vguide.properties` 排程項，但 bridge 不啟用） | 同上 |
+| 開關 | `--mode stock` → `useVocabularyGuide=false` | `useVocabularyGuide=true` + DeepSeek |
+| 時限／heap | **300s**、`2000M`（`run_benchmark_set.sh`） | 相同 |
+| Benchmark | `~/sv-benchmarks-vguide/c`，`full_scalar` **217 題** | 相同 |
+| 輸出 | `output/vguide/experiments/full_scalar_stock_interval15/` | `.../full_scalar_vguide_interval15/` |
 
-Proxy 桶（180 題）：TRUE 25 / FALSE 20 / INCOMPLETE 135 → VGuide：TRUE **80** / FALSE **19** / INCOMPLETE **81**（不含 `watermelon` ERROR）。
+```bash
+# Baseline（不需 DEEPSEEK_API_KEY）
+./scripts/vguided-cegar/run.sh cpa --set full_scalar --mode stock --parallel 8 --timelimit 300 \
+  --out output/vguide/experiments/full_scalar_stock_interval15
+
+# 對照（VGuide 已跑完時）
+python3 scripts/vguided-cegar/compare_official_reference.py \
+  --baseline stock \
+  --vguide-logs output/vguide/experiments/full_scalar_vguide_interval15/logs \
+  --baseline-logs output/vguide/experiments/full_scalar_stock_interval15/logs \
+  --manifest docs/vguided-cegar/benchmark_sets/full_scalar.list \
+  | tee output/vguide/experiments/full_scalar_vguide_interval15/vs_stock_baseline.txt
+```
+
+**可比題數**：manifest 中 **兩邊皆有 `.log` 的題**（目標 **217/217**）。桶定義：TRUE / FALSE / INCOMPLETE（UNKNOWN、ERROR、缺 log）。
+
+**§4.4 數字（stock baseline 跑完後填入）**：
+
+| 項目 | 狀態 |
+|------|------|
+| Stock batch | **進行中／待跑** → 見 `full_scalar_stock_interval15/full_scalar_summary.csv` |
+| vs stock | （待 `vs_stock_baseline.txt`） |
+
+#### 4.4.1 Legacy：FMPA2 proxy（**不再**作主對照）
+
+先前用的 **FMPA2** `predicate-abstraction` @300s（CPAchecker **4.2.2**、不同機器／版本）僅作歷史參考；與 VGuide **設定不一致**，**不得**與 stock 數字混談。若需重現舊表：
+
+```bash
+python3 scripts/vguided-cegar/compare_official_reference.py --baseline fmpa2 \
+  --vguide-logs output/vguide/experiments/full_scalar_vguide_interval15/logs \
+  --manifest docs/vguided-cegar/benchmark_sets/full_scalar.list
+```
+
+（舊結果約 180 題可比、59↑/5↓ — **已過時**，僅封存對照。）
 
 參考：SV-COMP 2025 ReachSafety-Loops 類 CPAchecker 得分 **922**（774 題）；我們為 217 題子集。
 
@@ -229,11 +265,11 @@ Proxy 桶（180 題）：TRUE 25 / FALSE 20 / INCOMPLETE 135 → VGuide：TRUE *
 
 ### 4.6 做法有沒有用？（成效解讀）
 
-**結論（向 advisor）**：**有用，但角色要講對**——主價值是 **相對競賽型 proxy 的 rescue 與結果桶改善**，不是「每題都靠 LLM 才解」或「全面取代 stock PredicateCPA」。
+**結論（向 advisor）**：**有用，但角色要講對**——主價值應以 **相對同設定 stock baseline** 的 Δ 為準（跑完後更新本節數字）；不是「每題都靠 LLM 才解」。
 
 | 維度 | 觀察 | 解讀 |
 |------|------|------|
-| **對外可比** | 180 題重疊 proxy：**59 變好**、116 持平、**5 變差** | 多數 **TIMEOUT/OUT → TRUE**；整體 **INCOMPLETE 135→81** |
+| **對外可比** | vs **同設定 stock**（§4.4，跑完後填） | 唯一公平 ablation：只差 LLM／VGuide bridge |
 | **本批結果** | TRUE 87 / FALSE 39 / UNKNOWN 90 | 在 300s、K=1 下可 batch 跑完；**40%** 題仍 UNKNOWN（含 up 類硬題） |
 | **LLM 觸發** | 113/217 題有 API；TRUE 僅 40/87 依賴 LLM 輪 | **多數 TRUE 仍靠 Craig/CEGAR**；LLM 是 **加速或改精度形狀** 的輔助 |
 | **Case study** | heapsort：proxy 不穩；VGuide TRUE；**stock 亦 TRUE 且更快** | **不能**宣稱「LLM 必要」；**可以**宣稱 proxy rescue + 精度注入改變 refinement 軌跡 |
@@ -340,7 +376,7 @@ Predicate 抽象探索狀態空間
 ## 7. 已知限制（建議主動講）
 
 1. 217 題 ≠ 全 SV-COMP Loops；不宣稱打贏 922 分。  
-2. 逐題對照用 FMPA2 proxy，非 Zenodo 官方 XML。  
+2. 主對照為 **同設定 stock batch**（§4.4）；FMPA2 proxy 僅 legacy（§4.4.1）。  
 3. **up/down 仍 timeout**（ref 有降）。  
 4. **5 題 degraded** 待查 log（與 tier40 相同 5 題）。  
 5. **`full_array_scalar`（8 題）尚未跑**；ensemble `K>1` 尚未跑。  
@@ -401,7 +437,7 @@ Predicate 抽象探索狀態空間
 ## 9. 建議話術（會議版）
 
 1. **工程**：Unified Java VGuide + batch + 官方 proxy 對照。  
-2. **證據**：**59** 題優於 proxy（180 重疊）；**heapsort**（proxy 不穩→VGuide TRUE；**非**「LLM 才解」—stock 亦 TRUE）。  
+2. **證據**：以 **vs stock** 為準（§4.4）；**heapsort** 等見 case study（§4.2）。  
 3. **多抽卡**：**已寫進程式，實驗還沒跑**（目前全是 K=1）。  
 4. **Zero-context**：官方 **up** 類題常 **300s、0 ref**；我們 **up** 已有 **47 ref + LLM** 但仍 timeout——兩種瓶頸要分開講。  
 5. **LLM 品質**：**不**要求符合 Craig；檢驗為 L1/L2/L3；離線合約 ~100%，執行時多數提案進 precision，**ENTAILED 約 26–42%**（見 §3.5）。  
