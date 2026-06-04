@@ -2,8 +2,9 @@
 # VGuide experiment runner (single entry point; see docs/vguided-cegar/RUN_EXPERIMENTS.md).
 #
 # Usage:
-#   ./run.sh bench-setup              # sparse clone (default: loops-full)
-#   ./run.sh bench-setup --profile=reachsafety   # full SV-COMP ReachSafety-*
+#   ./run.sh bench-setup              # default: recommended (ReachSafety + P1)
+#   ./run.sh bench-setup --profile=reachsafety
+#   ./run.sh bench-setup --profile=p1
 #   ./run.sh bench-reclassify         # rediscover + classify (official tree) + regen
 #   ./run.sh bench-regen              # regen benchmark_sets/*.list only
 #   ./run.sh cpa --set sample         # Unified VGuide batch (default mode)
@@ -16,13 +17,13 @@
 # Environment (see RUN_EXPERIMENTS.md):
 #   JAVA              — Java 21+ required for CPA
 #   DEEPSEEK_API_KEY  — required for vguide / llm-quality / verify-pack
-#   SV_BENCHMARKS     — default $HOME/sv-benchmarks-vguide/c
+#   SV_BENCHMARKS     — default $HOME/sv-benchmarks/c
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-export SV_BENCHMARKS="${SV_BENCHMARKS:-$HOME/sv-benchmarks-vguide/c}"
+export SV_BENCHMARKS="${SV_BENCHMARKS:-$HOME/sv-benchmarks/c}"
 export PATH="${HOME}/.local/ant/bin:${PATH:-}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }

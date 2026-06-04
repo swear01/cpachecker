@@ -31,13 +31,16 @@ Manifest：`docs/vguided-cegar/benchmark_sets/*.list`（`run.sh bench-regen` 重
 | S7 | `array_3-2` | `loop-acceleration/array_3-2.i` | array-scalar |
 | S8 | `array_4` | `loop-acceleration/array_4.i` | array-scalar |
 
-**Bench root：** `SV_BENCHMARKS`（預設 **`$HOME/sv-benchmarks-vguide/c`**）。
+**Bench root：** `SV_BENCHMARKS`（預設 **`$HOME/sv-benchmarks/c`**）。
 
 ```bash
 # Loop 相關完整（ReachSafety-Loops.set + bitvector-loops）
 ./scripts/vguided-cegar/run.sh bench-setup --profile=loops-full
 
-# 老師建議：SV-COMP ReachSafety 全子類（ReachSafety-Arrays / -Loops / -Heap / …）
+# 建議完整包：ReachSafety + P1（NoOverflows + uthash-ReachSafety）
+./scripts/vguided-cegar/run.sh bench-setup --profile=recommended
+
+# 僅 ReachSafety
 ./scripts/vguided-cegar/run.sh bench-setup --profile=reachsafety
 ```
 
@@ -58,9 +61,22 @@ Manifest：`docs/vguided-cegar/benchmark_sets/*.list`（`run.sh bench-regen` 重
 |------|--------|
 | **`full_scalar`** | **本專案 manifest 名稱**，不是 SV-COMP 競賽表上的 category |
 | **SV-COMP 對照 track** | **ReachSafety-Loops**（例如 SV-COMP 2025 該類 CPAchecker 參考分 **922 / 774 題**） |
-| **程式來源** | 官方 [`sosy-lab/sv-benchmarks`](https://github.com/sosy-lab/sv-benchmarks)，安裝於 **`~/sv-benchmarks-vguide/`**（見下表 profile） |
-| **安裝路徑** | **`$HOME/sv-benchmarks-vguide/c`** = `export SV_BENCHMARKS` 的程式根目錄；repo 根為 `~/sv-benchmarks-vguide` |
-| **下載 profile** | `loops-full`（ReachSafety-Loops 完整，~數十 MB→百 MB）／**`reachsafety`**（全部 `ReachSafety-*.set`，本機約 **2GB**） |
+| **程式來源** | 官方 [`sosy-lab/sv-benchmarks`](https://github.com/sosy-lab/sv-benchmarks)，安裝於 **`~/sv-benchmarks/`**（見下表 profile） |
+| **安裝路徑** | **`$HOME/sv-benchmarks/c`** = `export SV_BENCHMARKS` 的程式根目錄；repo 根為 `~/sv-benchmarks` |
+| **下載 profile** | 見下表；`bench-setup --profile=…` |
+
+### 建議下載哪些 SV-COMP category？
+
+| 優先 | Profile / set | 適合 VGuide 的原因 |
+|------|----------------|-------------------|
+| **P0** | **`reachsafety`** | 老師建議的 **ReachSafety** 全類；與 `default.spc`（unreach-call）一致；PredicateCPA 主戰場 |
+| **P0** | **`loops-full`** | 僅 **ReachSafety-Loops** + `bitvector-loops`；論文主線、較小、已含 `full_scalar` 來源 |
+| **P1** | **`p1`** profile（已併入 **`recommended`**） | `NoOverflows-BitVectors` + `NoOverflows-Other` + `uthash-2.0.2`；溢出題需另選 `.prp` |
+| **P2** | `Termination-Main*` | **終止性**（不同 property）；僅在要擴充研究範圍時 |
+| **通常略過** | `MemSafety-*`、`ConcurrencySafety-*` | property 不同（記憶體／資料競爭），需改 spec，與現行 VGuide 管線不一致 |
+| **通常略過** | `SoftwareSystems-*`（整包） | 超大、偏產品碼；可只挑單一 `SoftwareSystems-uthash-ReachSafety` 等小 set |
+
+你目前已用 **`reachsafety`（~2GB）** 即已涵蓋 **Loops + Arrays + Heap + ControlFlow + BitVectors + …**；**不必**再為 loop 單獨下載一份，除非想縮小磁碟用量改 `--profile=loops-full`。
 | **篩選規則** | Classifier 標 **`RUN_SCALAR`** → 再排除 `id_build`, `half_2`, `seq-3` → **217 題** |
 
 因此：
@@ -74,7 +90,7 @@ Manifest：`docs/vguided-cegar/benchmark_sets/*.list`（`run.sh bench-regen` 重
 
 ## Tier Full — 官方 sv-benchmarks 對齊（已重跑 classifier）
 
-來源：`run.sh bench-reclassify` → `scalar_classified.csv` + `~/sv-benchmarks-vguide/c`
+來源：`run.sh bench-reclassify` → `scalar_classified.csv` + `~/sv-benchmarks/c`
 
 | Manifest | 題數 | 說明 |
 |----------|------|------|
@@ -143,7 +159,7 @@ CPA 驗收：`vguide.writeArtifacts=true` → `output/vguide/round_*/`.
 ```bash
 export JAVA=/path/to/jdk-21/bin/java
 export DEEPSEEK_API_KEY=...
-export SV_BENCHMARKS=$HOME/sv-benchmarks-vguide/c
+export SV_BENCHMARKS=$HOME/sv-benchmarks/c
 
 scripts/cpa.sh \
   --heap 2000M \

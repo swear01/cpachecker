@@ -11,7 +11,7 @@ chmod +x scripts/vguided-cegar/run.sh scripts/vguided-cegar/setup_benchmarks.sh
 ./scripts/vguided-cegar/run.sh bench-setup
 ./scripts/vguided-cegar/run.sh bench-reclassify   # 對齊官方樹：重 discover + classify + 重生 list
 
-export SV_BENCHMARKS="$HOME/sv-benchmarks-vguide/c"
+export SV_BENCHMARKS="$HOME/sv-benchmarks/c"
 export DEEPSEEK_API_KEY="..."
 export JAVA="$HOME/jdk-21/bin/java"   # 需 Java 21+，見 LOCAL_DEVELOPMENT_ENV.md
 export PATH="$HOME/.local/ant/bin:$(dirname "$JAVA"):$PATH"
@@ -22,10 +22,12 @@ ant -f /home/swear01/cpachecker/build.xml build-project
 
 | 路徑 | 用途 |
 |------|------|
-| `~/sv-benchmarks-vguide/` | [sosy-lab/sv-benchmarks](https://github.com/sosy-lab/sv-benchmarks) sparse checkout |
-| `~/sv-benchmarks-vguide/c/` | **`SV_BENCHMARKS`**：實際 `.i`/`.c` 程式根目錄 |
-| profile `loops-full` | **ReachSafety-Loops.set** 內所有目錄 + `bitvector-loops`（loop 完整） |
-| profile `reachsafety` | 全部 **`c/ReachSafety-*.set`** 任務樹（**~2GB**，含 Arrays/Heap/Loops/…） |
+| `~/sv-benchmarks/` | [sosy-lab/sv-benchmarks](https://github.com/sosy-lab/sv-benchmarks) sparse checkout |
+| `~/sv-benchmarks/c/` | **`SV_BENCHMARKS`**：實際 `.i`/`.c` 程式根目錄 |
+| profile **`recommended`** | **ReachSafety + P1**（建議；含 NoOverflows、uthash-ReachSafety） |
+| profile `reachsafety` | 全部 **`c/ReachSafety-*.set`**（~2GB） |
+| profile `p1` | **NoOverflows-*** + **SoftwareSystems-uthash-ReachSafety** |
+| profile `loops-full` | **ReachSafety-Loops** + `bitvector-loops`（較小） |
 | `~/cpachecker` 或 clone 路徑 | 本 repo |
 | `output/vguide/` | CPA artifacts、`round_*/prompt.txt` |
 
@@ -38,9 +40,10 @@ DeepSeek rate limit **~500/min** → 預設 **平行**（`PARALLEL=8` CPA、`16`
 ```bash
 ./scripts/vguided-cegar/run.sh help
 
-./scripts/vguided-cegar/run.sh bench-setup --profile=reachsafety   # ReachSafety 全類（建議）
-./scripts/vguided-cegar/run.sh bench-setup --profile=loops-full  # 僅 loop 相關完整
-./scripts/vguided-cegar/run.sh bench-setup       # 同 loops-full（預設）
+./scripts/vguided-cegar/run.sh bench-setup --profile=recommended  # ReachSafety + P1（預設）
+./scripts/vguided-cegar/run.sh bench-setup --profile=reachsafety
+./scripts/vguided-cegar/run.sh bench-setup --profile=p1           # 僅 P1 加購
+./scripts/vguided-cegar/run.sh bench-setup --profile=loops-full
 ./scripts/vguided-cegar/run.sh bench-reclassify # **推薦**：官方樹上重跑 classifier + list
 ./scripts/vguided-cegar/run.sh bench-regen       # 只重生 list（不重新 classify）
 
@@ -61,7 +64,7 @@ DeepSeek rate limit **~500/min** → 預設 **平行**（`PARALLEL=8` CPA、`16`
 
 **SV-COMP：** `full_scalar` **不是**官方 category 名稱；程式來自 **ReachSafety-Loops 相關**的 `sv-benchmarks` loop 子樹，再經 classifier **`RUN_SCALAR`** 篩成 **217 題**子集（≠ Loops 全量 774 題）。見 [STANDARD_BENCHMARK_SUITE.md § SV-COMP](STANDARD_BENCHMARK_SUITE.md#sv-comp-與-full_scalar-的關係請先讀)。
 
-1. **Discover**：`discover_loop_programs.py` 掃 `~/sv-benchmarks-vguide/c` 下所有 `loop*` / `loops*` 目錄（324 程式，優先 `.i`）。
+1. **Discover**：`discover_loop_programs.py` 掃 `~/sv-benchmarks/c` 下所有 `loop*` / `loops*` 目錄（324 程式，優先 `.i`）。
 2. **Classify**：`classify_bootstrap_targets.py --csv` → `results/.../scalar_classified.csv`（**請用 `bench-reclassify` 產生**，勿沿用舊 FMPA2 版）。
 3. **Regen**：`regenerate_benchmark_lists.py` → `docs/.../benchmark_sets/*.list`。
 4. **排除**（主路徑 full 集）：`id_build`, `half_2`, `seq-3`。

@@ -4,6 +4,8 @@
 Profiles (from sosy-lab/sv-benchmarks c/*.set):
   loops-full     — ReachSafety-Loops.set + bitvector-loops (loop 相關完整)
   reachsafety    — all c/ReachSafety-*.set task directories (~80 dirs)
+  p1             — NoOverflows-*.set + SoftwareSystems-uthash-ReachSafety (additive)
+  recommended    — reachsafety ∪ p1（論文／實驗建議完整包）
 """
 from __future__ import annotations
 
@@ -52,41 +54,81 @@ def loops_full_dirs(repo: Path) -> set[str]:
     return out
 
 
-def sparse_paths(profile: str, repo: Path) -> list[str]:
-    if profile == "loops-full":
-        dirs = loops_full_dirs(repo)
-    elif profile == "reachsafety":
-        dirs = reachsafety_dirs(repo)
-    else:
-        raise SystemExit(f"unknown profile: {profile}")
+def p1_extra_dirs(repo: Path) -> set[str]:
+    """P1 optional: integer overflow + small uthash reachability."""
+    out: set[str] = set()
+    for set_path in (
+        "c/NoOverflows-BitVectors.set",
+        "c/NoOverflows-Other.set",
+        "c/SoftwareSystems-uthash-ReachSafety.set",
+    ):
+        out |= dirs_from_set_content(git_show_set(repo, set_path))
+    return out
 
+
+def profile_dirs(profile: str, repo: Path) -> set[str]:
+    if profile == "loops-full":
+        return loops_full_dirs(repo)
+    if profile == "reachsafety":
+        return reachsafety_dirs(repo)
+    if profile == "p1":
+        return p1_extra_dirs(repo)
+    if profile == "recommended":
+        return reachsafety_dirs(repo) | p1_extra_dirs(repo)
+    raise SystemExit(f"unknown profile: {profile}")
+
+
+def sparse_paths(profile: str, repo: Path) -> list[str]:
+    dirs = profile_dirs(profile, repo)
     paths = ["c/properties"]
     for d in sorted(dirs):
         paths.append(f"c/{d}")
-    # Category definitions + common includes (small)
     listing = subprocess.check_output(
         ["git", "-C", str(repo), "ls-tree", "--name-only", "HEAD", "c/"],
         text=True,
     )
     for name in listing.splitlines():
-        if name.endswith(".set") and (
-            "ReachSafety" in name or name in ("c/Loops.set",)
-        ):
-            paths.append(name)
-    if profile == "loops-full":
+        if not name.endswith(".set"):
+            continue
+        if profile == "loops-full":
+            if "ReachSafety" in name or name == "c/Loops.set":
+                paths.append(name)
+        elif profile == "reachsafety":
+            if "ReachSafety" in name:
+                paths.append(name)
+        elif profile == "p1":
+            if "NoOverflows" in name or "uthash-ReachSafety" in name:
+                paths.append(name)
+        elif profile == "recommended":
+            if (
+                "ReachSafety" in name
+                or "NoOverflows" in name
+                or "uthash-ReachSafety" in name
+                or name == "c/Loops.set"
+            ):
+                paths.append(name)
+    if profile in ("loops-full", "recommended"):
         paths.append("c/ReachSafety-Loops.set")
         paths.append("c/ReachSafety-BitVectors.set")
-    paths.append("c/Loops.set")
+        paths.append("c/Loops.set")
+    if profile in ("p1", "recommended"):
+        paths.append("c/NoOverflows-BitVectors.set")
+        paths.append("c/NoOverflows-Other.set")
+        paths.append("c/SoftwareSystems-uthash-ReachSafety.set")
     return sorted(set(paths))
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--profile", choices=("loops-full", "reachsafety"), required=True)
+    ap.add_argument(
+        "--profile",
+        choices=("loops-full", "reachsafety", "p1", "recommended"),
+        required=True,
+    )
     ap.add_argument(
         "--repo",
         type=Path,
-        default=Path.home() / "sv-benchmarks-vguide",
+        default=Path.home() / "sv-benchmarks",
     )
     ap.add_argument("--print-dirs-only", action="store_true")
     args = ap.parse_args()
@@ -94,10 +136,7 @@ def main() -> None:
         raise SystemExit(f"Not a git repo: {args.repo}")
 
     if args.print_dirs_only:
-        if args.profile == "loops-full":
-            ds = loops_full_dirs(args.repo)
-        else:
-            ds = reachsafety_dirs(args.repo)
+        ds = profile_dirs(args.profile, args.repo)
         for d in sorted(ds):
             print(d)
         print(f"# {len(ds)} task directories", flush=True)

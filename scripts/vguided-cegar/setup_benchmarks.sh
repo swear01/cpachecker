@@ -1,25 +1,27 @@
 #!/usr/bin/env bash
-# Install SV-COMP benchmarks under ~/sv-benchmarks-vguide (sosy-lab/sv-benchmarks).
+# Install SV-COMP benchmarks under ~/sv-benchmarks (sosy-lab/sv-benchmarks).
 #
 # Usage:
 #   ./setup_benchmarks.sh                      # default: loops-full (ReachSafety-Loops 完整)
-#   ./setup_benchmarks.sh --profile reachsafety   # 全部 ReachSafety-* 子類 (~80 目錄)
-#   ./setup_benchmarks.sh --profile loops-full    # loop 相關（Loops.set / ReachSafety-Loops）
+#   ./setup_benchmarks.sh --profile recommended # ReachSafety + P1（建議完整包）
+#   ./setup_benchmarks.sh --profile reachsafety   # 全部 ReachSafety-* 子類
+#   ./setup_benchmarks.sh --profile p1            # NoOverflows + uthash-ReachSafety
+#   ./setup_benchmarks.sh --profile loops-full    # loop 相關（ReachSafety-Loops）
 #   ./setup_benchmarks.sh --full               # entire repo (very large)
 #   ./setup_benchmarks.sh --regen              # only regenerate manifest lists
 #   ./setup_benchmarks.sh --reclassify         # expand tree + rediscover + classify + regen
 #
 # After setup:
-#   export SV_BENCHMARKS="$HOME/sv-benchmarks-vguide/c"
+#   export SV_BENCHMARKS="$HOME/sv-benchmarks/c"
 #   ./run.sh bench-regen
 #   ./run.sh bench-reclassify
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-ROOT="${SV_BENCHMARKS_ROOT:-$HOME/sv-benchmarks-vguide}"
+ROOT="${SV_BENCHMARKS_ROOT:-$HOME/sv-benchmarks}"
 REMOTE="${SV_BENCHMARKS_REMOTE:-https://github.com/sosy-lab/sv-benchmarks.git}"
-PROFILE="${SV_BENCHMARKS_PROFILE:-loops-full}"
+PROFILE="${SV_BENCHMARKS_PROFILE:-recommended}"
 REGEN=0
 FULL=0
 RECLASSIFY=0
@@ -120,8 +122,10 @@ echo "Profile:     $PROFILE"
 echo "Counts:      $nd top-level dirs under c/, $ni .i, $nc .c"
 echo ""
 echo "SV-COMP categories (reference):"
-echo "  loops-full   = ReachSafety-Loops.set + bitvector-loops"
+echo "  recommended  = reachsafety + p1 (建議)"
 echo "  reachsafety  = all ReachSafety-*.set task trees"
+echo "  p1           = NoOverflows-*.set + SoftwareSystems-uthash-ReachSafety"
+echo "  loops-full   = ReachSafety-Loops.set + bitvector-loops"
 echo ""
 python3 "$LIST_PY" --profile "$PROFILE" --repo "$ROOT" --print-dirs-only 2>/dev/null | tail -5
 echo ""
