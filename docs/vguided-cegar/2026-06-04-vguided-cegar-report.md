@@ -245,6 +245,35 @@ TRUE 45 / FALSE 21 / UNKNOWN 52；排程 40s interval，多為 ~1 LLM/題。
 
 **向 advisor**：價值在 **覆蓋率／PAR-2**，不是全面加速；與 heapsort case study（stock 較快但同解）一致。
 
+**PAR-2 總分（複習）**：stock **283.36 s**（sum 61,489 s）vs VGuide **258.83 s**（sum 56,166 s）；Δ ≈ **5,323 s**。
+
+#### 4.4.3 唯一變差題：`benchmark40_polynomial`（case study）
+
+| | Stock | VGuide（interval15） |
+|--|-------|---------------------|
+| 路徑 | `loop-zilu/benchmark40_polynomial.i` | 同左 |
+| **Verdict** | **FALSE** | **UNKNOWN**（300s CPU 強制終止） |
+| 牆鐘 | **0.87 s** | 滿 **300 s**（無 `Verification result`） |
+| **PAR-2 該題** | **0.87 s** | **600 s** |
+| Refinement | **2** | log 有 **#1、#2**（被殺前無 stats 行） |
+| LLM | 無 | **1** 次；**7** 謂詞驗證通過 → **inject 6** loop-head + strengthen **1** interpolant |
+
+**程式**：`x,y` 多項式迴圈，維持 `x*y>=0`，最後 `assert(x*y>=0)`；屬簡單可找反例題。
+
+**stock**：無 VGuide，**2 ref**、**3 predicate**，**<1s** 得 **FALSE**。
+
+**VGuide 時間線**：
+
+1. 第一次 spurious → LLM 產 `x`/`y` 符號、乘積符號、`x==0`、`y>0` 等 **bv** 謂詞（多為 PRECISION_ONLY）。
+2. 注入後 `refinement #2` 探索卡在 **MathSAT `allSat`**（boolean abstraction），**CPU 300s** 被強殺（log 掛在 `PredicateAbstractionManager.computeBooleanAbstraction`）。
+3. 非 soundness 錯誤，是 **精度過厚 → 求解卡死 → 丟掉本可秒殺的 FALSE**。
+
+**單題 PAR-2 代價** ≈ **599 s**，約占整批 Δ PAR-2 sum（5,323 s）的 **11%**。
+
+**對照**：`tier40` 同題 VGuide 曾 **FALSE**、**3 ref**（同 LLM 謂詞族但較快結束）→ **非「VGuide 必然找不到 bug」**，而是本批 **interval15 路徑** 上此題 regression。
+
+**性質**：precision 過厚／求解器卡死；§8 可選 **PRECISION_ONLY 注入上限** 或此題 **ablation（關 VGuide）**。
+
 #### 4.4.1 Legacy：FMPA2 proxy（**不再**作主對照）
 
 先前用的 **FMPA2** `predicate-abstraction` @300s（CPAchecker **4.2.2**、不同機器／版本）僅作歷史參考；與 VGuide **設定不一致**，**不得**與 stock 數字混談。若需重現舊表：
@@ -267,7 +296,7 @@ python3 scripts/vguided-cegar/compare_official_reference.py --baseline fmpa2 \
 | 結果 | TRUE **87**, FALSE **39**, UNKNOWN **90**, **ERROR 1** |
 | 有 LLM 輪次 | **113** 題（共 **145** 次 API 輪）；TRUE 87 題中 **40** 題曾觸發 LLM |
 | 標籤（log 累計） | ENTAILED **725** / PRECISION_ONLY **884**（約 **45%** ENTAILED） |
-| 快速 UNKNOWN | **10** 題 `note=fast_unknown`（`refinements=0`，非 300s 卡死） |
+| 快速 UNKNOWN | **9** 題 `note=fast_unknown`（`refinements=0`，<5s）；**另 1** 題 `benchmark40_polynomial` 為 **300s 卡死**（見 §4.4.3，CSV 曾誤標 fast_unknown） |
 | 彙總 | `output/vguide/experiments/full_scalar_vguide_interval15/full_scalar_summary.csv`（`rebuild_summary_csv.py` 自 log 重建） |
 
 #### 4.5.1 備註：`watermelon`（不計入方法成效）
@@ -286,7 +315,7 @@ python3 scripts/vguided-cegar/compare_official_reference.py --baseline fmpa2 \
 | **牆鐘** | 同解出 115 題：stock 快 **101** | LLM 常加厚抽象；**heapsort** 同型（§4.2） |
 | **LLM** | 113/217 有 API；40/87 TRUE 曾觸發 LLM | 多數 TRUE 仍靠 CEGAR；LLM 改 **能否證出** |
 | **硬題** | up 等仍 UNKNOWN | CEGAR 仍不足；見 §8 |
-| **邊界** | 1 ERROR（watermelon） | infrastructure 備註 |
+| **邊界** | 1↓（`benchmark40_polynomial`）；1 ERROR（watermelon） | §4.4.3；infrastructure 備註 |
 
 **一句話**：在 217 題上 VGuide **多證出 10 題、PAR-2 降 ~25s**；論文應同時報 **verdict + PAR-2 + cactus**，並誠實寫 **同解出題 stock 常較快**。
 
@@ -392,7 +421,7 @@ Predicate 抽象探索狀態空間
 1. 217 題 ≠ 全 SV-COMP Loops；不宣稱打贏 922 分。  
 2. 主對照為 **同設定 stock batch**（§4.4）；FMPA2 proxy 僅 legacy（§4.4.1）。  
 3. **up/down 仍 timeout**（ref 有降）。  
-4. **5 題 degraded** 待查 log（與 tier40 相同 5 題）。  
+4. vs stock **1 題 degraded**（`benchmark40_polynomial`，§4.4.3）；FMPA2 legacy 曾有 5 題 degraded，**不作**主對照。  
 5. **`full_array_scalar`（8 題）尚未跑**；ensemble `K>1` 尚未跑。  
 6. **`watermelon`**：benchmark 變數名與 SMT 保留字衝突 → ERROR（§4.5.1），不計方法失敗。
 
@@ -430,7 +459,7 @@ Predicate 抽象探索狀態空間
 | **P1** | **Ensemble `K=3`**（§5） | 提高每輪 **unique 有效謂詞** 數；量測 ref↓ / TRUE↑ vs K=1 |
 | **P1** | **排程掃描** | `every_n` × `min_interval` 小網格（成本 vs LLM 覆蓋率） |
 | **P2** | **NO_SPURIOUS 策略** | 第一輪 spurious 前 **輕量 bootstrap**（模板邊界）或擴大 **frozen** 覆蓋；與「僅 first-spurious LLM」對照寫清 |
-| **P2** | **5 題 degraded 根因** | 是否 LLM 謂詞干擾抽象、或排程過密；必要時關閉該題 LLM 做 ablation |
+| **P2** | **`benchmark40_polynomial` regression**（§4.4.3） | 精度注入上限／此題 ablation；已釐清為 allSat 卡死 |
 | **P3** | **up / down / string_concat** 專案子集 | 論文主戰場：ref 已降但仍 timeout → 目標是 **TRUE 或大幅降 ref** |
 
 ### 8.4 評估與論文（長期）
@@ -456,7 +485,7 @@ Predicate 抽象探索狀態空間
 4. **Zero-context**：官方 **up** 類題常 **300s、0 ref**；我們 **up** 已有 **47 ref + LLM** 但仍 timeout——兩種瓶頸要分開講。  
 5. **LLM 品質**：**不**要求符合 Craig；檢驗為 L1/L2/L3；離線合約 ~100%，執行時多數提案進 precision，**ENTAILED 約 26–42%**（見 §3.5）。  
 6. **路線圖**：短期補 prompt/trace 與 ENTAILED 導向；中期離線 L3 + 注入策略；實驗先 ensemble 與 NO_SPURIOUS（§8）。  
-7. **誠實**：5 題 degraded；**217/217 已完成**；`watermelon` 為工具 crash 備註。
+7. **誠實**：vs stock **1↓**（§4.4.3）；**217/217 已完成**；`watermelon` 為工具 crash 備註。
 
 ---
 
@@ -464,10 +493,10 @@ Predicate 抽象探索狀態空間
 
 | 優先 | 工作 |
 |------|------|
-| P0 | 跑 `full_array_scalar`（8）；查 **5 degraded** |
+| P0 | 跑 `full_array_scalar`（8）；`benchmark40_polynomial` 注入策略 ablation |
 | P1 | 簡報／論文表：§4.5–§4.6 數字；必要時 Zenodo XML 子集 sanity check |
 | P2 | **首次 ensemble 實驗**（`llmSamplesPerCall=3`，不穩定題子集） |
-| P3 | 查 5 題 degraded；NO_SPURIOUS 題 frozen 對照 |
+| P3 | NO_SPURIOUS 題 frozen 對照 |
 | P4 | Prompt v3 + 離線 L2/L3 harness（§8.1–8.2） |
 
 *詳細改進項見 **§8**；上表為近期可執行排程。*
@@ -481,6 +510,7 @@ Predicate 抽象探索狀態空間
 | 本報告 | `docs/vguided-cegar/2026-06-04-vguided-cegar-report.md` |
 | **Advisor 簡報 PDF** | `docs/vguided-cegar/2026-06-04-vguided-cegar-slide/slides.pdf`（講者稿：`slides_presenter.pdf`） |
 | heapsort | `docs/vguided-cegar/case_studies/heapsort.md` |
+| benchmark40_polynomial（1↓） | `docs/vguided-cegar/case_studies/benchmark40_polynomial.md` |
 | 多抽卡 | `docs/vguided-cegar/LLM_ENSEMBLE.md` |
 | NO_SPURIOUS / 0 ref | `docs/vguided-cegar/NO_SPURIOUS_STATISTICS.md` |
 | LLM 離線品質 | `docs/vguided-cegar/LLM_QUALITY_SAMPLE.md` |
