@@ -7,7 +7,7 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 RUN="$REPO/scripts/vguided-cegar/run.sh"
 export JAVA="${JAVA:-$HOME/FMPA2/external/jdk-21/jdk-21.0.10+7/bin/java}"
 export PATH="${HOME}/.local/ant/bin:$(dirname "$JAVA"):${PATH:-}"
-export SV_BENCHMARKS="${SV_BENCHMARKS:-$HOME/sv-benchmarks-vguide/c}"
+export SV_BENCHMARKS="${SV_BENCHMARKS:-$HOME/sv-benchmarks/c}"
 
 cd "$REPO"
 echo "=== stock baseline start $(date -Iseconds) ==="
@@ -21,10 +21,9 @@ echo "=== stock baseline done $(date -Iseconds) ==="
 VG_LOGS=output/vguide/experiments/full_scalar_vguide_interval15/logs
 ST_LOGS=output/vguide/experiments/full_scalar_stock_interval15/logs
 if [[ -d "$VG_LOGS" && -d "$ST_LOGS" ]]; then
-  python3 "$REPO/scripts/vguided-cegar/compare_official_reference.py" \
-    --baseline stock \
-    --vguide-logs "$VG_LOGS" \
-    --baseline-logs "$ST_LOGS" \
-    --manifest "$REPO/docs/vguided-cegar/benchmark_sets/full_scalar.list" \
-    | tee output/vguide/experiments/full_scalar_vguide_interval15/vs_stock_baseline.txt
+  "$REPO/scripts/vguided-cegar/post_batch_analysis.sh" \
+    --vguide-out output/vguide/experiments/full_scalar_vguide_interval15 \
+    --stock-out output/vguide/experiments/full_scalar_stock_interval15 \
+    --set full_scalar \
+    --timelimit 300
 fi

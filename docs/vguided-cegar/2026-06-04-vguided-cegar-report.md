@@ -12,9 +12,9 @@
 |------|------|
 | **Unified VGuide（全 Java）** | 已接入 PredicateCPA，可 batch |
 | **LLM 多抽卡** | **程式已實作**；**實驗尚未執行**（目前 batch 皆 `K=1`） |
-| **Benchmark** | 官方 sparse `~/sv-benchmarks-vguide`，`full_scalar` **217 題** |
+| **Benchmark** | 官方 sparse `~/sv-benchmarks`，`full_scalar` **217 題** |
 | **實驗** | **`tier_s_15s` `full_scalar` 217/217 完成**（`K=1`，見 §4.5–§4.6）；tier40 **118 題**（封存） |
-| **主要發現** | 對照改為 **同設定 stock baseline**（§4.4，跑完後填數）；舊 FMPA2 proxy 僅 legacy；**heapsort** 見 §4.2；**1 題 ERROR**（`watermelon`，§4.5.1） |
+| **主要發現** | vs **stock**（217）：verdict **11↑/205=/1↓**；**PAR-2 259 vs 283**（VGuide 較低）；多解 **10 題**但同解出題 **stock 常較快**（§4.4.2）；**1 ERROR**（`watermelon`） |
 | **後續改進** | §8：prompt／離線 L3／ensemble／NO_SPURIOUS（**不要求** LLM 產 Craig） |
 
 ---
@@ -36,7 +36,8 @@
 | 元件 | 說明 |
 |------|------|
 | `run.sh` / `run_benchmark_set.sh` | 單一入口；**邊跑邊寫 CSV** |
-| `compare_official_reference.py` | VGuide vs **本地 stock log**（同 config、無 LLM）；`--baseline fmpa2` 僅 legacy |
+| `compare_official_reference.py` | Verdict 桶對照（TRUE/FALSE/INCOMPLETE） |
+| `analyze_benchmark_comparison.py` | **PAR-2**、牆鐘、cactus；`post_batch_analysis.sh` 一次跑齊 |
 | `LLM_ENSEMBLE.md` | 多抽卡行為、`maxLlmRounds` 語意、合併說明 |
 
 ### 2.3 Benchmark
@@ -208,7 +209,7 @@ TRUE 45 / FALSE 21 / UNKNOWN 52；排程 40s interval，多為 ~1 LLM/題。
 | 設定檔 | `config/predicateAnalysis-vguide.properties`（含 `vguide.properties` 排程項，但 bridge 不啟用） | 同上 |
 | 開關 | `--mode stock` → `useVocabularyGuide=false` | `useVocabularyGuide=true` + DeepSeek |
 | 時限／heap | **300s**、`2000M`（`run_benchmark_set.sh`） | 相同 |
-| Benchmark | `~/sv-benchmarks-vguide/c`，`full_scalar` **217 題** | 相同 |
+| Benchmark | `~/sv-benchmarks/c`，`full_scalar` **217 題** | 相同 |
 | 輸出 | `output/vguide/experiments/full_scalar_stock_interval15/` | `.../full_scalar_vguide_interval15/` |
 
 ```bash
@@ -216,23 +217,33 @@ TRUE 45 / FALSE 21 / UNKNOWN 52；排程 40s interval，多為 ~1 LLM/題。
 ./scripts/vguided-cegar/run.sh cpa --set full_scalar --mode stock --parallel 8 --timelimit 300 \
   --out output/vguide/experiments/full_scalar_stock_interval15
 
-# 對照（VGuide 已跑完時）
-python3 scripts/vguided-cegar/compare_official_reference.py \
-  --baseline stock \
-  --vguide-logs output/vguide/experiments/full_scalar_vguide_interval15/logs \
-  --baseline-logs output/vguide/experiments/full_scalar_stock_interval15/logs \
-  --manifest docs/vguided-cegar/benchmark_sets/full_scalar.list \
-  | tee output/vguide/experiments/full_scalar_vguide_interval15/vs_stock_baseline.txt
+# 對照 + PAR-2 + cactus（VGuide 與 stock 皆跑完後；**每次 batch 必跑**）
+./scripts/vguided-cegar/post_batch_analysis.sh \
+  --vguide-out output/vguide/experiments/full_scalar_vguide_interval15 \
+  --stock-out  output/vguide/experiments/full_scalar_stock_interval15 \
+  --set full_scalar --timelimit 300
 ```
 
-**可比題數**：manifest 中 **兩邊皆有 `.log` 的題**（目標 **217/217**）。桶定義：TRUE / FALSE / INCOMPLETE（UNKNOWN、ERROR、缺 log）。
+產物：`vs_stock_baseline.txt`、`analysis_vs_stock.txt`、`cactus_vs_stock.png`。
 
-**§4.4 數字（stock baseline 跑完後填入）**：
+**可比題數**：**217/217**（兩邊皆有 log）。**持平** = verdict **桶相同**（TRUE/FALSE/INCOMPLETE），**不等於**牆鐘相同。
 
-| 項目 | 狀態 |
-|------|------|
-| Stock batch | **進行中／待跑** → 見 `full_scalar_stock_interval15/full_scalar_summary.csv` |
-| vs stock | （待 `vs_stock_baseline.txt`） |
+#### 4.4.2 Verdict、PAR-2、cactus（217 題，2026-06-05 stock 重跑）
+
+| 指標 | Stock | VGuide |
+|------|-------|--------|
+| 解出（TRUE+FALSE） | **116** | **126** |
+| TRUE / FALSE / 其餘 | 76 / 40 / 101 INCOMPLETE | 87 / 39 / 91（+1 ERROR） |
+| **PAR-2 平均**（300s，未解罰 600s） | **283.4 s** | **258.8 s** |
+| 解出題牆鐘中位數 | **0.98 s** | **2.47 s** |
+
+**Verdict 桶**：**11 變好**、**205 持平**、**1 變差**（`benchmark40_polynomial`：FALSE→UNKNOWN）。
+
+**PAR-2 解讀**：VGuide **整體較低**（較好）主因 **多證出 10 題**（少付 600s 罰分）；逐題 PAR-2 仍 **stock 較低 102 題**、VGuide 較低 25 題。兩邊**同解出且同 verdict**（115 題）：**stock 較快 101**、VGuide 較快 14；中位時間比 VGuide/stock ≈ **2.2×**。
+
+**Cactus**：`cactus_vs_stock.png` — VGuide 曲線在長時間端較高（覆蓋更多題），短時間端接近。
+
+**向 advisor**：價值在 **覆蓋率／PAR-2**，不是全面加速；與 heapsort case study（stock 較快但同解）一致。
 
 #### 4.4.1 Legacy：FMPA2 proxy（**不再**作主對照）
 
@@ -265,18 +276,21 @@ python3 scripts/vguided-cegar/compare_official_reference.py --baseline fmpa2 \
 
 ### 4.6 做法有沒有用？（成效解讀）
 
-**結論（向 advisor）**：**有用，但角色要講對**——主價值應以 **相對同設定 stock baseline** 的 Δ 為準（跑完後更新本節數字）；不是「每題都靠 LLM 才解」。
+**結論（向 advisor）**：**有用，但角色要講對**——看 **PAR-2 + 解出題數 + cactus**，不是只看 verdict「持平」或單題加速。
 
 | 維度 | 觀察 | 解讀 |
 |------|------|------|
-| **對外可比** | vs **同設定 stock**（§4.4，跑完後填） | 唯一公平 ablation：只差 LLM／VGuide bridge |
-| **本批結果** | TRUE 87 / FALSE 39 / UNKNOWN 90 | 在 300s、K=1 下可 batch 跑完；**40%** 題仍 UNKNOWN（含 up 類硬題） |
-| **LLM 觸發** | 113/217 題有 API；TRUE 僅 40/87 依賴 LLM 輪 | **多數 TRUE 仍靠 Craig/CEGAR**；LLM 是 **加速或改精度形狀** 的輔助 |
-| **Case study** | heapsort：proxy 不穩；VGuide TRUE；**stock 亦 TRUE 且更快** | **不能**宣稱「LLM 必要」；**可以**宣稱 proxy rescue + 精度注入改變 refinement 軌跡 |
-| **硬題** | up/down/string_concat 等：有 ref + LLM，仍 UNKNOWN | 瓶頸從「零 context」變成 **CEGAR 仍不足**；需 §8（prompt、注入上限、ensemble） |
-| **誠實邊界** | 5 degraded；1 ERROR（watermelon） | degraded 待 ablation；watermelon 僅備註 |
+| **公平 ablation** | vs **同設定 stock**（§4.4） | 只差 LLM／VGuide bridge |
+| **Verdict** | 11↑ / 205= / 1↓ | 「持平」= **桶相同**；11 題 stock UNKNOWN→VGuide TRUE |
+| **PAR-2** | **258.8** vs **283.4**（VGuide 較低） | **整體較好**；因多解 10 題，非單題普遍更快 |
+| **牆鐘** | 同解出 115 題：stock 快 **101** | LLM 常加厚抽象；**heapsort** 同型（§4.2） |
+| **LLM** | 113/217 有 API；40/87 TRUE 曾觸發 LLM | 多數 TRUE 仍靠 CEGAR；LLM 改 **能否證出** |
+| **硬題** | up 等仍 UNKNOWN | CEGAR 仍不足；見 §8 |
+| **邊界** | 1 ERROR（watermelon） | infrastructure 備註 |
 
-**一句話**：Unified VGuide **值得繼續做**——在 **217 題 loop 子集**上已展示 **可量測的 proxy 優勢（59↑）** 與 **穩定 batch 管線**；論文／報告應定位為 **LLM 引導的 predicate 精度補強（first-spurious 起）**，並分開報告 **FIRST_SPURIOUS_OK** vs **仍 timeout** 的題池。
+**一句話**：在 217 題上 VGuide **多證出 10 題、PAR-2 降 ~25s**；論文應同時報 **verdict + PAR-2 + cactus**，並誠實寫 **同解出題 stock 常較快**。
+
+**下次實驗必做**：`post_batch_analysis.sh`（[RUN_EXPERIMENTS.md §6.2](RUN_EXPERIMENTS.md#62-批次後分析每次-vguide--stock-跑完都要做)）。
 
 ---
 
@@ -437,7 +451,7 @@ Predicate 抽象探索狀態空間
 ## 9. 建議話術（會議版）
 
 1. **工程**：Unified Java VGuide + batch + 官方 proxy 對照。  
-2. **證據**：以 **vs stock** 為準（§4.4）；**heapsort** 等見 case study（§4.2）。  
+2. **證據**：vs stock — **11 題 verdict 變好、PAR-2 259 vs 283**；cactus 覆蓋↑、同解出題 stock 常較快（§4.4.2）。  
 3. **多抽卡**：**已寫進程式，實驗還沒跑**（目前全是 K=1）。  
 4. **Zero-context**：官方 **up** 類題常 **300s、0 ref**；我們 **up** 已有 **47 ref + LLM** 但仍 timeout——兩種瓶頸要分開講。  
 5. **LLM 品質**：**不**要求符合 Craig；檢驗為 L1/L2/L3；離線合約 ~100%，執行時多數提案進 precision，**ENTAILED 約 26–42%**（見 §3.5）。  
@@ -472,6 +486,7 @@ Predicate 抽象探索狀態空間
 | LLM 離線品質 | `docs/vguided-cegar/LLM_QUALITY_SAMPLE.md` |
 | Prompt 原始碼 | `src/.../vguide/ProposalPromptBuilder.java` |
 | 實驗輸出 | `output/vguide/experiments/` |
+| vs stock 分析 | `analysis_vs_stock.txt`、`cactus_vs_stock.png`、`post_batch_analysis.sh` |
 
 ```bash
 # 會議前更新進度
