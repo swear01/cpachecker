@@ -1,0 +1,7 @@
+# rescue_core: 6 tasks under /home/swear01/sv-benchmarks/c
+loop-invgen/up.i
+loop-invgen/down.i
+loop-invgen/string_concat-noarr.i
+loop-invgen/large_const.i
+loop-invgen/heapsort.i
+loop-acceleration/array_3-1.i

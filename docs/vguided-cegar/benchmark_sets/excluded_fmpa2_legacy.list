@@ -1,0 +1,13 @@
+# Not in github.com/sosy-lab/sv-benchmarks (main); removed from full_scalar
+# Do NOT copy from FMPA2; use bench-reclassify on ~/sv-benchmarks only
+as2013-hybrid
+bh2017-ex-add
+bh2017-ex1-poly
+bh2017-ex3
+hh2012-ex1b
+hh2012-ex2b
+hh2012-ex3
+mine2017-ex4.10
+mine2017-ex4.6
+mine2017-ex4.7
+mine2017-ex4.8

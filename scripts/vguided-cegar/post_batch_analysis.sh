@@ -3,8 +3,8 @@
 #
 # Usage:
 #   ./post_batch_analysis.sh \
-#     --vguide-out output/vguide/experiments/full_scalar_vguide_interval15 \
-#     --stock-out  output/vguide/experiments/full_scalar_stock_interval15 \
+#     --vguide-out output/vguide/experiments/full_scalar_vguide \
+#     --stock-out  output/vguide/experiments/full_scalar_stock \
 #     --set full_scalar \
 #     --timelimit 300
 set -euo pipefail

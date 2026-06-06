@@ -1,0 +1,14 @@
+{
+  "benchmark": "up",
+  "predicates": [
+    "(bvsge i (_ bv0 32))",
+    "(bvsge k (_ bv0 32))",
+    "(bvslt i n)",
+    "(= k i)",
+    "(bvsge n (_ bv0 32))",
+    "(bvsgt k (_ bv0 32))",
+    "(bvsle i n)",
+    "(= (bvsub k i) (_ bv0 32))"
+  ],
+  "provenance": "predicate_sets/up.md bootstrap section"
+}

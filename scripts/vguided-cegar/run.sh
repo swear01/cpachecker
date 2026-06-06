@@ -7,9 +7,10 @@
 #   ./run.sh bench-setup --profile=p1
 #   ./run.sh bench-reclassify         # rediscover + classify (official tree) + regen
 #   ./run.sh bench-regen              # regen benchmark_sets/*.list only
-#   ./run.sh cpa --set sample         # Unified VGuide batch (default mode)
-#   ./run.sh cpa --set sample --mode stock
+#   ./run.sh cpa --set sample         # -> output/vguide/experiments/sample_vguide
+#   ./run.sh cpa --set sample --mode stock  # -> .../sample_stock
 #   ./run.sh cpa --set full_scalar --parallel 16 --timelimit 300
+#   ./run.sh cpa --set full_scalar --ablation no-l3 --parallel 8 --timelimit 300
 #   ./run.sh llm-quality [--tasks up,down,array_3-1]
 #   ./run.sh verify-pack --task array_3-1   # CPA + artifacts (real ContextPack)
 #   ./run.sh help
@@ -17,6 +18,7 @@
 # Environment (see RUN_EXPERIMENTS.md):
 #   JAVA              — Java 21+ required for CPA
 #   DEEPSEEK_API_KEY  — required for vguide / llm-quality / verify-pack
+#   DEEPSEEK_MODEL    — optional override (default deepseek-v4-pro)
 #   SV_BENCHMARKS     — default $HOME/sv-benchmarks/c
 
 set -euo pipefail
@@ -72,7 +74,7 @@ cmd_bench_regen() {
 }
 
 cmd_cpa() {
-  local set="" mode="vguide" parallel="" timelimit="" heap="" out="" dry="" extra=()
+  local set="" mode="vguide" parallel="" timelimit="" heap="" out="" dry="" ablation="" extra=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --set) set="$2"; shift 2 ;;
@@ -81,6 +83,7 @@ cmd_cpa() {
       --timelimit) timelimit="$2"; shift 2 ;;
       --heap) heap="$2"; shift 2 ;;
       --out) out="$2"; shift 2 ;;
+      --ablation) ablation="$2"; shift 2 ;;
       --dry-run) dry=1; shift ;;
       --) shift; extra=("$@"); break ;;
       *) extra+=("$1"); shift ;;
@@ -89,15 +92,37 @@ cmd_cpa() {
   [[ -n "$set" ]] || die "cpa requires --set <sample|full_scalar|...>"
   require_java
   [[ "$mode" == "stock" ]] || require_api
+  if [[ -z "$out" ]]; then
+    case "$ablation" in
+      no-l3|no_l3|precision-only) out="output/vguide/experiments/${set}_vguide_noL3" ;;
+      *)
+        if [[ "$mode" == "stock" ]]; then
+          out="output/vguide/experiments/${set}_stock"
+        else
+          out="output/vguide/experiments/${set}_vguide"
+        fi
+        ;;
+    esac
+  fi
   local env_extra=()
   [[ -n "$parallel" ]] && env_extra+=(VGUIDE_PARALLEL="$parallel" PARALLEL="$parallel")
   [[ -n "$timelimit" ]] && env_extra+=(TIMELIMIT="$timelimit")
   [[ -n "$heap" ]] && env_extra+=(HEAP="$heap")
-  [[ -n "$out" ]] && env_extra+=(VGUIDE_OUT_BASE="$out")
+  env_extra+=(VGUIDE_OUT_BASE="$out")
   [[ "$dry" == "1" ]] && env_extra+=(VGUIDE_DRY_RUN=1)
   if [[ "$mode" == "stock" ]]; then
     env_extra+=(VGUIDE_USE_VOCABULARY_GUIDE=false)
   fi
+  case "$ablation" in
+    "")
+      ;;
+    no-l3|no_l3|precision-only)
+      extra+=(--option vguide.enableL3Entailment=false)
+      ;;
+    *)
+      die "unknown --ablation: $ablation (supported: no-l3)"
+      ;;
+  esac
   env "${env_extra[@]}" SV_BENCHMARKS="$SV_BENCHMARKS" \
     "$SCRIPT_DIR/run_benchmark_set.sh" "$set" "${extra[@]}"
 }
@@ -145,7 +170,6 @@ cmd_verify_pack() {
     --heap 2000M \
     --config config/predicateAnalysis-vguide.properties \
     --option cpa.predicate.refinement.useVocabularyGuide=true \
-    --option vguide.writeArtifacts=true \
     --option vguide.llmCallSchedule=first_spurious \
     --option vguide.maxLlmRoundsPerAnalysis=1 \
     --timelimit "${timelimit}s" \
@@ -153,16 +177,11 @@ cmd_verify_pack() {
     --stats \
     --no-output-files \
     "$rel" 2>&1 | tee "$out/cpa.log"
-  local round
-  round="$(find "$REPO/output/vguide" -maxdepth 1 -type d -name 'round_*' 2>/dev/null | sort | tail -1)"
-  if [[ -n "$round" ]]; then
-    echo "Artifacts: $round"
-    ls -la "$round" 2>/dev/null || true
-    for f in prompt.txt response.txt; do
-      [[ -f "$round/$f" ]] && echo "--- $f (head) ---" && head -20 "$round/$f"
-    done
+  if grep -q "VGuide LLM round" "$out/cpa.log" 2>/dev/null; then
+    echo "--- VGuide LLM (from cpa.log) ---"
+    grep -E "VGuide LLM round|VGuide predicate" "$out/cpa.log" | head -15
   else
-    echo "WARN: no output/vguide/round_* — check $out/cpa.log"
+    echo "WARN: no VGuide LLM lines in $out/cpa.log (NO_SPURIOUS or timeout?)"
   fi
 }
 

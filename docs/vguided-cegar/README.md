@@ -1,26 +1,45 @@
 # VGuide（Unified）
 
-**單一路徑、全 Java。** 設計見 [UNIFIED_VGUIDE_ARCHITECTURE.md](UNIFIED_VGUIDE_ARCHITECTURE.md)。
+**單一路徑、全 Java。** 設計見 [architecture/UNIFIED_VGUIDE_ARCHITECTURE.md](architecture/UNIFIED_VGUIDE_ARCHITECTURE.md)。
 
-## 現用文件
+## 快速入口
 
 | 文件 | 用途 |
 |------|------|
-| [UNIFIED_VGUIDE_ARCHITECTURE.md](UNIFIED_VGUIDE_ARCHITECTURE.md) | 模組、控制流 |
-| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | **實作計劃（缺什麼、Phase 0–5）** |
-| [STANDARD_BENCHMARK_SUITE.md](STANDARD_BENCHMARK_SUITE.md) | Tier S（8）+ **full_scalar 217** + array-scalar 8 |
-| [benchmark_sets/README.md](benchmark_sets/README.md) | manifest 清單與 **11 題排除** 說明 |
-| [LLM_CALL_SCHEDULING.md](LLM_CALL_SCHEDULING.md) | 依 LLM/refinement 延遲推導排程 |
-| [LLM_ENSEMBLE.md](LLM_ENSEMBLE.md) | 同 spurious 多抽卡（#1 單發 cache，#2+ 平行） |
-| [OFFLINE_SAMPLING.md](OFFLINE_SAMPLING.md) | 離線抽樣 vs CPA 內 LLM |
-| [NO_SPURIOUS_STATISTICS.md](NO_SPURIOUS_STATISTICS.md) | Legacy 池 / Exception 統計 |
-| [FROZEN_PREDICATES.md](FROZEN_PREDICATES.md) | 透明 replay（`predicate_sets/`） |
-| [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) | **`run.sh` 怎麼跑**；§6.2 **批次後必跑** PAR-2 / cactus |
-| [LOCAL_DEVELOPMENT_ENV.md](LOCAL_DEVELOPMENT_ENV.md) | `~/sv-benchmarks`、JDK 21、Ant、平行預設 |
-| [predicate_sets/](predicate_sets/) | 凍結 predicate（Exception 用） |
+| [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) | **`run.sh` 怎麼跑**；批次後 PAR-2 / cactus |
+| [reports/README.md](reports/README.md) | 進度報告（v4-pro 跑完後更新） |
+| [LOCAL_DEVELOPMENT_ENV.md](LOCAL_DEVELOPMENT_ENV.md) | `~/sv-benchmarks`、JDK 21、Ant |
 
-## 歷史材料
+## 現行目錄
 
-B2 / B4 / B5 / Python sidecar / Record-Replay 已移至 [archive/vguided-legacy/](../../archive/vguided-legacy/README.md)。
+```
+docs/vguided-cegar/
+├── RUN_EXPERIMENTS.md
+├── LOCAL_DEVELOPMENT_ENV.md
+├── architecture/UNIFIED_VGUIDE_ARCHITECTURE.md
+├── llm/                    # 排程、ensemble、離線 vs CPA
+├── evaluation/             # benchmark 定義、frozen replay
+├── reports/                # 進度報告
+├── benchmark_sets/         # manifest（run.sh 讀取）
+└── predicate_sets/         # Exception 用凍結謂詞
+```
 
-Advisor 會議表、case studies、舊實驗 log 同在 archive，**不作新實作依據**。
+### llm/
+
+| 文件 | 用途 |
+|------|------|
+| [LLM_CALL_SCHEDULING.md](llm/LLM_CALL_SCHEDULING.md) | `min_interval` / `every_n` 排程 |
+| [LLM_ENSEMBLE.md](llm/LLM_ENSEMBLE.md) | 同 spurious 多抽卡 |
+| [OFFLINE_SAMPLING.md](llm/OFFLINE_SAMPLING.md) | `test_llm_proposal_quality.py` vs CPA 內 LLM |
+
+### evaluation/
+
+| 文件 | 用途 |
+|------|------|
+| [STANDARD_BENCHMARK_SUITE.md](evaluation/STANDARD_BENCHMARK_SUITE.md) | sample(8) + full_scalar(217) |
+| [benchmark_sets/README.md](benchmark_sets/README.md) | manifest 與排除說明 |
+| [FROZEN_PREDICATES.md](evaluation/FROZEN_PREDICATES.md) | NO_SPURIOUS Exception、replay |
+
+## 歷史文件
+
+已移至本機 **`archive/vguided-docs/`**（gitignore）：實作計劃、2026-06-04 報告、case study、NO_SPURIOUS 舊統計、LLM 品質快照等。見 [`archive/vguided-docs/README.md`](../../archive/vguided-docs/README.md)。

@@ -4,7 +4,7 @@
 Preferred baseline: local stock batch logs (--baseline-logs), e.g.:
 
   ./run.sh cpa --set full_scalar --mode stock --parallel 8 --timelimit 300 \\
-    --out output/vguide/experiments/full_scalar_stock_interval15
+    --out output/vguide/experiments/full_scalar_stock
 
 Legacy optional: FMPA2 BenchExec predicate-abstraction @300s (--baseline fmpa2).
 
@@ -12,8 +12,8 @@ Buckets: TRUE / FALSE / INCOMPLETE (UNKNOWN, ERROR, missing → INCOMPLETE).
 
 Usage:
   python3 compare_official_reference.py \\
-    --vguide-logs output/vguide/experiments/full_scalar_vguide_interval15/logs \\
-    --baseline-logs output/vguide/experiments/full_scalar_stock_interval15/logs \\
+    --vguide-logs output/vguide/experiments/full_scalar_vguide/logs \\
+    --baseline-logs output/vguide/experiments/full_scalar_stock/logs \\
     --manifest docs/vguided-cegar/benchmark_sets/full_scalar.list
 """
 from __future__ import annotations
@@ -106,7 +106,7 @@ def main() -> None:
     ap.add_argument(
         "--baseline-logs",
         type=Path,
-        default=Path("output/vguide/experiments/full_scalar_stock_interval15/logs"),
+        default=Path("output/vguide/experiments/full_scalar_stock/logs"),
         help="CPA logs for stock baseline (same --config, useVocabularyGuide=false)",
     )
     ap.add_argument(

@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -56,7 +57,7 @@ import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
 public class LLMConnector {
 
   private static final String API_URL = "https://api.deepseek.com/chat/completions";
-  private static final String DEFAULT_MODEL = "deepseek-chat";
+  private static final String DEFAULT_MODEL = "deepseek-v4-pro";
   private static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 120;
   private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
   private static final long MAX_INTERVAL_MS = 300_000L;
@@ -111,7 +112,7 @@ public class LLMConnector {
     int rawReasoningTokens = readOptionalPositiveIntEnv("OPENROUTER_REASONING_TOKENS");
     String effortEnv = System.getenv("VGUIDE_LLM_REASONING_EFFORT");
     if (effortEnv != null && !effortEnv.isBlank() && !"default".equalsIgnoreCase(effortEnv)) {
-      rawReasoningTokens = switch (effortEnv.toLowerCase()) {
+      rawReasoningTokens = switch (effortEnv.toLowerCase(Locale.ROOT)) {
         case "low" -> 0;
         case "medium" -> 1024;
         case "high" -> 4096;
@@ -332,22 +333,21 @@ public class LLMConnector {
       Files.createDirectories(dir);
       Files.writeString(dir.resolve("prompt.txt"), prompt, StandardCharsets.UTF_8);
       Files.writeString(dir.resolve("response.txt"), response, StandardCharsets.UTF_8);
-      StringBuilder meta =
-          new StringBuilder()
-              .append("{\"hash\":\"")
-              .append(hash)
-              .append("\",\"timestamp\":\"")
-              .append(Instant.now().toString())
-              .append("\",\"model\":\"")
-              .append(model)
-              .append("\",\"call_site\":\"")
-              .append(callSite)
-              .append("\",\"prompt_chars\":")
-              .append(prompt.length())
-              .append(",\"response_chars\":")
-              .append(response.length())
-              .append("}");
-      Files.writeString(dir.resolve("metadata.json"), meta.toString(), StandardCharsets.UTF_8);
+      String meta =
+          "{\"hash\":\""
+              + hash
+              + "\",\"timestamp\":\""
+              + Instant.now()
+              + "\",\"model\":\""
+              + model
+              + "\",\"call_site\":\""
+              + callSite
+              + "\",\"prompt_chars\":"
+              + prompt.length()
+              + ",\"response_chars\":"
+              + response.length()
+              + "}";
+      Files.writeString(dir.resolve("metadata.json"), meta, StandardCharsets.UTF_8);
       logger.log(Level.INFO, "LLM record saved: ", hash);
     } catch (IOException e) {
       logger.logUserException(Level.WARNING, e, "Failed to save LLM cached call: " + hash);

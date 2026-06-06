@@ -236,7 +236,7 @@ public class VocabularyGuide {
     return f;
   }
 
-  static @Nullable BooleanFormula parsePredicate(
+  public static @Nullable BooleanFormula parsePredicate(
       String expr, FormulaManagerView fmgr, Set<String> encodedVariableNames) {
     expr = expr.strip();
     if (expr.isEmpty() || !expr.startsWith("(")) {

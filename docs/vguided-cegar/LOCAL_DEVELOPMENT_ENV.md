@@ -14,7 +14,7 @@ chmod +x scripts/vguided-cegar/run.sh
 export DEEPSEEK_API_KEY="..."
 export JAVA="$HOME/jdk-21/bin/java"          # Java 21+，見下方
 export PATH="$HOME/.local/ant/bin:$(dirname "$JAVA"):$PATH"
-export SV_BENCHMARKS="$HOME/sv-benchmarks-vguide/c"
+export SV_BENCHMARKS="$HOME/sv-benchmarks/c"
 
 ant build-project
 ./scripts/vguided-cegar/run.sh cpa --set sample
@@ -24,7 +24,7 @@ ant build-project
 
 | 項目 | 路徑 |
 |------|------|
-| SV-COMP benchmarks | **`~/sv-benchmarks-vguide/c/`** = `SV_BENCHMARKS`；sparse 非整庫 |
+| SV-COMP benchmarks | **`~/sv-benchmarks/c/`** = `SV_BENCHMARKS`；sparse 非整庫 |
 | 下載 profile | **`reachsafety`**：全部 `ReachSafety-*.set`（~2GB）；**`loops-full`**：ReachSafety-Loops + bitvector-loops |
 | Apache Ant | `~/.local/ant/bin/ant`（**1.10.14**；apt 未安裝） |
 | JDK 21（請自裝） | 建議 `~/jdk-21/`（Temurin 等）；或 `export JAVA=...` |
@@ -84,12 +84,12 @@ ant build-project
 
 **Java too old** → 設定 `JAVA` 為 21+。
 
-**Benchmark not found** → `run.sh bench-setup` 或 `export SV_BENCHMARKS=$HOME/sv-benchmarks-vguide/c`。
+**Benchmark not found** → `run.sh bench-setup` 或 `export SV_BENCHMARKS=$HOME/sv-benchmarks/c`。
 
 **ant: command not found** → `PATH` 加上 `~/.local/ant/bin`。
 
 ## 相關文件
 
 - [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md)
-- [STANDARD_BENCHMARK_SUITE.md](STANDARD_BENCHMARK_SUITE.md)
+- [STANDARD_BENCHMARK_SUITE.md](evaluation/STANDARD_BENCHMARK_SUITE.md)
 - [README.md](README.md)

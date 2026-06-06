@@ -32,6 +32,7 @@ import org.sosy_lab.cpachecker.util.predicates.interpolation.InterpolationManage
 import org.sosy_lab.cpachecker.util.predicates.pathformula.PathFormulaManager;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
 import org.sosy_lab.cpachecker.util.refinement.PrefixProvider;
+import org.sosy_lab.cpachecker.cpa.predicate.vguide.VGuideRefinementBridge;
 import org.sosy_lab.cpachecker.util.refinement.PrefixSelector;
 import org.sosy_lab.cpachecker.util.variableclassification.VariableClassification;
 
@@ -173,10 +174,10 @@ public final class PredicateCPARefinerFactory {
       String apiKey = System.getenv("DEEPSEEK_API_KEY");
       if (apiKey == null || apiKey.isBlank()) {
         throw new InvalidConfigurationException(
-            "useVocabularyGuide=true but DEEPSEEK_API_KEY environment variable is not set");
+            "useVocabularyGuide=true requires DEEPSEEK_API_KEY to be set in the environment");
       }
 
-      logger.log(Level.INFO, "Vocabulary-guided CEGAR enabled (predicate injection mode)");
+      logger.log(Level.INFO, "Unified VGuide CEGAR enabled (first-spurious LLM path)");
 
       primaryInterpolationManager =
           new InterpolationManager(
@@ -188,12 +189,14 @@ public final class PredicateCPARefinerFactory {
               shutdownNotifier,
               logger);
 
-      VocabularyGuide vg = new VocabularyGuide(solver, logger);
-      LLMConnector llm =
-          new LLMConnector(vg, solver, logger, shutdownNotifier, cfa, apiKey);
-
-      llm.initializeVocabBlocking();
-      llm.start();
+      VGuideRefinementBridge bridge =
+          VGuideRefinementBridge.create(
+              config, logger, cfa, loopStructure, solver, predAbsManager);
+      if (bridge == null) {
+        throw new InvalidConfigurationException(
+            "useVocabularyGuide=true but vguide.enable=false; enable vguide or turn off"
+                + " useVocabularyGuide");
+      }
 
       refiner =
           new PredicateCPARefiner(
@@ -211,9 +214,7 @@ public final class PredicateCPARefinerFactory {
               pRefinementStrategy,
               null,
               null,
-               vg,
-               llm,
-              predAbsManager);
+              bridge);
     } else {
       primaryInterpolationManager =
           new InterpolationManager(
@@ -239,10 +240,8 @@ public final class PredicateCPARefinerFactory {
               prefixSelector,
               invariantsManager,
               pRefinementStrategy,
-               null,
-               null,
-               null,
-               null,
+              null,
+              null,
               null);
     }
 

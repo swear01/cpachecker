@@ -1,0 +1,3 @@
+# frozen_exception: 2 tasks under /home/swear01/sv-benchmarks/c
+loop-invgen/half_2.i
+loop-invgen/seq-3.i

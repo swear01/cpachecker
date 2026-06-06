@@ -17,6 +17,55 @@ Getting Started with CPAchecker
 
 More documentation can be found in the [`doc/`](doc/) directory.
 
+### Vocabulary-Guided CEGAR（本 fork 研究用）
+
+**入口**：[`docs/vguided-cegar/README.md`](docs/vguided-cegar/README.md) · 怎麼跑實驗：[`RUN_EXPERIMENTS.md`](docs/vguided-cegar/RUN_EXPERIMENTS.md)
+
+```bash
+export DEEPSEEK_API_KEY=... SV_BENCHMARKS=~/sv-benchmarks/c
+./scripts/vguided-cegar/run.sh bench-setup
+./scripts/vguided-cegar/run.sh cpa --set sample              # sample_vguide/
+./scripts/vguided-cegar/run.sh cpa --set full_scalar --parallel 8
+./scripts/vguided-cegar/post_batch_analysis.sh \
+  --vguide-out output/vguide/experiments/full_scalar_vguide \
+  --stock-out  output/vguide/experiments/full_scalar_stock \
+  --set full_scalar --timelimit 300
+```
+
+#### 檔案結構（研究相關）
+
+```
+cpachecker/
+├── src/org/sosy_lab/cpachecker/cpa/predicate/vguide/   # ★ VGuide 實作（Java）
+├── config/
+│   ├── predicateAnalysis-vguide.properties             # ★ PredicateCPA + vguide
+│   └── vguide.properties                               # ★ LLM 排程、L3 開關等
+├── scripts/vguided-cegar/                              # ★ 實驗單一入口（run.sh）
+├── docs/vguided-cegar/                                 # ★ 文件（見 docs/README.md）
+│   ├── RUN_EXPERIMENTS.md  architecture/  llm/  evaluation/
+│   ├── benchmark_sets/*.list                           # sample(8) / full_scalar(217) manifest
+│   └── predicate_sets/                                 # frozen replay（NO_SPURIOUS 例外）
+├── output/vguide/                                      # 實驗產物（gitignore；見 output/vguide/README.md）
+│   ├── experiments/  sample_* / full_scalar_*          # batch 主結果
+│   └── artifacts/    verify_pack、llm_quality 等（可選）
+├── archive/                                            # 歷史／廢棄（見 archive/README.md）
+└── （其餘為 upstream CPAchecker：build/ test/ doc/ lib/ …）
+```
+
+| 目錄 | 用途 | 現在研究要不要 |
+|------|------|----------------|
+| `src/.../vguide/` | LLM bridge、validator、precision inject | **要** |
+| `scripts/vguided-cegar/` | batch、分析、benchmark 設定 | **要** |
+| `docs/vguided-cegar/` | 規格、實驗 SOP、報告、lists | **要** |
+| `config/vguide.properties` | 執行期預設（排程、L3） | **要** |
+| `output/vguide/experiments/` | 現行 batch 產物（本機） | **要** |
+| `~/sv-benchmarks/c` | 官方 benchmark 樹（**不在 repo 內**） | **要** |
+| `archive/` | 舊 B2/B5、superpowers、results-legacy 等 | **不要**（查歷史用） |
+| `test/` `build/` `lib/` `contrib/` | CPAchecker 本體建置與單測 | 建置／跑 CPA 時要 |
+| `doc/` | upstream 官方文件 | 偶爾查設定 |
+
+**實驗目錄慣例**：`<set>_vguide` / `<set>_stock`。歷史實驗殘留已移至 `archive/experiments-legacy/`。
+
 License and Copyright
 ---------------------
 CPAchecker is licensed under the [Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0)

@@ -5925,6 +5925,50 @@ useCompositionAnalysis = false
 # Whether one wants to refine MemorySafety errors.
 util.refinement.refineMemorySafety = false
 
+# Strengthen interpolants with predicates ENTAILED on block formulas
+vguide.allowInterpolantStrengthen = true
+
+# Enable unified VGuide bridge when useVocabularyGuide=true
+vguide.enable = true
+
+# Run L3 block entailment (block ⊨ pred). When false, skip SMT classification
+# and treat all parsed predicates as PRECISION_ONLY (ablation: no ENTAILED /
+# strengthen)
+vguide.enableL3Entailment = true
+
+# Directory containing predicate_sets/<benchmark>.md or .json for NO_SPURIOUS
+# exception path
+vguide.frozenDir = "docs/vguided-cegar/predicate_sets"
+
+# When to call LLM on spurious CE: first_spurious (default), every_n,
+# min_interval, every_n_and_interval
+vguide.llmCallSchedule = "first_spurious"
+
+# For every_n / every_n_and_interval: call on refinements #1, #1+N, #1+2N, …
+# (N>=1)
+vguide.llmEveryNSpuriousRefinements = 5
+
+# For min_interval / every_n_and_interval: minimum seconds between LLM calls
+# (0 = no wait except refinement #1)
+vguide.llmMinIntervalSec = 0
+
+# Max parallel API calls for the (K-1) ensemble extras (refinement #1 never
+# parallel).
+vguide.llmSampleParallelism = 4
+
+# API draws per scheduled LLM round after refinement #1. Refinement #1 always
+# uses 1 draw (cache seed, no parallel). Total APIs = 1 + (K-1) parallel
+# extras.
+vguide.llmSamplesPerCall = 1
+
+# Hard cap on spurious rounds that invoke LLM (each round may issue multiple
+# API draws when llmSamplesPerCall>1). 0 = no LLM.
+vguide.maxLlmRoundsPerAnalysis = 1
+
+# Wall-clock budget in seconds for LLM calls during analysis (0 = use
+# remaining CPAchecker time limit only)
+vguide.wallBudgetSec = 0
+
 # Instead of comments, output the assertions into the original program as
 # violations to unreach_call.prp
 wacsl.makeDirectAssertions = false

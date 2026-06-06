@@ -6,11 +6,11 @@ Cactus: cumulative # solved (TRUE+FALSE) vs time threshold.
 
 Usage:
   python3 analyze_benchmark_comparison.py \\
-    --vguide-logs output/vguide/experiments/full_scalar_vguide_interval15/logs \\
-    --baseline-logs output/vguide/experiments/full_scalar_stock_interval15/logs \\
+    --vguide-logs output/vguide/experiments/full_scalar_vguide/logs \\
+    --baseline-logs output/vguide/experiments/full_scalar_stock/logs \\
     --manifest docs/vguided-cegar/benchmark_sets/full_scalar.list \\
     --timelimit 300 \\
-    --out output/vguide/experiments/full_scalar_vguide_interval15
+    --out output/vguide/experiments/full_scalar_vguide
 """
 from __future__ import annotations
 
