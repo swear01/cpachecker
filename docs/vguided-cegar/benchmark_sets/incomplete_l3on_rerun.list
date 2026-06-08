@@ -1,0 +1,9 @@
+# L3-on rerun: 8 tasks with incomplete logs from full_scalar_vguide batch
+loop-zilu/benchmark53_polynomial.i
+loop-lit/bhmr2007.i
+loops-crafted-1/sumt4.c
+loops-crafted-1/sumt5.c
+loops-crafted-1/sumt7.c
+loops-crafted-1/sumt8.c
+loops-crafted-1/sumt9.c
+loops-crafted-1/watermelon.c

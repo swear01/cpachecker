@@ -90,9 +90,9 @@ public class VGuideOptions {
       secure = true,
       description =
           "Run L3 block entailment (block ⊨ pred). When false, skip SMT classification and"
-              + " treat all parsed predicates as PRECISION_ONLY (ablation: no ENTAILED /"
-              + " strengthen)")
-  private boolean enableL3Entailment = true;
+              + " treat all parsed predicates as PRECISION_ONLY (default; no ENTAILED /"
+              + " strengthen). Enable for parity/invariant-heavy benchmarks.")
+  private boolean enableL3Entailment = false;
 
   private LlmCallSchedule parsedSchedule = LlmCallSchedule.FIRST_SPURIOUS;
 

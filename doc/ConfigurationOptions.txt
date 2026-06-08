@@ -5932,9 +5932,9 @@ vguide.allowInterpolantStrengthen = true
 vguide.enable = true
 
 # Run L3 block entailment (block ⊨ pred). When false, skip SMT classification
-# and treat all parsed predicates as PRECISION_ONLY (ablation: no ENTAILED /
-# strengthen)
-vguide.enableL3Entailment = true
+# and treat all parsed predicates as PRECISION_ONLY (default; no ENTAILED /
+# strengthen). Enable for parity/invariant-heavy benchmarks.
+vguide.enableL3Entailment = false
 
 # Directory containing predicate_sets/<benchmark>.md or .json for NO_SPURIOUS
 # exception path
@@ -5959,7 +5959,7 @@ vguide.llmSampleParallelism = 4
 # API draws per scheduled LLM round after refinement #1. Refinement #1 always
 # uses 1 draw (cache seed, no parallel). Total APIs = 1 + (K-1) parallel
 # extras.
-vguide.llmSamplesPerCall = 1
+vguide.llmSamplesPerCall = 3
 
 # Hard cap on spurious rounds that invoke LLM (each round may issue multiple
 # API draws when llmSamplesPerCall>1). 0 = no LLM.

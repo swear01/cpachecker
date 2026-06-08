@@ -70,9 +70,11 @@ public final class PredicateProposalClient {
   }
 
   /**
-   * Call LLM with the given user prompt; returns raw message content (expected JSON predicate map).
+   * Call LLM with the given user prompt; returns message content and API {@code usage} stats.
    */
-  public String propose(String userPrompt) throws IOException, InterruptedException {
+  public LlmProposalResult proposeWithUsage(String userPrompt)
+      throws IOException, InterruptedException {
+    long t0 = System.currentTimeMillis();
     String body = buildRequestBody(userPrompt);
     HttpRequest req =
         HttpRequest.newBuilder()
@@ -91,15 +93,30 @@ public final class PredicateProposalClient {
     if (!content.isTextual()) {
       throw new IOException("No text content in LLM response");
     }
+    JsonNode usage = root.path("usage");
+    long latency = System.currentTimeMillis() - t0;
     logger.log(Level.FINE, "VGuide LLM response length: ", content.asText().length());
-    return content.asText();
+    if (usage.isObject() && usage.has("prompt_tokens")) {
+      logger.log(
+          Level.FINE,
+          "VGuide LLM usage prompt_tokens=",
+          usage.path("prompt_tokens").asInt(),
+          " completion_tokens=",
+          usage.path("completion_tokens").asInt());
+    }
+    return new LlmProposalResult(content.asText(), usage.isMissingNode() ? null : usage, latency);
+  }
+
+  public String propose(String userPrompt) throws IOException, InterruptedException {
+    return proposeWithUsage(userPrompt).content();
   }
 
   /**
    * Extra ensemble draws with the same prompt (after one synchronous cache-seeding call). Uses up
    * to {@code parallelism} concurrent HTTP requests.
    */
-  public List<String> proposeParallelExtras(String userPrompt, int extraDraws, int parallelism)
+  public List<LlmProposalResult> proposeParallelExtrasWithUsage(
+      String userPrompt, int extraDraws, int parallelism)
       throws IOException, InterruptedException {
     if (extraDraws <= 0) {
       return List.of();
@@ -107,12 +124,12 @@ public final class PredicateProposalClient {
     int pool = Math.max(1, Math.min(extraDraws, parallelism));
     ExecutorService executor = Executors.newFixedThreadPool(pool);
     try {
-      List<Future<String>> futures = new ArrayList<>(extraDraws);
+      List<Future<LlmProposalResult>> futures = new ArrayList<>(extraDraws);
       for (int i = 0; i < extraDraws; i++) {
-        futures.add(executor.submit(() -> propose(userPrompt)));
+        futures.add(executor.submit(() -> proposeWithUsage(userPrompt)));
       }
-      List<String> results = new ArrayList<>(extraDraws);
-      for (Future<String> future : futures) {
+      List<LlmProposalResult> results = new ArrayList<>(extraDraws);
+      for (Future<LlmProposalResult> future : futures) {
         try {
           results.add(future.get());
         } catch (ExecutionException e) {
@@ -130,6 +147,16 @@ public final class PredicateProposalClient {
     } finally {
       executor.shutdownNow();
     }
+  }
+
+  public List<String> proposeParallelExtras(String userPrompt, int extraDraws, int parallelism)
+      throws IOException, InterruptedException {
+    List<LlmProposalResult> results = proposeParallelExtrasWithUsage(userPrompt, extraDraws, parallelism);
+    List<String> texts = new ArrayList<>(results.size());
+    for (LlmProposalResult r : results) {
+      texts.add(r.content());
+    }
+    return texts;
   }
 
   private String buildRequestBody(String userPrompt) throws IOException {

@@ -75,6 +75,24 @@ public final class LlmCallScheduler {
     return llmCallsDone;
   }
 
+  public boolean isMaxRoundsReached() {
+    return llmCallsDone >= maxCallsPerAnalysis;
+  }
+
+  /** Reason when {@link #shouldCall(int)} is false (after max-rounds check). */
+  public String skipReason(int refinementIndex) {
+    if (isMaxRoundsReached()) {
+      return "max_rounds";
+    }
+    if (!matchesRefinementSchedule(refinementIndex) && schedule != LlmCallSchedule.MIN_INTERVAL) {
+      return "schedule";
+    }
+    if (!matchesIntervalSchedule(refinementIndex)) {
+      return "schedule";
+    }
+    return "schedule";
+  }
+
   private boolean matchesRefinementSchedule(int refinementIndex) {
     if (refinementIndex == 1) {
       return true;

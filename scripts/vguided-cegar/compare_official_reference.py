@@ -71,6 +71,8 @@ def parse_cpa_log(path: Path) -> tuple[str, int, int]:
     text = path.read_text(errors="replace")
     m = re.search(r"Verification result:\s*(\w+)", text)
     res = m.group(1).upper() if m else "UNKNOWN"
+    if "batch runner post-process" in text and res == "UNKNOWN":
+        pass  # synthetic UNKNOWN from run_benchmark_set.sh finalize_log_verdict
     m2 = re.search(r"Number of predicate refinements:\s*(\d+)", text)
     refs = int(m2.group(1)) if m2 else 0
     llm = len(re.findall(r"VGuide LLM round #", text))

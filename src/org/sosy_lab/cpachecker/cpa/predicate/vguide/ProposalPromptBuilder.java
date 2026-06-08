@@ -28,6 +28,10 @@ public final class ProposalPromptBuilder {
     this.loopHeadIndex = loopHeadIndex;
   }
 
+  static int rulesCharCount() {
+    return RULES.length();
+  }
+
   public String buildFirstSpurious(ContextPack pack) {
     return commonHeader(pack)
         + """

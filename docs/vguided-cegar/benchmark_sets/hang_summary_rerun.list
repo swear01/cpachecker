@@ -1,0 +1,8 @@
+# 7 tasks missing task_summary.json from full_scalar_noL3_20260608 analysis dump
+loop-zilu/benchmark40_polynomial.i
+loop-zilu/benchmark53_polynomial.i
+loops-crafted-1/sumt6.c
+loops-crafted-1/sumt7.c
+loops-crafted-1/sumt8.c
+loops-crafted-1/sumt9.c
+loops-crafted-1/watermelon.c

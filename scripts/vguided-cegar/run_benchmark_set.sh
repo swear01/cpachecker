@@ -14,6 +14,8 @@
 #
 # Environment:
 #   JAVA, HEAP (default 2000M), TIMELIMIT (default 300s)
+#   VGUIDE_TIMEOUT_GRACE — outer timeout slack beyond TIMELIMIT (default 30; batch = 330s)
+#   VGUIDE_INTERP_TIMELIMIT_MS — optional; e.g. 120000 (not used in published full_scalar runs)
 #   VGUIDE_PARALLEL or PARALLEL — max concurrent CPA jobs (default 8)
 #   VGUIDE_SET_DIR — override manifest directory
 #   VGUIDE_DRY_RUN=1 — print commands only
@@ -40,6 +42,9 @@ SET_DIR="${VGUIDE_SET_DIR:-$REPO/docs/vguided-cegar/benchmark_sets}"
 JAVA="${JAVA:-}"
 HEAP="${HEAP:-2000M}"
 TIMELIMIT="${TIMELIMIT:-300}"
+# Outer timeout = TIMELIMIT + grace (default 30s → 330s total), same as full_scalar batch runs.
+# Optional: VGUIDE_TIMEOUT_GRACE=60 for ops; changes timing vs published 217-task numbers.
+TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-30}"
 OUT_BASE="${VGUIDE_OUT_BASE:-$REPO/output/vguide/batch}"
 SV_BENCHMARKS="${SV_BENCHMARKS:-$HOME/sv-benchmarks/c}"
 SKIP_MISSING="${VGUIDE_SKIP_MISSING:-1}"
@@ -76,13 +81,28 @@ if [[ ! -f "$SUMMARY" ]]; then
   echo "task,rel_path,result,refinements,wall_s,log" > "$SUMMARY"
 fi
 
-# Append one CSV row as each task finishes (safe under parallel jobs).
+# Append one CSV row (serialized). Prefer flush_summary_rows after parallel batch.
 append_summary_row() {
   local row="$1"
+  [[ -n "$row" ]] || return 0
   {
     flock -x 9
     echo "$row" >>"$SUMMARY"
   } 9>"$SUMMARY_LOCK"
+}
+
+# Merge per-task .row files from TMPDIR (parallel runs write rows only; append once at end).
+flush_summary_rows() {
+  [[ -f "$ORDER_FILE" ]] || return 0
+  while IFS= read -r task || [[ -n "$task" ]]; do
+    [[ -n "$task" ]] || continue
+    local row_file="$TMPDIR/${task}.row"
+    [[ -f "$row_file" ]] || continue
+    if grep -q "^${task}," "$SUMMARY" 2>/dev/null; then
+      continue
+    fi
+    append_summary_row "$(tr -d '\r' <"$row_file")"
+  done <"$ORDER_FILE"
 }
 
 resolve_path() {
@@ -111,13 +131,37 @@ extract() {
   grep "$pat" "$log" 2>/dev/null | head -1 || true
 }
 
+# CPA sometimes dies in native SMT without printing Verification result (ForceTerminationOnShutdown).
+# Append a synthetic summary so logs and downstream parsers stay consistent (UNKNOWN / incomplete).
+finalize_log_verdict() {
+  local log="$1"
+  [[ -f "$log" ]] || return 0
+  if grep -q 'Verification result:' "$log" 2>/dev/null; then
+    return 0
+  fi
+  local reason="incomplete analysis (no CPA summary line)"
+  if grep -q 'forcing immediate termination' "$log" 2>/dev/null; then
+    reason="incomplete analysis (SMT hang; forced termination after shutdown grace)"
+  elif grep -q 'CPU-time limit of.*has elapsed' "$log" 2>/dev/null; then
+    reason="incomplete analysis (CPU time limit reached)"
+  elif grep -qE 'Exception in thread "main"|java\.lang\.' "$log" 2>/dev/null; then
+    reason="incomplete analysis (Java exception)"
+  fi
+  {
+    echo ""
+    echo "--- VGuide batch runner post-process $(date -Iseconds) ---"
+    echo "Verification result: UNKNOWN, ${reason}."
+    echo "Total time for CPAchecker: ${TIMELIMIT}.000s"
+  } >>"$log"
+}
+
 # Prints one CSV summary line to stdout.
 run_one() {
   local prog="$1" task="$2"
   shift 2
   local log="$OUT_BASE/logs/${task}.log"
   local cmd=(
-    timeout "$((TIMELIMIT + 30))s"
+    timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
     "$CPA_SH" --heap "$HEAP"
     --config "$CONFIG"
   )
@@ -125,6 +169,9 @@ run_one() {
     cmd+=(--option cpa.predicate.refinement.useVocabularyGuide=true)
   else
     cmd+=(--option cpa.predicate.refinement.useVocabularyGuide=false)
+  fi
+  if [[ -n "${VGUIDE_INTERP_TIMELIMIT_MS:-}" ]]; then
+    cmd+=(--option "cpa.predicate.refinement.timelimit=${VGUIDE_INTERP_TIMELIMIT_MS}")
   fi
   cmd+=(
     --timelimit "${TIMELIMIT}s"
@@ -140,6 +187,7 @@ run_one() {
     return 0
   fi
   "${cmd[@]}" >"$log" 2>&1 || true
+  finalize_log_verdict "$log"
   local result refs wall
   result="$(extract 'Verification result:' "$log" | sed -n 's/.*Verification result:[[:space:]]*\([A-Za-z]*\).*/\1/p' | head -1 | tr '[:lower:]' '[:upper:]')"
   refs="$(extract 'Number of predicate refinements:' "$log" | grep -oE '[0-9]+' | head -1)"
@@ -165,17 +213,19 @@ launch() {
   if [[ "$PARALLEL" -le 1 ]]; then
     echo "[$count] $task"
     run_one "$prog" "$task" "${EXTRA[@]}" >"$TMPDIR/${task}.row"
-    append_summary_row "$(cat "$TMPDIR/${task}.row")"
     return
   fi
   while [[ "$running" -ge "$PARALLEL" ]]; do
-    wait -n 2>/dev/null || wait || true
+    if ! wait -n 2>/dev/null; then
+      wait || true
+      running=0
+      break
+    fi
     running=$((running - 1))
   done
   echo "[$count] $task (bg)" >&2
   (
     run_one "$prog" "$task" "${EXTRA[@]}" >"$TMPDIR/${task}.row"
-    append_summary_row "$(cat "$TMPDIR/${task}.row")"
   ) &
   running=$((running + 1))
 }
@@ -197,15 +247,15 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   launch "$prog" "$task"
 done <"$MANIFEST"
 
-wait 2>/dev/null || true
-
-# Backfill any rows missed if append failed (e.g. older runs).
-while IFS= read -r task; do
-  [[ -n "$task" ]] || continue
-  if [[ -f "$TMPDIR/${task}.row" ]] && ! grep -q "^${task}," "$SUMMARY" 2>/dev/null; then
-    append_summary_row "$(cat "$TMPDIR/${task}.row")"
+while [[ "$running" -gt 0 ]]; do
+  if ! wait -n 2>/dev/null; then
+    wait || true
+    break
   fi
-done <"$ORDER_FILE"
+  running=$((running - 1))
+done
+
+flush_summary_rows
 
 rm -rf "$TMPDIR"
 echo "Done. Summary: $SUMMARY ($count tasks, parallel=$PARALLEL)"

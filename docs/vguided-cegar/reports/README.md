@@ -1,14 +1,53 @@
 # VGuide 進度報告
 
-## 現行（v4-pro）
+## 現行（deepseek-v4-pro）
 
-主實驗 `full_scalar_vguide`（217 題，`deepseek-v4-pro`）跑完後，在此目錄新增報告並填入 `post_batch_analysis.sh` 數字。
+| 報告 | 說明 |
+|------|------|
+| **[`2026-06-07_vguide-report_deepseek-v4-pro.md`](2026-06-07_vguide-report_deepseek-v4-pro.md)** | **主報告**：217 題 `full_scalar`；L3-on **131**/217（272.79s PAR-2）；noL3 vs stock；L3 消融；含 8 題 L3-on 重跑 |
+| **[`2026-06-08_predicate-analysis_noL3.md`](2026-06-08_predicate-analysis_noL3.md)** | **Predicate 分析**（noL3 dump）：context budget / **Z3 overlap** / 排程；33 rescued vs stock |
 
-**待辦**（見 Cursor todo）：
+**實驗目錄**
 
-1. `post_batch_analysis.sh` vs `full_scalar_stock`
-2. 撰寫本目錄新版報告
-3. L3 消融重跑後補一節對照
+| Run | 路徑 |
+|-----|------|
+| Stock baseline | `output/vguide/experiments/full_scalar_stock/` |
+| VGuide L3-on | `output/vguide/experiments/full_scalar_vguide/` |
+| VGuide noL3 | `output/vguide/experiments/full_scalar_vguide_noL3/` |
+| **noL3 分析重跑**（instrumentation） | `output/vguide/experiments/full_scalar_vguide_noL3_analysis/` |
+| **Analysis dump + CSV** | `output/vguide/analysis_dumps/full_scalar_noL3_20260608/` |
+| 三向 CSV | `output/vguide/experiments/l3_ablation_comparison.csv` |
+
+**Predicate 離線分析（Phase D）**
+
+```bash
+python3 scripts/vguided-cegar/analyze_predicate_study.py \
+  --skip-validate \
+  --dump-dir output/vguide/analysis_dumps/full_scalar_noL3_20260608 \
+  --logs-dir output/vguide/experiments/full_scalar_vguide_noL3_analysis/logs \
+  --stock-logs output/vguide/experiments/full_scalar_stock/logs
+```
+
+方法與計劃：[analysis/PREDICATE_ANALYSIS_PLAN.md](../analysis/PREDICATE_ANALYSIS_PLAN.md) · [analysis/OVERLAP_AND_PCS.md](../analysis/OVERLAP_AND_PCS.md)
+
+**注意**：2026-06-08 analysis dump 使用 **`llmSamplesPerCall=1`**、prompt 建議 **4–8** 條 predicate（見 [LLM_ENSEMBLE.md](../llm/LLM_ENSEMBLE.md)）。實驗 dump 在 `output/`（gitignore），報告與離線 CSV 路徑見各報告 §產物。
+
+**一鍵重跑 PAR-2 / cactus**
+
+```bash
+./scripts/vguided-cegar/post_batch_analysis.sh \
+  --vguide-out output/vguide/experiments/full_scalar_vguide \
+  --stock-out  output/vguide/experiments/full_scalar_stock \
+  --set full_scalar --timelimit 300
+```
+
+**重跑不完整 L3-on log（8 題）**
+
+```bash
+./scripts/vguided-cegar/run.sh cpa \
+  --set incomplete_l3on_rerun --ablation l3 --parallel 4 --timelimit 300 \
+  --out output/vguide/experiments/full_scalar_vguide
+```
 
 ## 歷史
 

@@ -10,7 +10,7 @@
 #   ./run.sh cpa --set sample         # -> output/vguide/experiments/sample_vguide
 #   ./run.sh cpa --set sample --mode stock  # -> .../sample_stock
 #   ./run.sh cpa --set full_scalar --parallel 16 --timelimit 300
-#   ./run.sh cpa --set full_scalar --ablation no-l3 --parallel 8 --timelimit 300
+#   ./run.sh cpa --set full_scalar --ablation l3 --parallel 8 --timelimit 300
 #   ./run.sh llm-quality [--tasks up,down,array_3-1]
 #   ./run.sh verify-pack --task array_3-1   # CPA + artifacts (real ContextPack)
 #   ./run.sh help
@@ -94,6 +94,7 @@ cmd_cpa() {
   [[ "$mode" == "stock" ]] || require_api
   if [[ -z "$out" ]]; then
     case "$ablation" in
+      l3|with-l3|entailment) out="output/vguide/experiments/${set}_vguide_l3" ;;
       no-l3|no_l3|precision-only) out="output/vguide/experiments/${set}_vguide_noL3" ;;
       *)
         if [[ "$mode" == "stock" ]]; then
@@ -114,13 +115,14 @@ cmd_cpa() {
     env_extra+=(VGUIDE_USE_VOCABULARY_GUIDE=false)
   fi
   case "$ablation" in
-    "")
+    ""|"no-l3"|"no_l3"|"precision-only")
+      [[ -n "$ablation" ]] && extra+=(--option vguide.enableL3Entailment=false)
       ;;
-    no-l3|no_l3|precision-only)
-      extra+=(--option vguide.enableL3Entailment=false)
+    l3|with-l3|entailment)
+      extra+=(--option vguide.enableL3Entailment=true)
       ;;
     *)
-      die "unknown --ablation: $ablation (supported: no-l3)"
+      die "unknown --ablation: $ablation (supported: l3, no-l3)"
       ;;
   esac
   env "${env_extra[@]}" SV_BENCHMARKS="$SV_BENCHMARKS" \

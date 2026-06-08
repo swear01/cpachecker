@@ -8,6 +8,9 @@
 |------|------|
 | [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) | **`run.sh` 怎麼跑**；批次後 PAR-2 / cactus |
 | [reports/README.md](reports/README.md) | 進度報告（v4-pro 跑完後更新） |
+| [analysis/PREDICATE_ANALYSIS_PLAN.md](analysis/PREDICATE_ANALYSIS_PLAN.md) | **Predicate 分析計劃**（context / overlap / PCS；token 以 API `usage` 為準） |
+| [analysis/OVERLAP_AND_PCS.md](analysis/OVERLAP_AND_PCS.md) | Overlap / PCS 語意（Z3 entailment） |
+| [reports/2026-06-08_predicate-analysis_noL3.md](reports/2026-06-08_predicate-analysis_noL3.md) | **Predicate 分析結果**（217 題 dump） |
 | [LOCAL_DEVELOPMENT_ENV.md](LOCAL_DEVELOPMENT_ENV.md) | `~/sv-benchmarks`、JDK 21、Ant |
 
 ## 現行目錄
@@ -20,6 +23,7 @@ docs/vguided-cegar/
 ├── llm/                    # 排程、ensemble、離線 vs CPA
 ├── evaluation/             # benchmark 定義、frozen replay
 ├── reports/                # 進度報告
+├── analysis/               # 機制分析計劃（predicate / context / overlap）
 ├── benchmark_sets/         # manifest（run.sh 讀取）
 └── predicate_sets/         # Exception 用凍結謂詞
 ```

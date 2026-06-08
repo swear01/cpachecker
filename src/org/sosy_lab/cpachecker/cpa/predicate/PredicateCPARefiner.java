@@ -178,6 +178,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   private final PathFormulaManager pfmgr;
   private final InterpolationManager interpolationManager;
   private final @Nullable VGuideRefinementBridge vGuideBridge;
+  private @Nullable ARGReachedSet lastArgReachedForVGuide;
   private final RefinementStrategy strategy;
   private final Optional<NewtonRefinementManager> newtonManager;
   private final Optional<UCBRefinementManager> ucbManager;
@@ -269,6 +270,13 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
   public CounterexampleInfo performRefinementForPath(
       final ARGReachedSet pReached, final ARGPath allStatesTrace)
       throws CPAException, InterruptedException {
+    lastArgReachedForVGuide = pReached;
+    return performRefinementForPathImpl(pReached, allStatesTrace);
+  }
+
+  private CounterexampleInfo performRefinementForPathImpl(
+      final ARGReachedSet pReached, final ARGPath allStatesTrace)
+      throws CPAException, InterruptedException {
     totalRefinement.start();
 
     try {
@@ -307,7 +315,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         if (vGuideBridge != null) {
           counterexample =
               vGuideBridge.onSpuriousBeforeRefinement(
-                  refinements, abstractionStatesTrace, formulas, counterexample);
+                  refinements, abstractionStatesTrace, formulas, counterexample, pReached);
         }
 
         List<BooleanFormula> predicates = counterexample.getInterpolants();
@@ -351,6 +359,9 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       }
 
     } finally {
+      if (vGuideBridge != null) {
+        vGuideBridge.trackAnalysisProgress(refinements, lastArgReachedForVGuide);
+      }
       totalRefinement.stop();
     }
   }
@@ -682,8 +693,8 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       interpolationManager.printStatistics(w1);
       w1.putIfUpdatedAtLeastOnce(errorPathProcessing);
 
-      if (vGuideBridge != null && reached instanceof ARGReachedSet argReached) {
-        vGuideBridge.onAnalysisEnd(numberOfRefinements, argReached);
+      if (vGuideBridge != null) {
+        vGuideBridge.onAnalysisEnd(numberOfRefinements, result, lastArgReachedForVGuide);
         w0.put("VGuide outcome", vGuideBridge.getOutcome());
       }
 
