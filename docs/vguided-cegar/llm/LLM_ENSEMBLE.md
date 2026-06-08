@@ -3,8 +3,8 @@
 **作者**: r14k41044 黃思維  
 **模組**: `VGuideRefinementBridge` + `PredicateProposalClient`
 
-> **實驗狀態（2026-06-04）**：程式已合入；`vguide.llmSamplesPerCall` 預設 **1**。  
-> 已完成的 sample / full_scalar batch **均未啟用 K>1**，多抽卡 **尚無 benchmark 數據**。
+> **預設**：`vguide.llmSamplesPerCall = 1`（單 draw / 輪）。  
+> **單輪多條**由 [PREDICATE_BUDGET.md](PREDICATE_BUDGET.md) 控制（預設 3–6 條），與 ensemble 正交。
 
 ## 行為
 

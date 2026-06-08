@@ -102,7 +102,7 @@ public final class VGuideRefinementBridge {
         fmgr,
         loopHeads,
         new ContextPackBuilder(cfa, loopHeads, fmgr),
-        new ProposalPromptBuilder(loopHeads),
+        new ProposalPromptBuilder(loopHeads, opts.getPredicateBudget()),
         new PredicateValidationPipeline(logger, solver, fmgr, opts.isEnableL3Entailment()),
         new LoopHeadPrecisionInjector(logger, predAbsManager),
         new FrozenPredicateLoader(logger, opts.getFrozenDir()),
@@ -253,7 +253,8 @@ public final class VGuideRefinementBridge {
       for (LlmProposalResult r : apiResults) {
         rawResponses.add(r.content());
       }
-      ImmutableList<String> rawPreds = LlmEnsembleMerger.unionValidate(rawResponses);
+      ImmutableList<String> rawPreds =
+          LlmEnsembleMerger.unionValidate(rawResponses, options.getPredicateBudget());
       List<String> rejectedForRepair = new ArrayList<>();
       if (rawPreds.isEmpty()) {
         for (String raw : rawResponses) {
@@ -279,7 +280,8 @@ public final class VGuideRefinementBridge {
               rejectedForRepair);
         }
         combinedRaw = combinedRaw + "\n--- repair ---\n" + repair.content();
-        rawPreds = LlmResponseParser.parsePredicates(repair.content());
+        rawPreds =
+            options.getPredicateBudget().capOrdered(LlmResponseParser.parsePredicates(repair.content()));
         apiResults = new ArrayList<>(apiResults);
         apiResults.add(repair);
       }

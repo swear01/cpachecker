@@ -5959,11 +5959,19 @@ vguide.llmSampleParallelism = 4
 # API draws per scheduled LLM round after refinement #1. Refinement #1 always
 # uses 1 draw (cache seed, no parallel). Total APIs = 1 + (K-1) parallel
 # extras.
-vguide.llmSamplesPerCall = 3
+vguide.llmSamplesPerCall = 1
+
+# Hard upper bound per LLM response: prompt asks for at most this many;
+# extras truncated after parse (array order = priority).
+vguide.maxPredicatesPerCall = 6
 
 # Hard cap on spurious rounds that invoke LLM (each round may issue multiple
 # API draws when llmSamplesPerCall>1). 0 = no LLM.
 vguide.maxLlmRoundsPerAnalysis = 1
+
+# Soft lower bound in LLM prompt: aim for at least this many predicates per
+# response (not enforced after parse).
+vguide.minPredicatesPerCall = 3
 
 # Wall-clock budget in seconds for LLM calls during analysis (0 = use
 # remaining CPAchecker time limit only)

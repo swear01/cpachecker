@@ -22,6 +22,11 @@ public final class LlmEnsembleMerger {
    * run downstream on the combined list.
    */
   public static ImmutableList<String> unionValidate(List<String> rawResponses) {
+    return unionValidate(rawResponses, new PredicateBudget(1, Integer.MAX_VALUE));
+  }
+
+  public static ImmutableList<String> unionValidate(
+      List<String> rawResponses, PredicateBudget budget) {
     Set<String> seen = new LinkedHashSet<>();
     List<String> merged = new ArrayList<>();
     for (String raw : rawResponses) {
@@ -31,6 +36,6 @@ public final class LlmEnsembleMerger {
         }
       }
     }
-    return ImmutableList.copyOf(merged);
+    return budget.capOrdered(merged);
   }
 }

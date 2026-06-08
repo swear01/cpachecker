@@ -20,4 +20,15 @@ public class LlmEnsembleMergerTest {
         .containsExactly("(= x 0)", "(>= y 1)", "(<= z 3)")
         .inOrder();
   }
+
+  @Test
+  public void unionValidate_capsToPredicateBudget() {
+    String json =
+        "{\"predicates\":[\"(= a 0)\",\"(= b 1)\",\"(= c 2)\",\"(= d 3)\",\"(= e 4)\"]}";
+    assertThat(
+            LlmEnsembleMerger.unionValidate(
+                java.util.List.of(json), new PredicateBudget(2, 3)))
+        .containsExactly("(= a 0)", "(= b 1)", "(= c 2)")
+        .inOrder();
+  }
 }

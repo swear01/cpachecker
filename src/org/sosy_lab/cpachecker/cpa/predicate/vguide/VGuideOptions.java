@@ -48,6 +48,22 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
+          "Soft lower bound in LLM prompt: aim for at least this many predicates per response"
+              + " (not enforced after parse).")
+  @IntegerOption(min = 1)
+  private int minPredicatesPerCall = 3;
+
+  @Option(
+      secure = true,
+      description =
+          "Hard upper bound per LLM response: prompt asks for at most this many; extras truncated"
+              + " after parse (array order = priority).")
+  @IntegerOption(min = 1)
+  private int maxPredicatesPerCall = 6;
+
+  @Option(
+      secure = true,
+      description =
           "Max parallel API calls for the (K-1) ensemble extras (refinement #1 never parallel).")
   @IntegerOption(min = 1)
   private int llmSampleParallelism = 4;
@@ -98,6 +114,14 @@ public class VGuideOptions {
 
   public VGuideOptions(Configuration config) throws InvalidConfigurationException {
     config.inject(this);
+    if (minPredicatesPerCall > maxPredicatesPerCall) {
+      throw new InvalidConfigurationException(
+          "vguide.minPredicatesPerCall ("
+              + minPredicatesPerCall
+              + ") must be <= vguide.maxPredicatesPerCall ("
+              + maxPredicatesPerCall
+              + ")");
+    }
     parsedSchedule = LlmCallSchedule.fromConfig(llmCallSchedule);
   }
 
@@ -119,6 +143,18 @@ public class VGuideOptions {
 
   public int getLlmSampleParallelism() {
     return llmSampleParallelism;
+  }
+
+  public int getMinPredicatesPerCall() {
+    return minPredicatesPerCall;
+  }
+
+  public int getMaxPredicatesPerCall() {
+    return maxPredicatesPerCall;
+  }
+
+  public PredicateBudget getPredicateBudget() {
+    return new PredicateBudget(minPredicatesPerCall, maxPredicatesPerCall);
   }
 
   /** Samples for this spurious round: #1 always 1; later rounds use llmSamplesPerCall. */

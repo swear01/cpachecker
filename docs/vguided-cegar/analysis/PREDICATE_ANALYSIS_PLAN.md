@@ -334,7 +334,7 @@ export VGUIDE_ANALYSIS_DUMP_DIR=output/vguide/analysis_dumps/full_scalar_noL3_<d
 | Z3 overlap / PCS | `analyze_predicate_study.py` + `z3_overlap.py`（`pcs_mode=z3`） | ✅ |
 | **Pre-CEGAR LLM（0-refinement bootstrap）** | 在**尚無任何 spurious refinement**（CEGAR loop 前 / 0-refinement 時點）先呼叫 LLM 注入 predicate；對照現行「first spurious 後才呼叫」。比 verdict、PAR-2、refinement 次數、token | **未做**（需新 config + 217 或子集） |
 | 調 `vguide.llmEveryNSpuriousRefinements` | 更多 spurious 輪叫 LLM（現行 5.5%） | 未做 |
-| prompt / predicate 數量策略 | 現行 prompt 4–8；可評估 cap 或分輪注入 | 未做 |
+| ~~predicate budget~~ | `minPredicatesPerCall` / `maxPredicatesPerCall`（預設 3–6） | ✅ |
 | prompt 加 interpolant | overlap 已定稿（55% Novel）；評估是否值得擴 prompt | 未做 |
 | Hybrid L3 | 不納入 | — |
 | NO_SPURIOUS frozen seed | 0 refinement 時讀 `predicate_sets/`（非 LLM API）；見 [FROZEN_PREDICATES.md](../evaluation/FROZEN_PREDICATES.md) | 已實作（Exception 路徑） |

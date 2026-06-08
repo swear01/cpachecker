@@ -11,25 +11,16 @@ import java.util.List;
 /** Builds LLM prompts for first and later spurious counterexamples. */
 public final class ProposalPromptBuilder {
 
-  private static final String RULES =
-      """
-      RULES (violations are discarded automatically):
-      - Use ONLY source variable names from the contract / allowed list.
-      - SMT-LIB2 prefix notation; each predicate must start with '('.
-      - Prefer bitvector ops for 32-bit ints: bvsge, bvslt, bvsle, bvsgt, bvadd, bvsub, = .
-      - Do NOT use: |main::...|, @suffix, .def_N, select, store, quantifiers, bvshl/lshr/ashr.
-      - Do NOT use C syntax: A[i], *p, struct fields.
-      - Propose 4–8 diverse predicates (bounds, counters, assertion-related relations).
-      """;
-
   private final LoopHeadIndex loopHeadIndex;
+  private final PredicateBudget budget;
 
-  public ProposalPromptBuilder(LoopHeadIndex loopHeadIndex) {
+  public ProposalPromptBuilder(LoopHeadIndex loopHeadIndex, PredicateBudget budget) {
     this.loopHeadIndex = loopHeadIndex;
+    this.budget = budget;
   }
 
-  static int rulesCharCount() {
-    return RULES.length();
+  static int rulesCharCount(PredicateBudget budget) {
+    return syntaxRules().length() + predicateBudgetBlock(budget).length();
   }
 
   public String buildFirstSpurious(ContextPack pack) {
@@ -62,10 +53,38 @@ public final class ProposalPromptBuilder {
         + "\n"
         + VarContractBuilder.formatForPrompt(pack.varContract())
         + SourceVariableHints.formatForPrompt(pack.sourceCode(), pack.varContract())
-        + RULES
+        + syntaxRules()
+        + predicateBudgetBlock(budget)
         + taskExamples(pack.sourceCode(), pack.assertion())
         + "\nSource code:\n"
         + pack.sourceCode();
+  }
+
+  private static String syntaxRules() {
+    return """
+      RULES (violations are discarded automatically):
+      - Use ONLY source variable names from the contract / allowed list.
+      - SMT-LIB2 prefix notation; each predicate must start with '('.
+      - Prefer bitvector ops for 32-bit ints: bvsge, bvslt, bvsle, bvsgt, bvadd, bvsub, = .
+      - Do NOT use: |main::...|, @suffix, .def_N, select, store, quantifiers, bvshl/lshr/ashr.
+      - Do NOT use C syntax: A[i], *p, struct fields.
+      """;
+  }
+
+  private static String predicateBudgetBlock(PredicateBudget budget) {
+    int min = budget.minPerCall();
+    int max = budget.maxPerCall();
+    return """
+      PREDICATE BUDGET (single API response — array order = priority, best first):
+      - Return between %d and %d predicates. Aim for %d–%d STRONG, mutually non-redundant candidates.
+      - Prefer DISTINCT roles (one per line of thought), e.g.:
+        (1) loop-carried relation or guard-tight bound (non-trivial)
+        (2) cross-variable relation tied to the assertion or spurious path
+        (3) optional strengthener only if clearly not implied by the loop header/guards
+      - Do NOT pad to %d with obvious bounds (e.g. i>=0 in for(i=0;...)) or near-duplicate inequalities.
+      - If fewer than %d strong candidates exist, return fewer rather than weak fillers.
+      """
+        .formatted(min, max, min, max, max, min);
   }
 
   private static String taskExamples(String source, String assertion) {
@@ -110,12 +129,13 @@ public final class ProposalPromptBuilder {
         + buildOutputContract();
   }
 
-  private static String buildOutputContract() {
+  private String buildOutputContract() {
     return """
 
         Output ONLY valid JSON (no markdown, no commentary):
         {"predicates": ["(bvsge i (_ bv0 32))", "(bvslt i n)"]}
-        Do NOT use N* location keys; Java binds predicates to all loop heads.
-        """;
+        Between %d and %d items (fewer allowed if only strong candidates). Do NOT use N* location keys; Java binds predicates to all loop heads.
+        """
+        .formatted(budget.minPerCall(), budget.maxPerCall());
   }
 }
