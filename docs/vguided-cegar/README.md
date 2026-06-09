@@ -9,6 +9,7 @@
 | [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) | **`run.sh` 怎麼跑**；批次後 PAR-2 / cactus |
 | [reports/README.md](reports/README.md) | 進度報告（v4-pro 跑完後更新） |
 | [analysis/PREDICATE_ANALYSIS_PLAN.md](analysis/PREDICATE_ANALYSIS_PLAN.md) | **Predicate 分析計劃**（context / overlap / PCS；token 以 API `usage` 為準） |
+| [analysis/CE_CONTEXT_PROMPT_PLAN.md](analysis/CE_CONTEXT_PROMPT_PLAN.md) | **計劃**：first-spurious 補 CE 摘要 |
 | [analysis/OVERLAP_AND_PCS.md](analysis/OVERLAP_AND_PCS.md) | Overlap / PCS 語意（Z3 entailment） |
 | [reports/2026-06-08_predicate-analysis_noL3.md](reports/2026-06-08_predicate-analysis_noL3.md) | **Predicate 分析結果**（217 題 dump） |
 | [LOCAL_DEVELOPMENT_ENV.md](LOCAL_DEVELOPMENT_ENV.md) | `~/sv-benchmarks`、JDK 21、Ant |
@@ -36,6 +37,7 @@ docs/vguided-cegar/
 | [LLM_CALL_SCHEDULING.md](llm/LLM_CALL_SCHEDULING.md) | `min_interval` / `every_n` 排程 |
 | [LLM_ENSEMBLE.md](llm/LLM_ENSEMBLE.md) | 同 spurious 多抽卡（可選 K>1） |
 | [PREDICATE_BUDGET.md](llm/PREDICATE_BUDGET.md) | **單輪多條** predicate 數量與品質 |
+| [ADAPTIVE_PREDICATE_BUDGET_PLAN.md](llm/ADAPTIVE_PREDICATE_BUDGET_PLAN.md) | **計劃**：自適應 min/max + 提高 LLM 頻率 |
 | [OFFLINE_SAMPLING.md](llm/OFFLINE_SAMPLING.md) | `test_llm_proposal_quality.py` vs CPA 內 LLM |
 
 ### evaluation/
