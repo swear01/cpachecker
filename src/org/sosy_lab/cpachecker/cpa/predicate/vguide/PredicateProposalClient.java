@@ -31,7 +31,8 @@ import org.sosy_lab.common.log.LogManager;
  * {@link org.sosy_lab.cpachecker.cpa.predicate.LLMConnector} HTTP calls.
  *
  * <p>Configuration via environment: {@code DEEPSEEK_API_KEY}, {@code DEEPSEEK_MODEL},
- * {@code VGUIDE_LLM_REASONING_EFFORT} (low|medium|high|default).
+ * {@code VGUIDE_LLM_THINKING} ({@code disabled}|{@code enabled}, default {@code disabled}),
+ * {@code VGUIDE_LLM_REASONING_EFFORT} ({@code high}|{@code max} when thinking is enabled).
  */
 public final class PredicateProposalClient {
 
@@ -42,7 +43,8 @@ public final class PredicateProposalClient {
   private final LogManager logger;
   private final String apiKey;
   private final String model;
-  private final int reasoningTokens;
+  private final boolean thinkingEnabled;
+  private final @Nullable String reasoningEffort;
   private final int timeoutSeconds;
   private final HttpClient http;
 
@@ -64,7 +66,15 @@ public final class PredicateProposalClient {
     String configuredModel = System.getenv("DEEPSEEK_MODEL");
     model = configuredModel == null || configuredModel.isBlank() ? DEFAULT_MODEL : configuredModel;
     logger.log(Level.INFO, "VGuide LLM model: ", model);
-    reasoningTokens = reasoningTokensFromEnv();
+    thinkingEnabled = thinkingEnabledFromEnv();
+    reasoningEffort = thinkingEnabled ? reasoningEffortFromEnv() : null;
+    logger.log(
+        Level.INFO,
+        "VGuide LLM thinking: ",
+        thinkingEnabled ? "enabled" : "disabled");
+    if (thinkingEnabled && reasoningEffort != null) {
+      logger.log(Level.INFO, "VGuide LLM reasoning_effort: ", reasoningEffort);
+    }
     timeoutSeconds = readPositiveIntEnv("VGUIDE_LLM_TIMEOUT_SEC", 120);
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
   }
@@ -166,24 +176,42 @@ public final class PredicateProposalClient {
     root.put("max_completion_tokens", 1024);
     var messages = root.putArray("messages");
     messages.addObject().put("role", "user").put("content", userPrompt);
-    if (reasoningTokens > 0) {
-      var reasoning = root.putObject("reasoning");
-      reasoning.put("max_tokens", reasoningTokens);
-      reasoning.put("exclude", true);
+    var thinking = root.putObject("thinking");
+    if (thinkingEnabled) {
+      thinking.put("type", "enabled");
+      if (reasoningEffort != null) {
+        root.put("reasoning_effort", reasoningEffort);
+      }
+    } else {
+      thinking.put("type", "disabled");
     }
     return JSON.writeValueAsString(root);
   }
 
-  private static int reasoningTokensFromEnv() {
+  private static boolean thinkingEnabledFromEnv() {
+    String mode = System.getenv("VGUIDE_LLM_THINKING");
+    if (mode == null || mode.isBlank()) {
+      return false;
+    }
+    return switch (mode.toLowerCase(Locale.ROOT)) {
+      case "enabled", "true", "on", "1" -> true;
+      case "disabled", "false", "off", "0" -> false;
+      default -> false;
+    };
+  }
+
+  /**
+   * DeepSeek V4 maps {@code low}/{@code medium} to {@code high}; {@code xhigh} to {@code max}.
+   */
+  private static @Nullable String reasoningEffortFromEnv() {
     String effort = System.getenv("VGUIDE_LLM_REASONING_EFFORT");
     if (effort == null || effort.isBlank() || "default".equalsIgnoreCase(effort)) {
-      return 0;
+      return "high";
     }
     return switch (effort.toLowerCase(Locale.ROOT)) {
-      case "low" -> 0;
-      case "medium" -> 1024;
-      case "high" -> 4096;
-      default -> 0;
+      case "low", "medium", "high" -> "high";
+      case "max", "xhigh" -> "max";
+      default -> "high";
     };
   }
 

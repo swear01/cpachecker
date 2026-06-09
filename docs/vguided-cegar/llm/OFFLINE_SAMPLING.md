@@ -12,6 +12,8 @@
 
 因此 **不是兩套 API 或兩個模型**，而是 **上下文不同**：離線像「只看原始 C 的出題」；CPA 內像「CEGAR 已走到 spurious、帶 SSA 合約的出題」。
 
+API 參數（model、**thinking disabled** 等）應與 Java `PredicateProposalClient` 一致，見 [LLM_API.md](LLM_API.md)。
+
 ## 典型現象：`array_3-1`
 
 - **離線 5×**：常得到 `(>= i 0)`、`(<= i 1024)`、`(= A[i] 0)` — 字面上像「找零元素」的直覺，但 **`A[i]` 違反合約**（無 select/store、應只用 index 關係）。

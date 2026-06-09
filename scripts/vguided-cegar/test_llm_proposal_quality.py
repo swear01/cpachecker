@@ -185,17 +185,30 @@ def build_repair_prompt(source: str, assertion: str, task: str, bad: list[str]) 
     )
 
 
+def llm_thinking_body() -> dict:
+    """Match PredicateProposalClient: V4 defaults to thinking; we opt out unless enabled."""
+    mode = os.environ.get("VGUIDE_LLM_THINKING", "disabled").strip().lower()
+    if mode in ("enabled", "true", "on", "1"):
+        effort = os.environ.get("VGUIDE_LLM_REASONING_EFFORT", "high").strip().lower()
+        if effort in ("max", "xhigh"):
+            effort = "max"
+        else:
+            effort = "high"
+        return {"thinking": {"type": "enabled"}, "reasoning_effort": effort}
+    return {"thinking": {"type": "disabled"}}
+
+
 def call_llm(prompt: str) -> str:
     key = os.environ["DEEPSEEK_API_KEY"]
     model = os.environ.get("DEEPSEEK_MODEL", DEFAULT_MODEL)
-    body = json.dumps(
-        {
-            "model": model,
-            "temperature": 0,
-            "max_completion_tokens": 1024,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-    ).encode()
+    payload = {
+        "model": model,
+        "temperature": 0,
+        "max_completion_tokens": 1024,
+        "messages": [{"role": "user", "content": prompt}],
+        **llm_thinking_body(),
+    }
+    body = json.dumps(payload).encode()
     req = urllib.request.Request(
         API_URL,
         data=body,

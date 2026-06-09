@@ -32,6 +32,7 @@ docs/vguided-cegar/
 
 | 文件 | 用途 |
 |------|------|
+| [LLM_API.md](llm/LLM_API.md) | **DeepSeek V4** 模型、thinking / non-thinking、環境變數 |
 | [LLM_CALL_SCHEDULING.md](llm/LLM_CALL_SCHEDULING.md) | `min_interval` / `every_n` 排程 |
 | [LLM_ENSEMBLE.md](llm/LLM_ENSEMBLE.md) | 同 spurious 多抽卡（可選 K>1） |
 | [PREDICATE_BUDGET.md](llm/PREDICATE_BUDGET.md) | **單輪多條** predicate 數量與品質 |

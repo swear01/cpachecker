@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
@@ -262,6 +263,7 @@ public final class VGuideAnalysisDumper {
       manifest.put("run_id", runRoot.getFileName().toString());
       manifest.put("benchmark_set", System.getenv().getOrDefault("VGUIDE_ANALYSIS_BENCHMARK_SET", ""));
       manifest.put("model", System.getenv().getOrDefault("DEEPSEEK_MODEL", "deepseek-v4-pro"));
+      manifest.put("llm_thinking", llmThinkingModeForManifest());
       manifest.put("timelimit_sec", System.getenv().getOrDefault("VGUIDE_ANALYSIS_TIMELIMIT_SEC", ""));
       manifest.put("git_commit", readGitCommit());
       manifest.put("dump_prompts", dumpPrompts);
@@ -269,6 +271,17 @@ public final class VGuideAnalysisDumper {
     } catch (IOException e) {
       logger.logDebugException(e, "Failed to write run_manifest.json");
     }
+  }
+
+  private static String llmThinkingModeForManifest() {
+    String mode = System.getenv("VGUIDE_LLM_THINKING");
+    if (mode == null || mode.isBlank()) {
+      return "disabled";
+    }
+    return switch (mode.toLowerCase(Locale.ROOT)) {
+      case "enabled", "true", "on", "1" -> "enabled";
+      default -> "disabled";
+    };
   }
 
   private static String readGitCommit() {

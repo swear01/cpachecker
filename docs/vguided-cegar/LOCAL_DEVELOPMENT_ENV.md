@@ -69,7 +69,11 @@ ant build-project
 | 項目 | 說明 |
 |------|------|
 | `DEEPSEEK_API_KEY` | VGuide / 離線品質必填 |
+| `DEEPSEEK_MODEL` | 預設 `deepseek-v4-pro` |
+| `VGUIDE_LLM_THINKING` | 預設 **`disabled`**（non-thinking）；見 [llm/LLM_API.md](llm/LLM_API.md) |
 | Rate limit | **~500/min** → 批次預設平行，見 [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) |
+
+**注意：** DeepSeek V4 API 預設開 thinking；未設 `VGUIDE_LLM_THINKING=disabled` 時 `usage` 會有大量 `reasoning_tokens` 與高 latency。
 
 ## 平行度（預設）
 
