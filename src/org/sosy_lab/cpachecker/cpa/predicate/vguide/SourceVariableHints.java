@@ -6,6 +6,7 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -41,6 +42,20 @@ public final class SourceVariableHints {
 
   public static boolean hasArrayDecl(String source) {
     return ARRAY_DECL.matcher(source).find();
+  }
+
+  /** Count scalar int declarations (supports comma-separated names per line). */
+  public static int scalarDeclCount(String source) {
+    int count = 0;
+    Matcher line = Pattern.compile("\\bint\\s+([^;]+);").matcher(source);
+    while (line.find()) {
+      String decl = line.group(1).trim();
+      if (decl.contains("[")) {
+        continue;
+      }
+      count += Splitter.on(',').trimResults().omitEmptyStrings().splitToList(decl).size();
+    }
+    return count;
   }
 
   public static String formatForPrompt(String source, java.util.Map<String, ?> contract) {

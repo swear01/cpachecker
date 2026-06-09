@@ -22,6 +22,7 @@ docs/vguided-cegar/
 ├── LOCAL_DEVELOPMENT_ENV.md
 ├── architecture/UNIFIED_VGUIDE_ARCHITECTURE.md
 ├── llm/                    # 排程、ensemble、離線 vs CPA
+├── experiments/            # 單次實驗計劃（config 變更、驗收標準）
 ├── evaluation/             # benchmark 定義、frozen replay
 ├── reports/                # 進度報告
 ├── analysis/               # 機制分析計劃（predicate / context / overlap）

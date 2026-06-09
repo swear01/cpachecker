@@ -1,0 +1,19 @@
+# Regression set for non-thinking prompt / budget experiments (~21 tasks)
+loop-invgen/down.i
+loop-invgen/odd.i
+loop-invgen/string_concat-noarr.i
+loops-crafted-1/vnew1.c
+loops-crafted-1/benchmark40_polynomial.i
+loops-crafted-1/benchmark34_conjunctive.i
+loops-crafted-1/benchmark19_conjunctive.i
+loops-crafted-1/benchmark24_conjunctive.i
+loops-crafted-1/ddlm2013.i
+loops-crafted-1/gr2006.i
+loops-crafted-1/bhmr2007.i
+loops-crafted-1/gauss_sum.i
+loops-crafted-1/mono-crafted_13.i
+loops-crafted-1/mono-crafted_1.i
+loops-crafted-1/cggmp2005_variant.i
+loops-crafted-1/benchmark53_polynomial.i
+loop-simple/simple_3-2.i
+loop-simple/bin-suffix-5.i

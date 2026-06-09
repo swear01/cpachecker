@@ -46,6 +46,7 @@ public final class VGuideRefinementBridge {
   private final PredicateProposalClient llmClient;
   private final ContextPackBuilder contextPackBuilder;
   private final ProposalPromptBuilder promptBuilder;
+  private final PredicateBudgetResolver budgetResolver;
   private final PredicateValidationPipeline validationPipeline;
   private final LoopHeadPrecisionInjector precisionInjector;
   private final FrozenPredicateLoader frozenLoader;
@@ -97,12 +98,13 @@ public final class VGuideRefinementBridge {
     return new VGuideRefinementBridge(
         logger,
         opts,
-        new PredicateProposalClient(logger),
+        new PredicateProposalClient(logger, opts.getLlmMaxCompletionTokens()),
         cfa,
         fmgr,
         loopHeads,
         new ContextPackBuilder(cfa, loopHeads, fmgr),
-        new ProposalPromptBuilder(loopHeads, opts.getPredicateBudget()),
+        new ProposalPromptBuilder(loopHeads),
+        new PredicateBudgetResolver(),
         new PredicateValidationPipeline(logger, solver, fmgr, opts.isEnableL3Entailment()),
         new LoopHeadPrecisionInjector(logger, predAbsManager),
         new FrozenPredicateLoader(logger, opts.getFrozenDir()),
@@ -120,6 +122,7 @@ public final class VGuideRefinementBridge {
       LoopHeadIndex loopHeadIndex,
       ContextPackBuilder contextPackBuilder,
       ProposalPromptBuilder promptBuilder,
+      PredicateBudgetResolver budgetResolver,
       PredicateValidationPipeline validationPipeline,
       LoopHeadPrecisionInjector precisionInjector,
       FrozenPredicateLoader frozenLoader,
@@ -134,6 +137,7 @@ public final class VGuideRefinementBridge {
     this.loopHeadIndex = loopHeadIndex;
     this.contextPackBuilder = contextPackBuilder;
     this.promptBuilder = promptBuilder;
+    this.budgetResolver = budgetResolver;
     this.validationPipeline = validationPipeline;
     this.precisionInjector = precisionInjector;
     this.frozenLoader = frozenLoader;
@@ -206,11 +210,24 @@ public final class VGuideRefinementBridge {
       return counterexample;
     }
 
+    BudgetResolution budgetRes = resolveBudget(pack, refinementIndex);
+    PredicateBudget budget = budgetRes.budget();
+    logger.log(
+        Level.INFO,
+        "VGuide predicate budget tier=",
+        budgetRes.tier(),
+        " S=",
+        budgetRes.complexityScore(),
+        " min=",
+        budget.minPerCall(),
+        " max=",
+        budget.maxPerCall());
+
     String promptKind = refinementIndex == 1 ? "first" : "later";
     String prompt =
         refinementIndex == 1
-            ? promptBuilder.buildFirstSpurious(pack)
-            : promptBuilder.buildLaterSpurious(pack);
+            ? promptBuilder.buildFirstSpurious(pack, budget)
+            : promptBuilder.buildLaterSpurious(pack, budget);
     dump.traceSummaryInPrompt = refinementIndex == 1 ? null : pack.traceSummary();
     long t0 = System.currentTimeMillis();
     try {
@@ -223,6 +240,7 @@ public final class VGuideRefinementBridge {
               promptKind,
               prompt,
               pack,
+              budgetRes,
               samplesConfigured,
               rejectedAll);
       long latency = System.currentTimeMillis() - t0;
@@ -253,8 +271,7 @@ public final class VGuideRefinementBridge {
       for (LlmProposalResult r : apiResults) {
         rawResponses.add(r.content());
       }
-      ImmutableList<String> rawPreds =
-          LlmEnsembleMerger.unionValidate(rawResponses, options.getPredicateBudget());
+      ImmutableList<String> rawPreds = LlmEnsembleMerger.unionValidate(rawResponses, budget);
       List<String> rejectedForRepair = new ArrayList<>();
       if (rawPreds.isEmpty()) {
         for (String raw : rawResponses) {
@@ -265,7 +282,7 @@ public final class VGuideRefinementBridge {
       if (rawPreds.isEmpty() && !rejectedForRepair.isEmpty()) {
         String repairPrompt =
             promptBuilder.buildRepair(
-                pack, rejectedForRepair.stream().distinct().limit(5).toList());
+                pack, rejectedForRepair.stream().distinct().limit(5).toList(), budget);
         logger.log(Level.INFO, "VGuide: ensemble L1 empty; one repair LLM call");
         LlmProposalResult repair = llmClient.proposeWithUsage(repairPrompt);
         if (analysisDumper != null) {
@@ -277,11 +294,11 @@ public final class VGuideRefinementBridge {
               repairPrompt,
               pack,
               repair,
-              rejectedForRepair);
+              rejectedForRepair,
+              budgetRes);
         }
         combinedRaw = combinedRaw + "\n--- repair ---\n" + repair.content();
-        rawPreds =
-            options.getPredicateBudget().capOrdered(LlmResponseParser.parsePredicates(repair.content()));
+        rawPreds = budget.capOrdered(LlmResponseParser.parsePredicates(repair.content()));
         apiResults = new ArrayList<>(apiResults);
         apiResults.add(repair);
       }
@@ -358,12 +375,20 @@ public final class VGuideRefinementBridge {
     return outcome;
   }
 
+  private BudgetResolution resolveBudget(ContextPack pack, int refinementIndex) {
+    if (options.isEnableAdaptivePredicateBudget()) {
+      return budgetResolver.resolve(pack, refinementIndex);
+    }
+    return new BudgetResolution(options.getPredicateBudget(), "fixed", -1);
+  }
+
   private List<LlmProposalResult> invokeLlmEnsemble(
       int refinementIndex,
       int llmRoundIndex,
       String promptKind,
       String prompt,
       ContextPack pack,
+      BudgetResolution budgetRes,
       int samplesConfigured,
       List<String> rejectedOut)
       throws IOException, InterruptedException {
@@ -381,7 +406,8 @@ public final class VGuideRefinementBridge {
           prompt,
           pack,
           primary,
-          primaryRejected);
+          primaryRejected,
+          budgetRes);
     }
     int extra = samplesConfigured - 1;
     if (extra > 0) {
@@ -400,7 +426,8 @@ public final class VGuideRefinementBridge {
               prompt,
               pack,
               extraResult,
-              rejected);
+              rejected,
+              budgetRes);
         }
         results.add(extraResult);
       }

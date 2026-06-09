@@ -110,6 +110,19 @@ public class VGuideOptions {
               + " strengthen). Enable for parity/invariant-heavy benchmarks.")
   private boolean enableL3Entailment = false;
 
+  @Option(
+      secure = true,
+      description =
+          "Per-call min/max from ContextPack complexity (low 4–8, medium 6–12, high 8–16)."
+              + " When false, use minPredicatesPerCall / maxPredicatesPerCall.")
+  private boolean enableAdaptivePredicateBudget = false;
+
+  @Option(
+      secure = true,
+      description = "Max completion tokens per DeepSeek chat completion (raise for max budget ≥12).")
+  @IntegerOption(min = 256)
+  private int llmMaxCompletionTokens = 1024;
+
   private LlmCallSchedule parsedSchedule = LlmCallSchedule.FIRST_SPURIOUS;
 
   public VGuideOptions(Configuration config) throws InvalidConfigurationException {
@@ -155,6 +168,21 @@ public class VGuideOptions {
 
   public PredicateBudget getPredicateBudget() {
     return new PredicateBudget(minPredicatesPerCall, maxPredicatesPerCall);
+  }
+
+  /** Budget for dump prompt size estimates when adaptive tiers apply. */
+  public PredicateBudget getPredicateBudgetForDump() {
+    return enableAdaptivePredicateBudget
+        ? PredicateBudgetResolver.worstCaseBudget()
+        : getPredicateBudget();
+  }
+
+  public boolean isEnableAdaptivePredicateBudget() {
+    return enableAdaptivePredicateBudget;
+  }
+
+  public int getLlmMaxCompletionTokens() {
+    return llmMaxCompletionTokens;
   }
 
   /** Samples for this spurious round: #1 always 1; later rounds use llmSamplesPerCall. */

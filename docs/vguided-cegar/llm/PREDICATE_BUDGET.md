@@ -29,8 +29,10 @@
 
 | 選項 | 預設 | 說明 |
 |------|------|------|
-| `vguide.minPredicatesPerCall` | **3** | prompt 軟下限（aim） |
-| `vguide.maxPredicatesPerCall` | **6** | prompt 硬上限 + parse 截斷 |
+| `vguide.minPredicatesPerCall` | **3** | prompt 軟下限（aim）；fixed 模式 |
+| `vguide.maxPredicatesPerCall` | **6** | prompt 硬上限 + parse 截斷；fixed 模式 |
+| `vguide.enableAdaptivePredicateBudget` | **false** | `true` → low **4–8** / medium **6–12** / high **8–16** |
+| `vguide.llmMaxCompletionTokens` | **1024** | adaptive 建議 **2048**（見實驗 config） |
 | `vguide.llmSamplesPerCall` | **1** | 單 draw；與 budget 正交 |
 
 對照 1.0.0 分析 batch：prompt 4–8、median 7 → 現預設 cap **6**，並用角色引導提品質。

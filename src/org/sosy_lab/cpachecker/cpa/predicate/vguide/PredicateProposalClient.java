@@ -45,6 +45,7 @@ public final class PredicateProposalClient {
   private final String model;
   private final boolean thinkingEnabled;
   private final @Nullable String reasoningEffort;
+  private final int maxCompletionTokens;
   private final int timeoutSeconds;
   private final HttpClient http;
 
@@ -54,10 +55,14 @@ public final class PredicateProposalClient {
     if (key == null || key.isBlank()) {
       return null;
     }
-    return new PredicateProposalClient(pLogger);
+    return new PredicateProposalClient(pLogger, readPositiveIntEnv("VGUIDE_LLM_MAX_COMPLETION_TOKENS", 1024));
   }
 
   public PredicateProposalClient(LogManager pLogger) {
+    this(pLogger, readPositiveIntEnv("VGUIDE_LLM_MAX_COMPLETION_TOKENS", 1024));
+  }
+
+  public PredicateProposalClient(LogManager pLogger, int pMaxCompletionTokens) {
     logger = pLogger;
     apiKey = System.getenv("DEEPSEEK_API_KEY");
     if (apiKey == null || apiKey.isBlank()) {
@@ -75,6 +80,8 @@ public final class PredicateProposalClient {
     if (thinkingEnabled && reasoningEffort != null) {
       logger.log(Level.INFO, "VGuide LLM reasoning_effort: ", reasoningEffort);
     }
+    maxCompletionTokens = Math.max(256, pMaxCompletionTokens);
+    logger.log(Level.INFO, "VGuide LLM max_completion_tokens: ", maxCompletionTokens);
     timeoutSeconds = readPositiveIntEnv("VGUIDE_LLM_TIMEOUT_SEC", 120);
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
   }
@@ -173,7 +180,7 @@ public final class PredicateProposalClient {
     var root = JSON.createObjectNode();
     root.put("model", model);
     root.put("temperature", 0);
-    root.put("max_completion_tokens", 1024);
+    root.put("max_completion_tokens", maxCompletionTokens);
     var messages = root.putArray("messages");
     messages.addObject().put("role", "user").put("content", userPrompt);
     var thinking = root.putObject("thinking");

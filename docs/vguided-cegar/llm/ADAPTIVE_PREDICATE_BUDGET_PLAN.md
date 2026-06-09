@@ -1,6 +1,6 @@
 # 計劃：自適應 Predicate 數量 + LLM 呼叫頻率（non-thinking 主線）
 
-**狀態**：計劃（未實作）  
+**狀態**：已實作（2026-06-10）→ **實驗規格**見 [experiments/2026-06-10_freq10_n24_adaptive_budget.md](../experiments/2026-06-10_freq10_n24_adaptive_budget.md)  
 **動機**：notthinking 品質檢查顯示 overlap Novel% 與 thinking 相近，但 **每 call 少 ~3 條**（median 4 vs 7），總解題少 ~14 題。  
 **優先於**：CE prompt（見 [CE_CONTEXT_PROMPT_PLAN.md](../analysis/CE_CONTEXT_PROMPT_PLAN.md)）可並行，但 **調數量/頻率成本低、可先試**。
 
@@ -36,11 +36,13 @@ non-thinking LLM ~2.4s/call → 300s 內 **理論可遠多於 5 次**，現被 `
 
 依 **loop head 數** + **assertion 複雜度** 分檔（在 `VGuideRefinementBridge` 或 `PredicateBudget` factory）：
 
-| 檔位 | 條件（任一） | min | max |
-|------|--------------|-----|-----|
-| **simple** | 1 loop head，assertion 為單變數比較 | 3 | 6 |
-| **medium** | 2 loop heads | 4 | **8** |
-| **complex** | ≥3 loop heads，或 assertion 含 `bvand`/`bvurem`/`bvadd` 嵌套，或多變數 | 5 | **8** |
+| 檔位 | S | min | max |
+|------|---|-----|-----|
+| **low** | ≤3 | 4 | 8 |
+| **medium** | 4–6 | **6** | **12** |
+| **high** | ≥7 | **8** | **16** |
+
+（分數 `S` 與實驗規格見 [experiments/2026-06-10_freq10_n24_adaptive_budget.md](../experiments/2026-06-10_freq10_n24_adaptive_budget.md)。）
 
 **Prompt 調整**：刪弱「fewer rather than weak fillers」；改 **「必須至少 min 條不同角色；max 內盡量覆蓋 assertion + 跨 loop 耦合」**。
 

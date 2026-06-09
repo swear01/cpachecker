@@ -5931,6 +5931,10 @@ vguide.allowInterpolantStrengthen = true
 # Enable unified VGuide bridge when useVocabularyGuide=true
 vguide.enable = true
 
+# Per-call min/max from ContextPack complexity (low 4–8, medium 6–12, high
+# 8–16). When false, use minPredicatesPerCall / maxPredicatesPerCall.
+vguide.enableAdaptivePredicateBudget = false
+
 # Run L3 block entailment (block ⊨ pred). When false, skip SMT classification
 # and treat all parsed predicates as PRECISION_ONLY (default; no ENTAILED /
 # strengthen). Enable for parity/invariant-heavy benchmarks.
@@ -5948,6 +5952,10 @@ vguide.llmCallSchedule = "first_spurious"
 # (N>=1)
 vguide.llmEveryNSpuriousRefinements = 5
 
+# Max completion tokens per DeepSeek chat completion (raise for max budget
+# ≥12).
+vguide.llmMaxCompletionTokens = 1024
+
 # For min_interval / every_n_and_interval: minimum seconds between LLM calls
 # (0 = no wait except refinement #1)
 vguide.llmMinIntervalSec = 0
@@ -5961,13 +5969,13 @@ vguide.llmSampleParallelism = 4
 # extras.
 vguide.llmSamplesPerCall = 1
 
-# Hard upper bound per LLM response: prompt asks for at most this many;
-# extras truncated after parse (array order = priority).
-vguide.maxPredicatesPerCall = 6
-
 # Hard cap on spurious rounds that invoke LLM (each round may issue multiple
 # API draws when llmSamplesPerCall>1). 0 = no LLM.
 vguide.maxLlmRoundsPerAnalysis = 1
+
+# Hard upper bound per LLM response: prompt asks for at most this many;
+# extras truncated after parse (array order = priority).
+vguide.maxPredicatesPerCall = 6
 
 # Soft lower bound in LLM prompt: aim for at least this many predicates per
 # response (not enforced after parse).

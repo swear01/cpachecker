@@ -19,4 +19,14 @@ public class PredicateBudgetTest {
         .containsExactly("(= a 0)", "(= b 1)", "(= c 2)")
         .inOrder();
   }
+
+  @Test
+  public void capOrdered_truncatesAtHighTierMax() {
+    PredicateBudget budget = new PredicateBudget(8, 16);
+    java.util.List<String> preds = new java.util.ArrayList<>();
+    for (int i = 0; i < 20; i++) {
+      preds.add("(= x" + i + " (_ bv0 32))");
+    }
+    assertThat(budget.capOrdered(preds)).hasSize(16);
+  }
 }

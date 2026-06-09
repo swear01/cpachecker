@@ -165,7 +165,8 @@ public final class VGuideAnalysisDumper {
       String prompt,
       ContextPack pack,
       LlmProposalResult api,
-      List<String> rejectedPredicates) {
+      List<String> rejectedPredicates,
+      @Nullable BudgetResolution budgetRes) {
     apiCallIndex++;
     llmApiCallCount++;
     JsonNode usage = api.usage();
@@ -197,6 +198,12 @@ public final class VGuideAnalysisDumper {
     row.put("schedule", options.getLlmCallSchedule().name());
     row.put("every_n", options.getLlmEveryNSpuriousRefinements());
     row.put("min_interval_sec", options.getLlmMinIntervalSec());
+    if (budgetRes != null) {
+      row.put("budget_tier", budgetRes.tier());
+      row.put("budget_min", budgetRes.budget().minPerCall());
+      row.put("budget_max", budgetRes.budget().maxPerCall());
+      row.put("complexity_score", budgetRes.complexityScore());
+    }
 
     if (dumpPrompts) {
       String promptFileName =
@@ -454,7 +461,7 @@ public final class VGuideAnalysisDumper {
     o.put("source", pack.sourceCode().length());
     o.put("contract", VarContractBuilder.formatForPrompt(pack.varContract()).length());
     o.put("loop_heads", formatLoopHeadsChars(pack.loopHeads()));
-    o.put("rules", ProposalPromptBuilder.rulesCharCount(options.getPredicateBudget()));
+    o.put("rules", ProposalPromptBuilder.rulesCharCount(options.getPredicateBudgetForDump()));
     int traceChars = "later".equals(promptKind) || "repair".equals(promptKind) ? pack.traceSummary().length() : 0;
     o.put("trace", traceChars);
     return o;
