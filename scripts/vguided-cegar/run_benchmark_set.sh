@@ -91,17 +91,52 @@ append_summary_row() {
   } 9>"$SUMMARY_LOCK"
 }
 
-# Merge per-task .row files from TMPDIR (parallel runs write rows only; append once at end).
+# Build one CSV row from an existing CPA log (same fields as run_one).
+summary_row_from_log() {
+  local task="$1"
+  local log="$OUT_BASE/logs/${task}.log"
+  [[ -f "$log" ]] || return 1
+  finalize_log_verdict "$log"
+  local result refs wall rel
+  result="$(extract 'Verification result:' "$log" | sed -n 's/.*Verification result:[[:space:]]*\([A-Za-z]*\).*/\1/p' | head -1 | tr '[:lower:]' '[:upper:]')"
+  refs="$(extract 'Number of predicate refinements:' "$log" | grep -oE '[0-9]+' | head -1)"
+  wall="$(extract 'Total time for CPAchecker:' "$log" | grep -oE '[0-9.]+' | head -1)"
+  [[ -n "$result" ]] || result="UNKNOWN"
+  [[ -n "$refs" ]] || refs="0"
+  [[ -n "$wall" ]] || wall="0"
+  rel="${task}.i"
+  while IFS= read -r mline || [[ -n "$mline" ]]; do
+    [[ "$mline" =~ ^[[:space:]]*# ]] && continue
+    mline="${mline%%#*}"
+    mline="$(echo "$mline" | xargs)"
+    [[ -n "$mline" ]] || continue
+    local mbase="${mline##*/}"
+    mbase="${mbase%.i}"; mbase="${mbase%.c}"
+    if [[ "$mbase" == "$task" ]]; then
+      rel="${mline##*/}"
+      break
+    fi
+  done <"$MANIFEST"
+  echo "$task,$rel,$result,$refs,$wall,$log"
+}
+
+# Merge per-task .row files; missing rows rebuilt from logs (late-finishing parallel jobs).
 flush_summary_rows() {
   [[ -f "$ORDER_FILE" ]] || return 0
   while IFS= read -r task || [[ -n "$task" ]]; do
     [[ -n "$task" ]] || continue
-    local row_file="$TMPDIR/${task}.row"
-    [[ -f "$row_file" ]] || continue
     if grep -q "^${task}," "$SUMMARY" 2>/dev/null; then
       continue
     fi
-    append_summary_row "$(tr -d '\r' <"$row_file")"
+    local row_file="$TMPDIR/${task}.row"
+    local row=""
+    if [[ -f "$row_file" ]]; then
+      row="$(tr -d '\r' <"$row_file")"
+    else
+      row="$(summary_row_from_log "$task" || true)"
+    fi
+    [[ -n "$row" ]] || continue
+    append_summary_row "$row"
   done <"$ORDER_FILE"
 }
 
@@ -204,7 +239,16 @@ EXTRA=("$@")
 ORDER_FILE="$TMPDIR/order.txt"
 : >"$ORDER_FILE"
 count=0
-running=0
+
+running_jobs() {
+  jobs -rp 2>/dev/null | wc -l | tr -d ' '
+}
+
+wait_for_slot() {
+  while [[ "$(running_jobs)" -ge "$PARALLEL" ]]; do
+    wait -n 2>/dev/null || wait || true
+  done
+}
 
 launch() {
   local prog="$1" task="$2"
@@ -212,22 +256,20 @@ launch() {
   count=$((count + 1))
   if [[ "$PARALLEL" -le 1 ]]; then
     echo "[$count] $task"
-    run_one "$prog" "$task" "${EXTRA[@]}" >"$TMPDIR/${task}.row"
+    local row
+    row="$(run_one "$prog" "$task" "${EXTRA[@]}")"
+    echo "$row" >"$TMPDIR/${task}.row"
+    append_summary_row "$row"
     return
   fi
-  while [[ "$running" -ge "$PARALLEL" ]]; do
-    if ! wait -n 2>/dev/null; then
-      wait || true
-      running=0
-      break
-    fi
-    running=$((running - 1))
-  done
+  wait_for_slot
   echo "[$count] $task (bg)" >&2
   (
-    run_one "$prog" "$task" "${EXTRA[@]}" >"$TMPDIR/${task}.row"
+    local row
+    row="$(run_one "$prog" "$task" "${EXTRA[@]}")"
+    echo "$row" >"$TMPDIR/${task}.row"
+    append_summary_row "$row"
   ) &
-  running=$((running + 1))
 }
 
 while IFS= read -r line || [[ -n "$line" ]]; do
@@ -247,13 +289,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   launch "$prog" "$task"
 done <"$MANIFEST"
 
-while [[ "$running" -gt 0 ]]; do
-  if ! wait -n 2>/dev/null; then
-    wait || true
-    break
-  fi
-  running=$((running - 1))
-done
+wait || true
 
 flush_summary_rows
 
