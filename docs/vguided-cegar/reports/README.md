@@ -6,7 +6,7 @@
 |------|------|
 | **[`2026-06-07_vguide-report_deepseek-v4-pro.md`](2026-06-07_vguide-report_deepseek-v4-pro.md)** | 歷史總覽：217 題 `full_scalar`；L3-on **131**/217；noL3 vs stock；L3 消融 |
 | **[`2026-06-08_predicate-analysis_noL3.md`](2026-06-08_predicate-analysis_noL3.md)** | **Predicate 分析**（noL3 dump）：context budget / **Z3 overlap** / 排程；33 rescued vs stock |
-| **[`2026-06-10_freq10_n24_adaptive_noL3.md`](2026-06-10_freq10_n24_adaptive_noL3.md)** | **adaptive budget + freq10/n24** 217 題：**150 solved**、PAR-2 **192s**、+13 vs notthinking |
+| **[`2026-06-10_freq10_n24_adaptive_noL3.md`](2026-06-10_freq10_n24_adaptive_noL3.md)** | **v1.3.0** adaptive + freq10/n24：**150 solved**、PAR-2 **192s** |
 | **[`2026-06-09_notthinking_noL3.md`](2026-06-09_notthinking_noL3.md)** | **thinking disabled** 217 題：+21 vs stock、PAR-2 vs budget306/v1.0.0、overlap Phase D |
 
 **實驗目錄**

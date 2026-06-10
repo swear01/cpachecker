@@ -40,7 +40,9 @@ docs/vguided-cegar/
 | [LLM_ENSEMBLE.md](llm/LLM_ENSEMBLE.md) | 同 spurious 多抽卡（可選 K>1） |
 | [PREDICATE_BUDGET.md](llm/PREDICATE_BUDGET.md) | **單輪多條** predicate 數量與品質 |
 | [ADAPTIVE_PREDICATE_BUDGET_PLAN.md](llm/ADAPTIVE_PREDICATE_BUDGET_PLAN.md) | 自適應 min/max + LLM 頻率（已實作；217 結果見上報告） |
-| [experiments/2026-06-10_freq10_n24_adaptive_budget.md](experiments/2026-06-10_freq10_n24_adaptive_budget.md) | 本輪實驗規格與驗收 |
+| [experiments/2026-06-10_freq10_n24_adaptive_budget.md](experiments/2026-06-10_freq10_n24_adaptive_budget.md) | v1.3.0 實驗規格（freq10/n24） |
+| [experiments/2026-06-10_freq20_n12_adaptive_budget.md](experiments/2026-06-10_freq20_n12_adaptive_budget.md) | **下一版** every_n=12、max rounds 20 |
+| [analysis/case_studies/const_1-2.md](analysis/case_studies/const_1-2.md) | Case study：高 refinement + 打滿 LLM |
 | [OFFLINE_SAMPLING.md](llm/OFFLINE_SAMPLING.md) | `test_llm_proposal_quality.py` vs CPA 內 LLM |
 
 ### evaluation/
