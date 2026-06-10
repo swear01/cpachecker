@@ -175,6 +175,8 @@ LLM **單次回應** 內仍受 prompt 的 min/max **建議**；合併層 **不**
 
 驗收：FALSE +≥2、`const_1-2` 進度、BUG 軌 `source_profile` 注入 &gt;0、`parse_ok`、壓縮後 `prompt_tokens` median &lt; 2000。
 
+**實測（2026-06-10，`full_scalar_dual_v1_20260610`）：** 155 solved、PAR-2 183s（優於 v1.3）；**FALSE 38（−2 vs stock，0 新 FALSE）→ FALSE 目標失敗**。見 [reports/2026-06-10_dual_prompt_v1_noL3.md](../reports/2026-06-10_dual_prompt_v1_noL3.md)。
+
 ---
 
 ## 7. 實作順序
@@ -217,15 +219,16 @@ yml 分流、validation safe-bias、feasible CE 鉤子、BUG 專用 `every_n`。
 | `reports/2026-06-08_*`、`reports/2026-06-10_*` | v1.3 **實測**快照 |
 | `experiments/2026-06-10_freq*.md` | 已跑實驗 |
 
-### 9.3 實作後必改（代碼／腳本尚未存在）
+### 9.3 實作與實驗（2026-06-10）
 
-| 項目 |
-|------|
-| `VGuideOptions.dualPromptMode`、`getLlmSamplesForRefinement` |
-| `doc/ConfigurationOptions.txt` 正式條目 `dualPromptMode` |
-| `analyze_predicate_study.py`、`test_llm_proposal_quality.py` |
-| `config/vguide-experiment-dual-prompt-v1.properties` |
-| `experiments/2026-06-*_dual_prompt_v1.md` 填結果 |
+| 項目 | 狀態 |
+|------|------|
+| 代碼（dual、ce_summary、JSON、dumper） | ✅ `85706b4bf0` |
+| `config/vguide-experiment-dual-prompt-v1.properties` | ✅ |
+| `full_scalar` 217 題實跑 | ✅ |
+| FALSE +≥2 驗收 | ❌ |
+| `regression_false_unknown` 子集 | 未跑 |
+| analysis dump（`source_profile` 統計） | 本 run 未開 |
 
 ### 9.4 可再改善（非阻塞）
 

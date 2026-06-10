@@ -1,20 +1,16 @@
 # VGuide 進度報告
 
-## 計劃中（v1.4，未跑）
-
-| 文件 | 說明 |
-|------|------|
-| [experiments/2026-06-10_dual_prompt_v1.md](../experiments/2026-06-10_dual_prompt_v1.md) | dual SAFE+BUG、ce_summary、JSON mode |
-| [analysis/DUAL_PROMPT_V1_PLAN.md](../analysis/DUAL_PROMPT_V1_PLAN.md) | 完整設計 |
-
 ## 現行（deepseek-v4-pro）
 
 | 報告 | 說明 |
 |------|------|
+| **[`2026-06-10_dual_prompt_v1_noL3.md`](2026-06-10_dual_prompt_v1_noL3.md)** | **v1.4** dual SAFE/BUG + ce_summary：**155 solved**、PAR-2 **183s**；**FALSE 目標失敗**（38 vs stock 40） |
 | **[`2026-06-07_vguide-report_deepseek-v4-pro.md`](2026-06-07_vguide-report_deepseek-v4-pro.md)** | 歷史總覽：217 題 `full_scalar`；L3-on **131**/217；noL3 vs stock；L3 消融 |
 | **[`2026-06-08_predicate-analysis_noL3.md`](2026-06-08_predicate-analysis_noL3.md)** | **Predicate 分析**（noL3 dump）：context budget / **Z3 overlap** / 排程；33 rescued vs stock |
 | **[`2026-06-10_freq10_n24_adaptive_noL3.md`](2026-06-10_freq10_n24_adaptive_noL3.md)** | **v1.3.0** adaptive + freq10/n24：**150 solved**、PAR-2 **192s** |
 | **[`2026-06-09_notthinking_noL3.md`](2026-06-09_notthinking_noL3.md)** | **thinking disabled** 217 題：+21 vs stock、PAR-2 vs budget306/v1.0.0、overlap Phase D |
+
+設計文件：[experiments/2026-06-10_dual_prompt_v1.md](../experiments/2026-06-10_dual_prompt_v1.md)、[analysis/DUAL_PROMPT_V1_PLAN.md](../analysis/DUAL_PROMPT_V1_PLAN.md)
 
 **實驗目錄**
 
@@ -29,6 +25,7 @@
 | **notthinking dump** | `output/vguide/analysis_dumps/full_scalar_noL3_notthinking_20260609/` |
 | **adaptive freq10_n24**（fd69f395） | `output/vguide/experiments/full_scalar_vguide_noL3_freq10_n24_adaptive_20260610/` |
 | **adaptive dump** | `output/vguide/analysis_dumps/full_scalar_noL3_freq10_n24_adaptive_20260610/` |
+| **dual v1.4**（85706b4） | `output/vguide/experiments/full_scalar_dual_v1_20260610/` |
 | 三向 CSV | `output/vguide/experiments/l3_ablation_comparison.csv` |
 
 **Predicate 離線分析（Phase D）**
