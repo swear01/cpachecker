@@ -1,5 +1,12 @@
 # VGuide 進度報告
 
+## 計劃中（v1.4，未跑）
+
+| 文件 | 說明 |
+|------|------|
+| [experiments/2026-06-10_dual_prompt_v1.md](../experiments/2026-06-10_dual_prompt_v1.md) | dual SAFE+BUG、ce_summary、JSON mode |
+| [analysis/DUAL_PROMPT_V1_PLAN.md](../analysis/DUAL_PROMPT_V1_PLAN.md) | 完整設計 |
+
 ## 現行（deepseek-v4-pro）
 
 | 報告 | 說明 |

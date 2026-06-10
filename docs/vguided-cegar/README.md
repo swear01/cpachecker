@@ -10,7 +10,10 @@
 | [reports/README.md](reports/README.md) | 進度報告 |
 | [reports/2026-06-10_freq10_n24_adaptive_noL3.md](reports/2026-06-10_freq10_n24_adaptive_noL3.md) | **現行 noL3 最佳**：150 solved、PAR-2 192s（adaptive + freq10/n24） |
 | [analysis/PREDICATE_ANALYSIS_PLAN.md](analysis/PREDICATE_ANALYSIS_PLAN.md) | **Predicate 分析計劃**（context / overlap / PCS；token 以 API `usage` 為準） |
-| [analysis/CE_CONTEXT_PROMPT_PLAN.md](analysis/CE_CONTEXT_PROMPT_PLAN.md) | **計劃**：first-spurious 補 CE 摘要 |
+| [analysis/FALSE_ORIENTED_VGUIDE_PLAN.md](analysis/FALSE_ORIENTED_VGUIDE_PLAN.md) | **計劃**：面向 FALSE / 找 bug 的 harness 與 prompt |
+| [analysis/DUAL_PROMPT_V1_PLAN.md](analysis/DUAL_PROMPT_V1_PLAN.md) | **計劃**：v1.4 雙 prompt + cache + JSON mode |
+| [analysis/CE_SUMMARY_COMPRESSION.md](analysis/CE_SUMMARY_COMPRESSION.md) | CE 摘要 **語意壓縮**（loop-head、關係式提取，非 char cap） |
+| [analysis/CE_CONTEXT_PROMPT_PLAN.md](analysis/CE_CONTEXT_PROMPT_PLAN.md) | CE 摘要進 prompt（併入 v1.4） |
 | [analysis/OVERLAP_AND_PCS.md](analysis/OVERLAP_AND_PCS.md) | Overlap / PCS 語意（Z3 entailment） |
 | [reports/2026-06-08_predicate-analysis_noL3.md](reports/2026-06-08_predicate-analysis_noL3.md) | **Predicate 分析結果**（217 題 dump） |
 | [LOCAL_DEVELOPMENT_ENV.md](LOCAL_DEVELOPMENT_ENV.md) | `~/sv-benchmarks`、JDK 21、Ant |
@@ -37,7 +40,7 @@ docs/vguided-cegar/
 |------|------|
 | [LLM_API.md](llm/LLM_API.md) | **DeepSeek V4** 模型、thinking / non-thinking、環境變數 |
 | [LLM_CALL_SCHEDULING.md](llm/LLM_CALL_SCHEDULING.md) | `min_interval` / `every_n` 排程 |
-| [LLM_ENSEMBLE.md](llm/LLM_ENSEMBLE.md) | 同 spurious 多抽卡（可選 K>1） |
+| [LLM_ENSEMBLE.md](llm/LLM_ENSEMBLE.md) | 雙 prompt（SAFE+BUG）與每軌 ensemble（v1.4 計劃） |
 | [PREDICATE_BUDGET.md](llm/PREDICATE_BUDGET.md) | **單輪多條** predicate 數量與品質 |
 | [ADAPTIVE_PREDICATE_BUDGET_PLAN.md](llm/ADAPTIVE_PREDICATE_BUDGET_PLAN.md) | 自適應 min/max + LLM 頻率（已實作；217 結果見上報告） |
 | [experiments/2026-06-10_freq10_n24_adaptive_budget.md](experiments/2026-06-10_freq10_n24_adaptive_budget.md) | v1.3.0 實驗規格（freq10/n24） |

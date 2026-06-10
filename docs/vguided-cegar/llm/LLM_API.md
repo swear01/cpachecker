@@ -11,6 +11,7 @@ VGuide 透過 `PredicateProposalClient` 呼叫 `https://api.deepseek.com/chat/co
 | `VGUIDE_LLM_THINKING` | **`disabled`** | `disabled` = non-thinking；`enabled` = thinking mode |
 | `VGUIDE_LLM_REASONING_EFFORT` | `high`（僅 thinking 時） | `high` 或 `max`（`low`/`medium` 會對應到 `high`） |
 | `VGUIDE_LLM_TIMEOUT_SEC` | `120` | 單次 HTTP 逾時 |
+| JSON mode | **v1.4 永久開啟** | 固定 `response_format: json_object`；現行 Java **尚未**實作 |
 
 ## Thinking vs non-thinking（重要）
 
@@ -36,11 +37,16 @@ export VGUIDE_LLM_REASONING_EFFORT=high   # 或 max
 - Analysis dump：`llm_rounds.jsonl` 每行有 `latency_ms`、`usage`（含 `reasoning_tokens`）
 - `run_manifest.json`：`model`、`llm_thinking`
 
+## JSON Output（v1.4 永久開啟）
+
+計劃：`response_format: {"type": "json_object"}` 每次必送；prompt 須含「json」與範例物件。見 [DeepSeek JSON Output](https://api-docs.deepseek.com/guides/json_mode)。
+
 ## 離線腳本對齊
 
-`scripts/vguided-cegar/test_llm_proposal_quality.py` 預設亦送 `thinking: disabled`，與 Java 客戶端一致。
+`scripts/vguided-cegar/test_llm_proposal_quality.py`：`thinking: disabled`；v1.4 實作後加 `json_object`。
 
 ## 參考
 
 - [DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode)
 - [Create Chat Completion](https://api-docs.deepseek.com/api/create-chat-completion)
+- [JSON Output](https://api-docs.deepseek.com/guides/json_mode)

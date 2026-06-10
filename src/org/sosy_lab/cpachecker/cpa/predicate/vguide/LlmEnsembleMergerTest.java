@@ -22,6 +22,22 @@ public class LlmEnsembleMergerTest {
   }
 
   @Test
+  public void mergeDualUnion_dedupesWithoutCap() {
+    var safe =
+        LlmEnsembleMerger.attributeAll(
+            java.util.List.of("(= x 0)", "(>= y 1)"), PromptProfile.SAFE);
+    var bug =
+        LlmEnsembleMerger.attributeAll(
+            java.util.List.of("(= x 0)", "(<= z 3)"), PromptProfile.BUG_HUNT);
+    assertThat(LlmEnsembleMerger.mergeDualUnion(safe, bug))
+        .containsExactly(
+            new AttributedRawPredicate("(= x 0)", PromptProfile.SAFE),
+            new AttributedRawPredicate("(>= y 1)", PromptProfile.SAFE),
+            new AttributedRawPredicate("(<= z 3)", PromptProfile.BUG_HUNT))
+        .inOrder();
+  }
+
+  @Test
   public void unionValidate_capsToPredicateBudget() {
     String json =
         "{\"predicates\":[\"(= a 0)\",\"(= b 1)\",\"(= c 2)\",\"(= d 3)\",\"(= e 4)\"]}";

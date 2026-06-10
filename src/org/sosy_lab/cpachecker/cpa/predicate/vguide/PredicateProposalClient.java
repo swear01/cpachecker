@@ -86,13 +86,11 @@ public final class PredicateProposalClient {
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
   }
 
-  /**
-   * Call LLM with the given user prompt; returns message content and API {@code usage} stats.
-   */
-  public LlmProposalResult proposeWithUsage(String userPrompt)
+  /** Call LLM with system + user messages; returns content and API {@code usage}. */
+  public LlmProposalResult proposeWithUsage(PromptMessages messages)
       throws IOException, InterruptedException {
     long t0 = System.currentTimeMillis();
-    String body = buildRequestBody(userPrompt);
+    String body = buildRequestBody(messages);
     HttpRequest req =
         HttpRequest.newBuilder()
             .uri(URI.create(API_URL))
@@ -124,8 +122,18 @@ public final class PredicateProposalClient {
     return new LlmProposalResult(content.asText(), usage.isMissingNode() ? null : usage, latency);
   }
 
+  /** Legacy: single user message (no system). */
+  public LlmProposalResult proposeWithUsage(String userPrompt)
+      throws IOException, InterruptedException {
+    return proposeWithUsage(new PromptMessages("", userPrompt));
+  }
+
   public String propose(String userPrompt) throws IOException, InterruptedException {
     return proposeWithUsage(userPrompt).content();
+  }
+
+  public String propose(PromptMessages messages) throws IOException, InterruptedException {
+    return proposeWithUsage(messages).content();
   }
 
   /**
@@ -133,7 +141,7 @@ public final class PredicateProposalClient {
    * to {@code parallelism} concurrent HTTP requests.
    */
   public List<LlmProposalResult> proposeParallelExtrasWithUsage(
-      String userPrompt, int extraDraws, int parallelism)
+      PromptMessages messages, int extraDraws, int parallelism)
       throws IOException, InterruptedException {
     if (extraDraws <= 0) {
       return List.of();
@@ -143,7 +151,7 @@ public final class PredicateProposalClient {
     try {
       List<Future<LlmProposalResult>> futures = new ArrayList<>(extraDraws);
       for (int i = 0; i < extraDraws; i++) {
-        futures.add(executor.submit(() -> proposeWithUsage(userPrompt)));
+        futures.add(executor.submit(() -> proposeWithUsage(messages)));
       }
       List<LlmProposalResult> results = new ArrayList<>(extraDraws);
       for (Future<LlmProposalResult> future : futures) {
@@ -166,6 +174,12 @@ public final class PredicateProposalClient {
     }
   }
 
+  public List<LlmProposalResult> proposeParallelExtrasWithUsage(
+      String userPrompt, int extraDraws, int parallelism)
+      throws IOException, InterruptedException {
+    return proposeParallelExtrasWithUsage(new PromptMessages("", userPrompt), extraDraws, parallelism);
+  }
+
   public List<String> proposeParallelExtras(String userPrompt, int extraDraws, int parallelism)
       throws IOException, InterruptedException {
     List<LlmProposalResult> results = proposeParallelExtrasWithUsage(userPrompt, extraDraws, parallelism);
@@ -176,13 +190,17 @@ public final class PredicateProposalClient {
     return texts;
   }
 
-  private String buildRequestBody(String userPrompt) throws IOException {
+  private String buildRequestBody(PromptMessages prompt) throws IOException {
     var root = JSON.createObjectNode();
     root.put("model", model);
     root.put("temperature", 0);
     root.put("max_completion_tokens", maxCompletionTokens);
+    root.putObject("response_format").put("type", "json_object");
     var messages = root.putArray("messages");
-    messages.addObject().put("role", "user").put("content", userPrompt);
+    if (!prompt.system().isEmpty()) {
+      messages.addObject().put("role", "system").put("content", prompt.system());
+    }
+    messages.addObject().put("role", "user").put("content", prompt.user());
     var thinking = root.putObject("thinking");
     if (thinkingEnabled) {
       thinking.put("type", "enabled");

@@ -71,7 +71,7 @@ public final class VGuideRefinementBridge {
   boolean llmCalled;
   @Nullable String llmSkipReason;
   @Nullable Integer llmRoundIndex;
-  @Nullable String traceSummaryInPrompt;
+  @Nullable String ceSummaryInPrompt;
   ContextPack pack;
   List<ARGState> trace;
   BlockFormulas formulas;
@@ -182,7 +182,8 @@ public final class VGuideRefinementBridge {
     lastValidation = null;
     pendingDump = null;
 
-    ContextPack pack = contextPackBuilder.build(refinementIndex, formulas, counterexample);
+    ContextPack pack =
+        contextPackBuilder.build(refinementIndex, formulas, counterexample, abstractionStatesTrace);
     PendingRefinementDump dump = new PendingRefinementDump();
     dump.refinementIndex = refinementIndex;
     dump.pack = pack;
@@ -223,26 +224,65 @@ public final class VGuideRefinementBridge {
         " max=",
         budget.maxPerCall());
 
-    String promptKind = refinementIndex == 1 ? "first" : "later";
-    String prompt =
-        refinementIndex == 1
-            ? promptBuilder.buildFirstSpurious(pack, budget)
-            : promptBuilder.buildLaterSpurious(pack, budget);
-    dump.traceSummaryInPrompt = refinementIndex == 1 ? null : pack.traceSummary();
+    dump.ceSummaryInPrompt = pack.ceSummary();
+    String promptKindBase = refinementIndex == 1 ? "first" : "later";
     long t0 = System.currentTimeMillis();
     try {
-      int samplesConfigured = options.getLlmSamplesForRefinement(refinementIndex);
+      int samplesPerProfile = options.getLlmSamplesForRefinement(refinementIndex);
       List<String> rejectedAll = new ArrayList<>();
-      List<LlmProposalResult> apiResults =
-          invokeLlmEnsemble(
-              refinementIndex,
-              llmScheduler.getLlmCallsDone() + 1,
-              promptKind,
-              prompt,
-              pack,
-              budgetRes,
-              samplesConfigured,
-              rejectedAll);
+      List<LlmProposalResult> apiResults = new ArrayList<>();
+      ImmutableList<AttributedRawPredicate> attributedMerged = ImmutableList.of();
+      boolean safeAccepted = false;
+      boolean bugAccepted = false;
+
+      if (options.isDualPromptMode()) {
+        ProfileInvokeResult safe =
+            invokeProfileLlm(
+                refinementIndex,
+                llmScheduler.getLlmCallsDone() + 1,
+                promptKindBase,
+                PromptProfile.SAFE,
+                pack,
+                budget,
+                budgetRes,
+                samplesPerProfile,
+                rejectedAll);
+        apiResults.addAll(safe.apiResults());
+        safeAccepted = safe.hasAccepted();
+        ProfileInvokeResult bug =
+            invokeProfileLlm(
+                refinementIndex,
+                llmScheduler.getLlmCallsDone() + 1,
+                promptKindBase,
+                PromptProfile.BUG_HUNT,
+                pack,
+                budget,
+                budgetRes,
+                samplesPerProfile,
+                rejectedAll);
+        apiResults.addAll(bug.apiResults());
+        bugAccepted = bug.hasAccepted();
+        attributedMerged =
+            LlmEnsembleMerger.mergeDualUnion(
+                LlmEnsembleMerger.attributeAll(safe.mergedRaw(), PromptProfile.SAFE),
+                LlmEnsembleMerger.attributeAll(bug.mergedRaw(), PromptProfile.BUG_HUNT));
+      } else {
+        ProfileInvokeResult safe =
+            invokeProfileLlm(
+                refinementIndex,
+                llmScheduler.getLlmCallsDone() + 1,
+                promptKindBase,
+                PromptProfile.SAFE,
+                pack,
+                budget,
+                budgetRes,
+                samplesPerProfile,
+                rejectedAll);
+        apiResults.addAll(safe.apiResults());
+        safeAccepted = safe.hasAccepted();
+        attributedMerged = LlmEnsembleMerger.attributeAll(safe.mergedRaw(), PromptProfile.SAFE);
+      }
+
       long latency = System.currentTimeMillis() - t0;
       wallBudget.recordLlmCall(latency);
       llmScheduler.recordCallCompleted();
@@ -257,54 +297,66 @@ public final class VGuideRefinementBridge {
           llmScheduler.getLlmCallsDone(),
           " spurious #",
           refinementIndex,
-          " samples=",
-          samplesConfigured,
+          " dual=",
+          options.isDualPromptMode(),
+          " samples_per_profile=",
+          samplesPerProfile,
           " api=",
           apiResults.size(),
           " schedule=",
           options.getLlmCallSchedule(),
           " prompt=",
-          promptKind,
+          promptKindBase,
           " latencyMs=",
           latency);
-      List<String> rawResponses = new ArrayList<>();
-      for (LlmProposalResult r : apiResults) {
-        rawResponses.add(r.content());
+
+      List<String> rawPreds = new ArrayList<>();
+      for (AttributedRawPredicate a : attributedMerged) {
+        rawPreds.add(a.raw());
       }
-      ImmutableList<String> rawPreds = LlmEnsembleMerger.unionValidate(rawResponses, budget);
-      List<String> rejectedForRepair = new ArrayList<>();
-      if (rawPreds.isEmpty()) {
-        for (String raw : rawResponses) {
-          rejectedForRepair.addAll(LlmResponseParser.parseWithRejects(raw).rejected());
+      Map<String, String> profileByRaw = profileMap(attributedMerged);
+
+      if (rawPreds.isEmpty() && !safeAccepted && !bugAccepted) {
+        List<String> rejectedForRepair = new ArrayList<>();
+        for (LlmProposalResult r : apiResults) {
+          rejectedForRepair.addAll(LlmResponseParser.parseWithRejects(r.content()).rejected());
+        }
+        rejectedForRepair = rejectedForRepair.stream().distinct().limit(5).toList();
+        if (!rejectedForRepair.isEmpty()) {
+          PromptProfile repairProfile =
+              options.isDualPromptMode() ? PromptProfile.BUG_HUNT : PromptProfile.SAFE;
+          PromptMessages repairMessages =
+              promptBuilder.buildRepair(
+                  pack, rejectedForRepair, budget, repairProfile, refinementIndex);
+          logger.log(Level.INFO, "VGuide: both profiles empty; one repair LLM call");
+          LlmProposalResult repair = llmClient.proposeWithUsage(repairMessages);
+          if (analysisDumper != null) {
+            analysisDumper.recordLlmApiCall(
+                refinementIndex,
+                dump.llmRoundIndex,
+                repairProfile.callKindPrefix() + "_repair",
+                promptKindBase + "_repair_" + repairProfile.promptKindSuffix(),
+                repairMessages.fullText(),
+                pack,
+                repairProfile,
+                repair,
+                rejectedForRepair,
+                budgetRes);
+          }
+          ImmutableList<String> repairPreds = LlmResponseParser.parsePredicates(repair.content());
+          if (!repairPreds.isEmpty()) {
+            attributedMerged = LlmEnsembleMerger.attributeAll(repairPreds, repairProfile);
+            rawPreds = repairPreds;
+            profileByRaw = profileMap(attributedMerged);
+            apiResults.add(repair);
+          }
         }
       }
-      String combinedRaw = String.join("\n---\n", rawResponses);
-      if (rawPreds.isEmpty() && !rejectedForRepair.isEmpty()) {
-        String repairPrompt =
-            promptBuilder.buildRepair(
-                pack, rejectedForRepair.stream().distinct().limit(5).toList(), budget);
-        logger.log(Level.INFO, "VGuide: ensemble L1 empty; one repair LLM call");
-        LlmProposalResult repair = llmClient.proposeWithUsage(repairPrompt);
-        if (analysisDumper != null) {
-          analysisDumper.recordLlmApiCall(
-              refinementIndex,
-              dump.llmRoundIndex,
-              "repair",
-              "repair",
-              repairPrompt,
-              pack,
-              repair,
-              rejectedForRepair,
-              budgetRes);
-        }
-        combinedRaw = combinedRaw + "\n--- repair ---\n" + repair.content();
-        rawPreds = budget.capOrdered(LlmResponseParser.parsePredicates(repair.content()));
-        apiResults = new ArrayList<>(apiResults);
-        apiResults.add(repair);
-      }
+
       lastValidation =
           validationPipeline.validate(pack, rawPreds, abstractionStatesTrace);
-      dump.validated = buildValidatedDump(pack, rawPreds, lastValidation, abstractionStatesTrace);
+      dump.validated =
+          buildValidatedDump(pack, rawPreds, lastValidation, abstractionStatesTrace, profileByRaw);
       if (options.isAllowInterpolantStrengthen() && options.isEnableL3Entailment()) {
         return strengthenInterpolants(
             counterexample, abstractionStatesTrace, lastValidation.entailed());
@@ -333,7 +385,7 @@ public final class VGuideRefinementBridge {
             pendingDump.llmCalled,
             pendingDump.llmSkipReason,
             pendingDump.llmRoundIndex,
-            pendingDump.traceSummaryInPrompt,
+            pendingDump.ceSummaryInPrompt,
             pendingDump.pack,
             pendingDump.trace,
             pendingDump.formulas,
@@ -382,18 +434,27 @@ public final class VGuideRefinementBridge {
     return new BudgetResolution(options.getPredicateBudget(), "fixed", -1);
   }
 
-  private List<LlmProposalResult> invokeLlmEnsemble(
+  private record ProfileInvokeResult(
+      List<LlmProposalResult> apiResults,
+      ImmutableList<String> mergedRaw,
+      boolean hasAccepted) {}
+
+  private ProfileInvokeResult invokeProfileLlm(
       int refinementIndex,
       int llmRoundIndex,
-      String promptKind,
-      String prompt,
+      String promptKindBase,
+      PromptProfile profile,
       ContextPack pack,
+      PredicateBudget budget,
       BudgetResolution budgetRes,
       int samplesConfigured,
       List<String> rejectedOut)
       throws IOException, InterruptedException {
+    PromptMessages messages =
+        promptBuilder.buildPrompt(pack, budget, profile, refinementIndex);
+    String promptKind = promptKindBase + "_" + profile.promptKindSuffix();
     List<LlmProposalResult> results = new ArrayList<>();
-    LlmProposalResult primary = llmClient.proposeWithUsage(prompt);
+    LlmProposalResult primary = llmClient.proposeWithUsage(messages);
     results.add(primary);
     List<String> primaryRejected = LlmResponseParser.parseWithRejects(primary.content()).rejected();
     rejectedOut.addAll(primaryRejected);
@@ -401,10 +462,11 @@ public final class VGuideRefinementBridge {
       analysisDumper.recordLlmApiCall(
           refinementIndex,
           llmRoundIndex,
-          "primary",
+          profile.callKindPrefix() + "_primary",
           promptKind,
-          prompt,
+          messages.fullText(),
           pack,
+          profile,
           primary,
           primaryRejected,
           budgetRes);
@@ -413,7 +475,7 @@ public final class VGuideRefinementBridge {
     if (extra > 0) {
       List<LlmProposalResult> extras =
           llmClient.proposeParallelExtrasWithUsage(
-              prompt, extra, options.getLlmSampleParallelism());
+              messages, extra, options.getLlmSampleParallelism());
       for (LlmProposalResult extraResult : extras) {
         List<String> rejected = LlmResponseParser.parseWithRejects(extraResult.content()).rejected();
         rejectedOut.addAll(rejected);
@@ -421,10 +483,11 @@ public final class VGuideRefinementBridge {
           analysisDumper.recordLlmApiCall(
               refinementIndex,
               llmRoundIndex,
-              "ensemble_extra",
+              profile.callKindPrefix() + "_ensemble_extra",
               promptKind,
-              prompt,
+              messages.fullText(),
               pack,
+              profile,
               extraResult,
               rejected,
               budgetRes);
@@ -432,14 +495,35 @@ public final class VGuideRefinementBridge {
         results.add(extraResult);
       }
     }
-    return results;
+    List<String> rawResponses = new ArrayList<>();
+    for (LlmProposalResult r : results) {
+      rawResponses.add(r.content());
+    }
+    ImmutableList<String> merged = LlmEnsembleMerger.unionValidate(rawResponses, budget);
+    boolean hasAccepted = false;
+    for (LlmProposalResult r : results) {
+      if (!LlmResponseParser.parsePredicates(r.content()).isEmpty()) {
+        hasAccepted = true;
+        break;
+      }
+    }
+    return new ProfileInvokeResult(results, merged, hasAccepted);
+  }
+
+  private static Map<String, String> profileMap(ImmutableList<AttributedRawPredicate> attributed) {
+    Map<String, String> map = new LinkedHashMap<>();
+    for (AttributedRawPredicate a : attributed) {
+      map.putIfAbsent(a.raw(), a.profile().name());
+    }
+    return map;
   }
 
   private List<VGuideAnalysisDumper.DumpValidatedPredicate> buildValidatedDump(
       ContextPack pack,
       List<String> rawPreds,
       ValidationResult validation,
-      List<ARGState> trace) {
+      List<ARGState> trace,
+      Map<String, String> profileByRaw) {
     if (analysisDumper == null) {
       return List.of();
     }
@@ -469,7 +553,8 @@ public final class VGuideRefinementBridge {
               block,
               !raw.isEmpty(),
               !raw.isEmpty(),
-              false));
+              false,
+              profileByRaw.getOrDefault(raw, "")));
     }
     return out;
   }
@@ -493,7 +578,8 @@ public final class VGuideRefinementBridge {
               p.blockFormula(),
               p.l1Ok(),
               p.l2Ok(),
-              injected));
+              injected,
+              p.sourceProfile()));
     }
     return out;
   }

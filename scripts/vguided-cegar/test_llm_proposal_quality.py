@@ -43,8 +43,20 @@ RULES = """RULES (violations are discarded automatically):
 - Prefer bitvector ops for 32-bit ints: bvsge, bvslt, bvsle, bvsgt, bvadd, bvsub, = .
 - Do NOT use: |main::...|, @suffix, .def_N, select, store, quantifiers, bvshl/lshr/ashr.
 - Do NOT use C syntax: A[i], *p, struct fields.
-- Propose 4–8 diverse predicates (bounds, counters, assertion-related relations).
 """
+
+JSON_CONTRACT = (
+    "Output ONLY valid JSON (no markdown, no commentary):\n"
+    '{"predicates": ["(bvsge i (_ bv0 32))", "(bvslt i n)"]}\n'
+    "Between 4 and 8 items. Do NOT use N* location keys; Java binds predicates to all loop heads."
+)
+
+DUAL_PROFILES = os.environ.get("VGUIDE_LLM_QUALITY_DUAL", "true").lower() in (
+    "1",
+    "true",
+    "on",
+    "yes",
+)
 
 SCALAR_DECL = re.compile(r"\bint\s+([A-Za-z_]\w*)\s*;")
 ARRAY_DECL = re.compile(r"\bint\s+([A-Za-z_]\w*)\s*\[")
@@ -154,34 +166,80 @@ Examples (multi-index):
     return ""
 
 
-def build_prompt(source: str, assertion: str, task: str) -> str:
-    return f"""You are helping a CEGAR-based predicate abstraction verifier.
-Propose candidate abstraction predicates in SMT-LIB2 prefix notation.
-Target assertion: {assertion}
-
-LOOP HEADS (inject predicates here — use source variable names only):
-  (loop heads omitted in offline sample)
-
-{variable_hints(source)}
-{RULES}
-{task_examples(source, assertion)}
-
-Source code:
-{source}
-
-Output ONLY valid JSON (no markdown, no commentary):
-{{"predicates": ["(bvsge i (_ bv0 32))", "(bvslt i n)"]}}
-Task benchmark: {task}
-"""
-
-
-def build_repair_prompt(source: str, assertion: str, task: str, bad: list[str]) -> str:
+def build_system_message() -> str:
     return (
-        build_prompt(source, assertion, task)
+        "You help a CEGAR-based predicate abstraction verifier.\n"
+        "Propose candidate abstraction predicates in SMT-LIB2 prefix notation.\n"
+        + RULES
+        + "\n"
+        + JSON_CONTRACT
+    )
+
+
+def profile_role(profile: str) -> str:
+    if profile == "BUG_HUNT":
+        return (
+            "Goal: help the verifier reach or refine toward assertion FAILURE if reachable.\n"
+            "This is the FIRST spurious counterexample in this analysis.\n"
+            "Propose predicates that distinguish states that can lead to assertion failure.\n"
+            "Do NOT only propose predicates that imply the assertion always holds.\n"
+        )
+    return (
+        "Goal: split spurious counterexample paths and strengthen safe abstraction.\n"
+        "This is the FIRST spurious counterexample in this analysis.\n"
+        "Propose abstraction predicates that help split similar spurious paths.\n"
+        "Focus on loop-carried relations, guards, bounds, and assertion variables.\n"
+    )
+
+
+def assertion_line(assertion: str, profile: str) -> str:
+    if not assertion:
+        return ""
+    if profile == "BUG_HUNT":
+        return f"Assertion (may FAIL on real paths): {assertion}\n"
+    return f"Target assertion: {assertion}\n"
+
+
+def build_user_message(source: str, assertion: str, task: str, profile: str) -> str:
+    ce_summary = "(no CE relations extracted)\n"
+    budget = (
+        "PREDICATE BUDGET (single API response — array order = priority, best first):\n"
+        "- Return between 4 and 8 predicates.\n"
+    )
+    if profile == "BUG_HUNT":
+        budget += "- Prefer assertion-failure or violation-state discriminators.\n"
+    return (
+        "LOOP HEADS (inject predicates here — use source variable names only):\n"
+        "  (loop heads omitted in offline sample)\n\n"
+        + variable_hints(source)
+        + "\nSource code:\n"
+        + source
+        + "\n"
+        + assertion_line(assertion, profile)
+        + profile_role(profile)
+        + task_examples(source, assertion)
+        + "\nSPURIOUS CE SUMMARY (source variable names only, read-only):\n"
+        + ce_summary
+        + "\n"
+        + budget
+        + f"Task benchmark: {task}\n"
+    )
+
+
+def build_repair_user(source: str, assertion: str, task: str, profile: str, bad: list[str]) -> str:
+    hint = (
+        "Rejected predicates may have been too aligned with proving safe; "
+        "try failing-state predicates from the CE summary.\n"
+        if profile == "BUG_HUNT"
+        else ""
+    )
+    return (
+        build_user_message(source, assertion, task, profile)
         + "\nYour previous reply included REJECTED predicates: "
         + json.dumps(bad)
-        + "\nRegenerate JSON only. Remove array subscripts and internal names. "
-        "Use bitvector bounds on index variables only.\n"
+        + "\n"
+        + hint
+        + "Regenerate JSON only. Remove array subscripts, internal SSA names, select/store.\n"
     )
 
 
@@ -198,14 +256,19 @@ def llm_thinking_body() -> dict:
     return {"thinking": {"type": "disabled"}}
 
 
-def call_llm(prompt: str) -> str:
+def call_llm(system: str, user: str) -> str:
     key = os.environ["DEEPSEEK_API_KEY"]
     model = os.environ.get("DEEPSEEK_MODEL", DEFAULT_MODEL)
+    messages: list[dict[str, str]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": user})
     payload = {
         "model": model,
         "temperature": 0,
         "max_completion_tokens": 1024,
-        "messages": [{"role": "user", "content": prompt}],
+        "response_format": {"type": "json_object"},
+        "messages": messages,
         **llm_thinking_body(),
     }
     body = json.dumps(payload).encode()
@@ -231,11 +294,17 @@ def extract_assertion(source: str) -> str:
 
 
 def eval_one_run(
-    name: str, source: str, assertion: str, prompt: str, run_idx: int
+    name: str,
+    source: str,
+    assertion: str,
+    profile: str,
+    run_idx: int,
 ) -> dict:
+    system = build_system_message()
+    user = build_user_message(source, assertion, name, profile)
     t0 = time.time()
     try:
-        raw = call_llm(prompt)
+        raw = call_llm(system, user)
         latency = time.time() - t0
         preds = parse_predicates(raw)
         raw_preds: list[str] = []
@@ -252,7 +321,10 @@ def eval_one_run(
         repaired = False
         if (not preds or rejected) and rejected:
             t1 = time.time()
-            raw2 = call_llm(build_repair_prompt(source, assertion, name, rejected[:5]))
+            raw2 = call_llm(
+                system,
+                build_repair_user(source, assertion, name, profile, rejected[:5]),
+            )
             latency += time.time() - t1
             preds2 = parse_predicates(raw2)
             if preds2:
@@ -261,6 +333,7 @@ def eval_one_run(
         c_ok = sum(1 for p in preds if contract_ok(p)[0])
         return {
             "run": run_idx,
+            "profile": profile,
             "latency_s": round(latency, 2),
             "len": len(raw),
             "predicates": preds[:8],
@@ -271,69 +344,83 @@ def eval_one_run(
             "repaired": repaired,
         }
     except Exception as e:
-        return {"run": run_idx, "error": str(e), "ok_json": False, "pred_count": 0, "contract_ok": 0}
+        return {
+            "run": run_idx,
+            "profile": profile,
+            "error": str(e),
+            "ok_json": False,
+            "pred_count": 0,
+            "contract_ok": 0,
+        }
 
 
-def eval_task(name: str, path: str) -> dict:
+def eval_task(name: str, path: str) -> list[dict]:
     source = read_source(path)
     assertion = extract_assertion(source)
-    prompt = build_prompt(source, assertion, name)
-    stats = {
-        "task": name,
-        "path": path,
-        "runs": RUNS,
-        "parallel": PARALLEL,
-        "ok_json": 0,
-        "total_preds": 0,
-        "contract_ok": 0,
-        "repaired": 0,
-        "samples": [],
-    }
-    jobs = [(name, source, assertion, prompt, i + 1) for i in range(RUNS)]
-    samples: list[dict] = []
-    with ThreadPoolExecutor(max_workers=min(PARALLEL, len(jobs))) as pool:
-        futures = {
-            pool.submit(eval_one_run, *args): args[4] for args in jobs
+    profiles = ["SAFE", "BUG_HUNT"] if DUAL_PROFILES else ["SAFE"]
+    all_stats: list[dict] = []
+    for profile in profiles:
+        stats = {
+            "task": name,
+            "path": path,
+            "profile": profile,
+            "dual_profiles": DUAL_PROFILES,
+            "runs": RUNS,
+            "parallel": PARALLEL,
+            "ok_json": 0,
+            "total_preds": 0,
+            "contract_ok": 0,
+            "repaired": 0,
+            "samples": [],
         }
-        for fut in as_completed(futures):
-            samples.append(fut.result())
-    samples.sort(key=lambda s: s.get("run", 0))
-    for s in samples:
-        if "error" in s and "ok_json" not in s:
-            stats["samples"].append(s)
-            continue
-        if s.get("ok_json"):
-            stats["ok_json"] += 1
-        stats["total_preds"] += s.get("pred_count", 0)
-        stats["contract_ok"] += s.get("contract_ok", 0)
-        if s.get("repaired"):
-            stats["repaired"] += 1
-        stats["samples"].append(
-            {
-                k: s[k]
-                for k in (
-                    "run",
-                    "latency_s",
-                    "len",
-                    "predicates",
-                    "contract_ok",
-                    "rejected_in_raw",
-                    "error",
-                )
-                if k in s
+        jobs = [(name, source, assertion, profile, i + 1) for i in range(RUNS)]
+        samples: list[dict] = []
+        with ThreadPoolExecutor(max_workers=min(PARALLEL, len(jobs))) as pool:
+            futures = {
+                pool.submit(eval_one_run, *args): args[4] for args in jobs
             }
-        )
-    return stats
+            for fut in as_completed(futures):
+                samples.append(fut.result())
+        samples.sort(key=lambda s: s.get("run", 0))
+        for s in samples:
+            if "error" in s and "ok_json" not in s:
+                stats["samples"].append(s)
+                continue
+            if s.get("ok_json"):
+                stats["ok_json"] += 1
+            stats["total_preds"] += s.get("pred_count", 0)
+            stats["contract_ok"] += s.get("contract_ok", 0)
+            if s.get("repaired"):
+                stats["repaired"] += 1
+            stats["samples"].append(
+                {
+                    k: s[k]
+                    for k in (
+                        "run",
+                        "profile",
+                        "latency_s",
+                        "len",
+                        "predicates",
+                        "contract_ok",
+                        "rejected_in_raw",
+                        "error",
+                    )
+                    if k in s
+                }
+            )
+        all_stats.append(stats)
+    return all_stats
 
 
 def quality_pass(all_stats: list[dict]) -> tuple[bool, list[str]]:
     issues = []
     for st in all_stats:
         task = st["task"]
+        label = f"{task}/{st.get('profile', 'SAFE')}"
         if st["ok_json"] < st["runs"]:
-            issues.append(f"{task}: json_ok {st['ok_json']}/{st['runs']}")
+            issues.append(f"{label}: json_ok {st['ok_json']}/{st['runs']}")
         if st["contract_ok"] < st["total_preds"]:
-            issues.append(f"{task}: contract_ok {st['contract_ok']}/{st['total_preds']}")
+            issues.append(f"{label}: contract_ok {st['contract_ok']}/{st['total_preds']}")
         for s in st["samples"]:
             if "predicates" in s:
                 for p in s["predicates"]:
@@ -371,33 +458,38 @@ def main() -> int:
             continue
         work.append((task, paths[task]))
 
-    print(f"Parallel={PARALLEL} runs_per_task={RUNS} tasks={len(work)}", flush=True)
+    print(
+        f"Parallel={PARALLEL} runs_per_task={RUNS} dual={DUAL_PROFILES} tasks={len(work)}",
+        flush=True,
+    )
     all_stats: list[dict] = []
     with ThreadPoolExecutor(max_workers=min(PARALLEL, max(len(work), 1))) as pool:
         futures = {pool.submit(eval_task, t, p): t for t, p in work}
         for fut in as_completed(futures):
             task = futures[fut]
-            st = fut.result()
-            all_stats.append(st)
-            print(
-                f"=== {task} ({RUNS} runs, parallel={st.get('parallel', PARALLEL)}) ===",
-                flush=True,
-            )
-            print(
-                f"  json_ok={st['ok_json']}/{RUNS} "
-                f"preds={st['total_preds']} contract_ok={st['contract_ok']} "
-                f"repaired={st['repaired']}",
-                flush=True,
-            )
-            for s in st["samples"]:
-                if "error" in s:
-                    print(f"  run {s['run']}: ERROR {s['error']}")
-                else:
-                    print(
-                        f"  run {s['run']}: {s['latency_s']}s len={s['len']} "
-                        f"preds={s['predicates']}"
-                    )
-    all_stats.sort(key=lambda x: x["task"])
+            task_stats = fut.result()
+            all_stats.extend(task_stats)
+            for st in task_stats:
+                print(
+                    f"=== {task} profile={st['profile']} "
+                    f"({RUNS} runs, parallel={st.get('parallel', PARALLEL)}) ===",
+                    flush=True,
+                )
+                print(
+                    f"  json_ok={st['ok_json']}/{RUNS} "
+                    f"preds={st['total_preds']} contract_ok={st['contract_ok']} "
+                    f"repaired={st['repaired']}",
+                    flush=True,
+                )
+                for s in st["samples"]:
+                    if "error" in s:
+                        print(f"  run {s['run']}: ERROR {s['error']}")
+                    else:
+                        print(
+                            f"  run {s['run']}: {s['latency_s']}s len={s['len']} "
+                            f"preds={s['predicates']}"
+                        )
+    all_stats.sort(key=lambda x: (x["task"], x.get("profile", "")))
     out = os.environ.get("VGUIDE_LLM_QUALITY_OUT", "output/vguide/llm_quality_sample.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:

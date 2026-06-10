@@ -125,7 +125,7 @@ Manifest：`docs/vguided-cegar/benchmark_sets/*.list`（`run.sh bench-regen` 重
 | `llmEveryNSpuriousRefinements` | **72** |
 | `llmMinIntervalSec` | **15** |
 | `maxLlmRoundsPerAnalysis` | **5**（每 **輪** spurious 計 1，非每 HTTP） |
-| `llmSamplesPerCall` | **1**（#1 仍 1 draw；可選 K>1，見 [LLM_ENSEMBLE.md](../llm/LLM_ENSEMBLE.md)） |
+| `llmSamplesPerCall` | **1**（v1.4 計劃：dual 時 = **每軌** K，SAFE×K + BUG×K / 輪，見 [LLM_ENSEMBLE.md](../llm/LLM_ENSEMBLE.md)） |
 | `llmSampleParallelism` | **4** |
 
 單題覆寫範例仍可用 CLI `--option vguide.*=...`。

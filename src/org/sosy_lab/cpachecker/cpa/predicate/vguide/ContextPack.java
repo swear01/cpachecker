@@ -9,7 +9,6 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import java.util.List;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 import org.sosy_lab.java_smt.api.BooleanFormula;
 
@@ -23,4 +22,5 @@ public record ContextPack(
     ImmutableSet<String> encodedVars,
     BlockFormulas blockFormulas,
     ImmutableList<BooleanFormula> interpolants,
+    String ceSummary,
     String traceSummary) {}

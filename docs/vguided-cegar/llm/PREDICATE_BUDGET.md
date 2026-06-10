@@ -15,7 +15,8 @@
 | 層 | 機制 | 強制？ |
 |----|------|--------|
 | **Prompt** | `min`–`max` 區間 + **角色分工** + 禁止 padding | 軟性（引導 LLM） |
-| **Parse 後** | `PredicateBudget.capOrdered` 截斷至 `max` | **硬性**（保留陣列順序） |
+| **Parse 後** | 單次 API：`PredicateBudget.capOrdered` 截斷至 `max` | **硬性**（保留陣列順序） |
+| **雙軌合併（v1.4）** | SAFE∪BUG union **不**再 cap | 見 [DUAL_PROMPT_V1_PLAN.md](../analysis/DUAL_PROMPT_V1_PLAN.md) |
 | **驗證** | 既有 L1/L2/L3 pipeline | 硬性 |
 
 ### Prompt 語意

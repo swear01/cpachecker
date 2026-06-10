@@ -50,7 +50,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "1";
+  public static final String SCHEMA_VERSION = "2";
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -113,7 +113,7 @@ public final class VGuideAnalysisDumper {
       boolean llmCalled,
       @Nullable String llmSkipReason,
       @Nullable Integer llmRoundIndex,
-      @Nullable String traceSummaryInPrompt,
+      @Nullable String ceSummaryInPrompt,
       ContextPack pack,
       List<ARGState> abstractionStatesTrace,
       BlockFormulas formulas,
@@ -143,8 +143,8 @@ public final class VGuideAnalysisDumper {
       if (llmRoundIndex != null) {
         row.put("llm_round_index", llmRoundIndex);
       }
-      if (traceSummaryInPrompt != null) {
-        row.put("trace_summary_in_prompt", traceSummaryInPrompt);
+      if (ceSummaryInPrompt != null) {
+        row.put("ce_summary_in_prompt", ceSummaryInPrompt);
       }
       row.set(
           "validated_predicates",
@@ -164,6 +164,7 @@ public final class VGuideAnalysisDumper {
       String promptKind,
       String prompt,
       ContextPack pack,
+      PromptProfile promptProfile,
       LlmProposalResult api,
       List<String> rejectedPredicates,
       @Nullable BudgetResolution budgetRes) {
@@ -182,9 +183,11 @@ public final class VGuideAnalysisDumper {
     row.put("api_call_index", apiCallIndex);
     row.put("call_kind", callKind);
     row.put("prompt_kind", promptKind);
+    row.put("prompt_profile", promptProfile.name());
+    row.put("dual_prompt_mode", options.isDualPromptMode());
     row.put("latency_ms", api.latencyMs());
     row.put("prompt_chars", prompt.length());
-    row.set("prompt_components", promptComponents(pack, promptKind));
+    row.set("prompt_components", promptComponents(pack));
     if (usage != null) {
       row.set("usage", usage);
     } else {
@@ -256,7 +259,8 @@ public final class VGuideAnalysisDumper {
       BooleanFormula blockFormula,
       boolean l1Ok,
       boolean l2Ok,
-      boolean injected) {}
+      boolean injected,
+      String sourceProfile) {}
 
   private void writeManifestOnce() {
     if (!MANIFEST_WRITTEN.compareAndSet(false, true)) {
@@ -274,6 +278,7 @@ public final class VGuideAnalysisDumper {
       manifest.put("timelimit_sec", System.getenv().getOrDefault("VGUIDE_ANALYSIS_TIMELIMIT_SEC", ""));
       manifest.put("git_commit", readGitCommit());
       manifest.put("dump_prompts", dumpPrompts);
+      manifest.put("dual_prompt_mode", options.isDualPromptMode());
       writeJson(runRoot.resolve("run_manifest.json"), manifest);
     } catch (IOException e) {
       logger.logDebugException(e, "Failed to write run_manifest.json");
@@ -438,6 +443,9 @@ public final class VGuideAnalysisDumper {
     o.put("l2_ok", p.l2Ok());
     o.put("injected", p.injected());
     o.put("block_formula_smt", dumpFormula(p.blockFormula()));
+    if (!p.sourceProfile().isEmpty()) {
+      o.put("source_profile", p.sourceProfile());
+    }
     return o;
   }
 
@@ -456,14 +464,14 @@ public final class VGuideAnalysisDumper {
     return arr;
   }
 
-  private ObjectNode promptComponents(ContextPack pack, String promptKind) {
+  private ObjectNode promptComponents(ContextPack pack) {
     ObjectNode o = JSON.createObjectNode();
     o.put("source", pack.sourceCode().length());
     o.put("contract", VarContractBuilder.formatForPrompt(pack.varContract()).length());
     o.put("loop_heads", formatLoopHeadsChars(pack.loopHeads()));
     o.put("rules", ProposalPromptBuilder.rulesCharCount(options.getPredicateBudgetForDump()));
-    int traceChars = "later".equals(promptKind) || "repair".equals(promptKind) ? pack.traceSummary().length() : 0;
-    o.put("trace", traceChars);
+    o.put("ce_summary", pack.ceSummary().length());
+    o.put("trace", 0);
     return o;
   }
 

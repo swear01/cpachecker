@@ -5928,6 +5928,10 @@ util.refinement.refineMemorySafety = false
 # Strengthen interpolants with predicates ENTAILED on block formulas
 vguide.allowInterpolantStrengthen = true
 
+# Run SAFE and BUG_HUNT prompt profiles each LLM round (2×K HTTP when
+# K=llmSamplesPerCall).
+vguide.dualPromptMode = true
+
 # Enable unified VGuide bridge when useVocabularyGuide=true
 vguide.enable = true
 
@@ -5964,8 +5968,8 @@ vguide.llmMinIntervalSec = 0
 # parallel).
 vguide.llmSampleParallelism = 4
 
-# API draws per scheduled LLM round after refinement #1. Refinement #1 always
-# uses 1 draw (cache seed, no parallel). Total APIs = 1 + (K-1) parallel
+# API draws per prompt profile per scheduled LLM round (SAFE and BUG each use
+# K draws when dualPromptMode=true). Each profile: 1 sync + (K-1) parallel
 # extras.
 vguide.llmSamplesPerCall = 1
 

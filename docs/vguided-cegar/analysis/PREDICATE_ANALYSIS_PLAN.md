@@ -124,12 +124,14 @@ export VGUIDE_ANALYSIS_DUMP_PROMPTS=1   # 寫入完整 .prompt.txt
 | `refinement_index` | ✓ | spurious # |
 | `llm_round_index` | ✓ | 1..maxLlmRounds |
 | `api_call_index` | ✓ | 該 refinement 內第幾次 HTTP |
-| `call_kind` | ✓ | `primary` \| `ensemble_extra` \| `repair` |
-| `prompt_kind` | ✓ | `first` \| `later` \| `repair` |
+| `call_kind` | ✓ | `primary` \| `ensemble_extra` \| `repair`；**v1.4** `safe_*` / `bug_*` |
+| `prompt_kind` | ✓ | `first` \| `later` \| `repair`；**v1.4** `first_safe` / `first_bug` / … |
+| `prompt_profile` | v1.4 | `SAFE` \| `BUG_HUNT` |
+| `dual_prompt_mode` | v1.4 | bool |
 | `usage` | ✓ | §2.1 完整 object |
 | `latency_ms` | ✓ | |
 | `prompt_chars` | ✓ | 實際送出字串長度 |
-| `prompt_components` | ✓ | `{source, contract, trace, rules, loop_heads}` 字元數 |
+| `prompt_components` | ✓ | `{source, contract, trace, rules, loop_heads}` 字元數；**v1.4** 加 `ce_summary`，later 輪 `trace=0` |
 | `prompt_path` | 若 `DUMP_PROMPTS=1` | 相對路徑 |
 | `response_raw` | ✓ | 完整 assistant content |
 | `response_parse_ok` | ✓ | JSON 是否可解析 |
@@ -163,7 +165,8 @@ export VGUIDE_ANALYSIS_DUMP_PROMPTS=1   # 寫入完整 .prompt.txt
 | `llm_skip_reason` | 若 false | `schedule` \| `max_rounds` \| `wall_budget` \| `no_interpolants` \| … |
 | `interpolants_pre` | ✓ | `[{index, node, smt}]` 注入前插值（**overlap O-I**） |
 | `block_formulas` | ✓ | CE 上 block SMT（至少與 `summarizeTrace` 同源；建議 **全 blocks**，不只 5 個） |
-| `trace_summary_in_prompt` | 若該輪有 LLM | later 時實際進 prompt 的 trace 字串 |
+| `trace_summary_in_prompt` | 若該輪有 LLM | v1.3：later trace；**v1.4 廢止** → 改 `ce_summary_in_prompt` |
+| `source_profile` | v1.4 | validated / injected 謂詞來自 `SAFE` \| `BUG_HUNT` |
 | `var_contract` | ✓ | source → encoded SSA sets |
 | `loop_heads` | ✓ | `[{label, node, function}]` |
 | `precision_local_before` | ✓ | loop head → [smt]（**overlap O-P**） |

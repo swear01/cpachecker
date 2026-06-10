@@ -40,10 +40,16 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
-          "API draws per scheduled LLM round after refinement #1. Refinement #1 always uses 1"
-              + " draw (cache seed, no parallel). Total APIs = 1 + (K-1) parallel extras.")
+          "API draws per prompt profile per scheduled LLM round (SAFE and BUG each use K draws"
+              + " when dualPromptMode=true). Each profile: 1 sync + (K-1) parallel extras.")
   @IntegerOption(min = 1)
   private int llmSamplesPerCall = 1;
+
+  @Option(
+      secure = true,
+      description =
+          "Run SAFE and BUG_HUNT prompt profiles each LLM round (2×K HTTP when K=llmSamplesPerCall).")
+  private boolean dualPromptMode = true;
 
   @Option(
       secure = true,
@@ -154,6 +160,10 @@ public class VGuideOptions {
     return llmSamplesPerCall;
   }
 
+  public boolean isDualPromptMode() {
+    return dualPromptMode;
+  }
+
   public int getLlmSampleParallelism() {
     return llmSampleParallelism;
   }
@@ -185,8 +195,11 @@ public class VGuideOptions {
     return llmMaxCompletionTokens;
   }
 
-  /** Samples for this spurious round: #1 always 1; later rounds use llmSamplesPerCall. */
+  /** Draws per profile for this spurious round. */
   public int getLlmSamplesForRefinement(int refinementIndex) {
+    if (dualPromptMode) {
+      return Math.max(1, llmSamplesPerCall);
+    }
     return refinementIndex == 1 ? 1 : Math.max(1, llmSamplesPerCall);
   }
 

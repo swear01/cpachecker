@@ -1,71 +1,70 @@
-# LLM 多抽卡（Ensemble）
+# LLM 多抽卡（Ensemble）與雙 prompt（v1.4）
 
 **作者**: r14k41044 黃思維  
-**模組**: `VGuideRefinementBridge` + `PredicateProposalClient`
+**模組**: `VGuideRefinementBridge` + `PredicateProposalClient`  
+**計劃**：[DUAL_PROMPT_V1_PLAN.md](../analysis/DUAL_PROMPT_V1_PLAN.md)
 
-> **預設**：`vguide.llmSamplesPerCall = 1`（單 draw / 輪）。  
-> **單輪多條**由 [PREDICATE_BUDGET.md](PREDICATE_BUDGET.md) 控制（預設 3–6 條），與 ensemble 正交。
+> **預設（v1.4）**：`vguide.dualPromptMode=true`，`llmSamplesPerCall=1` → 每 LLM 輪 **SAFE×1 + BUG×1** = **2** HTTP。  
+> 單次 API 回應內條數由 [PREDICATE_BUDGET.md](PREDICATE_BUDGET.md) / adaptive tier 建議；**合併層不 cap**（兩軌 union 後全送 validate）。
 
-## 行為
+## 雙 prompt（`dualPromptMode`，預設 true）
 
-| Spurious 輪次 | API 次數 | 平行 |
-|---------------|----------|------|
-| **#1（第一次 spurious）** | **恆 1**（程式寫死，不受 `llmSamplesPerCall` 影響） | **絕不平行**（試水溫 + DeepSeek **prompt cache**） |
-| **#2+** 且 `llmSamplesPerCall=K` | **1 同步 + (K−1) 平行** | 僅額外 (K−1) 次平行 |
+| 概念 | 說明 |
+|------|------|
+| **K** | `llmSamplesPerCall` = **每軌** draw 數（SAFE 軌 K 次 + BUG 軌 K 次） |
+| K=1 | SAFE×1 + BUG×1 = **2** HTTP/輪（**含第一次 spurious**，無 #1 特例） |
+| K=3 | SAFE×3 + BUG×3 = **6** HTTP/輪 |
+| 順序 | SAFE 軌（1 sync + (K−1) parallel）→ BUG 軌（同上）；**不** SAFE∥BUG |
+| 合併 | SAFE 與 BUG 的 predicates **直接 union + dedupe**，**不** `capOrdered` |
+| Repair | **任一站軌**有 accepted → 不修；兩軌皆空才 1 次 repair |
 
-合併策略：**`union_validate`** — 各次回應 parse 後字串去重，再交 `PredicateValidationPipeline`（與單次相同）。
+關閉 dual（`dualPromptMode=false`）：僅 SAFE 軌，行為對照實驗用。
 
-Repair：合併後仍無 accepted predicate 且存在 rejected → **單次** repair API（不 ensemble）。
+## 單軌 ensemble（每 profile 內）
+
+| 每軌 K | 該軌 API | 平行 |
+|--------|----------|------|
+| K=1 | 1 sync | 不平行 |
+| K=3 | 1 sync + 2 parallel extras | 僅同 profile、同 prompt |
 
 ## 參數（`vguide.*`）
 
-| 選項 | 預設 | 說明 |
-|------|------|------|
-| `llmSamplesPerCall` | `1` | 第 2 次起每 **LLM 輪** 目標抽樣數 K（#1 仍為 1） |
-| `llmSampleParallelism` | `4` | (K−1) 次額外 draw 的最大併發 |
-| `maxLlmRoundsPerAnalysis` | `5` | 上限為 **spurious 輪次**（每輪可含多個 API，仍只計 1 輪） |
+| 選項 | v1.4 預設 | 說明 |
+|------|-----------|------|
+| `dualPromptMode` | **true** | SAFE + BUG 兩軌 |
+| `llmSamplesPerCall` | `1` | **每軌** K（非「整輪一共 K」） |
+| `llmSampleParallelism` | `4` | 每軌 (K−1) extras 最大併發 |
+| `maxLlmRoundsPerAnalysis` | 依實驗 config | 計 **spurious 輪次**，非 HTTP 次數 |
+| `wallBudgetSec` | `0` | 0=不限制；&gt;0 時 LLM 牆鐘上限（見下） |
+
+### HTTP 次數公式
+
+```
+HTTP_per_round ≈ 2 × K × (dualPromptMode ? 1 : 0.5)   // dual: 2軌；單軌: 1軌
+總 HTTP ≈ maxLlmRounds × HTTP_per_round + repair（偶發）
+```
+
+例：`maxLlmRounds=10`、`K=1`、dual → 約 **20** HTTP（不含 repair）。
+
+### `wallBudgetSec`
+
+可選整題 LLM 牆鐘（秒）。**預設 0 = 不啟用**。啟用時每次 API latency 累加；剩餘 &lt;15s 跳過 LLM。與 API 次數無關，除非手動設了上限。
 
 ### `maxLlmRounds` 語意
 
-- **計 1**：排程允許的一次「spurious → 走 VGuide LLM 流程」。
-- **不計**：該輪內的 K 次 HTTP（含平行 extras）與 repair 單發。
+- **計 1**：排程允許的一次「spurious → VGuide LLM 流程」。
+- **不計**：該輪內 2K 次 HTTP 與 repair。
 
-例：`maxLlmRounds=5`、`llmSamplesPerCall=3` → 最多 5 個 spurious 輪會叫 LLM；若每輪都打滿，HTTP 約 `5 × (1+2)` = **15**（不含 repair）。
-
-## 使用範例
-
-```bash
-./scripts/cpa.sh --config config/predicateAnalysis-vguide.properties \
-  --option cpa.predicate.refinement.useVocabularyGuide=true \
-  --option vguide.llmSamplesPerCall=3 \
-  --option vguide.llmSampleParallelism=3 \
-  --option vguide.maxLlmRoundsPerAnalysis=5 \
-  ...
-```
-
-## Log 範例
+## Log 範例（dual, K=1）
 
 ```
-VGuide LLM round #1 spurious #1 samples=1 api=1 ... latencyMs=1600
-VGuide LLM round #2 spurious #45 samples=3 api=3 ... latencyMs=2100
+VGuide LLM round #1 spurious #1 profiles=SAFE+BUG samples_per_profile=1 api=2 ... latencyMs=...
 ```
 
-- `samples`：本輪設定 K（#1 恆為 1）
-- `api`：實際 HTTP 次數（含 ensemble extras，不含 repair 時與 samples 相同；repair 另 +1）
+## 多 draw / 雙軌合併與正確性
 
-## 多 draw 合併與「謂詞衝突」
-
-多抽卡時，不同 draw 可能提出 **語意不一致** 的候選（例如一個偏 `x=0`、另一個偏 `x≥2`）。
-
-**結論：與 soundness 無關，頂多變慢。**
-
-- 候選只進 **precision**，不是 axiom；**TRUE/FALSE 仍由 CPAchecker 證明**。  
-- 若多條同時合法，抽象通常 **更細**；路徑上合不攏時，CEGAR 會再 refinement 或得到 UNKNOWN，**不會**因此錯判 TRUE。  
-- 實務影響：可能 **多幾輪 refinement / 較久 UNKNOWN**（探索變慢），不是正確性問題。  
-- 目前 **`union_validate`（去重 + Validator）** 已足夠；**不需**額外「互斥過濾」除非日後實測變慢嚴重。
-
-與 **repair** 的差別：repair 是「全部 reject 後改 prompt 再問 **1** 次」，與多 draw 合併無關。
+候選只進 **precision**；SAFE/BUG union 不 cap **不影響 soundness**，可能增加注入條數、略增 refinement 開銷。
 
 ## 與排程的關係
 
-`llmMinIntervalSec` / `every_n` 仍決定 **哪幾個 spurious 輪** 進入 LLM；ensemble 只影響 **該輪內** 打幾次 API。見 [LLM_CALL_SCHEDULING.md](LLM_CALL_SCHEDULING.md)。
+`every_n` / `min_interval` 決定 **哪幾個 spurious 輪** 叫 LLM；ensemble 與 dual 只影響 **該輪內** API 次數。見 [LLM_CALL_SCHEDULING.md](LLM_CALL_SCHEDULING.md)。

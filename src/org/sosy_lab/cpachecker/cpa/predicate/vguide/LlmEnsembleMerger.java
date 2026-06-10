@@ -38,4 +38,32 @@ public final class LlmEnsembleMerger {
     }
     return budget.capOrdered(merged);
   }
+
+  public static ImmutableList<AttributedRawPredicate> attributeAll(
+      List<String> rawPredicates, PromptProfile profile) {
+    List<AttributedRawPredicate> out = new ArrayList<>();
+    for (String raw : rawPredicates) {
+      out.add(new AttributedRawPredicate(raw, profile));
+    }
+    return ImmutableList.copyOf(out);
+  }
+
+  /** Union SAFE then BUG predicates without {@link PredicateBudget#capOrdered}. */
+  public static ImmutableList<AttributedRawPredicate> mergeDualUnion(
+      ImmutableList<AttributedRawPredicate> safe,
+      ImmutableList<AttributedRawPredicate> bug) {
+    Set<String> seen = new LinkedHashSet<>();
+    List<AttributedRawPredicate> merged = new ArrayList<>();
+    for (AttributedRawPredicate p : safe) {
+      if (seen.add(p.raw())) {
+        merged.add(p);
+      }
+    }
+    for (AttributedRawPredicate p : bug) {
+      if (seen.add(p.raw())) {
+        merged.add(p);
+      }
+    }
+    return ImmutableList.copyOf(merged);
+  }
 }

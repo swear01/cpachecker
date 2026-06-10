@@ -12,6 +12,8 @@
 
 因此 **不是兩套 API 或兩個模型**，而是 **上下文不同**：離線像「只看原始 C 的出題」；CPA 內像「CEGAR 已走到 spurious、帶 SSA 合約的出題」。
 
+**v1.4 計劃**（[DUAL_PROMPT_V1_PLAN.md](../analysis/DUAL_PROMPT_V1_PLAN.md)）：CPA 內將有 **SAFE+BUG 雙 profile** 與 **ce_summary**；離線腳本 **尚未** 模擬這兩項，對齊後再當 regression。
+
 API 參數（model、**thinking disabled** 等）應與 Java `PredicateProposalClient` 一致，見 [LLM_API.md](LLM_API.md)。
 
 ## 典型現象：`array_3-1`

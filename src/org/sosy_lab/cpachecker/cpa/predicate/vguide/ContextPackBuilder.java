@@ -41,42 +41,34 @@ public final class ContextPackBuilder {
   public ContextPack build(
       int refinementIndex,
       BlockFormulas formulas,
-      CounterexampleTraceInfo counterexample) {
+      CounterexampleTraceInfo counterexample,
+      List<? extends org.sosy_lab.cpachecker.core.interfaces.AbstractState> abstractionTrace) {
     Set<String> encodedVars = new HashSet<>();
     for (BooleanFormula f : formulas.getFormulas()) {
       encodedVars.addAll(fmgr.extractVariableNames(f));
     }
-    String traceSummary = summarizeTrace(formulas);
     ImmutableList<BooleanFormula> itps =
         counterexample.isSpurious() && counterexample.getInterpolants() != null
             ? counterexample.getInterpolants()
             : ImmutableList.of();
+    String source = readSource();
+    String assertion = extractAssertion(source);
+    var varContract = VarContractBuilder.build(encodedVars);
+    ImmutableList<LoopHeadInfo> loopHeads = loopHeadIndex.getLoopHeads();
+    String ceSummary =
+        CeSummaryBuilder.build(
+            fmgr, formulas, itps, loopHeads, varContract, assertion, abstractionTrace);
     return new ContextPack(
         refinementIndex,
-        readSource(),
-        extractAssertion(readSource()),
-        loopHeadIndex.getLoopHeads(),
-        VarContractBuilder.build(encodedVars),
+        source,
+        assertion,
+        loopHeads,
+        varContract,
         ImmutableSet.copyOf(encodedVars),
         formulas,
         itps,
-        traceSummary);
-  }
-
-  private String summarizeTrace(BlockFormulas formulas) {
-    StringBuilder sb = new StringBuilder();
-    int n = Math.min(5, formulas.getSize());
-    for (int i = 0; i < n; i++) {
-      sb.append("block ")
-          .append(i)
-          .append(": ")
-          .append(fmgr.dumpFormula(formulas.getFormulas().get(i)).toString().replace('\n', ' '))
-          .append('\n');
-    }
-    if (formulas.getSize() > n) {
-      sb.append("... (").append(formulas.getSize() - n).append(" more blocks)\n");
-    }
-    return sb.toString();
+        ceSummary,
+        "");
   }
 
   private String readSource() {

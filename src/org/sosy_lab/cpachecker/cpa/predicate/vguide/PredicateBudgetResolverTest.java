@@ -33,6 +33,7 @@ public class PredicateBudgetResolverTest {
         ImmutableSet.of(),
         new BlockFormulas(ImmutableList.of()),
         ImmutableList.of(),
+        "",
         "");
   }
 
