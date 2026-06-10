@@ -1,7 +1,8 @@
 # 實驗計劃：提高 LLM 頻率 + 自適應 predicate 數量（non-thinking）
 
-**狀態**：程式已實作（`enableAdaptivePredicateBudget`）；待 test + 217 實驗  
+**狀態**：**已完成**（217 題 20260610；報告見 [reports/2026-06-10_freq10_n24_adaptive_noL3.md](../reports/2026-06-10_freq10_n24_adaptive_noL3.md)）  
 **基線 tag**：`v1.2.0`（notthinking：`137` solved，`PAR-2 avg 228.48`）  
+**本 run 結果**：**150** solved，`PAR-2 avg 192.03s`（+13 vs notthinking，+34 vs stock）  
 **假設**：non-thinking 單條品質尚可（Novel ~58%），瓶頸在 **每 call 條數偏少** + **LLM 輪次偏少**。
 
 ---
@@ -144,7 +145,7 @@ grep -h "VGuide LLM round" "$OUT/logs"/*.log | head -20
 
 ### 4.4 Regression 子集（建議 12–21 題，217 前）
 
-Manifest（待加）：`docs/vguided-cegar/benchmark_sets/regression_nothink.list`  
+Manifest：`docs/vguided-cegar/benchmark_sets/regression_nothink.list`  
 含：`down`, `odd`, `ddlm2013`, `gr2006`, `bhmr2007`, `string_concat-noarr`, `vnew1`, `benchmark40_polynomial`, `mono-crafted_13`, `cggmp2005_variant`, …
 
 ```bash
@@ -183,7 +184,8 @@ python3 scripts/vguided-cegar/analyze_predicate_study.py --validate-only \
 - [x] §4.3 CPA smoke sample 8/8（`smoke_freq10_n24_adaptive_20260610`）
 - [ ] §4.2 離線 LLM 品質
 - [ ] §4.4 regression_nothink
-- [ ] §4.5 dump validate
+- [x] §4.5 dump validate + Phase D（217 題，見 reports/2026-06-10_freq10_n24_adaptive_noL3.md）
+- [x] §6 Full 217 完成（150 solved，PAR-2 avg 192.03s）
 
 ---
 
@@ -224,13 +226,17 @@ nohup env ... ./scripts/vguided-cegar/run.sh cpa ... \
 | vs v1.2.0 / old_analysis | `analyze_benchmark_comparison.py` |
 | 品質 | `analyze_predicate_study.py --skip-validate` |
 
-**成功標準**
+**成功標準 vs 實測（20260610）**
 
-- **≥146 solved**（追上 budget306；目標逼近 151）
-- PAR-2 avg **≤235**（允許略升於換取解題）
-- vs stock：rescued **≥21**、degraded **0**
-- Novel% **≥50%**（激進檔位下 Redundant 可升，但 Novel 勿崩）
-- high 檔 median preds **8–12**
+| 指標 | 目標 | 實測 | 備註 |
+|------|------|------|------|
+| solved | ≥146 | **150** | ✓ 超 budget306（146） |
+| PAR-2 avg | ≤235 | **192.03** | ✓ |
+| vs stock rescued | ≥21 | **35** | ✓ |
+| vs stock degraded | 0 | **1** | `benchmark10_conjunctive` |
+| pct_novel median | ≥50% | **50%** | ✓ |
+| high tier preds 8–12 | 期望 | **未觸發 high** | 僅 low/medium；medium median 9 |
+| parse_ok | 穩定 | **99.0%** | 304/307 |
 
 ---
 
@@ -256,4 +262,5 @@ nohup env ... ./scripts/vguided-cegar/run.sh cpa ... \
 
 - [ADAPTIVE_PREDICATE_BUDGET_PLAN.md](../llm/ADAPTIVE_PREDICATE_BUDGET_PLAN.md)
 - [CE_CONTEXT_PROMPT_PLAN.md](../analysis/CE_CONTEXT_PROMPT_PLAN.md)
+- [reports/2026-06-10_freq10_n24_adaptive_noL3.md](../reports/2026-06-10_freq10_n24_adaptive_noL3.md)
 - [reports/2026-06-09_notthinking_noL3.md](../reports/2026-06-09_notthinking_noL3.md)

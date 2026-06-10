@@ -28,6 +28,7 @@
 | 檔案 | 用途 | 題數 |
 |------|------|------|
 | `sample.list` | Tier S 手選（CI / smoke） | 8 |
+| `regression_nothink.list` | non-thinking / budget 實驗 regression | 19 |
 | `rescue_core.list` | 核心 rescue | 6 |
 | **`full_scalar.list`** | 主路徑 scalar（`RUN_SCALAR` − 排除） | **217** |
 | `frozen_exception.list` | frozen 對照（`half_2`, `seq-3`） | 2 |

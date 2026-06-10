@@ -1,6 +1,6 @@
 # 計劃：自適應 Predicate 數量 + LLM 呼叫頻率（non-thinking 主線）
 
-**狀態**：已實作（2026-06-10）→ **實驗規格**見 [experiments/2026-06-10_freq10_n24_adaptive_budget.md](../experiments/2026-06-10_freq10_n24_adaptive_budget.md)  
+**狀態**：已實作並完成 217 題（20260610）→ **結果** [reports/2026-06-10_freq10_n24_adaptive_noL3.md](../reports/2026-06-10_freq10_n24_adaptive_noL3.md)；規格見 [experiments/2026-06-10_freq10_n24_adaptive_budget.md](../experiments/2026-06-10_freq10_n24_adaptive_budget.md)  
 **動機**：notthinking 品質檢查顯示 overlap Novel% 與 thinking 相近，但 **每 call 少 ~3 條**（median 4 vs 7），總解題少 ~14 題。  
 **優先於**：CE prompt（見 [CE_CONTEXT_PROMPT_PLAN.md](../analysis/CE_CONTEXT_PROMPT_PLAN.md)）可並行，但 **調數量/頻率成本低、可先試**。
 
@@ -54,7 +54,7 @@ non-thinking LLM ~2.4s/call → 300s 內 **理論可遠多於 5 次**，現被 `
 
 ### 2.3 驗收
 
-Regression 21 題 + 全量 217；對照 notthinking baseline（137 solved）。
+Regression 21 題 + 全量 217；對照 notthinking baseline（137 solved）。**217 實測：150 solved**（+13 vs notthinking）。
 
 ---
 
@@ -84,12 +84,11 @@ Regression 21 題 + 全量 217；對照 notthinking baseline（137 solved）。
 
 ---
 
-## 4. 建議執行順序
+## 4. 執行狀態（2026-06-10）
 
-1. **Adaptive budget**（改動小，只 prompt + cap 邏輯）→ regression  
-2. **maxLlmRounds 8** + **every_n 36** → regression  
-3. 兩者合併 → full 217  
-4. 仍缺題再開 [CE_CONTEXT_PROMPT_PLAN.md](../analysis/CE_CONTEXT_PROMPT_PLAN.md)
+1. ~~Adaptive budget + freq10/n24 + maxRounds 10~~ → **full 217 完成**（150 solved）  
+2. ~~Regression 子集~~ → 未單獨跑；smoke sample 8/8 已過  
+3. **下一步**：high tier 未觸發、`down` 等仍 UNKNOWN → [CE_CONTEXT_PROMPT_PLAN.md](../analysis/CE_CONTEXT_PROMPT_PLAN.md) 或調 S 分數
 
 ---
 
@@ -97,4 +96,5 @@ Regression 21 題 + 全量 217；對照 notthinking baseline（137 solved）。
 
 - [PREDICATE_BUDGET.md](PREDICATE_BUDGET.md)  
 - [LLM_CALL_SCHEDULING.md](LLM_CALL_SCHEDULING.md)  
+- [reports/2026-06-10_freq10_n24_adaptive_noL3.md](../reports/2026-06-10_freq10_n24_adaptive_noL3.md)
 - [reports/2026-06-09_notthinking_noL3.md](../reports/2026-06-09_notthinking_noL3.md)

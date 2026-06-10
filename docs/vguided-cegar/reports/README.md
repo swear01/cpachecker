@@ -4,8 +4,9 @@
 
 | 報告 | 說明 |
 |------|------|
-| **[`2026-06-07_vguide-report_deepseek-v4-pro.md`](2026-06-07_vguide-report_deepseek-v4-pro.md)** | **主報告**：217 題 `full_scalar`；L3-on **131**/217（272.79s PAR-2）；noL3 vs stock；L3 消融；含 8 題 L3-on 重跑 |
+| **[`2026-06-07_vguide-report_deepseek-v4-pro.md`](2026-06-07_vguide-report_deepseek-v4-pro.md)** | 歷史總覽：217 題 `full_scalar`；L3-on **131**/217；noL3 vs stock；L3 消融 |
 | **[`2026-06-08_predicate-analysis_noL3.md`](2026-06-08_predicate-analysis_noL3.md)** | **Predicate 分析**（noL3 dump）：context budget / **Z3 overlap** / 排程；33 rescued vs stock |
+| **[`2026-06-10_freq10_n24_adaptive_noL3.md`](2026-06-10_freq10_n24_adaptive_noL3.md)** | **adaptive budget + freq10/n24** 217 題：**150 solved**、PAR-2 **192s**、+13 vs notthinking |
 | **[`2026-06-09_notthinking_noL3.md`](2026-06-09_notthinking_noL3.md)** | **thinking disabled** 217 題：+21 vs stock、PAR-2 vs budget306/v1.0.0、overlap Phase D |
 
 **實驗目錄**
@@ -19,13 +20,22 @@
 | **Analysis dump + CSV** | `output/vguide/analysis_dumps/full_scalar_noL3_20260608/` |
 | **noL3 notthinking**（d7021692） | `output/vguide/experiments/full_scalar_vguide_noL3_notthinking_20260609/` |
 | **notthinking dump** | `output/vguide/analysis_dumps/full_scalar_noL3_notthinking_20260609/` |
+| **adaptive freq10_n24**（fd69f395） | `output/vguide/experiments/full_scalar_vguide_noL3_freq10_n24_adaptive_20260610/` |
+| **adaptive dump** | `output/vguide/analysis_dumps/full_scalar_noL3_freq10_n24_adaptive_20260610/` |
 | 三向 CSV | `output/vguide/experiments/l3_ablation_comparison.csv` |
 
 **Predicate 離線分析（Phase D）**
 
 ```bash
+# 現行 adaptive run（20260610）
 python3 scripts/vguided-cegar/analyze_predicate_study.py \
-  --skip-validate \
+  --dump-dir output/vguide/analysis_dumps/full_scalar_noL3_freq10_n24_adaptive_20260610 \
+  --logs-dir output/vguide/experiments/full_scalar_vguide_noL3_freq10_n24_adaptive_20260610/logs \
+  --stock-logs output/vguide/experiments/full_scalar_stock/logs \
+  --out output/vguide/analysis_dumps/full_scalar_noL3_freq10_n24_adaptive_20260610/analysis
+
+# 歷史 v1.0.0 thinking dump（20260608）
+python3 scripts/vguided-cegar/analyze_predicate_study.py --skip-validate \
   --dump-dir output/vguide/analysis_dumps/full_scalar_noL3_20260608 \
   --logs-dir output/vguide/experiments/full_scalar_vguide_noL3_analysis/logs \
   --stock-logs output/vguide/experiments/full_scalar_stock/logs

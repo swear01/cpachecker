@@ -264,7 +264,7 @@ export VGUIDE_ANALYSIS_DUMP_DIR=output/vguide/analysis_dumps/full_scalar_noL3_<d
   --out output/vguide/experiments/full_scalar_vguide_noL3_analysis
 ```
 
-- config：**noL3**（與現主線一致）
+- config：**noL3** + `vguide-experiment-freq10-n24.properties`（adaptive；見 [reports/2026-06-10_freq10_n24_adaptive_noL3.md](../reports/2026-06-10_freq10_n24_adaptive_noL3.md)）
 - **不**改 `everyN`（本輪只蒐集資料）
 - 產物：`experiments/.../logs/*.log` + `analysis_dumps/<run_id>/tasks/*`
 

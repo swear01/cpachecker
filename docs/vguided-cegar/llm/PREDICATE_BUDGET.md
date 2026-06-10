@@ -23,7 +23,7 @@
 1. JSON **陣列順序 = 優先級**（最重要放 index 0）
 2. 鼓勵 **不同角色**：loop-carried 關係、assertion 相關跨變數關係、非平凡的 guard bound
 3. **不要**為湊滿 `max` 而輸出平凡 bound（如 `i>=0` 在 `for(i=0;...)`）
-4. 強候選少於 `min` 時，**寧可少給**也不要弱 filler
+4. adaptive 模式：prompt 要求 **至少 min、盡量覆蓋** assertion / loop 耦合（見 `ProposalPromptBuilder`）
 
 ### 預設
 
@@ -36,6 +36,8 @@
 | `vguide.llmSamplesPerCall` | **1** | 單 draw；與 budget 正交 |
 
 對照 1.0.0 分析 batch：prompt 4–8、median 7 → 現預設 cap **6**，並用角色引導提品質。
+
+**實驗 config**（non-thinking 主線候選）：`config/vguide-experiment-freq10-n24.properties` — `enableAdaptivePredicateBudget=true`，tiers (4–8)/(6–12)/(8–16)，`llmMaxCompletionTokens=2048`。217 題：**preds/call median 6**，medium tier **9**；見 [reports/2026-06-10_freq10_n24_adaptive_noL3.md](../reports/2026-06-10_freq10_n24_adaptive_noL3.md)。
 
 ## 何時調參
 
@@ -60,6 +62,7 @@
 
 ## 實作
 
-- `VGuideOptions.getPredicateBudget()` → `PredicateBudget(min, max)`
+- `VGuideOptions.getPredicateBudget()` → fixed `PredicateBudget(min, max)`
+- `PredicateBudgetResolver.resolve(ContextPack, refinementIndex)` → adaptive tiers（`enableAdaptivePredicateBudget=true`）
 - `LlmEnsembleMerger.unionValidate(responses, budget)`
-- `VGuideRefinementBridge`：repair 路徑亦 `budget.capOrdered(...)`
+- `VGuideRefinementBridge`：每輪 resolve budget；repair 路徑亦 `budget.capOrdered(...)`

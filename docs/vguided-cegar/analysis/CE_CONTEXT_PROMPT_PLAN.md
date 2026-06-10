@@ -1,7 +1,8 @@
 # 計劃：First-spurious Prompt 補齊 CE 上下文
 
 **狀態**：計劃（未實作）  
-**目標**：在 **non-thinking** 模式下，把 spurious CE 的可觀測資訊送進 **第一次** LLM prompt，減少只靠 source 猜 predicate。  
+**現行基線**：adaptive freq10/n24 **150 solved**（`fd69f395`）；notthinking 137；old_analysis 151  
+**目標**：在 **non-thinking** 模式下，把 spurious CE 的可觀測資訊送進 **第一次** LLM prompt，減少只靠 source 猜 predicate（針對 `down`、`string_concat-noarr` 等仍 UNKNOWN 題）。  
 **不改**：排程、`llmSamplesPerCall`、Z3 overlap 管線。
 
 ---
@@ -68,7 +69,7 @@ SPURIOUS COUNTEREXAMPLE (read-only hints; use source variable names in output):
 
 | 指標 | 期望 |
 |------|------|
-| 解題數 | ≥ 現 notthinking 137，目標逼近 thinking 151 |
+| 解題數 | ≥ adaptive **150**，目標逼近 / 超過 old_analysis **151** |
 | `odd` | 出現 parity / `bvurem` 相關式 |
 | `string_concat-noarr` | 不再出離題 bound（如 `i>=100`） |
 | `down` | refinements 不爆炸（<<50） |
@@ -83,7 +84,7 @@ SPURIOUS COUNTEREXAMPLE (read-only hints; use source variable names in output):
 ### 3.3 命令
 
 ```bash
-# regression 子集（待建 manifest regression_nothink.list）
+# regression 子集（manifest: benchmark_sets/regression_nothink.list）
 ./scripts/vguided-cegar/run.sh cpa --set regression_nothink --ablation no-l3 \
   --out output/vguide/experiments/regression_ce_context_...
 
@@ -121,4 +122,4 @@ python3 scripts/vguided-cegar/analyze_predicate_study.py --skip-validate \
 - [OVERLAP_AND_PCS.md](OVERLAP_AND_PCS.md)  
 - [llm/PREDICATE_BUDGET.md](../llm/PREDICATE_BUDGET.md)（數量策略，與 CE 正交）  
 - [llm/LLM_CALL_SCHEDULING.md](../llm/LLM_CALL_SCHEDULING.md)（頻率，與 CE 正交）  
-- 實驗基線：[reports/2026-06-09_notthinking_noL3.md](../reports/2026-06-09_notthinking_noL3.md)
+- 實驗基線：[reports/2026-06-10_freq10_n24_adaptive_noL3.md](../reports/2026-06-10_freq10_n24_adaptive_noL3.md)（現行）、[reports/2026-06-09_notthinking_noL3.md](../reports/2026-06-09_notthinking_noL3.md)
