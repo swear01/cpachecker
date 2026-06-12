@@ -170,7 +170,15 @@ public final class PredicateCPARefinerFactory {
     ARGBasedRefiner refiner;
     InterpolationManager primaryInterpolationManager;
 
-    if (useVocabularyGuide) {
+    boolean useVocabularyGuideForThisAnalysis = useVocabularyGuide;
+    if (useVocabularyGuideForThisAnalysis && predicateCpa instanceof BAMPredicateCPA) {
+      logger.log(
+          Level.WARNING,
+          "VGuide is not supported under BAM, falling back to standard refiner");
+      useVocabularyGuideForThisAnalysis = false;
+    }
+
+    if (useVocabularyGuideForThisAnalysis) {
       String apiKey = System.getenv("DEEPSEEK_API_KEY");
       if (apiKey == null || apiKey.isBlank()) {
         throw new InvalidConfigurationException(
