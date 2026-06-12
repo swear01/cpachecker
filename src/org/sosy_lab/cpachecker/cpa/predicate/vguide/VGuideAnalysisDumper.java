@@ -58,6 +58,8 @@ public final class VGuideAnalysisDumper {
   private final Path runRoot;
   private final Path taskRoot;
   private final String taskName;
+  private final String taskNameBase;
+  private final int bridgeIndex;
   private final boolean dumpPrompts;
   private final FormulaManagerView fmgr;
   private final VGuideOptions options;
@@ -75,12 +77,16 @@ public final class VGuideAnalysisDumper {
       LogManager logger,
       Path runRoot,
       String taskName,
+      String taskNameBase,
+      int bridgeIndex,
       boolean dumpPrompts,
       FormulaManagerView fmgr,
       VGuideOptions options) {
     this.logger = logger;
     this.runRoot = runRoot;
     this.taskName = taskName;
+    this.taskNameBase = taskNameBase;
+    this.bridgeIndex = bridgeIndex;
     this.dumpPrompts = dumpPrompts;
     this.fmgr = fmgr;
     this.options = options;
@@ -96,7 +102,12 @@ public final class VGuideAnalysisDumper {
   }
 
   public static @Nullable VGuideAnalysisDumper createOptional(
-      LogManager logger, String taskName, FormulaManagerView fmgr, VGuideOptions options) {
+      LogManager logger,
+      String taskName,
+      String taskNameBase,
+      int bridgeIndex,
+      FormulaManagerView fmgr,
+      VGuideOptions options) {
     String dir = System.getenv("VGUIDE_ANALYSIS_DUMP_DIR");
     if (dir == null || dir.isBlank()) {
       return null;
@@ -105,7 +116,7 @@ public final class VGuideAnalysisDumper {
         !"0".equals(System.getenv("VGUIDE_ANALYSIS_DUMP_PROMPTS"))
             && !"false".equalsIgnoreCase(System.getenv("VGUIDE_ANALYSIS_DUMP_PROMPTS"));
     return new VGuideAnalysisDumper(
-        logger, Path.of(dir), taskName, dumpPrompts, fmgr, options);
+        logger, Path.of(dir), taskName, taskNameBase, bridgeIndex, dumpPrompts, fmgr, options);
   }
 
   public void recordRefinement(
@@ -127,6 +138,8 @@ public final class VGuideAnalysisDumper {
     }
     ObjectNode row = JSON.createObjectNode();
     row.put("task", taskName);
+    row.put("task_base", taskNameBase);
+    row.put("bridge_index", bridgeIndex);
     row.put("refinement_index", refinementIndex);
     row.put("llm_called", llmCalled);
     if (!llmCalled && llmSkipReason != null) {
@@ -178,6 +191,8 @@ public final class VGuideAnalysisDumper {
 
     ObjectNode row = JSON.createObjectNode();
     row.put("task", taskName);
+    row.put("task_base", taskNameBase);
+    row.put("bridge_index", bridgeIndex);
     row.put("refinement_index", refinementIndex);
     row.put("llm_round_index", llmRoundIndex);
     row.put("api_call_index", apiCallIndex);
@@ -235,6 +250,8 @@ public final class VGuideAnalysisDumper {
     }
     ObjectNode summary = JSON.createObjectNode();
     summary.put("task", taskName);
+    summary.put("task_base", taskNameBase);
+    summary.put("bridge_index", bridgeIndex);
     summary.put("verdict", resultToVerdict(result));
     summary.put("wall_s", wallSeconds);
     summary.put("refinements", refinementCount);
@@ -279,6 +296,9 @@ public final class VGuideAnalysisDumper {
       manifest.put("git_commit", readGitCommit());
       manifest.put("dump_prompts", dumpPrompts);
       manifest.put("dual_prompt_mode", options.isDualPromptMode());
+      manifest.put("first_bridge_index", bridgeIndex);
+      manifest.put(
+          "bridge_task_name_policy", "first bridge keeps base name; later bridges use __bN");
       writeJson(runRoot.resolve("run_manifest.json"), manifest);
     } catch (IOException e) {
       logger.logDebugException(e, "Failed to write run_manifest.json");

@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.configuration.Configuration;
@@ -58,6 +59,7 @@ public final class VGuideRefinementBridge {
   private final @Nullable VGuideAnalysisDumper analysisDumper;
   private final long analysisStartMs;
   private final AtomicBoolean analysisEndFinished = new AtomicBoolean(false);
+  private final @Nullable Thread shutdownHook;
 
   private volatile int trackedRefinementCount;
   private volatile @Nullable ARGReachedSet trackedReached;
@@ -65,6 +67,8 @@ public final class VGuideRefinementBridge {
   private @Nullable ValidationResult lastValidation;
   private @Nullable PendingRefinementDump pendingDump;
   private VGuideOutcome outcome = VGuideOutcome.NO_SPURIOUS_GIVE_UP;
+
+  private static final AtomicInteger BRIDGE_SEQUENCE = new AtomicInteger();
 
   private static final class PendingRefinementDump {
   int refinementIndex;
@@ -94,7 +98,9 @@ public final class VGuideRefinementBridge {
     }
     FormulaManagerView fmgr = solver.getFormulaManager();
     LoopHeadIndex loopHeads = new LoopHeadIndex(loopStructure);
-    String taskName = benchmarkBaseName(cfa);
+    String taskNameBase = benchmarkBaseName(cfa);
+    int bridgeIndex = BRIDGE_SEQUENCE.getAndIncrement();
+    String taskName = bridgeIndex == 0 ? taskNameBase : taskNameBase + "__b" + bridgeIndex;
     return new VGuideRefinementBridge(
         logger,
         opts,
@@ -110,7 +116,8 @@ public final class VGuideRefinementBridge {
         new FrozenPredicateLoader(logger, opts.getFrozenDir()),
         new WallClockBudget(opts.getWallBudgetSec()),
         new LlmCallScheduler(opts, logger),
-        VGuideAnalysisDumper.createOptional(logger, taskName, fmgr, opts));
+        VGuideAnalysisDumper.createOptional(
+            logger, taskName, taskNameBase, bridgeIndex, fmgr, opts));
   }
 
   private VGuideRefinementBridge(
@@ -146,9 +153,10 @@ public final class VGuideRefinementBridge {
     this.analysisDumper = analysisDumper;
     this.analysisStartMs = System.currentTimeMillis();
     if (analysisDumper != null) {
-      Runtime.getRuntime()
-          .addShutdownHook(
-              new Thread(this::finishDumpOnShutdown, "vguide-analysis-dump-finish"));
+      shutdownHook = new Thread(this::finishDumpOnShutdown, "vguide-analysis-dump-finish");
+      Runtime.getRuntime().addShutdownHook(shutdownHook);
+    } else {
+      shutdownHook = null;
     }
   }
 
@@ -420,11 +428,23 @@ public final class VGuideRefinementBridge {
     if (analysisDumper != null && analysisEndFinished.compareAndSet(false, true)) {
       double wallS = (System.currentTimeMillis() - analysisStartMs) / 1000.0;
       analysisDumper.finishTask(refinementCount, result, wallS, outcome, reached);
+      removeShutdownHook();
     }
   }
 
   public VGuideOutcome getOutcome() {
     return outcome;
+  }
+
+  private void removeShutdownHook() {
+    if (shutdownHook == null) {
+      return;
+    }
+    try {
+      Runtime.getRuntime().removeShutdownHook(shutdownHook);
+    } catch (IllegalStateException e) {
+      // JVM shutdown is already in progress; hooks cannot be removed at this point.
+    }
   }
 
   private BudgetResolution resolveBudget(ContextPack pack, int refinementIndex) {
