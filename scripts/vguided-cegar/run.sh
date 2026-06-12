@@ -95,8 +95,8 @@ cmd_cpa() {
   require_java
   case "$mode" in
     stock|svcomp26) ;;
-    vguide) require_api ;;
-    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26)" ;;
+    vguide|svcomp27-vguide|svcomp) require_api ;;
+    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26, svcomp27-vguide)" ;;
   esac
   if [[ -z "$out" ]]; then
     case "$ablation" in
@@ -107,6 +107,8 @@ cmd_cpa() {
           out="output/vguide/experiments/${set}_stock"
         elif [[ "$mode" == "svcomp26" ]]; then
           out="output/vguide/experiments/${set}_svcomp26"
+        elif [[ "$mode" == "svcomp27-vguide" || "$mode" == "svcomp" ]]; then
+          out="output/vguide/experiments/${set}_svcomp27_vguide"
         else
           out="output/vguide/experiments/${set}_vguide"
         fi
@@ -126,6 +128,12 @@ cmd_cpa() {
       VGUIDE_USE_VOCABULARY_GUIDE=false
       VGUIDE_CONFIG=config/unmaintained/svcomp26.properties
       VGUIDE_SPEC=
+    )
+  elif [[ "$mode" == "svcomp27-vguide" || "$mode" == "svcomp" ]]; then
+    env_extra+=(
+      VGUIDE_SVCOMP=1
+      VGUIDE_CONFIG=config/svcomp27-vguide.properties
+      VGUIDE_SPEC="$REPO/config/specification/sv-comp-reachability.spc"
     )
   fi
   case "$ablation" in

@@ -36,8 +36,18 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 CPA_SH="$REPO/scripts/cpa.sh"
-SPEC="${VGUIDE_SPEC-$REPO/config/specification/default.spc}"
 CONFIG="${VGUIDE_CONFIG:-config/predicateAnalysis-vguide.properties}"
+SVCOMP_MODE="${VGUIDE_SVCOMP:-0}"
+if [[ "$SVCOMP_MODE" == "0" && "$CONFIG" == *svcomp27-vguide* ]]; then
+  SVCOMP_MODE=1
+fi
+if [[ -v VGUIDE_SPEC ]]; then
+  SPEC="$VGUIDE_SPEC"
+elif [[ "$SVCOMP_MODE" == "1" ]]; then
+  SPEC="$REPO/config/specification/sv-comp-reachability.spc"
+else
+  SPEC="$REPO/config/specification/default.spc"
+fi
 SET_DIR="${VGUIDE_SET_DIR:-$REPO/docs/vguided-cegar/benchmark_sets}"
 JAVA="${JAVA:-}"
 HEAP="${HEAP:-2000M}"
@@ -200,7 +210,9 @@ run_one() {
     "$CPA_SH" --heap "$HEAP"
     --config "$CONFIG"
   )
-  if [[ "$USE_VGUIDE" == "true" ]]; then
+  if [[ "$SVCOMP_MODE" == "1" ]]; then
+    :
+  elif [[ "$USE_VGUIDE" == "true" ]]; then
     cmd+=(--option cpa.predicate.refinement.useVocabularyGuide=true)
   else
     cmd+=(--option cpa.predicate.refinement.useVocabularyGuide=false)
