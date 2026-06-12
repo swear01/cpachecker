@@ -1,9 +1,9 @@
 # v1.5 計劃：SV-COMP Loops Exploratory Evaluation
 
-**狀態**：計劃（未實作）
-**版本標**：實測與報告完成後 `vguide-v1.5.0`
-**前置**：v1.4 dual SAFE/BUG + `ce_summary`（tag `vguide-v1.4.0`）
-**主軸修正**：v1.5 **先不往 FALSE / bug-finding context 工程探索**；改為建立更大、更官方、更可分層解釋的 SV-COMP Loops evaluation。
+- **狀態**：v1.5 broad-set 實測完成（2026-06-13）；clean/applicable tier metadata 仍列 TODO
+- **版本標**：`vguide-v1.5.0`
+- **前置**：v1.4 dual SAFE/BUG + `ce_summary`（tag `vguide-v1.4.0`）
+- **主軸修正**：v1.5 **先不往 FALSE / bug-finding context 工程探索**；改為建立更大、更官方、更可分層解釋的 SV-COMP Loops evaluation。
 
 **相關**：[DUAL_PROMPT_V1_PLAN.md](DUAL_PROMPT_V1_PLAN.md)、[CE_SUMMARY_COMPRESSION.md](CE_SUMMARY_COMPRESSION.md)、[../evaluation/STANDARD_BENCHMARK_SUITE.md](../evaluation/STANDARD_BENCHMARK_SUITE.md)
 
@@ -14,6 +14,24 @@
 v1.5 的目標是把 VGuide 從 `full_scalar` 217 題推進到 **官方 SV-COMP Loops 來源的 500+ / 700+ 題 exploratory evaluation**，新增 **strong baseline `CPAchecker --svcomp26`**，並用 static feature tiers 分析 VGuide 真正有效與失效的範圍。
 
 ---
+
+## 0.1 實測結果（2026-06-13，tag `vguide-v1.5.0`）
+
+Broad set `loops_reachsafety_unreach` 已完成三組 run：stock/simple baseline、strong baseline `--svcomp26`、v1.4 VGuide。完整報告見 [reports/2026-06-13_v1.5_loops_reachsafety_unreach.md](../reports/2026-06-13_v1.5_loops_reachsafety_unreach.md)。
+
+| Run | TRUE | FALSE | UNKNOWN | Solved | PAR-2 avg | 結論 |
+|-----|-----:|------:|--------:|-------:|----------:|------|
+| stock | 165 | 60 | 539 | 225 | 426.21s | simple PredicateCPA baseline |
+| `--svcomp26` | 334 | 152 | 278 | 486 | 222.45s | strong portfolio baseline |
+| v1.4 VGuide | 202 | 60 | 502 | 262 | 399.72s | +37 solved vs stock |
+
+Key observations:
+
+- v1.4 VGuide vs stock：新增 42 個 stock-UNKNOWN → solved（全為 expected TRUE），但 lost 5 個 stock TRUE；net **+37 solved**。
+- `--svcomp26` vs stock：net **+261 solved**，其中新增解包含 174 TRUE + 92 FALSE。
+- 三組 run 均無 expected TRUE/FALSE mismatch。
+- VGuide 在 broad set 的提升仍集中在 **TRUE / invariant discovery**；FALSE context 工程維持 out-of-scope / future work。
+- 即使 `--svcomp26` overall 大幅領先，v1.4 VGuide 仍有 **33 個 VGuide-only TRUE solves**，可作為後續 tier/case-study 分析對象。
 
 ## 1. 為什麼 v1.5 暫停 FALSE 探索
 
@@ -368,7 +386,7 @@ tier × verdict transition × baseline
 
 - [ ] `run_benchmark_set.sh` 支援 CSV manifest
 - [ ] summary CSV 增加 `task_id,yml,property_file,expected_verdict,tier,tags`
-- [ ] `run.sh cpa --mode svcomp26`
+- [x] `run.sh cpa --mode svcomp26`
 - [ ] log/manifest 記錄實際 config 與 command
 
 ### Analysis
@@ -382,16 +400,16 @@ tier × verdict transition × baseline
 
 - [ ] Phase 1 smoke：30 題 × 3 modes
 - [ ] Phase 2 clean：517 題 × 3 modes
-- [ ] Phase 3 broad：764 題 × 3 modes
+- [x] Phase 3 broad：764 題 × 3 modes
 - [ ] Phase 4 side sets（視結果）
 
 ### Docs
 
-- [ ] 更新 `RUN_EXPERIMENTS.md`
+- [x] 更新 `RUN_EXPERIMENTS.md`
 - [ ] 更新 `STANDARD_BENCHMARK_SUITE.md`
 - [ ] 新增 experiment spec：`experiments/2026-06-xx_v1.5_loops_exploratory.md`
-- [ ] 新增 report：`reports/2026-06-xx_v1.5_loops_exploratory.md`
-- [ ] tag `vguide-v1.5.0`
+- [x] 新增 report：`reports/2026-06-13_v1.5_loops_reachsafety_unreach.md`
+- [x] tag `vguide-v1.5.0`
 
 ---
 

@@ -8,9 +8,10 @@
 |------|------|
 | [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) | **`run.sh` 怎麼跑**；批次後 PAR-2 / cactus |
 | [reports/README.md](reports/README.md) | 進度報告 |
-| [reports/2026-06-10_freq10_n24_adaptive_noL3.md](reports/2026-06-10_freq10_n24_adaptive_noL3.md) | **現行 noL3 最佳**：150 solved、PAR-2 192s（adaptive + freq10/n24） |
+| [reports/2026-06-13_v1.5_loops_reachsafety_unreach.md](reports/2026-06-13_v1.5_loops_reachsafety_unreach.md) | **v1.5 實測結果**：Loops broad set 764 題，VGuide +37 vs stock，33 VGuide-only TRUE solves |
+| [reports/2026-06-10_freq10_n24_adaptive_noL3.md](reports/2026-06-10_freq10_n24_adaptive_noL3.md) | **v1.3 noL3**：150 solved、PAR-2 192s（adaptive + freq10/n24） |
 | [analysis/PREDICATE_ANALYSIS_PLAN.md](analysis/PREDICATE_ANALYSIS_PLAN.md) | **Predicate 分析計劃**（context / overlap / PCS；token 以 API `usage` 為準） |
-| [analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md](analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md) | **計劃（現行）**：v1.5 SV-COMP Loops exploratory evaluation（500+/700+ set、tier 分析、`--svcomp26` strong baseline；FALSE 移 TODO） |
+| [analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md](analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md) | **v1.5 已實測**：SV-COMP Loops `unreach-call` 764 題；VGuide 262 solved vs stock 225；`--svcomp26` 486 |
 | [analysis/FALSE_ORIENTED_VGUIDE_PLAN.md](analysis/FALSE_ORIENTED_VGUIDE_PLAN.md) | 計劃（早期）：面向 FALSE 的 harness 與 prompt 構想 |
 | [analysis/DUAL_PROMPT_V1_PLAN.md](analysis/DUAL_PROMPT_V1_PLAN.md) | **已實作**：v1.4 雙 prompt + ce_summary |
 | [analysis/CE_SUMMARY_COMPRESSION.md](analysis/CE_SUMMARY_COMPRESSION.md) | CE 摘要 **語意壓縮**（loop-head、關係式提取，非 char cap） |
