@@ -9,6 +9,7 @@
 #   ./run.sh bench-regen              # regen benchmark_sets/*.list only
 #   ./run.sh cpa --set sample         # -> output/vguide/experiments/sample_vguide
 #   ./run.sh cpa --set sample --mode stock  # -> .../sample_stock
+#   ./run.sh cpa --set full_scalar --mode svcomp27-stock  # -> .../full_scalar_svcomp27_stock
 #   ./run.sh cpa --set full_scalar --parallel 16 --timelimit 300
 #   ./run.sh cpa --set full_scalar --ablation l3 --parallel 8 --timelimit 300
 #   ./run.sh llm-quality [--tasks up,down,array_3-1]
@@ -94,9 +95,9 @@ cmd_cpa() {
   [[ -n "$set" ]] || die "cpa requires --set <sample|full_scalar|...>"
   require_java
   case "$mode" in
-    stock|svcomp26) ;;
+    stock|svcomp26|svcomp27-stock) ;;
     vguide|svcomp27-vguide|svcomp) require_api ;;
-    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26, svcomp27-vguide)" ;;
+    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26, svcomp27-stock, svcomp27-vguide)" ;;
   esac
   if [[ -z "$out" ]]; then
     case "$ablation" in
@@ -107,6 +108,8 @@ cmd_cpa() {
           out="output/vguide/experiments/${set}_stock"
         elif [[ "$mode" == "svcomp26" ]]; then
           out="output/vguide/experiments/${set}_svcomp26"
+        elif [[ "$mode" == "svcomp27-stock" ]]; then
+          out="output/vguide/experiments/${set}_svcomp27_stock"
         elif [[ "$mode" == "svcomp27-vguide" || "$mode" == "svcomp" ]]; then
           out="output/vguide/experiments/${set}_svcomp27_vguide"
         else
@@ -128,6 +131,13 @@ cmd_cpa() {
       VGUIDE_USE_VOCABULARY_GUIDE=false
       VGUIDE_CONFIG=config/unmaintained/svcomp26.properties
       VGUIDE_SPEC=
+    )
+  elif [[ "$mode" == "svcomp27-stock" ]]; then
+    env_extra+=(
+      VGUIDE_SVCOMP=1
+      VGUIDE_USE_VOCABULARY_GUIDE=false
+      VGUIDE_CONFIG=config/svcomp27.properties
+      VGUIDE_SPEC="$REPO/config/specification/sv-comp-reachability.spc"
     )
   elif [[ "$mode" == "svcomp27-vguide" || "$mode" == "svcomp" ]]; then
     env_extra+=(

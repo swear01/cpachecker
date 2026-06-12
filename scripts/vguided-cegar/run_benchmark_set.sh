@@ -38,7 +38,10 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 CPA_SH="$REPO/scripts/cpa.sh"
 CONFIG="${VGUIDE_CONFIG:-config/predicateAnalysis-vguide.properties}"
 SVCOMP_MODE="${VGUIDE_SVCOMP:-0}"
-if [[ "$SVCOMP_MODE" == "0" && "$CONFIG" == *svcomp27-vguide* ]]; then
+if [[ "$SVCOMP_MODE" == "0" ]] \
+  && [[ "$CONFIG" == *svcomp27-vguide* \
+    || "$CONFIG" == */svcomp27.properties \
+    || "$CONFIG" == "config/svcomp27.properties" ]]; then
   SVCOMP_MODE=1
 fi
 if [[ -v VGUIDE_SPEC ]]; then
@@ -61,6 +64,10 @@ SKIP_MISSING="${VGUIDE_SKIP_MISSING:-1}"
 DRY_RUN="${VGUIDE_DRY_RUN:-0}"
 PARALLEL="${VGUIDE_PARALLEL:-${PARALLEL:-8}}"
 USE_VGUIDE="${VGUIDE_USE_VOCABULARY_GUIDE:-true}"
+if [[ ! -v VGUIDE_USE_VOCABULARY_GUIDE ]] \
+  && [[ "$CONFIG" == */svcomp27.properties || "$CONFIG" == "config/svcomp27.properties" ]]; then
+  USE_VGUIDE=false
+fi
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
