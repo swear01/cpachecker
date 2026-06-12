@@ -46,3 +46,44 @@ python3 - <<'PY'
 # and scanned branch logs for process_round_cap
 PY
 ```
+
+## Task B — portfolio verdict attribution tool
+
+Tool：`scripts/vguided-cegar/attribute_svcomp_verdicts.py`
+
+Inputs：single CPAchecker log, a runner `logs/<task>.log` directory, or a smoke-test directory containing `*/cpa.log` files.
+
+CSV schema：
+
+```text
+task,verdict,selection_branch,restart_stage,deciding_component,vguide_fired,llm_rounds
+```
+
+Parser notes：
+
+- `deciding_component` uses ParallelAlgorithm's `<config>.properties finished successfully.` log signal when present.
+- `selection_branch` and `restart_stage` are inferred from nested log prefixes such as `Analysis <config>:` and `Parallel analysis <config>:`.
+- Missing or ambiguous signals are reported as `unknown`; the tool does not crash.
+
+Validation command：
+
+```bash
+python3 -m py_compile scripts/vguided-cegar/attribute_svcomp_verdicts.py
+scripts/vguided-cegar/attribute_svcomp_verdicts.py \
+  output/vguide/svcomp_integration_smoke \
+  --out output/vguide/svcomp_integration_smoke/attribution.csv
+```
+
+Smoke-log attribution output:
+
+| task | verdict | selection_branch | restart_stage | deciding_component | vguide_fired | llm_rounds |
+|------|---------|------------------|---------------|--------------------|--------------|-----------:|
+| routeA_count_up_down_1 | TRUE | single_loop | parallel_single_loop | svcomp27--singleLoop-predicateAnalysis.properties | true | 1 |
+| routeA_count_up_down_2 | FALSE | single_loop | parallel_single_loop | svcomp27--singleLoop-predicateAnalysis.properties | true | 0 |
+| routeA_recursive_addition01 | UNKNOWN | loop_free | recursion | svcomp27--recursion.properties | false | 0 |
+| routeA_recursive_evenodd01 | UNKNOWN | loop_free | recursion | svcomp27--recursion.properties | false | 0 |
+| routeA_up | UNKNOWN | multiple_loops | parallel_multiple_loops | parallel_multiple_loops | true | 1 |
+| routeB_scoped_count_up_down_1 | TRUE | single_loop | parallel_single_loop | svcomp27-vguide--singleLoop-predicateAnalysis.properties | true | 1 |
+| routeB_scoped_recursive_addition01 | UNKNOWN | loop_free | recursion | svcomp27--recursion.properties | false | 0 |
+
+Important check：`routeB_scoped_recursive_addition01` has `vguide_fired=false`, matching the scoped-config requirement that recursion/BAM stays on the official non-VGuide config path.
