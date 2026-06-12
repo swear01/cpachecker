@@ -7,6 +7,7 @@
 | **[`../analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md`](../analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md)** | **v1.5 計劃 + 實測摘要**：SV-COMP Loops exploratory evaluation（broad set 已完成；clean/applicable tier 分析待補） |
 | **[`2026-06-13_v1.5_loops_reachsafety_unreach.md`](2026-06-13_v1.5_loops_reachsafety_unreach.md)** | **v1.5 實測結果**：SV-COMP Loops `unreach-call` 764 題；stock 225 solved、v1.4 262（+37）、`--svcomp26` 486；VGuide-only 33 TRUE |
 | **[`2026-06-13_svcomp27_vguide_integration.md`](2026-06-13_svcomp27_vguide_integration.md)** | **SV-COMP config integration**：`svcomp27-vguide` scoped configs、BAM fallback、process LLM cap、runner mode 與 smoke-test evidence |
+| **[`2026-06-13_svcomp27_pilot_calibration.md`](2026-06-13_svcomp27_pilot_calibration.md)** | **SV-COMP full-set readiness**：sample regression、portfolio verdict attribution、20-task 900s pilot calibration、`svcomp27-stock` 對照模式與 full-set nohup launcher |
 | **[`2026-06-11_advisor_meeting_post_0604.md`](2026-06-11_advisor_meeting_post_0604.md)** | **Advisor meeting 整合報告**（6/4 → 6/11，8 天）：v1.0 → v1.4 全時間軸、機制分析、FALSE 失敗歸因、v1.5 方向 |
 | **[`2026-06-10_dual_prompt_v1_noL3.md`](2026-06-10_dual_prompt_v1_noL3.md)** | **v1.4** dual SAFE/BUG + ce_summary：**155 solved**、PAR-2 **183s**；**FALSE 目標失敗**（38 vs stock 40） |
 | **[`2026-06-07_vguide-report_deepseek-v4-pro.md`](2026-06-07_vguide-report_deepseek-v4-pro.md)** | 歷史總覽：217 題 `full_scalar`；L3-on **131**/217；noL3 vs stock；L3 消融 |

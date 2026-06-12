@@ -254,4 +254,27 @@ Branch：`svcomp-integration`
 
 Verification report：[`reports/2026-06-13_svcomp27_vguide_integration.md`](reports/2026-06-13_svcomp27_vguide_integration.md)。
 
-Known smoke-test limitation：the recursive BAM fallback smoke runs did not reach TRUE/FALSE within the intentionally short 60s limit, but both demonstrated non-crashing behavior and the expected BAM fallback/no-VGuide-log evidence. Full `run.sh cpa --set sample` was not executed because the requested smoke budget was capped at 10 tasks; a dry-run regression plus unit/build/checkstyle coverage was used instead.
+Known smoke-test limitation：the recursive BAM fallback smoke runs did not reach TRUE/FALSE within the intentionally short 60s limit, but both demonstrated non-crashing behavior and the expected BAM fallback/no-VGuide-log evidence.
+
+---
+
+## 8. Phase 3 / full-set readiness status（2026-06-13）
+
+Branch：`svcomp-integration`
+
+| Item | Status | Commit | Diff / result summary |
+|------|--------|--------|-----------------------|
+| Sample workflow regression | DONE | `3c9ce56019` | Compared `main` vs branch for `run.sh cpa --set sample`; 8/8 verdicts match, summary CSV header unchanged, single-analysis dump task dirs have no `__bN` suffix, no `process_round_cap` logs. |
+| Portfolio verdict attribution | DONE | `0b96741d32` | Added `scripts/vguided-cegar/attribute_svcomp_verdicts.py`; parses log dirs or single logs into `task,verdict,selection_branch,restart_stage,deciding_component,vguide_fired,llm_rounds`; validated on smoke logs including scoped recursive no-VGuide path. |
+| Stock svcomp27 runner mode | DONE | `50211b3e9c` | Added `run.sh cpa --mode svcomp27-stock`; uses official `config/svcomp27.properties`, sv-comp reachability spec, no global VGuide option, no API-key requirement. |
+| 20-task reachability pilot | DONE | `95f6eb0e3f` | Added `svcomp27_pilot_20.list` with 10 TRUE + 10 FALSE `unreach-call.prp` tasks from `full_scalar`; ran stock and scoped VGuide at 900s, `--heap 4000M`, `--parallel 6`; VGuide solved 12/20 vs stock 11/20, no wrong verdicts, no process cap hits. |
+| Full-set launcher | DONE | `33f19c06e7` | Added `run_svcomp_full_nohup.sh`; default `full_scalar`, both stock+VGuide arms, 900s, `--parallel 6`, `--heap 4000M`, detached nohup log, automatic attribution CSV; dry-run and 2-task smoke verified. |
+
+Calibration / readiness report：[`reports/2026-06-13_svcomp27_pilot_calibration.md`](reports/2026-06-13_svcomp27_pilot_calibration.md)。
+
+Full-set status：ready for user-triggered launch; **not launched** during preparation. Recommended command:
+
+```bash
+cd /home/swear01/cpachecker
+./scripts/vguided-cegar/run_svcomp_full_nohup.sh --arm both
+```
