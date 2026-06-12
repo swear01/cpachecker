@@ -4,6 +4,8 @@
 
 | 報告 | 說明 |
 |------|------|
+| **[`../analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md`](../analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md)** | **v1.5 完整計劃**：SV-COMP Loops exploratory evaluation（broad/clean/applicable sets、tier 分析、`--svcomp26` baseline；FALSE 移 TODO） |
+| **[`2026-06-11_advisor_meeting_post_0604.md`](2026-06-11_advisor_meeting_post_0604.md)** | **Advisor meeting 整合報告**（6/4 → 6/11，8 天）：v1.0 → v1.4 全時間軸、機制分析、FALSE 失敗歸因、v1.5 方向 |
 | **[`2026-06-10_dual_prompt_v1_noL3.md`](2026-06-10_dual_prompt_v1_noL3.md)** | **v1.4** dual SAFE/BUG + ce_summary：**155 solved**、PAR-2 **183s**；**FALSE 目標失敗**（38 vs stock 40） |
 | **[`2026-06-07_vguide-report_deepseek-v4-pro.md`](2026-06-07_vguide-report_deepseek-v4-pro.md)** | 歷史總覽：217 題 `full_scalar`；L3-on **131**/217；noL3 vs stock；L3 消融 |
 | **[`2026-06-08_predicate-analysis_noL3.md`](2026-06-08_predicate-analysis_noL3.md)** | **Predicate 分析**（noL3 dump）：context budget / **Z3 overlap** / 排程；33 rescued vs stock |

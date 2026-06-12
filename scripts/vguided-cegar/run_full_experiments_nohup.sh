@@ -5,8 +5,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 RUN="$REPO/scripts/vguided-cegar/run.sh"
-export JAVA="${JAVA:-$HOME/jdk-21/bin/java}"
-[[ -x "$JAVA" ]] || export JAVA="$HOME/FMPA2/external/jdk-21/jdk-21.0.10+7/bin/java"
+export JAVA="${JAVA:-$HOME/.local/bin/java}"
 export PATH="${HOME}/.local/ant/bin:$(dirname "$JAVA"):${PATH:-}"
 export SV_BENCHMARKS="${SV_BENCHMARKS:-$HOME/sv-benchmarks/c}"
 export DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY required for VGuide batches}"

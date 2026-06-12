@@ -13,7 +13,7 @@ chmod +x scripts/vguided-cegar/run.sh scripts/vguided-cegar/setup_benchmarks.sh
 
 export SV_BENCHMARKS="$HOME/sv-benchmarks/c"
 export DEEPSEEK_API_KEY="..."
-export JAVA="$HOME/jdk-21/bin/java"   # 需 Java 21+，見 LOCAL_DEVELOPMENT_ENV.md
+export JAVA="$HOME/.local/bin/java"   # 需 Java 21+，見 LOCAL_DEVELOPMENT_ENV.md
 export PATH="$HOME/.local/ant/bin:$(dirname "$JAVA"):$PATH"
 
 # 改 Java 後

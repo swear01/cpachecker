@@ -36,6 +36,8 @@ require_java() {
     return
   fi
   for cand in \
+    "$HOME/.local/bin/java" \
+    "$HOME/.local/jdk-21/bin/java" \
     "$HOME/jdk-21/bin/java" \
     "$HOME/.jdks/temurin-21*/bin/java" \
     /usr/lib/jvm/java-21-openjdk-amd64/bin/java \
@@ -91,7 +93,11 @@ cmd_cpa() {
   done
   [[ -n "$set" ]] || die "cpa requires --set <sample|full_scalar|...>"
   require_java
-  [[ "$mode" == "stock" ]] || require_api
+  case "$mode" in
+    stock|svcomp26) ;;
+    vguide) require_api ;;
+    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26)" ;;
+  esac
   if [[ -z "$out" ]]; then
     case "$ablation" in
       l3|with-l3|entailment) out="output/vguide/experiments/${set}_vguide_l3" ;;
@@ -99,6 +105,8 @@ cmd_cpa() {
       *)
         if [[ "$mode" == "stock" ]]; then
           out="output/vguide/experiments/${set}_stock"
+        elif [[ "$mode" == "svcomp26" ]]; then
+          out="output/vguide/experiments/${set}_svcomp26"
         else
           out="output/vguide/experiments/${set}_vguide"
         fi
@@ -113,6 +121,12 @@ cmd_cpa() {
   [[ "$dry" == "1" ]] && env_extra+=(VGUIDE_DRY_RUN=1)
   if [[ "$mode" == "stock" ]]; then
     env_extra+=(VGUIDE_USE_VOCABULARY_GUIDE=false)
+  elif [[ "$mode" == "svcomp26" ]]; then
+    env_extra+=(
+      VGUIDE_USE_VOCABULARY_GUIDE=false
+      VGUIDE_CONFIG=config/unmaintained/svcomp26.properties
+      VGUIDE_SPEC=
+    )
   fi
   case "$ablation" in
     ""|"no-l3"|"no_l3"|"precision-only")

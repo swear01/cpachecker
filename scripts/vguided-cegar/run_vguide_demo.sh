@@ -3,7 +3,7 @@
 set -euo pipefail
 SCRIPT="$(readlink -f "$0")"
 ROOT="$(readlink -f "$(dirname "$SCRIPT")/../..")"
-export JAVA="${JAVA:-/home/swear01/FMPA2/external/jdk-21/jdk-21.0.10+7/bin/java}"
+export JAVA="${JAVA:-$HOME/.local/bin/java}"
 FILE="${1:-doc/examples/example.c}"
 exec "$ROOT/scripts/cpa.sh" \
   --heap 2000M \

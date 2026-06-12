@@ -12,7 +12,7 @@ chmod +x scripts/vguided-cegar/run.sh
 ./scripts/vguided-cegar/run.sh bench-reclassify   # 與官方 sv-benchmarks 對齊的 classifier + lists
 
 export DEEPSEEK_API_KEY="..."
-export JAVA="$HOME/jdk-21/bin/java"          # Java 21+，見下方
+export JAVA="$HOME/.local/bin/java"          # Java 21+，見下方
 export PATH="$HOME/.local/ant/bin:$(dirname "$JAVA"):$PATH"
 export SV_BENCHMARKS="$HOME/sv-benchmarks/c"
 
@@ -27,7 +27,7 @@ ant build-project
 | SV-COMP benchmarks | **`~/sv-benchmarks/c/`** = `SV_BENCHMARKS`；sparse 非整庫 |
 | 下載 profile | **`reachsafety`**：全部 `ReachSafety-*.set`（~2GB）；**`loops-full`**：ReachSafety-Loops + bitvector-loops |
 | Apache Ant | `~/.local/ant/bin/ant`（**1.10.14**；apt 未安裝） |
-| JDK 21（請自裝） | 建議 `~/jdk-21/`（Temurin 等）；或 `export JAVA=...` |
+| JDK 21 | **`~/.local/bin/java`**（本機 symlink 到 Temurin 21）；備援可用 `~/jdk-21/` 或 `export JAVA=...` |
 | CPA 輸出 | `cpachecker/output/vguide/` |
 
 ### Benchmark 安裝
@@ -47,7 +47,8 @@ CPAchecker 需 **Java 21+**。系統 `/usr/bin/java` 常為 OpenJDK 8，**不可
 
 安裝範例（擇一）：
 
-- 解壓 Temurin 21 至 `~/jdk-21/`，`export JAVA=~/jdk-21/bin/java`
+- 本機預設：`~/.local/bin/java` / `javac` / `jar` 指到 Temurin 21（目前實體在 `~/.local/jdk-21/`）
+- 若重建環境：解壓 Temurin 21 至 `~/.local/jdk-21/`，再 symlink `~/.local/bin/java -> ~/.local/jdk-21/bin/java`
 - `sudo apt install openjdk-21-jdk` 後 `export JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java`
 
 驗證：`$JAVA -version` → 21.x；`bin/cpachecker --version`。

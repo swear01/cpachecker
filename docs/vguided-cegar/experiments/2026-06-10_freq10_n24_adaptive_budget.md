@@ -102,7 +102,7 @@
 
 ```bash
 export PATH="$HOME/.local/ant/bin:$PATH"
-export JAVA="${JAVA:-$HOME/jdk-21/bin/java}"
+export JAVA="${JAVA:-$HOME/.local/bin/java}"
 ant build-project
 ant junit.test -Dtest.class=org.sosy_lab.cpachecker.cpa.predicate.vguide.PredicateBudgetResolverTest
 # …其餘 test class 同上

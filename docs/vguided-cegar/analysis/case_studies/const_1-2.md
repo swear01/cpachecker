@@ -108,7 +108,7 @@ benchexec --tool=cpachecker ~/sv-benchmarks/c/loop-acceleration/const_1-2.yml
 **CPAchecker 本機**（我們 batch 等價：`default.spc` = assertion + ERROR label）：
 
 ```bash
-export JAVA=$HOME/jdk-21/bin/java
+export JAVA=$HOME/.local/bin/java
 scripts/cpa.sh -config config/predicateAnalysis-vguide.properties \
   -spec config/specification/default.spc \
   -timelimit 300 \

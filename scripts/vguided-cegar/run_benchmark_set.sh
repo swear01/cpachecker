@@ -36,7 +36,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 CPA_SH="$REPO/scripts/cpa.sh"
-SPEC="$REPO/config/specification/default.spc"
+SPEC="${VGUIDE_SPEC-$REPO/config/specification/default.spc}"
 CONFIG="${VGUIDE_CONFIG:-config/predicateAnalysis-vguide.properties}"
 SET_DIR="${VGUIDE_SET_DIR:-$REPO/docs/vguided-cegar/benchmark_sets}"
 JAVA="${JAVA:-}"
@@ -208,9 +208,11 @@ run_one() {
   if [[ -n "${VGUIDE_INTERP_TIMELIMIT_MS:-}" ]]; then
     cmd+=(--option "cpa.predicate.refinement.timelimit=${VGUIDE_INTERP_TIMELIMIT_MS}")
   fi
+  cmd+=(--timelimit "${TIMELIMIT}s")
+  if [[ -n "$SPEC" ]]; then
+    cmd+=(--spec "$SPEC")
+  fi
   cmd+=(
-    --timelimit "${TIMELIMIT}s"
-    --spec "$SPEC"
     --stats
     --no-output-files
     "$@"

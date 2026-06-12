@@ -1,7 +1,7 @@
 # 計劃：VGuide 面向 FALSE（找 bug）的 harness 與 prompt 改進
 
-**狀態**：計劃（未實作）— 實作路徑見 [DUAL_PROMPT_V1_PLAN.md](DUAL_PROMPT_V1_PLAN.md)（雙軌 SAFE+BUG，預設開）  
-**動機**：v1.3.0 相對 stock **rescued 35 題全為 TRUE**；**0 題** stock UNKNOWN → adaptive FALSE。在 expected-false 子集上 adaptive 還多 **4 題錯誤 TRUE**（如 `bin-suffix-5`, `odd` 等，依 yml 對照）。  
+**狀態**：早期計劃 / TODO — v1.5 已改走 [SV-COMP Loops exploratory evaluation](V1_5_LOOPS_EXPLORATORY_PLAN.md)，FALSE / doomed-region context 暫移 v1.6+；v1.4 雙軌見 [DUAL_PROMPT_V1_PLAN.md](DUAL_PROMPT_V1_PLAN.md)（已實作）
+**動機**：v1.3.0 相對 stock **rescued 35 題全為 TRUE**；**0 題** stock UNKNOWN → adaptive FALSE。在 expected-false 子集上 adaptive 還多 **4 題錯誤 TRUE**（如 `bin-suffix-5`, `odd` 等，依 yml 對照）。
 **目標**：在 **不大幅犧牲 TRUE rescued** 的前提下，提高 **FALSE 發現率**、降低 **false benchmark 上的錯誤 TRUE**。
 
 **相關**：[CE_CONTEXT_PROMPT_PLAN.md](CE_CONTEXT_PROMPT_PLAN.md)（CE 摘要，可合併 Phase 1）、[case_studies/const_1-2.md](case_studies/const_1-2.md)
@@ -260,3 +260,400 @@ export VGUIDE_LLM_THINKING=disabled
 - SV-COMP task：`~/sv-benchmarks/c/loop-acceleration/const_1-2.yml`（`expected_verdict: false`）
 - CPAchecker SV-COMP'24：同題 `false(unreach-call)`
 - 程式碼：`ProposalPromptBuilder.java`, `VGuideRefinementBridge.onSpuriousBeforeRefinement`, `ContextPackBuilder.java`
+---
+
+## 10. v1.6+ TODO：原 v1.5 FALSE Context 工程（整塊移入）
+
+> **狀態更新（2026-06-11）：** 以下內容為 **FALSE / bug-finding future work**（v1.6+），不屬 v1.5。v1.5 見 [V1_5_LOOPS_EXPLORATORY_PLAN.md](V1_5_LOOPS_EXPLORATORY_PLAN.md)。
+
+### 10.0 目標一句話
+
+在 **不動 VGuide 主管線** 的前提下，把 BUG_HUNT track 的 context 從「證 safe 的反義 prompt」升級為 **doomed-region / error-invariant 導向的 counterexample-to-predicate**；SAFE track 作 control group，僅加共用 ledger 與可選 throttle；以 **property-aligned bug benchmarks** 上的 FALSE 數與 new-FALSE 為主指標。
+
+---
+
+### 10.1 核心診斷
+
+#### 10.1.1 瓶頸不是「模型不想找 bug」
+
+FALSE 只在 **某條 abstract error path 通過 concrete feasibility check** 時宣告。瓶頸是 **candidate path selection** 與 **refinement budget 分配**。
+
+#### 10.1.2 Predicate 影響 FALSE 的三條因果通道
+
+設 **violation depth d\*** = 最短 failing execution 所需的 loop iteration **總數**（沿最短路徑累加）。
+
+| 通道 | 機制 | 與 SAFE/BUG 的關係 |
+|------|------|-------------------|
+| **1 Off-path one-shot refutation** | 若 abstraction 能表達 ¬D（D = doomed region，從該 state 可達 failed assertion），經過 ¬D-labeled state 的 spurious sibling 可被直接或極少次 refinement 排除 | SAFE invariant atoms **也走此通道** → dual 不必然傷 FALSE，但 BUG 邊際價值須來自通道 2/3 |
+| **2 On-path precision** | 表達 D 的 atoms 讓真正 failing path 的 prefix 與 safe states 區分，feasibility check 落在對的 candidate | BUG track 主戰場 |
+| **3 Refinement 節約** | 每條比真路徑短的 abstract error path 須先 refute；好 atoms 讓 refutation 更便宜、更批次 | 兩軌皆可貢獻 |
+
+#### 10.1.3 鐵律
+
+**Predicate 無法縮短 feasible path 本身。** Candidate path 必須物理上包含 ≥ d\* 次 loop-head visit；排除所有更短 abstract error path 在純 predicate abstraction 下會退化成 **counting**（interpolant 序列 y≤1, y≤2, …）。
+
+**案例 `const_1-2`：** 第一輪 LLM 已 propose 並 inject `(= x (_ bv0 32))`、`(bvslt y (_ bv1024 32))`，verdict 仍 UNKNOWN — 因 d\* ≈ 1024，結構性需展開或 portfolio 策略，非「缺謂詞」。SV-COMP 上 CPAchecker 解此類題靠 **strategy portfolio**（BMC、symexec、value analysis、PredAbs…），非單一 PredAbs + LLM。
+
+#### 10.1.4 A/B 分類（量化判準）
+
+| 類別 | 條件 | Context-only 期望 |
+|------|------|-------------------|
+| **A（predicate-gap）** | d\* ≲ 數百；stock 把 refinement 燒在錯誤區分上 | **主戰場** |
+| **B（exploration-gap）** | d\* ≳ 10³；counting 結構性必然 | **無解**（需 strategy 層） |
+| **Mixed** | 巢狀乘積或 phase 邊界介於兩者 | 部分可救 |
+
+#### 10.1.5 Soundness 邊界
+
+Predicate 注入 **不可能造成錯誤 verdict**（FALSE 經 concrete check；TRUE 是 over-approx fixpoint）。所有 proposal 的 risk 僅 **時間 / precision bloat**，非 soundness。
+
+#### 10.1.6 理論錨點
+
+- **Danger invariants**：safety invariant 的對偶；總結「保證能到達 error 的 trace 集合」（David, Kesseli, Kroening, Lewis, FM 2016）。
+- **Doomed states**（Hoenicke et al., FM 2009）。
+- **Error invariants**：error trace 上 over-approx reachable states，保留「繼續執行仍失敗」的狀態（Ermis, Schäf, Wies, FM 2012）。
+
+**BUG track 目標物** = 上述概念在 **loop head** 上的 **atom 化**，不是「invariant 的反義詞」。
+
+---
+
+### 10.2 原 v1.4 基線與 FALSE 失敗歸因
+
+`full_scalar` 217 題，300s：
+
+| Run | TRUE | FALSE | UNKNOWN | Solved | PAR-2 avg |
+|-----|------|-------|---------|--------|-----------|
+| stock | 76 | 40 | 101 | 116 | 283.36s |
+| v1.3 adaptive | 110 | 40 | 67 | 150 | 192.03s |
+| **v1.4 dual** | **117** | **38** | 62 | **155** | **183.05s** |
+
+- v1.4：**+39 solved vs stock**；rescued 幾乎全為 UNKNOWN→TRUE。
+- FALSE：**40→38**（−2 regression：`benchmark40_polynomial`、`benchmark53_polynomial`）；**0 new FALSE**。
+
+待驗證歸因：
+
+1. Spurious-only context 與「找 failure」語意不一致。
+2. SAFE∪BUG merge + 共用 validation；SAFE invariant 先佔序。
+3. BUG 在所有 task 上跑，safe task 浪費 budget。
+4. 無 later-round 記憶（counting / 重複 safe preds）。
+5. 2 個 regression 死因未明（bloat vs candidate 順序）。
+
+---
+
+### 10.3 Bug benchmark taxonomy（TODO）
+
+主軸：**d\***；archetype 為疊加結構特徵。重啟 FALSE 工作時，Phase 0 產出 `bug_benchmark_taxonomy.csv`。
+
+| # | Archetype | 典型解鎖 predicates | A/B | LLM 有用 context 訊號 |
+|---|-----------|---------------------|-----|------------------------|
+| 1 | **Exit-mismatch / reset-constant**（loop 內重置變數，exit 後 assert 矛盾；`const_*`） | `(= x 0)`、`(not (= x 1))`、exit `(bvsge y N)` | N≥10³→**B**；N 小→A | ledger(reset) + tension；frontier **COUNTER-BOUND** |
+| 2 | **Input-gated bug**（nondet + guard ladder，failing path 上 loop 淺） | 輸入區域 `(bvsge n k)`、guard atoms、parity | **A** | input-gate map；guards-to-error |
+| 3 | **Phase / mode-switch**（`phases_*`、`Mono*`） | phase discriminator、per-phase rel、boundary equality | threshold 小→A；10⁶ 常數→B | ledger conditional update；frontier 卡 phase boundary |
+| 4 | **Nested / sequential multi-loop** | relational `(= s (bvadd (bvmul i K) j))`、inner-exit equality | 乘積≲10³ 且 interleaving→A；大→B | cross-loop counter pairing |
+| 5 | **Disjunctive guards / branch ladder** | branch atoms + 相關性 | 幾乎純 **A** | guards-to-error |
+| 6 | **Stride mismatch / off-by-one** | relational stride、`(= i N)`、parity | bound 小→A；大常數→B | ledger stride；frontier arithmetic gap |
+
+---
+
+### 10.4 Context 設計：十項 Proposal（P1–P10）
+
+| ID | 名稱 | Phase | 檔案 | Archetypes |
+|----|------|-------|------|------------|
+| P1 | Mechanism-grounded role brief | 1 | `ProposalPromptBuilder` | 全部 |
+| P5 | Loop-role ledger + tension | 1 | `LoopLedgerBuilder` + `ContextPack` | 1,3,4,6 |
+| P6 | Input-gate map | 1 | `SourceStaticAnalyzer` | 2,5,3(symbolic) |
+| P2 | Doomed-region + suffix-WP | 2 | `ContextPackBuilder` + prompt | 1,3,4,6 |
+| P3 | Plan-before-predicates schema | 2 | prompt + tolerant parse | 全 A 類 |
+| P4 | Frontier digest | 2 | `FrontierDigestBuilder` | 2,3,5,6 + 診斷 |
+| P8 | Single worked exemplar | 2 | `ProposalPromptBuilder` | 教程序（phase 型） |
+| P7 | Anti-divergence directive | 3 | `CeSummaryBuilder` / bridge | B 止損；間接省 budget |
+| P9 | Verdict-conditional throttling | 3 | `ProposalPromptBuilder` | 防 regression / safe 浪費 |
+| P10 | Cross-loop relational pairing | 3 | ledger 擴充 + prompt | 4 |
+
+#### P1 — Mechanism-grounded role brief
+
+System message 從「身分宣告」改為 **目標函數 + 因果機制**。
+
+BUG system 核心：
+
+```text
+You assist a CEGAR predicate-abstraction model checker. The verifier declares FALSE
+only when an ABSTRACT error path passes a CONCRETE feasibility check. Your predicates
+cannot "execute" the bug. They act as state splitters:
+(1) atoms characterizing the complement of the doomed region let the verifier discard
+    safe branches without further refinement;
+(2) atoms that hold along the genuine failing execution keep its prefix abstractly
+    distinct, so it becomes the next candidate error path.
+Doomed region D := states from which the failed assertion is reachable. Propose atoms
+describing D and its boundary, expressed at loop heads.
+```
+
+SAFE system：同結構，目標物改為 **inductive invariant / safe abstraction**。
+
+#### P2 — Doomed-region targeting（suffix-WP elicitation）
+
+BUG track 計算對象改為 **D(ℓ) 在 loop head 的 atom 化**；builder 切 **loop exit → assert** 的 suffix 原始碼，指示 model 將 ¬assert 往回拉過 suffix 與 exit condition。
+
+```text
+TARGET OBJECT
+D(L1) := states at the head of L1 from which some continuation reaches the FAILED assertion.
+Compute it backwards:
+  step 1: negate the assertion:  !(x == 1)
+  step 2: pull it through the suffix below and through the exit condition !(y < 1024)
+  step 3: emit each atom of the result AND of its boundary as one SMT-LIB2 predicate.
+SUFFIX (loop exit -> assertion, lines 9-12):
+  }
+  __VERIFIER_assert(x == 1);
+```
+
+#### P3 — Plan-before-predicates output schema
+
+JSON 欄位順序強迫 model 先產生 violation plan / witness，再產生 predicates（non-thinking 的 schema-induced grounding）。
+
+```json
+{
+  "violation_plan": [
+    {"at": "L1 head, final visit", "must_hold": "y >= 1024 && x == 0"},
+    {"at": "line 12", "must_hold": "x != 1"}
+  ],
+  "witness_hint": {"iterations_L1": 1024},
+  "verdict_guess": "FALSE",
+  "limit": "NONE",
+  "predicates": [
+    "(bvsge y (_ bv1024 32))",
+    "(= x (_ bv0 32))",
+    "(not (= x (_ bv1 32)))"
+  ]
+}
+```
+
+Parser tolerant：只讀 `predicates` key；`verdict_guess ∈ {FALSE, TRUE, UNSURE}`；`limit ∈ {NONE, EXPLORATION_BOUND}`。
+
+#### P4 — Frontier digest（blocked-by + violation-depth）
+
+從 interpolant 序列找 **blocking edge**，壓縮成一行決策梯度 + blocking class。
+
+```text
+WHY THE LAST CANDIDATE DIED
+The abstract error path was refuted at edge (L8 -> L12).
+The suffix required (y >= 1024); the prefix admits at most y <= 1.
+Blocking class: COUNTER-BOUND. Estimated violation depth: >= 1024 iterations of L1.
+RULES:
+- BRANCH-GUARD / INPUT-RANGE / RELATION: propose atoms that let a DIFFERENT path
+  satisfy the blocked constraint.
+- COUNTER-BOUND with depth > 256: do NOT emit numeric bound chains;
+  set "limit":"EXPLORATION_BOUND" and emit only doomed-region atoms.
+```
+
+#### P5 — Loop-role ledger + assertion-tension
+
+每 loop 一張效果帳本 + 一行 assert 與 loop 效果衝突。
+
+```text
+LOOP L1 (line 8): guard (y < 1024)
+  strides:    y += 1      [monotone up; exit forces y >= 1024; exact exit value y = 1024]
+  resets:     x = 0       [every iteration]
+ASSERTION (line 12): x == 1
+TENSION: L1 establishes x = 0 at every head visit; nothing between L1-exit and line 12
+writes x. If the exit is reachable, the assertion FAILS. Violation depth ~ 1024.
+```
+
+#### P6 — Input-gate map
+
+列出 nondet 變數與通往 assert 的 guards，指示切 bug-enabling input region。
+
+```text
+INPUT GATES
+n = __VERIFIER_nondet_int()   (line 3)
+guards involving n on paths toward the assertion: (n > 5) at L6, (n % 2 == 0) at L9
+If the violation exists it is ENABLED by an input region. Carve it: propose atoms over
+inputs only (region boundaries, exact enabling values, parities).
+```
+
+#### P7 — Anti-divergence directive
+
+對近 m 輪 interpolant 做 anti-unification；偵測 counting pattern 時給禁令 + fork。
+
+```text
+REFINER TRAJECTORY: the last 6 refinements added y <= 1, y <= 2, ..., y <= 6.
+The refiner is counting iterations of L1 one by one (divergence).
+Do NOT add more numeric bounds on y. Either:
+(a) propose a relation holding at EVERY L1 head visit that, with the exit condition,
+    decides the assertion in closed form; or
+(b) declare "limit": "EXPLORATION_BOUND".
+```
+
+#### P8 — Single worked exemplar
+
+一個約 25 行完整微型 trace（source → ledger → gates → frontier → plan → preds → 一句機制解釋），取代 example 清單。使用 **phase 型** archetype 3，與 `const_*` 錯開，並標註：`the program above is unrelated to your task`。
+
+#### P9 — Verdict-conditional throttling
+
+Prompt 層雙向 routing（不做 yml harness）：
+
+- **BUG：** 若 `verdict_guess` 為 TRUE → 回傳 ≤2 proof-support atoms，不虛構 violation。UNSURE → 當 FALSE。
+- **SAFE：** 若 assertion 可違反 → ≤2 泛用 support atoms。
+
+目的：不動 merge 下緩解 SAFE atoms 淹沒 BUG、修 v1.4 2 個 FALSE regression（若 autopsy 支持 precision bloat 假說）。
+
+#### P10 — Cross-loop relational pairing
+
+巢狀 loop 的 counter 配對，要求 relational atoms + exit equalities。
+
+```text
+LOOP NESTING: L1(i: 0 -> 10) contains L2(j: 0 -> 10, j reset each L1 iter); s += 1 in L2.
+Propose at most 2 RELATIONAL atoms tying counters across levels,
+plus exact exit equalities.
+```
+
+---
+
+### 10.5 ContextPack 擴充（TODO）
+
+```java
+// ContextPack 新增欄位（record 擴充）
+String loopLedger;        // P5
+String inputGates;        // P6
+String suffixSlice;       // P2
+String frontierDigest;    // P4
+String refinerTrajectory; // P7
+// ceSummary 保留但 BUG prompt 中降級為佐證（≤6 rel）
+// traceSummary → P7 或廢止合併入 refinerTrajectory
+```
+
+建議新增類：
+
+```text
+org.sosy_lab.cpachecker.cpa.predicate.vguide/
+  LoopLedgerBuilder.java
+  FrontierDigestBuilder.java
+  SourceStaticAnalyzer.java
+```
+
+不變：`VGuideRefinementBridge` 的 merge / validate / inject / schedule 邏輯。
+
+---
+
+### 10.6 Prompt assembly（TODO）
+
+#### BUG_HUNT user message 順序
+
+| # | 區塊 | Proposal |
+|---|------|----------|
+| 1 | Task 一行 | — |
+| 2 | SOURCE（全文，行號） | — |
+| 3 | LOOP LEDGER + TENSION | P5 |
+| 4 | INPUT GATES | P6 |
+| 5 | FRONTIER + TRAJECTORY | P4 + P7 |
+| 6 | DOOMED-REGION + suffix-WP | P2 |
+| 7 | ce_summary（壓縮，≤6 rel） | 降級佐證 |
+| 8 | WORKED EXEMPLAR | P8 |
+| 9 | RULES（P9 throttle）+ OUTPUT SCHEMA | P3 + P9 |
+
+SAFE user message：結構維持 v1.4（control group + attribution），僅可新增共用 P5 ledger 與可選 P9 throttle 一行；不新增 P2/P3/P4/P8、BUG schema、doomed-region 塊。
+
+---
+
+### 10.7 Phase 0：診斷（重啟前必做）
+
+#### FALSE regression autopsy
+
+對象：`benchmark40_polynomial`、`benchmark53_polynomial`。對比 v1.3 adaptive vs v1.4 dual dump / logs。
+
+| 檢查項 | 解讀 |
+|--------|------|
+| per-refinement abstraction 時間 | ↑ → precision bloat → P9 高優先 |
+| precision 大小趨勢 | 同上 |
+| refinements-to-timeout vs v1.3 | 未跑完 feasible path → bloat |
+| candidate 順序 / merge 序 | 若 preds 正但順序錯 → merge 問題 |
+
+產出：`docs/vguided-cegar/analysis/v1.4_false_regression_autopsy.md`
+
+#### d\* audit + taxonomy
+
+對象：unreach-call false 題（至少 unsolved + 抽樣已解）。欄位：`task`, `archetype`, `d_star_estimate`, `class_A_B`, `notes`。
+
+產出：`docs/vguided-cegar/analysis/bug_benchmark_taxonomy.csv`
+
+---
+
+### 10.8 實作階段（若升級為 v1.6 plan）
+
+#### Phase 1 — 基礎建設
+
+| 任務 | 交付 |
+|------|------|
+| P1 mechanism system messages | `ProposalPromptBuilderTest` SAFE/BUG system 不同 |
+| P5 loop ledger + tension | `LoopLedgerBuilder` + unit test（`const_1-2`） |
+| P6 input gates | `SourceStaticAnalyzer` |
+| ContextPack 擴充 | record + builder |
+| Config 雛形 | `config/vguide-experiment-v1.6-false-context.properties` |
+
+#### Phase 2 — BUG 核心
+
+| 任務 | 交付 |
+|------|------|
+| P2 suffix + doomed-region block | prompt + builder |
+| P3 extended JSON + tolerant parse | parser test |
+| P4 frontier digest | `FrontierDigestBuilder` + 常數門檻校準 |
+| P8 worked exemplar | 固定字串 + schema 對齊 |
+| ce_summary 降級 | BUG prompt ≤6 rel |
+
+#### Phase 3 — 止損、routing、評估
+
+| 任務 | 交付 |
+|------|------|
+| P7 anti-divergence | bridge 傳 interpolant 歷史 |
+| P9 throttling | 若 autopsy 支持 bloat |
+| P10 cross-loop | 若 taxonomy 顯示 archetype 4 多 |
+| Section ablation | 拔 P2/P4/P5 各一 run |
+| 實驗報告 | `reports/2026-06-xx_v1.6_false_context.md` |
+
+---
+
+### 10.9 評估與驗收（future）
+
+Primary 指標：property-aligned expected-false 題的 FALSE 數、new-FALSE vs stock/v1.4，以及 v1.4 2 個 FALSE regression 是否收復。
+
+Guard 指標：
+
+- bug 上 wrong-TRUE = 0。
+- TRUE rescued 不明顯下降。
+- PAR-2 不明顯惡化。
+
+Context 有效判別：
+
+| 訊號 | 來源 |
+|------|------|
+| new-FALSE 的 D-atoms 在 verdict precision 中 | dump |
+| refinements-to-FALSE vs stock | summary CSV |
+| `verdict_guess` / `limit` confusion matrix | `llm_rounds.jsonl` |
+| Novel% 拆 SAFE-track vs BUG-track | `analyze_predicate_study.py` |
+| Section ablation | smoke subset |
+
+Future 驗收門檻（草案）：
+
+| 項目 | 門檻 |
+|------|------|
+| v1.4 2 個 FALSE regression | 收復 |
+| property-aligned FALSE vs stock | ≥ +2（audit 下修時 ≥ +1 並文檔說明） |
+| new-FALSE（stock 非 FALSE → new FALSE） | ≥ 2（理想） |
+| bug wrong-TRUE | 0 |
+| Unit tests | 全綠 |
+| 文檔 | plan + 實驗報告 + taxonomy CSV |
+
+---
+
+### 10.10 超出 context-only 的 v1.6+ 候選
+
+#### Sentinel-triggered strategy escalation
+
+觸發：
+
+- (`limit == EXPLORATION_BOUND` 連續 ≥2 輪) **或** (P7 divergence ≥ k 次)
+- 且 `verdict_guess == FALSE`
+
+動作：剩餘 budget 交給 CPAchecker **falsification 配置**（BMC / value analysis / symbolic execution — SV-COMP portfolio 路線）。
+
+價值：收割 B 類；觸發訊號來自 context 工作 → **per-task 語意驅動切換**，非固定 sequential portfolio。
+
+風險：過早 escalate 殺 TRUE → gate 在 `verdict_guess==FALSE`。
