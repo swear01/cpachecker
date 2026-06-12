@@ -287,3 +287,114 @@ Parameter recommendation (do not change config defaults yet):
 - Keep `vguide.maxLlmRoundsPerProcess=10` for svcomp scoped config: pilot never hit the cap.
 - Keep `llmMinIntervalSec=15`: pilot API latency was low and the schedule rarely reached a second eligible round; no data supports reducing it.
 - If full set shows many long UNKNOWN tasks with only one LLM round, consider lowering `every_n` or adding a second earlier scheduled call, but that is a future tuning decision after full-set attribution.
+
+## Task E — full-set nohup launcher
+
+Added launcher: `scripts/vguided-cegar/run_svcomp_full_nohup.sh`
+
+Default behavior:
+
+- Set: `full_scalar`
+- Arms: `svcomp27-stock` then scoped `svcomp` VGuide
+- Timelimit: 900s CPU per task
+- Outer timeout grace: 180s
+- Heap: `4000M`
+- Parallel: `6` by default, based on Task D pilot
+- VGuide dump root: `output/vguide/analysis_dumps/<set>_svcomp27_vguide_<stamp>`
+- After each arm, run `attribute_svcomp_verdicts.py` and write `<out>/svcomp_attribution.csv`
+- For real runs, default is detached `nohup` with a launcher log under `output/vguide/experiments/svcomp_full_logs/`
+- `--foreground` is available for smoke tests; `--dry-run` prints commands without execution
+
+### Dry-run verification
+
+Command:
+
+```bash
+./scripts/vguided-cegar/run_svcomp_full_nohup.sh --dry-run --stamp DRYRUN_20260613
+```
+
+Output excerpt:
+
+```text
+set=full_scalar tasks=217 arm=both arm_count=2
+timelimit=900s grace=180s heap=4000M parallel=6
+estimated_wall_time=18h5m0s (tasks * timelimit * arms / parallel; pessimistic)
+stock_out=output/vguide/experiments/full_scalar_svcomp27_stock_DRYRUN_20260613
+vguide_out=output/vguide/experiments/full_scalar_svcomp27_vguide_DRYRUN_20260613
+vguide_dump=output/vguide/analysis_dumps/full_scalar_svcomp27_vguide_DRYRUN_20260613
+[dry-run] env VGUIDE_TIMEOUT_GRACE=180 ... run.sh cpa --set full_scalar --mode svcomp27-stock --parallel 6 --timelimit 900 --heap 4000M --out output/vguide/experiments/full_scalar_svcomp27_stock_DRYRUN_20260613
+[dry-run] env VGUIDE_TIMEOUT_GRACE=180 VGUIDE_ANALYSIS_DUMP_DIR=output/vguide/analysis_dumps/full_scalar_svcomp27_vguide_DRYRUN_20260613 VGUIDE_ANALYSIS_BENCHMARK_SET=full_scalar VGUIDE_ANALYSIS_TIMELIMIT_SEC=900 ... run.sh cpa --set full_scalar --mode svcomp --parallel 6 --timelimit 900 --heap 4000M --out output/vguide/experiments/full_scalar_svcomp27_vguide_DRYRUN_20260613
+```
+
+No full-set run was launched by this dry-run.
+
+### 2-task smoke verification
+
+Committed smoke set: `docs/vguided-cegar/benchmark_sets/svcomp27_smoke_2.list`
+
+Command:
+
+```bash
+./scripts/vguided-cegar/run_svcomp_full_nohup.sh \
+  --foreground --arm both --set svcomp27_smoke_2 \
+  --parallel 2 --timelimit 60 --heap 4000M --stamp SMOKE_20260613
+```
+
+Outputs:
+
+- stock: `output/vguide/experiments/svcomp27_smoke_2_svcomp27_stock_SMOKE_20260613/`
+- VGuide: `output/vguide/experiments/svcomp27_smoke_2_svcomp27_vguide_SMOKE_20260613/`
+- VGuide dump: `output/vguide/analysis_dumps/svcomp27_smoke_2_svcomp27_vguide_SMOKE_20260613/`
+
+Smoke attribution tables:
+
+Stock:
+
+| task | verdict | selection_branch | restart_stage | deciding_component | vguide_fired | llm_rounds |
+|------|---------|------------------|---------------|--------------------|--------------|-----------:|
+| `overflow_1-1` | UNKNOWN | single_loop | parallel_single_loop | parallel_single_loop | false | 0 |
+| `simple_1-1` | UNKNOWN | single_loop | parallel_single_loop | parallel_single_loop | false | 0 |
+
+VGuide:
+
+| task | verdict | selection_branch | restart_stage | deciding_component | vguide_fired | llm_rounds |
+|------|---------|------------------|---------------|--------------------|--------------|-----------:|
+| `overflow_1-1` | TRUE | single_loop | parallel_single_loop | svcomp27-vguide--singleLoop-predicateAnalysis.properties | true | 1 |
+| `simple_1-1` | UNKNOWN | single_loop | parallel_single_loop | parallel_single_loop | true | 1 |
+
+End-to-end checks:
+
+- Both arms ran sequentially from the launcher.
+- Both arms produced summary CSVs.
+- Both arms produced `svcomp_attribution.csv` via automatic post-processing.
+- Scoped VGuide arm produced analysis dumps.
+
+### Full-set launch command for user
+
+To launch both full-set arms detached with default calibrated parameters:
+
+```bash
+cd /home/swear01/cpachecker
+./scripts/vguided-cegar/run_svcomp_full_nohup.sh --arm both
+```
+
+The script prints the PID and log path. Monitor with:
+
+```bash
+tail -f output/vguide/experiments/svcomp_full_logs/full_scalar_both_<STAMP>.log
+```
+
+Optional arm-specific launches:
+
+```bash
+./scripts/vguided-cegar/run_svcomp_full_nohup.sh --arm stock
+./scripts/vguided-cegar/run_svcomp_full_nohup.sh --arm vguide
+```
+
+Override defaults if needed:
+
+```bash
+./scripts/vguided-cegar/run_svcomp_full_nohup.sh --arm both --parallel 8 --heap 4000M
+```
+
+Reminder: full set was **not** launched as part of this preparation task.

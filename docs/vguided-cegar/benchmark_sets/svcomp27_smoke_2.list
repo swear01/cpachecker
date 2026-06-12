@@ -1,0 +1,3 @@
+# svcomp27_smoke_2: tiny end-to-end smoke for svcomp27 launcher post-processing.
+loop-acceleration/overflow_1-1.c
+loop-acceleration/simple_1-1.c
