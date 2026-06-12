@@ -411,7 +411,14 @@ public final class VGuideRefinementBridge {
     lastValidation = null;
   }
 
-  /** Called at analysis end to finalize dumps and handle NO_SPURIOUS frozen seed path. */
+  /**
+   * Called at analysis end to finalize dumps and handle NO_SPURIOUS frozen seed path.
+   *
+   * <p>This method is currently reached from predicate-refiner statistics printing, i.e., after the
+   * analysis has already produced its verdict. Thus frozen predicate injection here affects only
+   * dump/outcome accounting for this run, not the verdict itself. A verdict-effective frozen-seed
+   * path needs injection into the initial predicate precision before analysis starts.
+   */
   public void onAnalysisEnd(int refinementCount, Result result, @Nullable ARGReachedSet reached) {
     if (refinementCount == 0 && reached != null) {
       String benchmark = benchmarkBaseName();
