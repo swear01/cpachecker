@@ -1,0 +1,25 @@
+# svcomp27_pilot_20: 20-task full_scalar pilot for svcomp27 stock vs scoped VGuide.
+# Selection: 10 TRUE + 10 FALSE unreach-call.prp expected verdicts from full_scalar,
+# sampled across file-size quantiles to cover small through larger scalar loop tasks.
+# TRUE expected verdicts (unreach-call.prp)
+loop-acceleration/overflow_1-1.c
+loops-crafted-1/mono-crafted_1.c
+loop-invariants/const.c
+loop-acceleration/phases_2-2.c
+loops-crafted-1/sumt3.c
+loops-crafted-1/sumt8.c
+loops/sum03-2.i
+loop-invgen/up.i
+loop-invgen/nest-if3.i
+loop-invgen/apache-escape-absolute.i
+# FALSE expected verdicts (unreach-call.prp)
+loop-acceleration/simple_1-1.c
+loops-crafted-1/Mono5_1.c
+loops-crafted-1/Mono1_1-1.c
+loop-acceleration/simple_2-2.c
+loops/while_infinite_loop_4.c
+loop-invariants/linear-inequality-inv-b.c
+loops-crafted-1/nested3-2.c
+loops/trex01-1.c
+loops/sum01_bug02.i
+loop-invgen/id_trans.i
