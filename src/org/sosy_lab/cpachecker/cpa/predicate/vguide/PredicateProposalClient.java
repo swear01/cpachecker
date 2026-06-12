@@ -51,11 +51,17 @@ public final class PredicateProposalClient {
 
   /** Returns a client when {@code DEEPSEEK_API_KEY} is set; otherwise {@code null}. */
   public static @Nullable PredicateProposalClient createOptional(LogManager pLogger) {
+    return createOptional(pLogger, readPositiveIntEnv("VGUIDE_LLM_MAX_COMPLETION_TOKENS", 1024));
+  }
+
+  /** Returns a client when {@code DEEPSEEK_API_KEY} is set; otherwise {@code null}. */
+  public static @Nullable PredicateProposalClient createOptional(
+      LogManager pLogger, int pMaxCompletionTokens) {
     String key = System.getenv("DEEPSEEK_API_KEY");
     if (key == null || key.isBlank()) {
       return null;
     }
-    return new PredicateProposalClient(pLogger, readPositiveIntEnv("VGUIDE_LLM_MAX_COMPLETION_TOKENS", 1024));
+    return new PredicateProposalClient(pLogger, pMaxCompletionTokens);
   }
 
   public PredicateProposalClient(LogManager pLogger) {

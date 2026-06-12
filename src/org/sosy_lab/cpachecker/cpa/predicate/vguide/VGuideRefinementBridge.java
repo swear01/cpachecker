@@ -90,7 +90,8 @@ public final class VGuideRefinementBridge {
       CFA cfa,
       Optional<LoopStructure> loopStructure,
       Solver solver,
-      @Nullable PredicateAbstractionManager predAbsManager)
+      @Nullable PredicateAbstractionManager predAbsManager,
+      PredicateProposalClient llmClient)
       throws InvalidConfigurationException {
     VGuideOptions opts = new VGuideOptions(config);
     if (!opts.isEnable()) {
@@ -104,7 +105,7 @@ public final class VGuideRefinementBridge {
     return new VGuideRefinementBridge(
         logger,
         opts,
-        new PredicateProposalClient(logger, opts.getLlmMaxCompletionTokens()),
+        llmClient,
         cfa,
         fmgr,
         loopHeads,

@@ -25,6 +25,9 @@ import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.types.MachineModel;
 import org.sosy_lab.cpachecker.core.interfaces.ConfigurableProgramAnalysis;
 import org.sosy_lab.cpachecker.cpa.arg.ARGBasedRefiner;
+import org.sosy_lab.cpachecker.cpa.predicate.vguide.PredicateProposalClient;
+import org.sosy_lab.cpachecker.cpa.predicate.vguide.VGuideOptions;
+import org.sosy_lab.cpachecker.cpa.predicate.vguide.VGuideRefinementBridge;
 import org.sosy_lab.cpachecker.util.CPAs;
 import org.sosy_lab.cpachecker.util.LoopStructure;
 import org.sosy_lab.cpachecker.util.predicates.PathChecker;
@@ -32,7 +35,6 @@ import org.sosy_lab.cpachecker.util.predicates.interpolation.InterpolationManage
 import org.sosy_lab.cpachecker.util.predicates.pathformula.PathFormulaManager;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
 import org.sosy_lab.cpachecker.util.refinement.PrefixProvider;
-import org.sosy_lab.cpachecker.cpa.predicate.vguide.VGuideRefinementBridge;
 import org.sosy_lab.cpachecker.util.refinement.PrefixSelector;
 import org.sosy_lab.cpachecker.util.variableclassification.VariableClassification;
 
@@ -179,8 +181,10 @@ public final class PredicateCPARefinerFactory {
     }
 
     if (useVocabularyGuideForThisAnalysis) {
-      String apiKey = System.getenv("DEEPSEEK_API_KEY");
-      if (apiKey == null || apiKey.isBlank()) {
+      VGuideOptions vguideOptions = new VGuideOptions(config);
+      PredicateProposalClient llmClient =
+          PredicateProposalClient.createOptional(logger, vguideOptions.getLlmMaxCompletionTokens());
+      if (llmClient == null) {
         throw new InvalidConfigurationException(
             "useVocabularyGuide=true requires DEEPSEEK_API_KEY to be set in the environment");
       }
@@ -199,7 +203,7 @@ public final class PredicateCPARefinerFactory {
 
       VGuideRefinementBridge bridge =
           VGuideRefinementBridge.create(
-              config, logger, cfa, loopStructure, solver, predAbsManager);
+              config, logger, cfa, loopStructure, solver, predAbsManager, llmClient);
       if (bridge == null) {
         throw new InvalidConfigurationException(
             "useVocabularyGuide=true but vguide.enable=false; enable vguide or turn off"

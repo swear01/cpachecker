@@ -25,9 +25,7 @@ public class VGuideOptions {
 
   @Option(
       secure = true,
-      description =
-          "Wall-clock budget in seconds for LLM calls during analysis (0 = use remaining"
-              + " CPAchecker time limit only)")
+      description = "Wall-clock budget in seconds for LLM calls during analysis (0 = unlimited)")
   @IntegerOption(min = 0)
   private int wallBudgetSec = 0;
 
