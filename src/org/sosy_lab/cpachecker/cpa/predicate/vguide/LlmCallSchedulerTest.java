@@ -16,10 +16,17 @@ public class LlmCallSchedulerTest {
 
   private static LlmCallScheduler scheduler(String schedule, int max, int everyN, int minSec)
       throws Exception {
+    return scheduler(schedule, max, everyN, minSec, 0);
+  }
+
+  private static LlmCallScheduler scheduler(
+      String schedule, int max, int everyN, int minSec, int processMax)
+      throws Exception {
     Configuration config =
         Configuration.builder()
             .setOption("vguide.llmCallSchedule", schedule)
             .setOption("vguide.maxLlmRoundsPerAnalysis", Integer.toString(max))
+            .setOption("vguide.maxLlmRoundsPerProcess", Integer.toString(processMax))
             .setOption("vguide.llmEveryNSpuriousRefinements", Integer.toString(everyN))
             .setOption("vguide.llmMinIntervalSec", Integer.toString(minSec))
             .build();
@@ -28,6 +35,7 @@ public class LlmCallSchedulerTest {
 
   @Test
   public void firstSpurious_onlyRefinementOne() throws Exception {
+    LlmCallScheduler.resetProcessRoundCounterForTest();
     LlmCallScheduler s = scheduler("first_spurious", 10, 5, 0);
     assertThat(s.shouldCall(1)).isTrue();
     assertThat(s.shouldCall(2)).isFalse();
@@ -36,6 +44,7 @@ public class LlmCallSchedulerTest {
 
   @Test
   public void everyN_callsOnOneAndEveryNth() throws Exception {
+    LlmCallScheduler.resetProcessRoundCounterForTest();
     LlmCallScheduler s = scheduler("every_n", 10, 5, 0);
     assertThat(s.shouldCall(1)).isTrue();
     assertThat(s.shouldCall(2)).isFalse();
@@ -46,11 +55,27 @@ public class LlmCallSchedulerTest {
 
   @Test
   public void maxCallsCapsTotalInvocations() throws Exception {
+    LlmCallScheduler.resetProcessRoundCounterForTest();
     LlmCallScheduler s = scheduler("every_n", 2, 1, 0);
     assertThat(s.shouldCall(1)).isTrue();
     s.recordCallCompleted();
     assertThat(s.shouldCall(2)).isTrue();
     s.recordCallCompleted();
     assertThat(s.shouldCall(3)).isFalse();
+  }
+
+  @Test
+  public void processRoundCapAppliesAcrossSchedulers() throws Exception {
+    LlmCallScheduler.resetProcessRoundCounterForTest();
+    LlmCallScheduler firstBridge = scheduler("every_n", 10, 1, 0, 2);
+    LlmCallScheduler secondBridge = scheduler("every_n", 10, 1, 0, 2);
+
+    assertThat(firstBridge.shouldCall(1)).isTrue();
+    firstBridge.recordCallCompleted();
+    assertThat(secondBridge.shouldCall(1)).isTrue();
+    secondBridge.recordCallCompleted();
+
+    assertThat(firstBridge.shouldCall(2)).isFalse();
+    assertThat(firstBridge.skipReason(2)).isEqualTo("process_round_cap");
   }
 }

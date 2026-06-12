@@ -42,6 +42,14 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
+          "Process-wide hard cap on LLM rounds across all VGuide bridges in this JVM. 0 ="
+              + " unlimited.")
+  @IntegerOption(min = 0)
+  private int maxLlmRoundsPerProcess = 0;
+
+  @Option(
+      secure = true,
+      description =
           "API draws per prompt profile per scheduled LLM round (SAFE and BUG each use K draws"
               + " when dualPromptMode=true). Each profile: 1 sync + (K-1) parallel extras.")
   @IntegerOption(min = 1)
@@ -157,6 +165,10 @@ public class VGuideOptions {
 
   public int getMaxLlmRoundsPerAnalysis() {
     return maxLlmRoundsPerAnalysis;
+  }
+
+  public int getMaxLlmRoundsPerProcess() {
+    return maxLlmRoundsPerProcess;
   }
 
   public int getLlmSamplesPerCall() {
