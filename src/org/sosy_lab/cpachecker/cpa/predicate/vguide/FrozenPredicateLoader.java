@@ -26,9 +26,9 @@ public final class FrozenPredicateLoader {
   private final LogManager logger;
   private final Path frozenDir;
 
-  public FrozenPredicateLoader(LogManager logger, String frozenDirPath) {
+  public FrozenPredicateLoader(LogManager logger, Path frozenDirPath) {
     this.logger = logger;
-    frozenDir = Path.of(frozenDirPath);
+    frozenDir = frozenDirPath;
   }
 
   public Optional<ImmutableList<String>> loadForBenchmark(String benchmarkBaseName) {

@@ -23,7 +23,7 @@ public class FrozenPredicateLoaderTest {
     java.nio.file.Files.writeString(
         dir.resolve("bench.json"),
         "{\"predicates\": [\"(= k i)\", \"(bvslt i n)\"]}");
-    var loader = new FrozenPredicateLoader(LogManager.createTestLogManager(), dir.toString());
+    var loader = new FrozenPredicateLoader(LogManager.createTestLogManager(), dir);
     assertThat(loader.loadForBenchmark("bench").orElseThrow())
         .containsExactly("(= k i)", "(bvslt i n)");
   }
@@ -40,7 +40,7 @@ public class FrozenPredicateLoaderTest {
         ## Count
         2
         """);
-    var loader = new FrozenPredicateLoader(LogManager.createTestLogManager(), dir.toString());
+    var loader = new FrozenPredicateLoader(LogManager.createTestLogManager(), dir);
     assertThat(loader.loadForBenchmark("up").orElseThrow())
         .containsExactly("(= k i)", "(bvslt i n)");
   }
@@ -49,7 +49,7 @@ public class FrozenPredicateLoaderTest {
   public void missingBenchmarkReturnsEmpty() {
     var loader =
         new FrozenPredicateLoader(
-            LogManager.createTestLogManager(), temp.getRoot().getAbsolutePath());
+            LogManager.createTestLogManager(), temp.getRoot().toPath());
     assertThat(loader.loadForBenchmark("missing")).isEmpty();
   }
 }

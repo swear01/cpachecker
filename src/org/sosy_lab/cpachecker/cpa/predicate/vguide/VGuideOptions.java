@@ -6,7 +6,9 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
+import java.nio.file.Path;
 import org.sosy_lab.common.configuration.Configuration;
+import org.sosy_lab.common.configuration.FileOption;
 import org.sosy_lab.common.configuration.IntegerOption;
 import org.sosy_lab.common.configuration.InvalidConfigurationException;
 import org.sosy_lab.common.configuration.Option;
@@ -101,7 +103,8 @@ public class VGuideOptions {
       description =
           "Directory containing predicate_sets/<benchmark>.md or .json for NO_SPURIOUS"
               + " exception path")
-  private String frozenDir = "docs/vguided-cegar/predicate_sets";
+  @FileOption(FileOption.Type.OPTIONAL_INPUT_FILE)
+  private Path frozenDir = Path.of("docs/vguided-cegar/predicate_sets");
 
   @Option(
       secure = true,
@@ -215,7 +218,7 @@ public class VGuideOptions {
     return llmMinIntervalSec;
   }
 
-  public String getFrozenDir() {
+  public Path getFrozenDir() {
     return frozenDir;
   }
 
