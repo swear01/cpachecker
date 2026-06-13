@@ -269,6 +269,7 @@ Branch：`svcomp-integration`
 | Stock svcomp27 runner mode | DONE | `50211b3e9c` | Added `run.sh cpa --mode svcomp27-stock`; uses official `config/svcomp27.properties`, sv-comp reachability spec, no global VGuide option, no API-key requirement. |
 | 20-task reachability pilot | DONE | `95f6eb0e3f` | Added `svcomp27_pilot_20.list` with 10 TRUE + 10 FALSE `unreach-call.prp` tasks from `full_scalar`; ran stock and scoped VGuide at 900s, `--heap 4000M`, `--parallel 6`; VGuide solved 12/20 vs stock 11/20, no wrong verdicts, no process cap hits. |
 | Full-set launcher | DONE | `33f19c06e7` | Added `run_svcomp_full_nohup.sh`; default `full_scalar`, both stock+VGuide arms, 900s, `--parallel 6`, `--heap 4000M`, detached nohup log, automatic attribution CSV; dry-run and 2-task smoke verified. |
+| LLM call-start timestamp | DONE | `c13cadc132` | Added `call_start_epoch_ms` to `llm_rounds.jsonl` (threaded via `LlmProposalResult` HTTP `t0` → `VGuideAnalysisDumper`); full-set dumps can now reconstruct inter-call intervals to validate `llmMinIntervalSec`. Verified end-to-end on `overflow_1-1` (TRUE; two API calls 1786 ms apart). Pilot dumps predate this field. |
 
 Calibration / readiness report：[`reports/2026-06-13_svcomp27_pilot_calibration.md`](reports/2026-06-13_svcomp27_pilot_calibration.md)。
 
