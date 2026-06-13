@@ -160,3 +160,18 @@ VGUIDE_ANALYSIS_TIMELIMIT_SEC=300 \
 4. §4 full-set 執行（nohup）
 5. §5 分析報告
 6. 全程不改 svcomp26/svcomp27 官方檔、不改 `vguide.properties` 參數、不改 Java、不 merge main
+
+---
+
+## 7. 實作狀態（2026-06-14）
+
+| 項目 | 狀態 | 摘要 |
+|------|------|------|
+| 9 個 svcomp26-vguide config 變體 | DONE | top `config/unmaintained/svcomp26-vguide.properties` + 8 個 components；predicate 元件 `#include ../../vguide.properties` + `useVocabularyGuide=true`；recursion/concurrency/complexLoop/property configs 全指向官方原檔；top 設 `vguide.maxLlmRoundsPerProcess=10`；9 檔 SPDX header 齊全 |
+| Runner `--mode svcomp26-vguide` | DONE | `run.sh` 加 mode（require_api、`VGUIDE_SVCOMP=1`、`config/unmaintained/svcomp26-vguide.properties`、reachability spec、out `<set>_svcomp26_vguide`）；`run_benchmark_set.sh` 的 SVCOMP_MODE fallback 加 `*svcomp26-vguide*`（**不**動 svcomp26.properties stock 的 baseline 跑法）；既有 mode 行為不變；`bash -n` 通過 |
+| svcomp27-vguide 標記 | DONE | `config/svcomp27-vguide.properties` header 加 NOTE：非當前實驗主線，保留供未來 trunk 對齊；當前實驗用 svcomp26-vguide |
+| 3 向煙霧驗證 | DONE | (1) `overflow_1-1` svcomp26-vguide → **TRUE** + vguide fired；(2) 同題 svcomp26 stock → UNKNOWN（對照，印證 v1.5 VGuide-only solve；`aggregateBasicBlocks` mismatch INFO 官方 stock 亦有，非變體引入）；(3) `recursive/Ackermann01-2` svcomp26-vguide → BAM fallback 觸發、vguide 完全未開（enabled=0, LLM rounds=0）、零 exception、不 crash |
+| Full-set 執行 | TODO | §4 命令；只跑 svcomp26-vguide arm（baseline 486 已有）；300s / parallel 6 / heap 4000M / nohup |
+| 分析報告 | TODO | §5；對照 svcomp26(486)、predicate-decided subset、LLM 淨貢獻、間隔分析 |
+
+Java 層完全未改（BAM guard / process cap / `call_start_epoch_ms` timestamp 皆與 config 版本無關，沿用 svcomp27 既有驗證）。
