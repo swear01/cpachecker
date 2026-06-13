@@ -125,7 +125,8 @@ public final class PredicateProposalClient {
           " completion_tokens=",
           usage.path("completion_tokens").asInt());
     }
-    return new LlmProposalResult(content.asText(), usage.isMissingNode() ? null : usage, latency);
+    return new LlmProposalResult(
+        content.asText(), usage.isMissingNode() ? null : usage, latency, t0);
   }
 
   /** Legacy: single user message (no system). */

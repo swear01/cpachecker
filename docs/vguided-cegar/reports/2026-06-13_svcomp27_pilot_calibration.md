@@ -263,7 +263,9 @@ Predicate/VGuide components decided 4/20 tasks in the VGuide arm (`overflow_1-1`
 - API latency from `llm_rounds.jsonl`: min 1209ms, median 1640ms, max 2372ms.
 - `process_round_cap`: 0 log hits.
 - `vguide.maxLlmRoundsPerProcess=10` was not reached by any pilot task.
-- `llmMinIntervalSec=15` interval distribution: not exercised in a meaningful way. Most VGuide tasks had only one LLM round; the only multi-round task was `nested3-2` with 3 rounds, but current dump JSONL records per-call latency and refinement/round indices, not absolute timestamps. Therefore exact inter-call wall-clock intervals cannot be reconstructed from the dump alone.
+- `llmMinIntervalSec=15` interval distribution: not exercised in a meaningful way. Most VGuide tasks had only one LLM round; the only multi-round task was `nested3-2` with 3 rounds. The pilot dump JSONL recorded per-call latency and refinement/round indices but not absolute timestamps, so inter-call intervals could not be reconstructed from the pilot dump.
+
+  **Resolved for the full set:** `llm_rounds.jsonl` now includes `call_start_epoch_ms` (wall-clock epoch of each HTTP call start). Combined with `latency_ms`, full-set dumps support exact inter-call interval reconstruction per task and bridge, enabling post-hoc validation of `llmMinIntervalSec`. (Pilot dumps predate this field.)
 
 ### Memory and parallel recommendation
 

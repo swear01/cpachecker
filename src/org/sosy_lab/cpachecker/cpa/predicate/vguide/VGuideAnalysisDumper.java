@@ -201,6 +201,7 @@ public final class VGuideAnalysisDumper {
     row.put("prompt_profile", promptProfile.name());
     row.put("dual_prompt_mode", options.isDualPromptMode());
     row.put("latency_ms", api.latencyMs());
+    row.put("call_start_epoch_ms", api.startEpochMs());
     row.put("prompt_chars", prompt.length());
     row.set("prompt_components", promptComponents(pack));
     if (usage != null) {
