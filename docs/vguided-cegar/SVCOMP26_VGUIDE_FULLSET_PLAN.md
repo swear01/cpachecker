@@ -199,7 +199,10 @@ Delta vs svcomp26：**17 new solves / 10 lost solves / 0 disagreements / net +7 
 
 ## 9. v1.5.2+ 後續方向
 
-本文件記錄 v1.5.1 full-set；下一階段不只調 PredicateCPA，而是把 LLM 放到 svcomp26 portfolio strategy 層。
-計劃見 [`SVCOMP26_PORTFOLIO_LLM_PLAN.md`](SVCOMP26_PORTFOLIO_LLM_PLAN.md)。
+本文件記錄 v1.5.1 full-set（reachability）。後續分兩條線：
 
-重點：targeted rerun 只作為診斷；正式 runtime 沒有外部 retry，所以要做 single-run 的 routing / budget / guard / fallback。
+- **v1.5.2（調 PredicateCPA / portfolio）**：[`SVCOMP26_PORTFOLIO_LLM_PLAN.md`](SVCOMP26_PORTFOLIO_LLM_PLAN.md)。
+  targeted rerun 只作為診斷；正式 runtime 沒有外部 retry，要做 single-run 的 routing / budget / guard / fallback。
+- **v1.6（泛化到其他 property branch）**：[`LLM_RESEARCH_ROADMAP.md`](LLM_RESEARCH_ROADMAP.md) +
+  現行第一刀 [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)——
+  把這裡證明的 predicate-CEGAR hook，零 Java 套到 NoOverflow（Class-A）上，驗證能否泛化。
