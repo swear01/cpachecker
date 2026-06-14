@@ -118,10 +118,15 @@ VGuide 永遠不 fire**。所以先用 standalone 把「hook 能不能動」跟�
 
 | Level | 跑什麼 | 回答 | Gate |
 |---|---|---|---|
-| **L0 hook isolation** | standalone overflow predicate + vguide，單題 | hook 在 overflow **能不能 fire + 能不能解**（無 portfolio 干擾）| fire & 正確 → L1 |
-| **L1 portfolio routing** ★ | full `svcomp26-overflow-vguide`，同題 | portfolio **會不會真的跑到 predicate child、VGuide 在 portfolio 內 fire** | fire → L2 |
+| **L0 hook isolation** | standalone predicate config（**1 題**，無 portfolio）| hook 在 overflow **能不能 fire + 能不能解**（無 portfolio 干擾）| fire & 正確 → L1 |
+| **L1 portfolio routing** ★ | **完整 portfolio** config `svcomp26-overflow-vguide`（**1 題，同 L0 那題**）| portfolio **會不會真的跑到 predicate child、VGuide 在 portfolio 內 fire** | fire → L2 |
 | **L2 pilot effectiveness** | `no_overflow_pilot` 兩 arm | 小批 **0 wrong + fire + ≥1 win**，可重複 | 達標 → L3 |
 | **L3 full effectiveness** | `no_overflow_scalar` 兩 arm + attribution | 正式有效性（new/lost/direct wins）| 出報告 |
+
+> **澄清「full / 完整 portfolio」**：指 **config 完整度**，不是 benchmark set。§5.1 的 L0/L1 與 §5.2 的 smoke A–E
+> **都是單題**（各跑 1 題）：L1/B 用完整 portfolio config（predicate+value 並行 + restart chain），L0/A 只跑 standalone
+> predicate。真正跑 set 的只有 **L2（pilot 15 題）/ L3（scalar NoOverflow）**。注意 L0/L1（要看 LLM fire）仍需
+> `DEEPSEEK_API_KEY`，但單題成本極小。
 
 L0 用的 isolation 小 config（只為 smoke，不進實驗 arm）：
 ```properties
