@@ -109,12 +109,54 @@ svcomp26-overflow-vguide) require_api; VGUIDE_SVCOMP=1
 
 ---
 
-## 5. Smoke test（建 config + manifest 後、跑 full 前；任一不過就停）
+## 5. Smoke / 驗證階梯（建 config + manifest 後、跑 full 前；任一層不過就停修）
 
-1. **hook fire**：1 題會觸發 LLM 的 non-recursive overflow（signedintegeroverflow-regression 內 expected=true 者）`--mode svcomp26-overflow-vguide` → log 出現 `svcomp26-overflow-vguide--predicateAnalysis--overflow.properties` + `VGuide LLM round`，verdict 正確。**← 核心泛化證據**。
-2. **FALSE 不誤判**：1 題 expected=false overflow → verdict FALSE 正確（0-wrong 前哨）。
-3. **recursion 安全**：1 題 recursive overflow → BAM fallback WARNING、無 vguide log、不 crash。
-4. **可歸因**：同 (1) 題 `--mode svcomp26-overflow`（stock）對照，確認 baseline vs vguide 差異能乾淨歸因。
+核心要先拆掉一個陷阱：**`parallel-overflow` 有 value child，可能搶先解掉、讓 predicate child 根本沒 refine、
+VGuide 永遠不 fire**。所以先用 standalone 把「hook 能不能動」跟「portfolio 會不會路由到它」分開驗。
+
+### 5.1 四層驗證階梯（每層 gate 下一層）
+
+| Level | 跑什麼 | 回答 | Gate |
+|---|---|---|---|
+| **L0 hook isolation** | standalone overflow predicate + vguide，單題 | hook 在 overflow **能不能 fire + 能不能解**（無 portfolio 干擾）| fire & 正確 → L1 |
+| **L1 portfolio routing** ★ | full `svcomp26-overflow-vguide`，同題 | portfolio **會不會真的跑到 predicate child、VGuide 在 portfolio 內 fire** | fire → L2 |
+| **L2 pilot effectiveness** | `no_overflow_pilot` 兩 arm | 小批 **0 wrong + fire + ≥1 win**，可重複 | 達標 → L3 |
+| **L3 full effectiveness** | `no_overflow_scalar` 兩 arm + attribution | 正式有效性（new/lost/direct wins）| 出報告 |
+
+L0 用的 isolation 小 config（只為 smoke，不進實驗 arm）：
+```properties
+# config/predicateAnalysis-overflow-vguide.properties
+#include predicateAnalysis--overflow.properties
+#include vguide.properties
+cpa.predicate.refinement.useVocabularyGuide = true
+```
+
+### 5.2 具體 smoke 案例（題怎麼選 + 預期 log + pass）
+
+**題怎麼選**：先跑 stock baseline pilot（`--mode svcomp26-overflow`），挑 stock 下 **UNKNOWN 或 refinement 很多的 TRUE**
+overflow 題當 hook-fire 題——trivial 題 value child 秒解、predicate 不 refine、VGuide 不會 fire，測不到東西。
+
+| Smoke | mode / config | 題 | 預期 log（real markers）| Pass |
+|---|---|---|---|---|
+| **A 隔離 fire** | standalone `predicateAnalysis-overflow-vguide` | 需 refine 的 TRUE overflow | `VGuide LLM round #`、`VGuide predicate budget tier=`、`VGuide precision-injected <n>`、`Verification result: TRUE` | VGuide fire 且 verdict 對 |
+| **B portfolio routing** ★ | full `svcomp26-overflow-vguide` | 同 A 題 | predicate child 與 value child 都啟動；predicate refine；`VGuide LLM round #` 出現；理想：`…svcomp26-overflow-vguide--predicateAnalysis--overflow.properties finished successfully.` | **VGuide 在 full portfolio 內 fire**（= 確定路由到此元件）|
+| **C FALSE 不誤判** | full `svcomp26-overflow-vguide` | 一題 expected=false | `Verification result: FALSE` == expected | 0 wrong（即使 VGuide fire 也不能誤判）|
+| **D recursion** | full `svcomp26-overflow-vguide` | recursive overflow | BAM fallback WARNING、dump `enabled=0`、無 `VGuide LLM round`、不 crash | fallback 正常 |
+| **E baseline 對照** | stock `svcomp26-overflow` | 同 A 題 | **無**任何 `VGuide` log；verdict（UNKNOWN/較慢）| 建立 counterfactual |
+
+★ **B 就是「確定會 portfolio 到這個 tool」的測試。** 若 B 裡 value child 先解、predicate 沒 fire：**不是 fail，是 finding**——
+代表這題 value 就夠，要換更難（需 relational invariant）的題；用 L2 attribution 找哪些題 predicate 才是 decider。
+
+### 5.3 執行 log 必含訊號（valid run 的 checklist；缺項即無效或路徑錯）
+
+每個 vguide 題的 log（`output/.../logs/<task>.log`）要能看到：
+
+1. **Portfolio 路由**：predicate child（`…predicateAnalysis--overflow.properties`）與 value child 都被 ParallelAlgorithm 啟動 → 證 portfolio 有 dispatch 兩個 child。
+2. **Hook active（路徑對）**：predicate child 有 refinement，且 `VGuide LLM round #` 出現 → 證 ABEl refiner 被 load 且 hook fire。**路徑錯時這行會靜默消失**——這是 footgun 偵測器。
+3. **VGuide internals**：`VGuide predicate budget tier=`、`VGuide precision-injected <n>`；可能有 `VGuide reject L1/L2`（候選被濾）、`VGuide SMT check failed` / `VGuide AbstractionPredicate failed`（= **Tier S 驗證在擋壞候選，看到是好事，不是錯誤**）。
+4. **Decision**：`<…predicateAnalysis--overflow.properties> finished successfully.`（deciding component）+ `Verification result: <V>`。
+5. **Soundness**：verdict == .yml `expected_verdict`。
+6. **Dump**（設 `VGUIDE_ANALYSIS_DUMP_DIR`）：per-task JSON 有 `enabled=1`、`llm_rounds>0`、`call_start_epoch_ms`（驗 `llmMinIntervalSec`）、注入的 predicate 清單。
 
 ---
 
@@ -128,30 +170,35 @@ overflow 沒有現成 baseline → **兩個 arm 都要跑**：`svcomp26-overflow
 
 ---
 
-## 7. 分析與報告（soundness FIRST）
+## 7. 有效性分析：怎麼證明是 VGuide 造成的（不是 noise）
 
-報告 `docs/vguided-cegar/reports/<DATE>_svcomp26_overflow_vguide.md`：
+報告 `docs/vguided-cegar/reports/<DATE>_svcomp26_overflow_vguide.md`，因果歸因四步：
 
-1. **0 wrong 第一**：對每題 .yml `expected_verdict` 掃 wrong。**overflow 有大量 FALSE 題，這關比 reachability 更關鍵**；任何 wrong = blocker，高亮 + 保 log。
-2. Topline：stock vs vguide（TRUE/FALSE/UNKNOWN/Solved/Wrong/PAR-2）。
-3. Overlap/delta：new / lost / disagreements / net。
-4. **VGuide fire 證據**：用 `attribute_svcomp_verdicts.py` 統計多少 overflow 題的 predicate 元件 `llm_rounds>0`。**這是泛化的直接證據**。
-5. **Direct LLM wins**：vguide solved 但 stock 沒、且 decider = overflow vguide predicate 元件且 `llm_rounds>0`。≥1 即證 hook 在新 branch 有實效。
-6. **prompt 適配觀察**：若 LLM 對 overflow 只給 reachability 式 loop invariant 而非 bound/range predicate 且沒用，記為「overflow 需 prompt/context 適配」的第一個 finding。
+1. **Attribution gate**（`attribute_svcomp_verdicts.py`）：一題算「VGuide 有效解」要同時滿足
+   `deciding_component = svcomp26-overflow-vguide--predicateAnalysis--overflow.properties` **且** `llm_rounds > 0`。
+   - 工具的 `verdict`（`Verification result:`）/ `deciding_component`（`… finished successfully.`）/ `llm_rounds`（`VGuide LLM round #`）的 regex **property-agnostic，對 overflow 直接可用**（已確認）。
+   - ⚠️ 但 `selection_branch` / `restart_stage` 是 reachability 專用（singleLoop/bmc…），對 overflow 會回 `unknown`，不影響核心三欄；要乾淨可加一個 overflow branch case（小改、選配）。
+2. **Counterfactual**：同題 stock `svcomp26-overflow` = UNKNOWN 或明顯較慢 → 證 win 來自 VGuide，而非 portfolio 本來就會解。
+3. **Predicate inspection**：從 dump 取該題 LLM 注入的 predicates，展示就是它們關掉 proof（比照 reachability case study 列出確切 predicate；overflow 期待看到 bound/range 型，如 `x <= INT_MAX`、`x + y` 不溢位的關係）。
+4. **Stability（診斷，非 runtime）**：對 new∪lost 小批重跑，分 stable / resource-sensitive；沿用 FULLSET 診斷語意，**不**把多跑一次當 runtime 能力。
+
+報告同含：**0 wrong 第一**（§5.3.5 硬驗每題 `expected_verdict`，overflow FALSE 題多，這關比 reachability 更關鍵；任何 wrong = blocker）、topline（stock vs vguide：TRUE/FALSE/UNKNOWN/Solved/Wrong/PAR-2）、overlap/delta（new/lost/disagreements/net）、prompt 適配觀察（LLM 給的若是 reachability 式 invariant 而非 overflow bound 且沒用 → 記為適配 finding）。
 
 ---
 
-## 8. Acceptance（v1.6 Class-A 泛化判定）
+## 8. 結果判定矩陣（泛化成立 / 失敗 / inconclusive）
 
-v1.6 的 claim 不是「+N 題」，是「**hook 泛化是否成立**」：
+v1.6 的 claim 是「**hook 泛化是否成立**」，不是「+N 題」。對照 §5 階梯的觀察：
 
-- **0 wrong**（hard gate）。
-- VGuide 在 overflow predicate refinement **確實 fire**（≥ 數題 `llm_rounds>0`）。
-- **≥1 direct LLM-decided new solve** on overflow（證非 inert）。
-- 無大量 stable lost solves（resource 噪音除外，診斷沿用 FULLSET 方法）。
+| 觀察 | 結論 | 動作 |
+|---|---|---|
+| **L0 isolation 就不 fire** | hook 沒接上（路徑 / config bug）| 先修，別往下跑 |
+| **fire + 0 wrong + ≥1 direct LLM win** | **Class-A 泛化實證成立** | roadmap §4.2 標「已實證、可複製」；推進其他 Class-A |
+| fire + 0 wrong + 0 win | hook 動但 predicate 對 overflow 沒用 | finding：「config-only 不足，需 prompt/context 適配」（仍是有效結論）|
+| portfolio 內 predicate 從不 decide（value 全搶先）| 這批題 value 就夠，hook 無從表現 | 換需 relational invariant 的更難題；inconclusive，非 fail |
+| **任何 wrong verdict** | **blocker** | 停、查；Tier S 下理論不該發生，發生即真 bug，必究 |
 
-達標 → roadmap §4.2 標「Class-A 泛化已實證，方法可複製」。
-fire 但未贏 → 記錄「config-only 不足、需 prompt/context 適配」，**這本身就是 v1.6 的有效結論**。
+最低達標線（宣稱泛化成立）：**0 wrong + 在 full portfolio 內 fire + ≥1 direct LLM-decided new solve**，且無大量 stable lost solves。
 
 ---
 
@@ -168,12 +215,12 @@ fire 但未贏 → 記錄「config-only 不足、需 prompt/context 適配」，
 
 ## 10. 工作順序
 
-1. 建 §2 的 3 個 config（注意 `../../` 路徑）。
+1. 建 §2 的 3 個 config（注意 `../../` 路徑）+ §5.1 isolation 小 config。
 2. §4 manifest（先 `no_overflow_pilot`）。
 3. §3 runner 兩 mode + `bash -n`。
-4. §5 smoke（4 步，含 recursive）。
-5. pilot full → 看 §8 是否 fire + 0 wrong。
-6. 過了再跑 full scalar NoOverflow + §7 報告。
+4. **L0/L1 smoke**：先跑 stock pilot 選 hook-fire 題 → Smoke A 隔離 fire → **Smoke B portfolio routing（確定路由到 predicate）** → C/D/E。
+5. **L2 pilot**：pilot 兩 arm full → §8 矩陣判定（fire？0 wrong？≥1 win？）。
+6. **L3 full**：過了再跑 full scalar NoOverflow + §7 因果歸因報告。
 7. 全程不改 Java、不改 `vguide.properties` prompt（除非 §8 finding 要求）、不改官方 svcomp26/27 檔、不 merge main。
 
 ---
@@ -182,9 +229,9 @@ fire 但未贏 → 記錄「config-only 不足、需 prompt/context 適配」，
 
 | 項目 | 狀態 |
 |------|------|
-| 3 個 svcomp26-overflow-vguide config | TODO |
-| Runner 兩 mode | TODO |
-| overflow manifest（pilot + scalar）| TODO |
-| Smoke test（4 步）| TODO |
-| Pilot + full-set | TODO |
-| 報告 | TODO |
+| 3 個 svcomp26-overflow-vguide config + isolation 小 config | TODO |
+| Runner 兩 mode（`svcomp26-overflow` / `svcomp26-overflow-vguide`）| TODO |
+| overflow manifest（`no_overflow_pilot` + `no_overflow_scalar`）| TODO |
+| Smoke 階梯 L0/L1（A 隔離 / B portfolio routing / C FALSE / D recursion / E baseline）| TODO |
+| L2 pilot + L3 full-set | TODO |
+| 因果歸因報告 | TODO |
