@@ -13,6 +13,7 @@
 | [reports/2026-06-10_freq10_n24_adaptive_noL3.md](reports/2026-06-10_freq10_n24_adaptive_noL3.md) | **v1.3 noL3**：150 solved、PAR-2 192s（adaptive + freq10/n24） |
 | [SVCOMP26_VGUIDE_FULLSET_PLAN.md](SVCOMP26_VGUIDE_FULLSET_PLAN.md) | **svcomp26-vguide** full-set 計劃與完成狀態（v1.5.1） |
 | [SVCOMP26_PORTFOLIO_LLM_PLAN.md](SVCOMP26_PORTFOLIO_LLM_PLAN.md) | **v1.5.2+**：把 LLM 從 PredicateCPA 擴展到 svcomp26 portfolio strategy（routing / budget / guards / hints） |
+| [LLM_RESEARCH_ROADMAP.md](LLM_RESEARCH_ROADMAP.md) | **v1.6 → v2.0 → exploratory**：長 horizon 廣域地圖——跨 property category（Termination / MemSafety / Overflow…）、跨 CPA domain、FALSE/witness、離線 corpus 學習；含 S/R/X soundness 守則 |
 | [SVCOMP_INTEGRATION_PLAN.md](SVCOMP_INTEGRATION_PLAN.md) | **svcomp27** × VGuide v1.5 整合計劃 |
 
 ## 現行目錄
@@ -24,6 +25,7 @@ docs/vguided-cegar/
 ├── SVCOMP_INTEGRATION_PLAN.md
 ├── SVCOMP26_VGUIDE_FULLSET_PLAN.md
 ├── SVCOMP26_PORTFOLIO_LLM_PLAN.md
+├── LLM_RESEARCH_ROADMAP.md
 ├── architecture/UNIFIED_VGUIDE_ARCHITECTURE.md
 ├── llm/                    # 排程、ensemble、predicate budget、API
 ├── analysis/               # 已完成/歷史計劃與方法記錄

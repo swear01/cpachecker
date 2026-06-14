@@ -259,3 +259,18 @@ Portfolio-level LLM asks：
 
 這是更強的研究方向，因為 svcomp26 的優勢本來就來自 portfolio，而不是單一 CPA。
 VGuide v1.5.1 已證明 predicate-level LLM 有正增益；v1.5.2 應該把 LLM 升級為 portfolio advisor。
+
+---
+
+## 5. 更長 horizon：跨 category / domain / artifact
+
+本文件（A–G 層、P0–P3）仍鎖在 **reachability 分支的 predicate / portfolio routing**。
+再往外還有整片未開發面：其餘五個 property branch（Termination / MemSafety / NoOverflow /
+MemCleanup / DataRace）+ SoftwareSystems、predicate 以外的抽象域、FALSE/counterexample task、
+witness artifact、以及離線 corpus 學習。這些屬於 v1.6 → v2.0 → exploratory horizon，
+連同 S/R/X soundness 守則與可泛化的 scoped-variant 進場方法，整理在：
+
+- [`LLM_RESEARCH_ROADMAP.md`](LLM_RESEARCH_ROADMAP.md)
+
+其中 **Termination 的 ranking-function 候選**被標為最高槓桿的新 category（驗證最便宜、LLM 最擅長），
+建議在 v1.5.2 predicate 層收緊後優先探索。
