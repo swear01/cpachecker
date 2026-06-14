@@ -4,7 +4,7 @@
 
 | 報告 | 說明 |
 |------|------|
-| **[`../analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md`](../analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md)** | **v1.5 計劃 + 實測摘要**：SV-COMP Loops exploratory evaluation（broad set 已完成；clean/applicable tier 分析待補） |
+| **[`2026-06-14_svcomp26_vguide_loops.md`](2026-06-14_svcomp26_vguide_loops.md)** | **v1.5.1 svcomp26-vguide full-set**：Loops 764 題；svcomp26-vguide **493 solved** vs svcomp26 **486**（+7）、0 wrong、PAR-2 216.90s；16 direct LLM predicate wins |
 | **[`2026-06-13_v1.5_loops_reachsafety_unreach.md`](2026-06-13_v1.5_loops_reachsafety_unreach.md)** | **v1.5 實測結果**：SV-COMP Loops `unreach-call` 764 題；stock 225 solved、v1.4 262（+37）、`--svcomp26` 486；VGuide-only 33 TRUE |
 | **[`2026-06-13_svcomp27_vguide_integration.md`](2026-06-13_svcomp27_vguide_integration.md)** | **SV-COMP config integration**：`svcomp27-vguide` scoped configs、BAM fallback、process LLM cap、runner mode 與 smoke-test evidence |
 | **[`2026-06-13_svcomp27_pilot_calibration.md`](2026-06-13_svcomp27_pilot_calibration.md)** | **SV-COMP full-set readiness**：sample regression、portfolio verdict attribution、20-task 900s pilot calibration、`svcomp27-stock` 對照模式與 full-set nohup launcher |
@@ -15,7 +15,7 @@
 | **[`2026-06-10_freq10_n24_adaptive_noL3.md`](2026-06-10_freq10_n24_adaptive_noL3.md)** | **v1.3.0** adaptive + freq10/n24：**150 solved**、PAR-2 **192s** |
 | **[`2026-06-09_notthinking_noL3.md`](2026-06-09_notthinking_noL3.md)** | **thinking disabled** 217 題：+21 vs stock、PAR-2 vs budget306/v1.0.0、overlap Phase D |
 
-設計文件：[experiments/2026-06-10_dual_prompt_v1.md](../experiments/2026-06-10_dual_prompt_v1.md)、[analysis/DUAL_PROMPT_V1_PLAN.md](../analysis/DUAL_PROMPT_V1_PLAN.md)
+設計脈絡已併入各版本報告；現行入口以本頁報告與 `../SVCOMP26_VGUIDE_FULLSET_PLAN.md` 為準，已完成的計劃文件仍保留於 `../analysis/`、`../experiments/` 供追溯。
 
 **實驗目錄**
 
@@ -50,7 +50,7 @@ python3 scripts/vguided-cegar/analyze_predicate_study.py --skip-validate \
   --stock-logs output/vguide/experiments/full_scalar_stock/logs
 ```
 
-方法與計劃：[analysis/PREDICATE_ANALYSIS_PLAN.md](../analysis/PREDICATE_ANALYSIS_PLAN.md) · [analysis/OVERLAP_AND_PCS.md](../analysis/OVERLAP_AND_PCS.md)
+方法說明已封存；現行結果以本頁報告與 `analyze_predicate_study.py` 輸出為準。
 
 **注意**：2026-06-08 analysis dump 使用 **`llmSamplesPerCall=1`**、prompt 建議 **4–8** 條 predicate（見 [LLM_ENSEMBLE.md](../llm/LLM_ENSEMBLE.md)）。實驗 dump 在 `output/`（gitignore），報告與離線 CSV 路徑見各報告 §產物。
 

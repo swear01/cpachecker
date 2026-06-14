@@ -122,7 +122,7 @@ Classifier 摘要（324 程式）：`RUN_SCALAR` 220、`RUN_ARRAY_SCALAR` 8、�
 | `--dry-run` | | 只印命令 |
 | `--` 之後 | | 傳給 `cpa.sh` 的額外 `--option` |
 
-排程與 LLM 預設見 `config/vguide.properties`。**v1.4 計劃**：`dualPromptMode=true`，`llmSamplesPerCall=1` = **SAFE×1 + BUG×1** / 輪。見 [DUAL_PROMPT_V1_PLAN.md](analysis/DUAL_PROMPT_V1_PLAN.md)、[LLM_ENSEMBLE.md](llm/LLM_ENSEMBLE.md)、[PREDICATE_BUDGET.md](llm/PREDICATE_BUDGET.md)。覆寫例：
+排程與 LLM 預設見 `config/vguide.properties`。**v1.4 計劃**：`dualPromptMode=true`，`llmSamplesPerCall=1` = **SAFE×1 + BUG×1** / 輪。見 [LLM_ENSEMBLE.md](llm/LLM_ENSEMBLE.md)、[PREDICATE_BUDGET.md](llm/PREDICATE_BUDGET.md)；已完成的 v1.4 計劃文件不再是現行入口。覆寫例：
 
 ```bash
 # 僅 first spurious、單次 draw（省 API，對照舊 batch）
@@ -226,13 +226,14 @@ Legacy：`compare_official_reference.py --baseline fmpa2` 僅歷史對照，不�
 
 ## v1.5 Loops broad-set completed runs（2026-06-13）
 
-Dataset：`loops_reachsafety_unreach`（764 entries from official SV-COMP `Loops.set` with `unreach-call.prp`）。完整結果見 [reports/2026-06-13_v1.5_loops_reachsafety_unreach.md](reports/2026-06-13_v1.5_loops_reachsafety_unreach.md)。
+Dataset：`loops_reachsafety_unreach`（764 entries from official SV-COMP `Loops.set` with `unreach-call.prp`）。v1.5 三組結果見 [reports/2026-06-13_v1.5_loops_reachsafety_unreach.md](reports/2026-06-13_v1.5_loops_reachsafety_unreach.md)；svcomp26-vguide v1.5.1 結果見 [reports/2026-06-14_svcomp26_vguide_loops.md](reports/2026-06-14_svcomp26_vguide_loops.md)。
 
 | Mode | Output | Result |
 |------|--------|--------|
 | stock | `output/vguide/experiments/loops_reachsafety_unreach_stock_20260612/` | 165 TRUE / 60 FALSE / 539 UNKNOWN = 225 solved |
 | `--svcomp26` | `output/vguide/experiments/loops_reachsafety_unreach_svcomp26_20260612/` | 334 TRUE / 152 FALSE / 278 UNKNOWN = 486 solved |
 | v1.4 VGuide | `output/vguide/experiments/loops_reachsafety_unreach_v14_20260612/` | 202 TRUE / 60 FALSE / 502 UNKNOWN = 262 solved |
+| **svcomp26-vguide** | `output/vguide/experiments/loops_reachsafety_unreach_svcomp26vguide_20260614/` | **341 TRUE / 152 FALSE / 271 UNKNOWN = 493 solved**；0 wrong；vs svcomp26 +7 |
 
 Re-run commands:
 
@@ -242,4 +243,11 @@ Re-run commands:
 ./scripts/vguided-cegar/run.sh cpa --set loops_reachsafety_unreach --mode svcomp26 --parallel 1 --timelimit 300   --out output/vguide/experiments/loops_reachsafety_unreach_svcomp26_YYYYMMDD
 
 bash -ic './scripts/vguided-cegar/run.sh cpa --set loops_reachsafety_unreach --mode vguide --parallel 4 --timelimit 300   --out output/vguide/experiments/loops_reachsafety_unreach_v14_YYYYMMDD'
+
+VGUIDE_TIMEOUT_GRACE=180 \
+VGUIDE_ANALYSIS_DUMP_DIR=output/vguide/analysis_dumps/loops_reachsafety_unreach_svcomp26vguide_YYYYMMDD \
+VGUIDE_ANALYSIS_BENCHMARK_SET=loops_reachsafety_unreach \
+VGUIDE_ANALYSIS_TIMELIMIT_SEC=300 \
+./scripts/vguided-cegar/run.sh cpa --set loops_reachsafety_unreach --mode svcomp26-vguide --parallel 6 --timelimit 300 --heap 4000M \
+  --out output/vguide/experiments/loops_reachsafety_unreach_svcomp26vguide_YYYYMMDD
 ```
