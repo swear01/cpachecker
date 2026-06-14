@@ -40,6 +40,7 @@ CONFIG="${VGUIDE_CONFIG:-config/predicateAnalysis-vguide.properties}"
 SVCOMP_MODE="${VGUIDE_SVCOMP:-0}"
 if [[ "$SVCOMP_MODE" == "0" ]] \
   && [[ "$CONFIG" == *svcomp26-vguide* \
+    || "$CONFIG" == *svcomp26-overflow-vguide* \
     || "$CONFIG" == *svcomp27-vguide* \
     || "$CONFIG" == */svcomp27.properties \
     || "$CONFIG" == "config/svcomp27.properties" ]]; then

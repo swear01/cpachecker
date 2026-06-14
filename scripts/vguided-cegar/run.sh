@@ -95,9 +95,9 @@ cmd_cpa() {
   [[ -n "$set" ]] || die "cpa requires --set <sample|full_scalar|...>"
   require_java
   case "$mode" in
-    stock|svcomp26|svcomp27-stock) ;;
-    vguide|svcomp26-vguide|svcomp27-vguide|svcomp) require_api ;;
-    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26, svcomp26-vguide, svcomp27-stock, svcomp27-vguide)" ;;
+    stock|svcomp26|svcomp27-stock|svcomp26-overflow) ;;
+    vguide|svcomp26-vguide|svcomp27-vguide|svcomp|svcomp26-overflow-vguide) require_api ;;
+    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26, svcomp26-vguide, svcomp26-overflow, svcomp26-overflow-vguide, svcomp27-stock, svcomp27-vguide)" ;;
   esac
   if [[ -z "$out" ]]; then
     case "$ablation" in
@@ -110,6 +110,10 @@ cmd_cpa() {
           out="output/vguide/experiments/${set}_svcomp26"
         elif [[ "$mode" == "svcomp26-vguide" ]]; then
           out="output/vguide/experiments/${set}_svcomp26_vguide"
+        elif [[ "$mode" == "svcomp26-overflow" ]]; then
+          out="output/vguide/experiments/${set}_svcomp26_overflow"
+        elif [[ "$mode" == "svcomp26-overflow-vguide" ]]; then
+          out="output/vguide/experiments/${set}_svcomp26_overflow_vguide"
         elif [[ "$mode" == "svcomp27-stock" ]]; then
           out="output/vguide/experiments/${set}_svcomp27_stock"
         elif [[ "$mode" == "svcomp27-vguide" || "$mode" == "svcomp" ]]; then
@@ -139,6 +143,19 @@ cmd_cpa() {
       VGUIDE_SVCOMP=1
       VGUIDE_CONFIG=config/unmaintained/svcomp26-vguide.properties
       VGUIDE_SPEC="$REPO/config/specification/sv-comp-reachability.spc"
+    )
+  elif [[ "$mode" == "svcomp26-overflow" ]]; then
+    env_extra+=(
+      VGUIDE_SVCOMP=1
+      VGUIDE_USE_VOCABULARY_GUIDE=false
+      VGUIDE_CONFIG=config/unmaintained/svcomp26--overflow.properties
+      VGUIDE_SPEC="$REPO/config/specification/sv-comp-overflow.spc"
+    )
+  elif [[ "$mode" == "svcomp26-overflow-vguide" ]]; then
+    env_extra+=(
+      VGUIDE_SVCOMP=1
+      VGUIDE_CONFIG=config/unmaintained/svcomp26-overflow-vguide.properties
+      VGUIDE_SPEC="$REPO/config/specification/sv-comp-overflow.spc"
     )
   elif [[ "$mode" == "svcomp27-stock" ]]; then
     env_extra+=(

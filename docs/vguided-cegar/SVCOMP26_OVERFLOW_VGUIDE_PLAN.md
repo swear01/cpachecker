@@ -234,9 +234,23 @@ v1.6 的 claim 是「**hook 泛化是否成立**」，不是「+N 題」。對�
 
 | 項目 | 狀態 |
 |------|------|
-| 3 個 svcomp26-overflow-vguide config + isolation 小 config | TODO |
-| Runner 兩 mode（`svcomp26-overflow` / `svcomp26-overflow-vguide`）| TODO |
-| overflow manifest（`no_overflow_pilot` + `no_overflow_scalar`）| TODO |
-| Smoke 階梯 L0/L1（A 隔離 / B portfolio routing / C FALSE / D recursion / E baseline）| TODO |
-| L2 pilot + L3 full-set | TODO |
+| 3 個 svcomp26-overflow-vguide config + isolation 小 config | **DONE**（`config/unmaintained/svcomp26-overflow-vguide.properties` + 2 components + `config/predicateAnalysis-overflow-vguide.properties`）|
+| Runner 兩 mode（`svcomp26-overflow` / `svcomp26-overflow-vguide`）| **DONE**（run.sh + run_benchmark_set.sh 偵測；`bash -n` 過；dry-run 確認 config/spec/無全域 flag）|
+| overflow manifest | **DONE**（`no_overflow_pilot` 15 題、`no_overflow_scalar` 452 題；filter no-overflow.prp + expected）|
+| Smoke L0/L1 + counterfactual + C/D | **DONE**（見下方）|
+| L2 pilot + L3 full-set | TODO（下一步）|
 | 因果歸因報告 | TODO |
+
+### Smoke 結果（2026-06-15）
+
+**結論：Class-A 泛化實證成立**——同一個 `useVocabularyGuide` hook，零 Java、零 prompt 改動，在 NoOverflow 上 fire 並產生 sound 的 net-new 解。
+
+| Level | 結果 |
+|---|---|
+| **L0 隔離 fire** | 10 個 loop-zilu TRUE：6 fire（`FIRST_SPURIOUS_LLM`），4 fire+TRUE；conjunctive 穩定觸發，linear 太易（`NO_SPURIOUS_GIVE_UP` 不 fire）|
+| **L1 portfolio routing** | benchmark09/17/18/19 在 full portfolio：**4/4 fire 且 deciding = vguide predicate child**（`…svcomp26-overflow-vguide--predicateAnalysis--overflow.properties finished successfully.`），TRUE 正確——**確定 portfolio 路由到此元件** |
+| **Counterfactual** | benchmark09/19 stock 也解（非 net-new）；**benchmark17/18 stock UNKNOWN → vguide TRUE = 2 個 direct LLM net-new 解**；注入 overflow-相關 predicate（`i<n`、`k==i`、非負 sign-bit）|
+| **C FALSE soundness** | AdditionIntMax/IntMin/Division-1（false）→ 全 FALSE 正確，**0 wrong** |
+| **D recursion** | Ackermann01-2/02 → BAM fallback、LLM 不 fire、0 uncaught exception、clean UNKNOWN（非 wrong）|
+
+判定矩陣（§8）：fire + 0 wrong + ≥1（實際 2）direct LLM net-new win → **Class-A 泛化成立**。

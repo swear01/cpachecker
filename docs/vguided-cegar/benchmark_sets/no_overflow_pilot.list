@@ -1,0 +1,17 @@
+# no_overflow_pilot: signedintegeroverflow-regression with no-overflow.prp (canonical signed-overflow regression)
+# Generated 2026-06-15 from official NoOverflows .set globs, filtered to no-overflow.prp; root /home/swear01/sv-benchmarks/c
+signedintegeroverflow-regression/AdditionIntMax.i # yml=signedintegeroverflow-regression/AdditionIntMax.yml expected=false
+signedintegeroverflow-regression/AdditionIntMin.i # yml=signedintegeroverflow-regression/AdditionIntMin.yml expected=false
+signedintegeroverflow-regression/ConversionToSignedInt.i # yml=signedintegeroverflow-regression/ConversionToSignedInt.yml expected=true
+signedintegeroverflow-regression/Division-1.i # yml=signedintegeroverflow-regression/Division-1.yml expected=false
+signedintegeroverflow-regression/IntegerPromotion-1.i # yml=signedintegeroverflow-regression/IntegerPromotion-1.yml expected=true
+signedintegeroverflow-regression/Multiplication-1.i # yml=signedintegeroverflow-regression/Multiplication-1.yml expected=true
+signedintegeroverflow-regression/Multiplication-2.i # yml=signedintegeroverflow-regression/Multiplication-2.yml expected=false
+signedintegeroverflow-regression/NoConversion.i # yml=signedintegeroverflow-regression/NoConversion.yml expected=false
+signedintegeroverflow-regression/NoNegativeIntegerConstant.i # yml=signedintegeroverflow-regression/NoNegativeIntegerConstant.yml expected=true
+signedintegeroverflow-regression/PostfixDecrement.i # yml=signedintegeroverflow-regression/PostfixDecrement.yml expected=false
+signedintegeroverflow-regression/PostfixIncrement.i # yml=signedintegeroverflow-regression/PostfixIncrement.yml expected=false
+signedintegeroverflow-regression/PrefixDecrement.i # yml=signedintegeroverflow-regression/PrefixDecrement.yml expected=false
+signedintegeroverflow-regression/PrefixIncrement.i # yml=signedintegeroverflow-regression/PrefixIncrement.yml expected=false
+signedintegeroverflow-regression/UnaryMinus.i # yml=signedintegeroverflow-regression/UnaryMinus.yml expected=false
+signedintegeroverflow-regression/UsualArithmeticConversions.i # yml=signedintegeroverflow-regression/UsualArithmeticConversions.yml expected=true
