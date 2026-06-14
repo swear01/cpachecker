@@ -8,6 +8,7 @@
 |------|------|
 | [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) | **`run.sh` 怎麼跑**；批次後 PAR-2 / cactus |
 | [reports/README.md](reports/README.md) | 進度報告 |
+| [reports/2026-06-15_svcomp26_overflow_vguide.md](reports/2026-06-15_svcomp26_overflow_vguide.md) | **v1.6 Class-A 泛化（✓）**：NoOverflow 452 題，320 solved vs stock 314（**+6 / 0 lost / 0 wrong**），6 全 direct LLM win；零 Java/prompt |
 | [reports/2026-06-14_svcomp26_vguide_loops.md](reports/2026-06-14_svcomp26_vguide_loops.md) | **v1.5.1 svcomp26-vguide**：Loops 764 題，493 solved vs svcomp26 486（+7），0 wrong，16 direct LLM predicate wins |
 | [reports/2026-06-13_v1.5_loops_reachsafety_unreach.md](reports/2026-06-13_v1.5_loops_reachsafety_unreach.md) | **v1.5 實測結果**：Loops broad set 764 題，VGuide +37 vs stock，33 VGuide-only TRUE solves |
 | [reports/2026-06-10_freq10_n24_adaptive_noL3.md](reports/2026-06-10_freq10_n24_adaptive_noL3.md) | **v1.3 noL3**：150 solved、PAR-2 192s（adaptive + freq10/n24） |

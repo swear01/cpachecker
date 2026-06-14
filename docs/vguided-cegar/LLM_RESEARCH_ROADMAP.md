@@ -181,7 +181,7 @@ reachability 之所以「不用改 Java」，是因為 LLM→engine 的**注入�
 
 | Branch | 候選 artifact | 繼承 predicate-CEGAR hook？ | Class | 主要成本 |
 |---|---|---|---|---|
-| **Overflow** | bound / range predicate | **是**——其 predicate 元件 `#include predicateAnalysis-PredAbsRefiner-ABEl.properties`，與 reachability vguide **同一個 refiner** | **A** | config + prompt 語意；待確認 overflow portfolio 實際 route 多少進該 predicate child |
+| **Overflow** | bound / range predicate | **是**——其 predicate 元件 `#include predicateAnalysis-PredAbsRefiner-ABEl.properties`，與 reachability vguide **同一個 refiner** | **A ✓ 實證** | config-only（零 Java/prompt）：452 題 **+6 new / 0 lost / 0 wrong**（[report](reports/2026-06-15_svcomp26_overflow_vguide.md)）|
 | Termination（safety-reduction 路）| safety 編碼的 predicate | 可能——`terminationToSafety` 走 PredicateCPA | A?（待確認其 refiner 即 VGuide hook 的那顆）| config + 確認 refiner |
 | **Termination（lasso 路）** | **ranking function** | 否——`lassoRankerAnalysis`，非 predicate-CEGAR | **B** | **新 sound ranking-function 注入 hook**（最高槓桿）|
 | MemSafety / MemCleanup | memory invariant / aliasing | 否——SMG2 | B | 新 sound memory-invariant 注入 hook |
@@ -190,9 +190,10 @@ reachability 之所以「不用改 Java」，是因為 LLM→engine 的**注入�
 所以「泛化」其實有兩種命運：**Overflow（+ 可能 termination 的 safety 路）幾乎免費繼承注入點**；
 **ranking function / SMG memory 要各自建一個 sound 注入 hook**——後者才是 v2.0 的真實工作量，跟 config 無關。
 
-> **v1.6 第一刀（現行）**：Overflow Class-A 的可執行計劃見
-> [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)——零 Java、零 prompt 改動，
-> 直接驗證 reachability 的 hook 能不能 fire 在 NoOverflow 上。
+> **v1.6 第一刀（✓ 已實證）**：Overflow Class-A——零 Java、零 prompt 改動，452 題 **+6 new / 0 lost / 0 wrong**，
+> 6 個 new solves 全部 LLM-decided。計劃 [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)、
+> 結果 [`reports/2026-06-15_svcomp26_overflow_vguide.md`](reports/2026-06-15_svcomp26_overflow_vguide.md)。
+> **泛化命題成立**：predicate-CEGAR hook 可平移到任何跑同一 ABEl refiner 的 branch。
 
 ### 4.3 更正後的進場流程（feasibility-first，不是 baseline-first）
 

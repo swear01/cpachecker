@@ -238,8 +238,12 @@ v1.6 的 claim 是「**hook 泛化是否成立**」，不是「+N 題」。對�
 | Runner 兩 mode（`svcomp26-overflow` / `svcomp26-overflow-vguide`）| **DONE**（run.sh + run_benchmark_set.sh 偵測；`bash -n` 過；dry-run 確認 config/spec/無全域 flag）|
 | overflow manifest | **DONE**（`no_overflow_pilot` 15 題、`no_overflow_scalar` 452 題；filter no-overflow.prp + expected）|
 | Smoke L0/L1 + counterfactual + C/D | **DONE**（見下方）|
-| L2 pilot + L3 full-set | TODO（下一步）|
-| 因果歸因報告 | TODO |
+| L2 pilot + L3 full-set | **DONE**（pilot 15/15 0-wrong；full 452 題 → **+6 / 6 new / 0 lost / 0 wrong**，6 全 direct LLM win）|
+| 因果歸因報告 | **DONE** → [`reports/2026-06-15_svcomp26_overflow_vguide.md`](reports/2026-06-15_svcomp26_overflow_vguide.md) |
+
+> **v1.6 結果：Class-A 泛化實證成立。** stock 314 → vguide 320 solved（+6），0 lost、0 wrong，6 個 new solves
+> 全部 stock-UNKNOWN→vguide-TRUE（1 refinement、~4–6s、deciding=vguide predicate、llm_rounds=1）。
+> 注入的是 overflow-相關 predicate（非負、`x ≤ 2^30−1` bound）→ config-only 即可，無需 prompt 適配。詳見上方 report。
 
 ### Smoke 結果（2026-06-15）
 
