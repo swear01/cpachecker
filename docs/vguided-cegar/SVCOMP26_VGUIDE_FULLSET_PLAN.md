@@ -193,3 +193,13 @@ Delta vs svcomp26：**17 new solves / 10 lost solves / 0 disagreements / net +7 
 
 保守 claim 邊界：這不是 strict superset（10 lost solves），也不是正式離線 SV-COMP submission；
 但它是同一個 svcomp26 portfolio base 上的乾淨正增益。
+
+
+---
+
+## 9. v1.5.2+ 後續方向
+
+本文件記錄 v1.5.1 full-set；下一階段不只調 PredicateCPA，而是把 LLM 放到 svcomp26 portfolio strategy 層。
+計劃見 [`SVCOMP26_PORTFOLIO_LLM_PLAN.md`](SVCOMP26_PORTFOLIO_LLM_PLAN.md)。
+
+重點：targeted rerun 只作為診斷；正式 runtime 沒有外部 retry，所以要做 single-run 的 routing / budget / guard / fallback。

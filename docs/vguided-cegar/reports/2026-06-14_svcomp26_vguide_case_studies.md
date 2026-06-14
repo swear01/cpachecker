@@ -222,6 +222,15 @@ as VGuide-caused.
 
 ## Improvement opportunities
 
+
+### Adaptive predicate budget means
+
+Default VGuide asks for and keeps 3–6 predicates per LLM call. Adaptive budget scores the ContextPack and uses larger
+tiers: low 4–8, medium 6–12, high 8–16 predicates, with `llmMaxCompletionTokens=2048`. In the targeted old
+VGuide-only pool, `freq12 + adaptive` recovered 5/18 tasks; rerunning those 5 with default recovered only `in-de41`.
+Thus the signal is: larger/adaptive first-round predicate budgets can solve tasks default budget misses. It is not yet
+a full-set proof, and it may increase lost solves if predicates pollute precision.
+
 ### 1. Low-risk config ablation: adaptive budget for svcomp26-vguide
 
 Rationale: targeted rerun recovered 4 tasks that default did not (`count_by_nondet`, `down`, `functions_1-1`, `up`).
@@ -276,24 +285,25 @@ Candidate filters:
 
 Expected upside: reduce precision pollution and CPU starvation, especially on baseline-easy predicate tasks.
 
-### 4. Resource-aware evaluation and reporting
+### 4. Resource-aware evaluation and single-run strategy
 
-Rationale: 5/10 full-set lost solves recovered in a smaller default rerun. This means single-run full-set delta is valid
-as a measured result, but borderline losses/new solves should be reported with stability labels.
+Rationale: 5/10 full-set lost solves recovered in a smaller default rerun. This proves retry/resource sensitivity, but
+realistic SV-COMP-style execution has no external retry. Targeted reruns are diagnostic only.
 
 Suggested practice:
 
-- For each future full-set report, automatically rerun `new ∪ lost` once in a small targeted batch.
-- Classify deltas as stable / retry-sensitive / config-sensitive.
-- Use BenchExec or lower outer parallelism for final numbers if wall/CPU contention becomes a concern.
+- For reports: rerun `new ∪ lost` only to classify stable / retry-sensitive / config-sensitive deltas.
+- For runtime: convert the lesson into single-run mechanisms — stock-first guards, in-run probes, adaptive budget, and
+  portfolio resource allocation.
+- Use BenchExec or lower outer parallelism for final measurement if wall/CPU contention becomes a concern.
+- Broader plan: [`../SVCOMP26_PORTFOLIO_LLM_PLAN.md`](../SVCOMP26_PORTFOLIO_LLM_PLAN.md).
 
 ### 5. Keep svcomp26-vguide claim, but target v1.5.2 at 500+
 
 A conservative next target:
 
 - Current full-set: 493 solved.
-- Recover retry-sensitive lost solves observed here: +5 possible.
+- Convert retry-sensitive lost-solve diagnostics into single-run guards / resource policy: up to +5 observed in targeted reruns, but not claimable without full-set validation.
 - Recover adaptive-budget old VGuide-only tasks observed here: +4 to +5 possible.
 
-These are not automatically additive, but they justify a v1.5.2 target around **500 solved** on the same 764-task set,
-with the key acceptance criterion remaining **0 wrong verdicts** and fewer lost baseline solves.
+These are not automatically additive and cannot be claimed as runtime retry gains. They justify a v1.5.2 target around **500 solved** on the same 764-task set, with the key acceptance criterion remaining **0 wrong verdicts** and fewer lost baseline solves in a single full-set run.
