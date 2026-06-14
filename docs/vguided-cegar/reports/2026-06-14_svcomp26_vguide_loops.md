@@ -185,15 +185,16 @@ HTTP calls in a dual-prompt round.
 
 No TRUE/FALSE mismatch against expected metadata was observed in any of the four compared runs.
 
-One `svcomp26-vguide` task, `watermelon`, produced a Java exception and was post-processed to UNKNOWN:
+One task, `watermelon`, produced the same Java exception in both svcomp26 baseline and svcomp26-vguide and was
+post-processed to UNKNOWN:
 
 ```text
 Identifier 'false' can not be used, because it is a keyword of SMT-LIB2.
 ```
 
-`watermelon` was also UNKNOWN under the svcomp26 baseline, so this does not affect the net solved delta or soundness
-claim. It is nevertheless a real robustness bug in the predicate parsing/identifier path and should be fixed before
-claiming production readiness.
+The stack trace goes through `KInductionProver.extractCTIs` / `FormulaManagerView.uninstantiate`, not the VGuide LLM
+parser. Thus this is an existing portfolio/k-induction robustness caveat, not a VGuide-specific wrong-verdict issue.
+It does not affect the net solved delta or soundness claim.
 
 Other operational checks:
 

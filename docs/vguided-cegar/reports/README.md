@@ -5,6 +5,7 @@
 | 報告 | 說明 |
 |------|------|
 | **[`2026-06-14_svcomp26_vguide_loops.md`](2026-06-14_svcomp26_vguide_loops.md)** | **v1.5.1 svcomp26-vguide full-set**：Loops 764 題；svcomp26-vguide **493 solved** vs svcomp26 **486**（+7）、0 wrong、PAR-2 216.90s；16 direct LLM predicate wins |
+| **[`2026-06-14_svcomp26_vguide_case_studies.md`](2026-06-14_svcomp26_vguide_case_studies.md)** | **Case studies / v1.5.2 opportunities**：direct LLM wins、lost-solve stability、adaptive-budget rescue pool；next target 500+ solved |
 | **[`2026-06-13_v1.5_loops_reachsafety_unreach.md`](2026-06-13_v1.5_loops_reachsafety_unreach.md)** | **v1.5 實測結果**：SV-COMP Loops `unreach-call` 764 題；stock 225 solved、v1.4 262（+37）、`--svcomp26` 486；VGuide-only 33 TRUE |
 | **[`2026-06-13_svcomp27_vguide_integration.md`](2026-06-13_svcomp27_vguide_integration.md)** | **SV-COMP config integration**：`svcomp27-vguide` scoped configs、BAM fallback、process LLM cap、runner mode 與 smoke-test evidence |
 | **[`2026-06-13_svcomp27_pilot_calibration.md`](2026-06-13_svcomp27_pilot_calibration.md)** | **SV-COMP full-set readiness**：sample regression、portfolio verdict attribution、20-task 900s pilot calibration、`svcomp27-stock` 對照模式與 full-set nohup launcher |
