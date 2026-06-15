@@ -241,7 +241,7 @@ v1.6 的 claim 是「**hook 泛化是否成立**」，不是「+N 題」。對�
 | L2 pilot + L3 full-set | **DONE**（pilot 15/15 0-wrong；full 452 題 → **+6 / 6 new / 0 lost / 0 wrong**，6 全 direct LLM win）|
 | 因果歸因報告 | **DONE** → [`reports/2026-06-15_svcomp26_overflow_vguide.md`](reports/2026-06-15_svcomp26_overflow_vguide.md) |
 
-> **v1.6 結果：Class-A 泛化實證成立。** stock 314 → vguide 320 solved（+6），0 lost、0 wrong，6 個 new solves
+> **v1.6 結果：Class-A 泛化實證成立。** stock 357 → vguide 363 solved（+6），0 lost、0 wrong，6 個 new solves
 > 全部 stock-UNKNOWN→vguide-TRUE（1 refinement、~4–6s、deciding=vguide predicate、llm_rounds=1）。
 > 注入的是 overflow-相關 predicate（非負、`x ≤ 2^30−1` bound）→ config-only 即可，無需 prompt 適配。詳見上方 report。
 > **能否再往上？** 提升評估與計劃見 [`SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md)

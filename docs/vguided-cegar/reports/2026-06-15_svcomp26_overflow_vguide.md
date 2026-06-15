@@ -16,8 +16,12 @@ timelimit:  120s，parallel 6，heap 4000M，兩 arm 完全相同
 
 | Arm | TRUE | FALSE | UNKNOWN | Solved | Wrong |
 |-----|-----:|------:|--------:|-------:|------:|
-| `svcomp26-overflow`（stock） | 155 | 159 | 95 | 314 | **0** |
-| **`svcomp26-overflow-vguide`** | **161** | 159 | 89 | **320** | **0** |
+| `svcomp26-overflow`（stock） | 160 | 197 | 95 | 357 | **0** |
+| **`svcomp26-overflow-vguide`** | **166** | 197 | 89 | **363** | **0** |
+
+> 數字更正（2026-06-15）：初版用 basename 當 key 分析，遇跨目錄同檔名（如 `recursive/` vs `recursive-simple/`）
+> 碰撞，少算約 43 題 → 誤報 stock 314 / vguide 320。改用 full-path key 重算為 **stock 357 / vguide 363**。
+> **delta +6、6 個 new solves、0 lost、0 wrong 完全不變**（碰撞題兩 arm 對稱、且非 new/lost）。
 
 Delta：**+6 solved / 6 new / 0 lost / 0 wrong**。
 是 stock 的 **strict superset**（無任何 regression）——比 reachability v1.5.1 更乾淨（那次有 10 lost）。

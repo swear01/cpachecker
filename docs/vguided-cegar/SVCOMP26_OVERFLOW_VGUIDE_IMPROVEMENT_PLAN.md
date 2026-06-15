@@ -111,6 +111,10 @@ Java 改動範圍小（一個 property enum + 一段 overflow SAFE 文案 + 分�
 |------|------|
 | L3 headroom 分析（91 fired / 37 target / quality-not-quantity / multi-round dead）| **DONE**（§1）|
 | prompt 反向調校發現 | **DONE**（§2）|
-| P0 config 子集實驗 | TODO |
-| P1 overflow-aware prompt（Java）| TODO |
+| P0 config 實驗（adaptive budget, full 452）| **DONE → +1**（只 `Avery-FLOPS2006-Table1`，0 regr / 0 wrong）→ **config 確認非 lever**（quality-not-quantity 成立）|
+| P1 overflow-aware prompt（Java）| **實作完成、build SUCCESSFUL、1-題 sanity 過**（dump prompt 確含 overflow 文案）；91-fired A/B 進行中 |
 | P2 300s 確認 | TODO |
+
+> **基準數字更正**：v1.6 topline 原報 stock 314 / vguide 320 是 basename-keyed 分析少算（跨目錄同檔名碰撞）。
+> full-path 重算為 **stock 357 / vguide 363**；**+6 / 0 lost / 0 wrong / 6 new solves 不變**。§1 的 91 fired / 37 target
+> 是逐 log 統計（無 dedup），不受影響。
