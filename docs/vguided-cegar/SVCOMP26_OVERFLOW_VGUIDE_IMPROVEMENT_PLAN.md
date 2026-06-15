@@ -122,12 +122,23 @@ Java 改動範圍小（一個 property enum + 一段 overflow SAFE 文案 + 分�
 | P0 config（adaptive budget, full 452）| **+1** |
 | P1 prompt（overflow-aware, 91-fired A/B）| **+0** |
 
-兩個便宜 lever 都不動那 37 個 fired-but-UNKNOWN。原假設「reachability prompt 勸退 bound 是瓶頸」**被 A/B 否證**：
-換成明確鼓勵 bound 的 overflow prompt，solved 完全不變（連 solved 集合都一樣）。推論：
+兩個便宜 lever 都不動那 37 個 fired-but-UNKNOWN。原假設「reachability prompt 勸退 bound 是瓶頸」**被否證**。
 
-- 預設 prompt 的 **examples 本來就含 bound**（`(bvsge i (_ bv0 32))` 等），LLM 實際上沒被 §2 的 anti-bound 規則擋住；
-- 那 37 題是 AliasDarteFeautrierGonnord-SAS2010 / McCarthy91 這類**需要複雜 relational invariant** 的難題，
-  瓶頸是 **LLM invariant 合成能力**（與在 1 round / 120s 內讓 predicate analysis 收斂的能力），不是 prompt framing。
+**為什麼 neutral（逐題驗證，3 題各跑 DEFAULT/OVERFLOW + dump）**：
+
+1. **overflow prompt 確實生效、且確實改變了 LLM 輸出**——非「framing 被忽略」。`overflow_prompt_active=yes`；
+   easy2-1 注入從 default 的一般 bound 變成**明確 overflow bound**：`x ≤ INT_MAX (bv2147483647)`、`x ≥ 0`(sign-bit)、`y ≥ INT_MIN`。
+   prompt 完全照設計運作，預測的 overflow predicate 都出現了。
+2. **但 predicate 不是瓶頸**：注入後 proof 仍關不掉——分析要嘛 **give up**（McCarthy91 16 ref / nestedLoop2 27 ref，~36s UNKNOWN），
+   要嘛 **發散到 timeout**（easy2-1：default 59 → overflow **117** refinements，撞 120s）。
+3. **overflow 的大常數 bound 有時更糟**：easy2-1 的 INT_MAX/INT_MIN 界把 CEGAR refinement 從 59 漲到 117（abstraction 更大、更難收斂）。
+
+→ 真正瓶頸是 **CEGAR 在這些 hard loop 上不收斂**：win 題是 1 refinement 一刀關掉；這 37 題給再多（再對的）bound 都不收斂，
+因為 LLM（兩種 prompt 都）**沒給出能關掉 proof 的 inductive relational invariant**。這不是 prompt framing 能解的，
+要的是 inductive-invariant 合成 / 更長 timelimit / multi-round——高成本低確定性。
+
+**含意**：overflow-aware prompt 對 overflow **無益、偶爾更糟**（大常數增加 refinement 發散）→ **不建議接進 overflow config**；
+P1 apparatus 是個 well-scoped 但對此問題無效的 lever。
 
 **所以 v1.6 的零調參 config 對 overflow 已接近最佳。** 剩餘 headroom 要更深的東西（multi-round 真的再 fire、ensemble、更強模型），
 高成本、低確定性，不算「鞏固」。可做的「鞏固」只剩 **P2：300s 競賽級確認**（把 stock 357 / vguide 363 補成 competition timing 硬數字）。
