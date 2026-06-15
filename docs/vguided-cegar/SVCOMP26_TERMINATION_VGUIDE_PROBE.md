@@ -7,6 +7,32 @@
 
 ---
 
+## Phase 0 結果（2026-06-15）：RED — termination-safety = Class-B
+
+Probe config（terminationToSafety + `analysis.algorithm.CEGAR=true` + predicate refiner + vguide）建好，
+跑了 8 個 termination 題（terminating + non-terminating，static refinement on/off 兩組）。**結論 RED**：
+
+| 證據 | 數據 |
+|------|------|
+| VGuide fire | **0/8**（全 `NO_SPURIOUS_GIVE_UP`）|
+| CEGAR refinements | **0**（所有非 crash 題；static refinement on/off 皆然）|
+| crash | `NonTermination3-1`：`java.util.NoSuchElementException` @ `PredicateStaticRefiner` / `PredicateCPARefiner.filterAbstractionStates`（static off 仍 crash）|
+| soundness | 無 wrong verdict（全 UNKNOWN 或 crash），但也 0 solve |
+
+**結構性原因（不是「題太簡單」）**：terminationToSafety 的證明引擎是 `TerminationToReachCPA`
+（memory-based recurrent-state 偵測），**不是 predicate-CEGAR refinement**。即使把 CEGAR + predicate refiner
+接進 composite、VGuide hook 確實進了 path（log 有 `Unified VGuide CEGAR enabled (first-spurious LLM path)`），
+CEGAR 仍做 **0 次 refinement**——reduction 直接 UNKNOWN，從不交 spurious counterexample 給 predicate refiner，
+所以 VGuide 沒有可介入的點；部分題還因 predicate-abstraction ARG 結構不存在而 crash。
+
+**判定（§2.3）**：0 fire + CEGAR inert + crash → **RED → termination-safety = Class-B**。config 救不回來。
+termination 的真正 LLM 機會在 **ranking-function 路（§5，v2.0 需 Java hook）**。
+
+> **feasibility-first 的價值**：~30 分鐘 probe 擋掉了一整套（scoped variant + baseline + full-set）白工。
+> 對比 overflow（同方法但 GREEN，[+6 result](reports/2026-06-15_svcomp26_overflow_vguide.md)）：差別就在「引擎是不是 predicate-CEGAR」。
+
+---
+
 ## 0. 重要更正：terminationToSafety 預設不在 VGuide hook 的 path 上
 
 逐檔 + 逐 Java 確認的事實：
@@ -129,6 +155,7 @@ terminationToSafety 救不回來的話，termination 的高槓桿介入點是另
 | 項目 | 狀態 |
 |------|------|
 | Grounding（terminationToSafety ≠ 乾淨 Class-A）| **DONE**（§0）|
-| Phase 0 probe config | TODO |
-| Phase 0 probe 跑 + go/no-go | TODO |
-| Phase 1（條件）| 待 Phase 0 |
+| Phase 0 probe config | **DONE**（已建已跑、確認結構性不可行後刪除 dead-end config）|
+| Phase 0 probe 跑 + go/no-go | **DONE → RED**（0 fire / CEGAR inert / crash；見頂部）|
+| Phase 1（條件）| **N/A**（RED）|
+| 結論 | termination-safety = **Class-B**；pivot 到 ranking-function hook（§5，v2.0）|

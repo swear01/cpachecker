@@ -182,16 +182,17 @@ reachability 之所以「不用改 Java」，是因為 LLM→engine 的**注入�
 | Branch | 候選 artifact | 繼承 predicate-CEGAR hook？ | Class | 主要成本 |
 |---|---|---|---|---|
 | **Overflow** | bound / range predicate | **是**——其 predicate 元件 `#include predicateAnalysis-PredAbsRefiner-ABEl.properties`，與 reachability vguide **同一個 refiner** | **A ✓ 實證** | config-only（零 Java/prompt）：452 題 **+6 new / 0 lost / 0 wrong**（[report](reports/2026-06-15_svcomp26_overflow_vguide.md)）|
-| Termination（safety-reduction 路）| safety 編碼的 predicate | **否（預設）**——`terminationToSafety` 跑 CPAAlgorithm **無 CEGAR**，`PredicateCPARefiner` 不在 path | **A\*（probe）** | 要加 CEGAR+refiner 進 termination composite 且驗 soundness → [probe](SVCOMP26_TERMINATION_VGUIDE_PROBE.md) |
+| Termination（safety-reduction 路）| safety 編碼的 predicate | **否**——引擎是 `TerminationToReachCPA` 非 predicate-CEGAR；強接 CEGAR 仍 **0 refinement**（[probe RED](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）| **B**（probe 已否決）| config 救不回；需 Java hook（同 ranking 路，v2.0）|
 | **Termination（lasso 路）** | **ranking function** | 否——`lassoRankerAnalysis`，非 predicate-CEGAR | **B** | **新 sound ranking-function 注入 hook**（最高槓桿）|
 | MemSafety / MemCleanup | memory invariant / aliasing | 否——SMG2 | B | 新 sound memory-invariant 注入 hook |
 | DataRace | （interleaving / reduction 提示）| 否——BDD / sequentialization | C | 無待證候選，只 Tier-R |
 
-所以「泛化」其實有三種命運（grounding 後修正）：
-**(i) Overflow 幾乎免費繼承注入點（✓ 已實證）**；
-**(ii) termination safety 路要先把 CEGAR+refiner 接進 termination composite 且驗 soundness（A\* probe，未定，見 [probe](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）**；
-**(iii) ranking function / SMG memory 要各自建一個 sound 注入 hook（Class-B，v2.0）**。
-原先以為 termination safety 路屬 (i)，逐 Java 確認後發現它沒有現成的 predicate-CEGAR refiner，實際介於 (i) 與 (iii) 之間。
+所以「泛化」其實兩種命運（grounding + probe 後定案）：
+**(i) 跑同一顆 ABEl predicate-CEGAR refiner 的 branch（Overflow ✓ 已實證）幾乎免費繼承注入點**；
+**(ii) 其餘要各自建一個 sound 注入 hook（Class-B，v2.0）——ranking function、SMG memory，以及 termination-safety**。
+termination-safety 原以為屬 (i)；feasibility probe **RED**：其引擎是 `TerminationToReachCPA`（非 predicate-CEGAR），
+強接 CEGAR 仍 0 refinement、VGuide 無從 fire（見 [probe](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）。
+**教訓：Class-A 的判準不是「有沒有 PredicateCPA」，而是「predicate-CEGAR 是不是真正的證明引擎」。**
 
 > **v1.6 第一刀（✓ 已實證）**：Overflow Class-A——零 Java、零 prompt 改動，452 題 **+6 new / 0 lost / 0 wrong**，
 > 6 個 new solves 全部 LLM-decided。計劃 [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)、
@@ -219,7 +220,7 @@ reachability 之所以「不用改 Java」，是因為 LLM→engine 的**注入�
 | Horizon | 主題 | 項目 | 進場 gate |
 |---------|------|------|-----------|
 | **v1.5.2（現在）** | 收緊 reachability predicate portfolio | adaptive budget ablation、stock-first guard、SAFE-only injection | 見 `SVCOMP26_PORTFOLIO_LLM_PLAN.md` P0–P1 |
-| **v1.6（現行）** | **跨 branch 泛化 feasibility 研究** | **Overflow Class-A scoped variant（config-only，最快實證泛化）→ [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)**；把 5 個 branch 做 §4.2 A/B/C 分級；termination safety-路 → [probe](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)（已確認非乾淨 Class-A）；輸出每個 Class-B 的 hook scope。可並行 reachability 內 broaden（§3.2 domain routing[R]、§3.4 witness invariant[S]）| 需 Overflow baseline；每個 Class-A branch 需同時限 baseline |
+| **v1.6（現行）** | **跨 branch 泛化 feasibility 研究** | **Overflow Class-A scoped variant（config-only，最快實證泛化）→ [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)**；把 5 個 branch 做 §4.2 A/B/C 分級；termination safety-路 probe **RED → Class-B**（[probe](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）；輸出每個 Class-B 的 hook scope。可並行 reachability 內 broaden（§3.2 domain routing[R]、§3.4 witness invariant[S]）| 需 Overflow baseline；每個 Class-A branch 需同時限 baseline |
 | **v2.0** | 建 Class-B sound 注入 hook | **Termination lasso 路 candidate ranking-function hook[S]（最高槓桿）**、MemSafety memory-invariant hook[S]、§3.3 FALSE-task seeding[S] | 需 v1.6 矩陣判定該 branch 值得；需新 Java + per-engine 驗證 |
 | **exploratory** | 跨 corpus 學習 | §3.5 learned dispatcher[R]、跨年 generalization、§3.6 離線/本地模型 | 需 §3.7 harness 成熟、需離線 precompute 管線 |
 
