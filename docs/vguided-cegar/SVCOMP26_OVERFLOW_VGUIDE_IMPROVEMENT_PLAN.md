@@ -112,8 +112,27 @@ Java 改動範圍小（一個 property enum + 一段 overflow SAFE 文案 + 分�
 | L3 headroom 分析（91 fired / 37 target / quality-not-quantity / multi-round dead）| **DONE**（§1）|
 | prompt 反向調校發現 | **DONE**（§2）|
 | P0 config 實驗（adaptive budget, full 452）| **DONE → +1**（只 `Avery-FLOPS2006-Table1`，0 regr / 0 wrong）→ **config 確認非 lever**（quality-not-quantity 成立）|
-| P1 overflow-aware prompt（Java）| **實作完成、build SUCCESSFUL、1-題 sanity 過**（dump prompt 確含 overflow 文案）；91-fired A/B 進行中 |
+| P1 overflow-aware prompt（Java）| **DONE → +0**（91-fired A/B，同 jar：DEFAULT 54 solved vs OVERFLOW 54，0 gain / 0 regr / 0 wrong）→ prompt framing **不是** lever |
 | P2 300s 確認 | TODO |
+
+## 8. 結論：overflow 的便宜 lever 已用盡，v1.6 近最佳
+
+| Lever | 結果 |
+|-------|------|
+| P0 config（adaptive budget, full 452）| **+1** |
+| P1 prompt（overflow-aware, 91-fired A/B）| **+0** |
+
+兩個便宜 lever 都不動那 37 個 fired-but-UNKNOWN。原假設「reachability prompt 勸退 bound 是瓶頸」**被 A/B 否證**：
+換成明確鼓勵 bound 的 overflow prompt，solved 完全不變（連 solved 集合都一樣）。推論：
+
+- 預設 prompt 的 **examples 本來就含 bound**（`(bvsge i (_ bv0 32))` 等），LLM 實際上沒被 §2 的 anti-bound 規則擋住；
+- 那 37 題是 AliasDarteFeautrierGonnord-SAS2010 / McCarthy91 這類**需要複雜 relational invariant** 的難題，
+  瓶頸是 **LLM invariant 合成能力**（與在 1 round / 120s 內讓 predicate analysis 收斂的能力），不是 prompt framing。
+
+**所以 v1.6 的零調參 config 對 overflow 已接近最佳。** 剩餘 headroom 要更深的東西（multi-round 真的再 fire、ensemble、更強模型），
+高成本、低確定性，不算「鞏固」。可做的「鞏固」只剩 **P2：300s 競賽級確認**（把 stock 357 / vguide 363 補成 competition timing 硬數字）。
+
+P1 的 property-aware-prompt apparatus（`vguide.propertyHint`，default `DEFAULT`，**未接進 overflow config**）對 overflow neutral。
 
 > **基準數字更正**：v1.6 topline 原報 stock 314 / vguide 320 是 basename-keyed 分析少算（跨目錄同檔名碰撞）。
 > full-path 重算為 **stock 357 / vguide 363**；**+6 / 0 lost / 0 wrong / 6 new solves 不變**。§1 的 91 fired / 37 target
