@@ -95,7 +95,7 @@ Manifest：`docs/vguided-cegar/benchmark_sets/*.list`（`run.sh bench-regen` 重
 | **`full_scalar.list`** | **217** | `RUN_SCALAR`（220）− `id_build,half_2,seq-3`；**0 missing** |
 | `excluded_fmpa2_legacy.list` | **11** | 僅 FMPA2 舊樹有、**官方 repo 無** — **已移除，不補檔** |
 
-清單說明：[benchmark_sets/README.md](benchmark_sets/README.md)
+清單說明：[benchmark_sets/README.md](../benchmark_sets/README.md)
 
 **不納入 Full 主路徑：** `PARSER_RISK`、`RUN_ARRAY_SELECT_EXPERIMENTAL`（需 select，與 VGuide 假設不符）。
 

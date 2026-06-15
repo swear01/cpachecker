@@ -1,0 +1,48 @@
+# Structure
+
+| Path | Purpose |
+|------|---------|
+| `src/org/sosy_lab/cpachecker/cpa/predicate/vguide/` | **VGuide Java implementation** — LLM bridge, validator, precision injector |
+| `config/vguide.properties` | Runtime defaults: LLM scheduling (`min_interval`, `every_n`), L3 toggle |
+| `config/predicateAnalysis-vguide.properties` | PredicateCPA + VGuide entry config |
+| `config/svcomp26-vguide.properties` | Competition config: routes reachability + overflow through VGuide |
+| `scripts/vguided-cegar/run.sh` | **Single entry point** for all experiments and bench setup |
+| `scripts/vguided-cegar/post_batch_analysis.sh` | PAR-2 / cactus analysis after batch runs |
+| `docs/vguided-cegar/` | All active research documentation |
+| `docs/vguided-cegar/RUN_EXPERIMENTS.md` | How to run experiments end-to-end |
+| `docs/vguided-cegar/architecture/` | Current design specs |
+| `docs/vguided-cegar/llm/` | LLM scheduling, ensemble, budget, API docs |
+| `docs/vguided-cegar/evaluation/` | Benchmark definitions, frozen replay |
+| `docs/vguided-cegar/benchmark_sets/` | `.list` manifests read by `run.sh` |
+| `docs/vguided-cegar/predicate_sets/` | Frozen predicates for NO_SPURIOUS replay |
+| `docs/vguided-cegar/reports/` | Experiment result records (not design specs) |
+| `output/vguide/experiments/` | **Active raw output** — batch run products, written by `run.sh` (gitignored) |
+| `archive/raw-legacy/` | **Retired raw output** parking — `mv` old raw here instead of deleting (gitignored) |
+| `archive/` | **Obsolete** historical material — never treat as current truth |
+| `test/` | CPAchecker upstream test suite |
+| `build/`, `classes/` | Compiled artifacts |
+| `doc/` | Upstream CPAchecker official docs |
+| `lib/` | Third-party JARs |
+| `~/sv-benchmarks/c` | SV-COMP benchmark tree (external; not in repo) |
+
+## Module Boundaries
+
+- VGuide code (`src/.../vguide/`) is the only place LLM integration lives. Do not add LLM calls elsewhere.
+- `scripts/vguided-cegar/` is the only scripts directory for VGuide experiments. Legacy scripts are in `archive/`.
+- `docs/vguided-cegar/` is the single source of truth for active research docs. `archive/` is not authoritative.
+- `output/vguide/` is runtime output only — never commit it.
+- **Raw output lifecycle:** active raw → `output/vguide/experiments/` (run.sh writes here); retired raw → `mv` to `archive/raw-legacy/` (keep, don't delete). Both git-ignored.
+- When searching for current design, exclude: `archive/`, `reports/`, `predicate_sets/`, `output/`, `build/`, `classes/`.
+
+## Grep / Find Exclude Flags
+
+```bash
+# General code/architecture search:
+rg ...  # rg respects .rgignore which already excludes archive/
+
+# If using grep:
+grep -r ... --exclude-dir=archive --exclude-dir=predicate_sets --exclude-dir=output --exclude-dir=build --exclude-dir=classes
+
+# When searching for design specs only (not experiment records):
+grep -r ... --exclude-dir=archive --exclude-dir=reports --exclude-dir=predicate_sets --exclude-dir=output
+```

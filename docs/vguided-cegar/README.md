@@ -4,21 +4,28 @@
 
 ## 快速入口
 
-| 文件 | 用途 |
-|------|------|
-| [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) | **`run.sh` 怎麼跑**；批次後 PAR-2 / cactus |
-| [reports/README.md](reports/README.md) | 進度報告 |
-| [reports/2026-06-15_svcomp26_overflow_vguide.md](reports/2026-06-15_svcomp26_overflow_vguide.md) | **v1.6 Class-A 泛化（✓）**：NoOverflow 452 題，363 solved vs stock 357（**+6 / 0 lost / 0 wrong**），6 全 direct LLM win；零 Java/prompt |
-| [reports/2026-06-14_svcomp26_vguide_loops.md](reports/2026-06-14_svcomp26_vguide_loops.md) | **v1.5.1 svcomp26-vguide**：Loops 764 題，493 solved vs svcomp26 486（+7），0 wrong，16 direct LLM predicate wins |
-| [reports/2026-06-13_v1.5_loops_reachsafety_unreach.md](reports/2026-06-13_v1.5_loops_reachsafety_unreach.md) | **v1.5 實測結果**：Loops broad set 764 題，VGuide +37 vs stock，33 VGuide-only TRUE solves |
-| [reports/2026-06-10_freq10_n24_adaptive_noL3.md](reports/2026-06-10_freq10_n24_adaptive_noL3.md) | **v1.3 noL3**：150 solved、PAR-2 192s（adaptive + freq10/n24） |
-| [SVCOMP26_VGUIDE_FULLSET_PLAN.md](SVCOMP26_VGUIDE_FULLSET_PLAN.md) | **svcomp26-vguide** full-set 計劃與完成狀態（v1.5.1） |
-| [SVCOMP26_PORTFOLIO_LLM_PLAN.md](SVCOMP26_PORTFOLIO_LLM_PLAN.md) | **v1.5.2+**：把 LLM 從 PredicateCPA 擴展到 svcomp26 portfolio strategy（routing / budget / guards / hints） |
-| [LLM_RESEARCH_ROADMAP.md](LLM_RESEARCH_ROADMAP.md) | **v1.6 → v2.0 → exploratory**：長 horizon 廣域地圖——跨 property category（Termination / MemSafety / Overflow…）、跨 CPA domain、FALSE/witness、離線 corpus 學習；含 S/R/X soundness 守則與 hook-inheritance 分級 |
-| [SVCOMP26_OVERFLOW_VGUIDE_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md) | **v1.6（✓ 完成）**：把 reachability 的 predicate-CEGAR hook 泛化到 NoOverflow branch（Class-A、config-only、零 Java）——+6/0 lost/0 wrong |
-| [SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md) | **v1.6.1 提升計劃**：91 fired/37 fired-but-UNKNOWN；發現 reachability prompt 主動勸退 overflow 需要的 bound predicate → P1 overflow-aware prompt 是最大 lever（P0 config 排除法、P2 300s 確認）|
-| [SVCOMP26_TERMINATION_VGUIDE_PROBE.md](SVCOMP26_TERMINATION_VGUIDE_PROBE.md) | **probe RED → Class-B**：termination safety-路 feasibility probe 否決——引擎是 `TerminationToReachCPA` 非 predicate-CEGAR，強接 CEGAR 仍 0 refinement，VGuide 無從 fire；termination 留 v2.0 ranking-function Java hook |
-| [SVCOMP_INTEGRATION_PLAN.md](SVCOMP_INTEGRATION_PLAN.md) | **svcomp27** × VGuide v1.5 整合計劃 |
+### 現行入口與計劃（active）
+
+| 文件 | 狀態 | 用途 |
+|------|------|------|
+| [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) | 現行入口 | **`run.sh` 怎麼跑**；批次後 PAR-2 / cactus |
+| [reports/README.md](reports/README.md) | 報告索引 | 進度報告總入口 |
+| [SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md) | 現行 v1.6.1 | 91 fired/37 fired-but-UNKNOWN；reachability prompt 主動勸退 overflow 需要的 bound predicate → P1 overflow-aware prompt 是最大 lever |
+| [SVCOMP26_PORTFOLIO_LLM_PLAN.md](SVCOMP26_PORTFOLIO_LLM_PLAN.md) | 現行 v1.5.2+ | 把 LLM 從 PredicateCPA 擴展到 svcomp26 portfolio strategy（routing / budget / guards / hints） |
+| [SVCOMP_INTEGRATION_PLAN.md](SVCOMP_INTEGRATION_PLAN.md) | 現行 svcomp27 | **svcomp27** × VGuide v1.5 整合計劃 |
+| [LLM_RESEARCH_ROADMAP.md](LLM_RESEARCH_ROADMAP.md) | 現行 roadmap | **v1.6 → v2.0 → exploratory**：長 horizon 廣域地圖——跨 property category、跨 CPA domain、FALSE/witness、離線 corpus 學習；含 S/R/X soundness 守則 |
+
+### 已完成計劃與結果記錄（✓ done / 歷史）
+
+| 文件 | 狀態 | 用途 |
+|------|------|------|
+| [SVCOMP26_OVERFLOW_VGUIDE_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md) | ✓ v1.6 | 把 reachability 的 predicate-CEGAR hook 泛化到 NoOverflow branch（Class-A、config-only、零 Java）——+6/0 lost/0 wrong |
+| [SVCOMP26_VGUIDE_FULLSET_PLAN.md](SVCOMP26_VGUIDE_FULLSET_PLAN.md) | ✓ v1.5.1 | **svcomp26-vguide** full-set 計劃與完成狀態 |
+| [SVCOMP26_TERMINATION_VGUIDE_PROBE.md](SVCOMP26_TERMINATION_VGUIDE_PROBE.md) | ✓ 結案(RED) | probe RED → Class-B：引擎是 `TerminationToReachCPA` 非 predicate-CEGAR，VGuide 無從 fire；termination 留 v2.0 ranking-function Java hook |
+| [reports/2026-06-15_svcomp26_overflow_vguide.md](reports/2026-06-15_svcomp26_overflow_vguide.md) | 結果記錄 | **v1.6 Class-A**：NoOverflow 452 題，363 solved vs stock 357（**+6 / 0 lost / 0 wrong**） |
+| [reports/2026-06-14_svcomp26_vguide_loops.md](reports/2026-06-14_svcomp26_vguide_loops.md) | 結果記錄 | **v1.5.1**：Loops 764 題，493 solved vs svcomp26 486（+7），0 wrong，16 direct LLM wins |
+| [reports/2026-06-13_v1.5_loops_reachsafety_unreach.md](reports/2026-06-13_v1.5_loops_reachsafety_unreach.md) | 結果記錄 | **v1.5**：Loops broad set 764 題，VGuide +37 vs stock，33 VGuide-only TRUE solves |
+| [reports/2026-06-10_freq10_n24_adaptive_noL3.md](reports/2026-06-10_freq10_n24_adaptive_noL3.md) | 結果記錄 | **v1.3 noL3**：150 solved、PAR-2 192s |
 
 ## 現行目錄
 

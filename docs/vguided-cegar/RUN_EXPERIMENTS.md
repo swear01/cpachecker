@@ -29,7 +29,13 @@ ant -f /home/swear01/cpachecker/build.xml build-project
 | profile `p1` | **NoOverflows-*** + **SoftwareSystems-uthash-ReachSafety** |
 | profile `loops-full` | **ReachSafety-Loops** + `bitvector-loops`（較小） |
 | `~/cpachecker` 或 clone 路徑 | 本 repo |
-| `output/vguide/experiments/` | batch 產物（`logs/<task>.log`、summary CSV） |
+| `output/vguide/experiments/` | **active raw**：batch 產物（`logs/<task>.log`、summary CSV）；git-ignored |
+| `archive/raw-legacy/` | **retired raw 保存區**：舊 run 不刪、`mv` 到這裡保存；git-ignored |
+
+> **Raw 約定**：raw 一律留在 git-ignored 處，永不進 git。退役舊 run 用
+> `mv output/vguide/experiments/<old_run> archive/raw-legacy/`（**移，不要刪**——
+> 反正已 ignored，移走可保存、之後要查還在）。詳見 `docs/notes.md` 的
+> raw-output-lifecycle gotcha。
 
 DeepSeek rate limit **~500/min** → 預設 **平行**（`PARALLEL=8` CPA、`16` 離線 LLM）。預設 model：**`deepseek-v4-pro`**（`DEEPSEEK_MODEL` 可覆寫）。
 
