@@ -16,6 +16,7 @@
 | [SVCOMP26_PORTFOLIO_LLM_PLAN.md](SVCOMP26_PORTFOLIO_LLM_PLAN.md) | **v1.5.2+**：把 LLM 從 PredicateCPA 擴展到 svcomp26 portfolio strategy（routing / budget / guards / hints） |
 | [LLM_RESEARCH_ROADMAP.md](LLM_RESEARCH_ROADMAP.md) | **v1.6 → v2.0 → exploratory**：長 horizon 廣域地圖——跨 property category（Termination / MemSafety / Overflow…）、跨 CPA domain、FALSE/witness、離線 corpus 學習；含 S/R/X soundness 守則與 hook-inheritance 分級 |
 | [SVCOMP26_OVERFLOW_VGUIDE_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md) | **v1.6（✓ 完成）**：把 reachability 的 predicate-CEGAR hook 泛化到 NoOverflow branch（Class-A、config-only、零 Java）——+6/0 lost/0 wrong |
+| [SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md) | **v1.6.1 提升計劃**：91 fired/37 fired-but-UNKNOWN；發現 reachability prompt 主動勸退 overflow 需要的 bound predicate → P1 overflow-aware prompt 是最大 lever（P0 config 排除法、P2 300s 確認）|
 | [SVCOMP26_TERMINATION_VGUIDE_PROBE.md](SVCOMP26_TERMINATION_VGUIDE_PROBE.md) | **probe RED → Class-B**：termination safety-路 feasibility probe 否決——引擎是 `TerminationToReachCPA` 非 predicate-CEGAR，強接 CEGAR 仍 0 refinement，VGuide 無從 fire；termination 留 v2.0 ranking-function Java hook |
 | [SVCOMP_INTEGRATION_PLAN.md](SVCOMP_INTEGRATION_PLAN.md) | **svcomp27** × VGuide v1.5 整合計劃 |
 
@@ -30,7 +31,8 @@ docs/vguided-cegar/
 ├── SVCOMP26_PORTFOLIO_LLM_PLAN.md
 ├── LLM_RESEARCH_ROADMAP.md
 ├── SVCOMP26_OVERFLOW_VGUIDE_PLAN.md   # v1.6 ✓ 完成
-├── SVCOMP26_TERMINATION_VGUIDE_PROBE.md   # v1.6 next（probe）
+├── SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md   # v1.6.1 提升計劃
+├── SVCOMP26_TERMINATION_VGUIDE_PROBE.md   # v1.6 probe RED
 ├── architecture/UNIFIED_VGUIDE_ARCHITECTURE.md
 ├── llm/                    # 排程、ensemble、predicate budget、API
 ├── analysis/               # 已完成/歷史計劃與方法記錄
