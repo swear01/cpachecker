@@ -22,6 +22,7 @@
 | [SVCOMP26_OVERFLOW_VGUIDE_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md) | ✓ v1.6 | 把 reachability 的 predicate-CEGAR hook 泛化到 NoOverflow branch（Class-A、config-only、零 Java）——+6/0 lost/0 wrong |
 | [SVCOMP26_VGUIDE_FULLSET_PLAN.md](SVCOMP26_VGUIDE_FULLSET_PLAN.md) | ✓ v1.5.1 | **svcomp26-vguide** full-set 計劃與完成狀態 |
 | [SVCOMP26_TERMINATION_VGUIDE_PROBE.md](SVCOMP26_TERMINATION_VGUIDE_PROBE.md) | ✓ 結案(RED) | probe RED → Class-B：引擎是 `TerminationToReachCPA` 非 predicate-CEGAR，VGuide 無從 fire；termination 留 v2.0 ranking-function Java hook |
+| [reports/2026-06-16_combined_300s_classA.md](reports/2026-06-16_combined_300s_classA.md) | 結果記錄 | **v1.6.1 combined @300s**：unified config，reach **+15** / overflow **+4**（競賽級、0 wrong）；含 free-LLM-time / 非競賽情境 caveat |
 | [reports/2026-06-15_svcomp26_overflow_vguide.md](reports/2026-06-15_svcomp26_overflow_vguide.md) | 結果記錄 | **v1.6 Class-A**：NoOverflow 452 題，363 solved vs stock 357（**+6 / 0 lost / 0 wrong**） |
 | [reports/2026-06-14_svcomp26_vguide_loops.md](reports/2026-06-14_svcomp26_vguide_loops.md) | 結果記錄 | **v1.5.1**：Loops 764 題，493 solved vs svcomp26 486（+7），0 wrong，16 direct LLM wins |
 | [reports/2026-06-13_v1.5_loops_reachsafety_unreach.md](reports/2026-06-13_v1.5_loops_reachsafety_unreach.md) | 結果記錄 | **v1.5**：Loops broad set 764 題，VGuide +37 vs stock，33 VGuide-only TRUE solves |
