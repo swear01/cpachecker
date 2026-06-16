@@ -1,0 +1,35 @@
+\begin{frame}[fragile]{Failure Case: \texttt{nested-3}}
+  \vfill
+  \begin{columns}[T]
+    \column{0.38\textwidth}
+      \textbf{Regression}\\[0.5em]
+      \small
+      \begin{tabular}{lrr}
+        \toprule
+        & \textbf{Ref.} & \textbf{Wall} \\
+        \midrule
+        stock\ (TRUE)         & 2  & 1.3\,s  \\
+        vguide\ (\alert{UNK}) & 42 & 55.9\,s \\
+        \bottomrule
+      \end{tabular}\\[0.8em]
+      \textbf{Cause}\\[0.3em]
+      \small LLM injects both\\
+      \texttt{\textcolor{WarnRed}{st=0}} and \texttt{\textcolor{WarnRed}{st=1}}\\
+      at the same loop head
+
+    \column{0.58\textwidth}
+      {\small\ttfamily
+       int a=0,b=0,c=0,\textbf{st=0};\\[0.15em]
+       while(1) \{\\
+       \hspace*{1em}\textcolor{WarnRed}{\textbf{st=1;}}\\
+       \hspace*{1em}for(c=0; c<200000; c++)\\
+       \hspace*{2em}if (c==last) \textcolor{WarnRed}{\textbf{st=0;}}\\
+       \hspace*{1em}if(st==0\ \&\&\ c==last+1)\\
+       \hspace*{2em}\{a+=3; b+=3;\}\\
+       \hspace*{1em}else \{a+=2; b+=2;\}\\
+       \hspace*{1em}assert(a==b);\\
+       \}}
+  \end{columns}
+  \vfill
+  \note{The clearest failure mode: st is set to 1 at the outer while loop head, then potentially reset to 0 inside the inner for loop. The LLM injects both st=0 and st=1 as predicates at the same loop head — they are not conjoined but they expand the predicate vocabulary in conflicting ways that change the refinement trajectory dramatically, causing CEGAR to diverge to 42 refinements and UNKNOWN instead of converging in 2.}
+\end{frame}

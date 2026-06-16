@@ -1,0 +1,25 @@
+\begin{tikzpicture}
+\begin{axis}[
+  width=8cm, height=6cm,
+  ybar, bar width=0.9cm,
+  enlarge x limits=0.5,
+  ymin=0, ymax=215,
+  ytick={0,50,100,150,200},
+  symbolic x coords={TRUE,FALSE},
+  xtick=data,
+  xticklabel style={color=slidetext, font=\normalsize\bfseries},
+  yticklabel style={color=slidetext, font=\scriptsize},
+  axis line style={color=slidetext},
+  tick style={color=slidetext},
+  nodes near coords,
+  nodes near coords align={vertical},
+  nodes near coords style={color=slidetext, font=\small\bfseries, yshift=1pt},
+  every axis plot/.append style={fill opacity=0.9},
+  axis background/.style={fill=slidebg},
+  xtick pos=left,
+]
+  % predicate-only baseline pair (764 Loops): TRUE 165->202, FALSE 60->60
+  \addplot[fill=PubBlue, draw=none]   coordinates {(TRUE,165) (FALSE,60)};
+  \addplot[fill=GoodGreen, draw=none] coordinates {(TRUE,202) (FALSE,60)};
+\end{axis}
+\end{tikzpicture}

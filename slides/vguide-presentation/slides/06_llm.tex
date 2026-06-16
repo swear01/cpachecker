@@ -1,0 +1,8 @@
+\begin{frame}[t]{Why DeepSeek V4 Pro?}
+  \centering
+  \input{figures/value_scatter.tex}
+
+  \vspace{0.5em}
+  {\small Predicates are C expressions $\Rightarrow$ \textbf{code reasoning}; \alert{V4 Pro on the value frontier}.}
+  \note{Model choice is cost-performance on the axis that matters: predicates are C expressions, so the task is code reasoning. On SWE-bench Verified, DeepSeek V4 Pro (80.6) matches Gemini 3.1 Pro and beats GPT-5.5, while costing \$0.87 per 1M output tokens --- about 14x less than Gemini, 29x less than Opus, 34x less than GPT-5.5. The flagships' general-reasoning edge is irrelevant for guessing loop predicates. Open weights + 1M context also make the exact model pinnable for a reproducible thesis. Numbers: June 2026 (Artificial Analysis / kilo.ai / vendor pricing).}
+\end{frame}

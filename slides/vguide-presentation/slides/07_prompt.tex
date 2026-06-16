@@ -1,0 +1,28 @@
+\begin{frame}{Prompt Design: What VGuide Sends the LLM}
+  \begin{columns}[T]
+    \column{0.54\textwidth}
+      \textbf{Input (V\textsubscript{0} call)}\\[0.3em]
+      {\small
+      \begin{enumerate}\setlength\itemsep{0.15em}
+        \item \textbf{C source} — boilerplate stripped
+        \item \textbf{Assertion} — \texttt{assert(y == 0)}
+        \item \textbf{CFA loop head labels} — \alert{only} valid JSON keys
+      \end{enumerate}}
+
+    \column{0.42\textwidth}
+      \textbf{Output}\\[0.3em]
+      {\small SMT-LIB2 prefix, JSON:}\\[0.3em]
+      {\footnotesize\ttfamily
+       \{"N19": [\\
+       \hspace*{0.8em}"(= y (- n x))",\\
+       \hspace*{0.8em}"(>= x 0)",\\
+       \hspace*{0.8em}"(< x n)"\\
+       ]\}}
+
+      \vspace{0.5em}
+      {\small
+      \textcolor{WarnRed}{$\times$} invalid $\to$ discarded\\[0.15em]
+      \textcolor{GoodGreen}{\checkmark} valid $\to$ injected at N-label}
+  \end{columns}
+  \note{Three prompt types: (1) INITIAL — fires before CEGAR, generates V_0 from static source analysis; (2) BACKGROUND — batch update when 10+ spurious traces accumulate; (3) CE-GUIDED — targeted update when CEGAR shortfall threshold hit (3 consecutive low-score refinements). Update prompts also include the current vocabulary V (location→predicates) and SMT trace formulas. All three share the same JSON output contract. Only loop head N-labels are sent as valid JSON keys — the LLM cannot output predicates for other CFA nodes.}
+\end{frame}

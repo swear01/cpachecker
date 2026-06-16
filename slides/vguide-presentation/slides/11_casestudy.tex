@@ -1,0 +1,34 @@
+\begin{frame}{Case Study: \texttt{count\_up\_down-1}}
+  \begin{columns}[T]
+    \column{0.38\textwidth}
+      \textbf{The loop}
+      \vspace{0.3em}
+
+      {\small\ttfamily
+       int x=0, y=n;\par
+       while (x < n) \{\par
+       \hspace*{1.2em}x++; y--;\par
+       \}\par
+       assert(y == 0);}
+
+      \vspace{0.4em}
+      \small Missing: \texttt{y = n-x}, \texttt{x >= 0}
+
+    \column{0.58\textwidth}
+      \small
+      \begin{tabular}{lrrl}
+        \toprule
+               & \textbf{Stock} & \textbf{VGuide} & \\
+        \midrule
+        Ref.   & 69      & \alert{2}      & \\
+        Time   & 75.4\,s & \alert{3.9\,s} & \\
+        Result & UNKNOWN & \textcolor{GoodGreen}{TRUE} & \textcolor{GoodGreen}{\checkmark} \\
+        \bottomrule
+      \end{tabular}
+
+      \vspace{0.5em}
+      LLM proposes the cross-iteration relation.\\[2pt]
+      Proof converges in \alert{2 refinements}.
+  \end{columns}
+  \note{The canonical win. 69 rounds of local interpolation never find y = n - x. One LLM round proposes it. After injection CEGAR converges in 2 steps. 95 percent time reduction.}
+\end{frame}

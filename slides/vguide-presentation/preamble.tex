@@ -1,0 +1,45 @@
+% Shared preamble — dual mode (dark projection / light print). Compile with LuaLaTeX.
+\usepackage{etoolbox}
+\providecommand{\slidemode}{dark} % build.sh light 或 \def\slidemode{light} 覆蓋
+\usetheme{metropolis}
+\metroset{numbering=none}
+
+\usepackage{fontspec}
+\setsansfont{Noto Sans CJK TC Medium}[BoldFont={Noto Sans CJK TC Bold}]
+\setmainfont{Noto Sans CJK TC Medium}[BoldFont={Noto Sans CJK TC Bold}]
+
+\usepackage{booktabs,amsmath,graphicx,alltt}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds}
+\usepackage{pgfplots}\pgfplotsset{compat=1.18}
+
+\definecolor{accentorange}{HTML}{E07A2F}
+% Dual-mode palette
+\ifdefstring{\slidemode}{light}{%
+  \metroset{background=light}%
+  \definecolor{slidebg}{HTML}{FFFFFF}\definecolor{slidebar}{HTML}{EAEAEA}%
+  \definecolor{slidetext}{HTML}{1A1A1A}\colorlet{bartext}{slidetext}%
+}{%
+  \metroset{background=dark}%
+  \definecolor{slidebg}{HTML}{000000}\definecolor{slidebar}{HTML}{383838}%
+  \definecolor{slidetext}{HTML}{FFFFFF}\colorlet{bartext}{white}%
+}
+\setbeamercolor{background canvas}{bg=slidebg}
+\setbeamercolor{normal text}{fg=slidetext, bg=slidebg}
+\setbeamercolor{frametitle}{fg=bartext, bg=slidebar}
+\setbeamercolor{alerted text}{fg=accentorange}
+
+% footer 色帶
+\setbeamercolor{footbar}{fg=bartext, bg=slidebar}
+\setbeamertemplate{footline}{%
+  \begin{beamercolorbox}[wd=\paperwidth,ht=2.2ex,dp=0.9ex,leftskip=1.5em,rightskip=1.5em]{footbar}%
+    \scriptsize\insertshorttitle\hfill\insertframenumber\,/\,\inserttotalframenumber%
+  \end{beamercolorbox}}
+
+% 語義色盤(figure 用,深色背景亮色;列印也夠對比)
+\definecolor{PubBlue}{HTML}{4DA3D9}
+\definecolor{HidOrange}{HTML}{F2994A}
+\definecolor{GoodGreen}{HTML}{5FBF8F}
+\definecolor{WarnRed}{HTML}{E15B64}
+
+\input{metadata.tex}

@@ -1,0 +1,26 @@
+\begin{tikzpicture}[
+  box/.style={draw=PubBlue, fill=slidebg, text=slidetext, rounded corners=4pt,
+              minimum width=2.3cm, minimum height=1.1cm, font=\small, align=center},
+  net/.style={draw=HidOrange, fill=slidebg, text=HidOrange, rounded corners=4pt,
+              minimum width=2.3cm, minimum height=1.1cm, font=\small, align=center},
+  ok/.style={draw=GoodGreen, fill=slidebg, text=GoodGreen, rounded corners=4pt,
+             minimum width=2.3cm, minimum height=1.1cm, font=\small, align=center},
+  bad/.style={draw=WarnRed, fill=slidebg, text=WarnRed, rounded corners=4pt,
+              minimum width=2.0cm, minimum height=0.9cm, font=\small, align=center},
+  arr/.style={-Stealth, thick},
+  lbl/.style={font=\scriptsize, color=slidetext}
+]
+  \node[box] (ctx) {Source + CE\\+ Loop heads};
+  \node[net] (llm) [right=1.4cm of ctx]  {LLM\\Propose};
+  \node[box] (val) [right=1.4cm of llm]  {SMT\\Validate};
+  \node[ok]  (inj) [right=1.4cm of val]  {Inject at\\loop heads};
+  \node[bad] (disc)[below=1.1cm of val]  {Discard};
+
+  \node[text=GoodGreen, font=\normalsize\bfseries]
+    (res) [below=0.5cm of inj] {\alert{+19} solved\enspace\alert{0} wrong};
+
+  \draw[arr, color=PubBlue]   (ctx) -- (llm);
+  \draw[arr, color=HidOrange] (llm) -- (val);
+  \draw[arr, color=GoodGreen] (val) -- node[lbl,above]{valid}   (inj);
+  \draw[arr, color=WarnRed]   (val) -- node[lbl,right]{invalid} (disc);
+\end{tikzpicture}

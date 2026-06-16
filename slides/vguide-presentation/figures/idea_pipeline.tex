@@ -1,0 +1,19 @@
+\begin{tikzpicture}[
+  box/.style={draw=PubBlue, fill=slidebg, text=slidetext, rounded corners=4pt,
+              minimum width=2.6cm, minimum height=0.6cm, font=\small, align=center},
+  ok/.style={draw=GoodGreen, fill=slidebg, text=GoodGreen, rounded corners=4pt,
+             minimum width=2.6cm, minimum height=0.6cm, font=\small, align=center},
+  arr/.style={-Stealth, PubBlue, thick},
+  lbl/.style={font=\small, text=slidetext}
+]
+  \node[box] (src) at (0,0)   {Source + CE\\+ Loop Heads};
+  \node[box] (llm) at (3.4,0) {LLM\\Propose};
+  \node[box] (smt) at (6.8,0) {SMT\\Validate};
+  \node[ok]  (inj) at (10.2,0){Inject\\Predicate};
+  \node[lbl, text=WarnRed]  at (8.6,-1.0) {\footnotesize fail $\to$ discard};
+
+  \draw[arr] (src) -- (llm);
+  \draw[arr] (llm) -- (smt);
+  \draw[arr] (smt) -- node[lbl, above, pos=0.35]{\footnotesize pass} (inj);
+  \draw[-Stealth, thick, WarnRed] (smt.south) -- ++(0,-0.6);
+\end{tikzpicture}

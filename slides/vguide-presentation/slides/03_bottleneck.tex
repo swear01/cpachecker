@@ -1,0 +1,32 @@
+\begin{frame}[fragile]{The Bottleneck}
+  \begin{columns}[T]
+    \column{0.38\textwidth}
+      \textbf{\texttt{count\_up\_down-1}}\\[0.4em]
+      \small
+\begin{verbatim}
+int x = 0, y = n;
+while (x < n) {
+    x++;  y--;
+}
+assert(y == 0);
+\end{verbatim}
+      \vspace{0.2em}
+      \begin{tabular}{ll}
+        \toprule
+        Refinements & \alert{69} \\
+        Wall time   & \alert{75\,s} \\
+        Result      & \alert{UNKNOWN} \\
+        \bottomrule
+      \end{tabular}
+
+    \column{0.58\textwidth}
+      \vspace{0.5em}
+      Interpolation sees one counterexample\\
+      at a time --- cannot discover\\
+      \textbf{cross-iteration relations}:\\[0.6em]
+      \hspace*{1em}\texttt{y = n - x} \quad\small (the loop invariant)\\[0.2em]
+      \hspace*{1em}\texttt{x \(\geq\) 0},\; \texttt{y \(\leq\) n}\\[0.8em]
+      After 69 rounds, budget exhausted.
+  \end{columns}
+  \note{The canonical CEGAR failure on loops. x counts up, y counts down — the invariant y = n - x holds every iteration but the solver never sees it because each counterexample only reveals one step. After 69 local interpolants it gives up.}
+\end{frame}

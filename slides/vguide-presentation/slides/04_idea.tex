@@ -1,0 +1,16 @@
+\begin{frame}{The Idea: LLM as Predicate Oracle}
+  \vfill
+  \begin{center}
+    LLM \textbf{guesses predicates} \quad—\quad CPAChecker \textbf{decides}.\\[1.2em]
+    \scalebox{1.05}{\input{figures/idea_pipeline.tex}}\\[1.4em]
+    \begin{tabular}{@{}c@{\quad}c@{\quad}c@{}}
+      \small Ask for invariants, & \small Validate with SMT, & \small Inject only if\\
+      \small not full proofs & \small not heuristics & \small \textbf{formally valid}
+    \end{tabular}\\[1.2em]
+    \small\color{GoodGreen} No valid predicate $\Rightarrow$ no injection. \quad Soundness preserved.
+  \end{center}
+  \vfill
+  \note{Instead of asking the LLM to prove the program, we ask it to guess useful predicates.
+    The pipeline: counterexample → LLM → predicate candidates → SMT filter → CEGAR.
+    Soundness: any predicate that fails SMT validation is silently discarded.}
+\end{frame}

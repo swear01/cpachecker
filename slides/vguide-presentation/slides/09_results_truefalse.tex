@@ -1,0 +1,22 @@
+\begin{frame}{Where the Gains Land: \alert{TRUE} Only}
+  \begin{columns}[c]
+    \column{0.6\textwidth}
+      \begin{center}
+        \input{figures/results_truefalse.tex}\\[0.3em]
+        \footnotesize
+        {\color{PubBlue}$\blacksquare$}~Stock \qquad
+        {\color{GoodGreen}$\blacksquare$}~+VGuide
+      \end{center}
+
+    \column{0.4\textwidth}
+      \large
+      TRUE\quad\alert{+37 / +7}\\[0.7em]
+      FALSE\quad\alert{+0 / +0}\\[0.4em]
+      {\footnotesize\color{slidetext!70} predicate-only / portfolio}
+
+      \vspace{1.4em}
+      \small Hints help \textbf{proofs},\\
+      not \textbf{bug} search.
+  \end{columns}
+  \note{The FALSE-verdict count is literally identical with and without VGuide: 60 to 60 on the simple predicate baseline, 152 to 152 in the svcomp26 portfolio. All 16 new solves attributable to an LLM predicate round are TRUE tasks. The one new FALSE solve (divbin) came from the unchanged symbolic-execution component with 0 LLM rounds, not from VGuide. Expected: an LLM predicate is a candidate invariant that helps CEGAR converge to a safety proof; finding a bug needs a concrete error path, which predicate hints do not speed up.}
+\end{frame}
