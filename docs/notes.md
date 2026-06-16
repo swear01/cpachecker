@@ -18,8 +18,10 @@
 
 ## Decisions
 
+- **Source-prior ablation:** `vguide.sourcePriorMode=true` fires LLM at analysis start (before any CEGAR round) with source-code-only context (no CE trace). Predicates injected into `PredicateCPA.getInitialPrecision()` via `registerPreCegarBridge()`, so they are active from round 0. Risk: LLM call on all tasks including fast ones (PAR-2 overhead). Run with `--mode source-prior-loops` / `source-prior-overflow`. Ablation question: does CE context help, or is source code enough?
+
 - **Unified VGuide (single Java path):** Previous B2/B4/B5 sidecar design was replaced. Only one implementation path now. See `architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`.
 - **Class-A first:** Any new property category should attempt config-only generalization (Class-A) before touching Java. v1.6 overflow proved this works for predicate-CEGAR-based branches.
-- **No `grep` into `archive/`.** Use `rg` (respects `.rgignore`) or always pass `--exclude-dir=archive`.
+- **No `grep` into `archive/`.** Use `rg` (respects `.gitignore`, which excludes `archive/`) or always pass `--exclude-dir=archive`.
 - **DeepSeek V4 (non-thinking) as primary model.** Thinking mode not used in production path; see `llm/LLM_API.md` for rationale.
 - **Overflow prompt is neutral.** The reachability prompt actively discourages the bound predicates that overflow needs. A dedicated overflow-aware prompt is the main lever for v1.6.1 improvement (P1), not config tweaks.

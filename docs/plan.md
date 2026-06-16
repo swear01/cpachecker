@@ -2,6 +2,7 @@
 
 ## In Progress
 
+- **消融實驗：source-prior mode** — LLM 在 CEGAR 第 0 輪前以純 source 猜 predicates，注入 initial precision（無 CE context）。對比 first_spurious，測 CE context 是 signal 還是 noise。跑法：`run.sh --mode source-prior-loops` / `source-prior-overflow`；implementation commit `efedb0f`。實驗跑中，結果待填。
 - **v1.6.1 overflow prompt improvement** (`SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md`): 91 fired / 37 fired-but-UNKNOWN on overflow; reachability prompt actively discourages bound predicates. P0 config elimination done (neutral). P1 = overflow-aware prompt (main lever, A/B result: neutral — cheap levers exhausted). Status: evaluating next steps.
 - **svcomp-integration branch**: VGuide v1.5 integration into svcomp27 competition submission (`SVCOMP_INTEGRATION_PLAN.md`).
 

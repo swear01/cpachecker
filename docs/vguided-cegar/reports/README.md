@@ -4,6 +4,7 @@
 
 | 報告 | 說明 |
 |------|------|
+| **消融實驗：source-prior（跑中）** | `loops_reachsafety_unreach` + `no_overflow_scalar`；`--mode source-prior-loops/overflow`；結果待填 → `output/vguide/experiments/*_source_prior_*` |
 | **[`2026-06-14_svcomp26_vguide_loops.md`](2026-06-14_svcomp26_vguide_loops.md)** | **v1.5.1 svcomp26-vguide full-set**：Loops 764 題；svcomp26-vguide **493 solved** vs svcomp26 **486**（+7）、0 wrong、PAR-2 216.90s；16 direct LLM predicate wins |
 | **[`2026-06-14_svcomp26_vguide_case_studies.md`](2026-06-14_svcomp26_vguide_case_studies.md)** | **Case studies / v1.5.2 opportunities**：direct LLM wins、lost-solve stability、adaptive-budget rescue pool；next target 500+ solved |
 | **[`2026-06-13_v1.5_loops_reachsafety_unreach.md`](2026-06-13_v1.5_loops_reachsafety_unreach.md)** | **v1.5 實測結果**：SV-COMP Loops `unreach-call` 764 題；stock 225 solved、v1.4 262（+37）、`--svcomp26` 486；VGuide-only 33 TRUE |
@@ -76,4 +77,4 @@ python3 scripts/vguided-cegar/analyze_predicate_study.py --skip-validate \
 
 | 檔案 | 說明 |
 |------|------|
-| [`archive/vguided-docs/reports/2026-06-04_vguide-report_deepseek-chat_HISTORICAL.md`](../../../archive/vguided-docs/reports/2026-06-04_vguide-report_deepseek-chat_HISTORICAL.md) | 2026-06-04 advisor 快照（**deepseek-chat**，11↑/205=/1↓） |
+| `archive/vguided-docs/reports/2026-06-04_vguide-report_deepseek-chat_HISTORICAL.md` | 2026-06-04 advisor 快照（**deepseek-chat**，11↑/205=/1↓）— 本機 archive，不連結 |
