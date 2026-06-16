@@ -163,14 +163,12 @@ export VGUIDE_CONFIG=config/vguide-experiment-freq20-n12.properties
 # 注入 initial precision，無 CE context。對比 first_spurious（有 CE context）。
 #
 # Loops / ReachSafety:
-export VGUIDE_CONFIG=config/vguide-experiment-source-prior-loops.properties
-./scripts/vguided-cegar/run.sh cpa --set combined300_loops --parallel 8 --timelimit 300 \
-  --out output/vguide/experiments/combined300_loops_source_prior_<date>
+bash -ic './scripts/vguided-cegar/run.sh cpa --set loops_reachsafety_unreach \
+  --mode source-prior-loops --parallel 8 --timelimit 300'
 #
 # NoOverflow:
-export VGUIDE_CONFIG=config/vguide-experiment-source-prior-overflow.properties
-./scripts/vguided-cegar/run.sh cpa --set combined300_noovf --parallel 8 --timelimit 300 \
-  --out output/vguide/experiments/combined300_noovf_source_prior_<date>
+bash -ic './scripts/vguided-cegar/run.sh cpa --set no_overflow_scalar \
+  --mode source-prior-overflow --parallel 8 --timelimit 300'
 ```
 
 ---

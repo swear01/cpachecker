@@ -96,8 +96,8 @@ cmd_cpa() {
   require_java
   case "$mode" in
     stock|svcomp26|svcomp27-stock|svcomp26-overflow) ;;
-    vguide|svcomp26-vguide|svcomp27-vguide|svcomp|svcomp26-overflow-vguide) require_api ;;
-    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26, svcomp26-vguide, svcomp26-overflow, svcomp26-overflow-vguide, svcomp27-stock, svcomp27-vguide)" ;;
+    vguide|svcomp26-vguide|svcomp27-vguide|svcomp|svcomp26-overflow-vguide|source-prior-loops|source-prior-overflow) require_api ;;
+    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26, svcomp26-vguide, svcomp26-overflow, svcomp26-overflow-vguide, svcomp27-stock, svcomp27-vguide, source-prior-loops, source-prior-overflow)" ;;
   esac
   if [[ -z "$out" ]]; then
     case "$ablation" in
@@ -118,6 +118,10 @@ cmd_cpa() {
           out="output/vguide/experiments/${set}_svcomp27_stock"
         elif [[ "$mode" == "svcomp27-vguide" || "$mode" == "svcomp" ]]; then
           out="output/vguide/experiments/${set}_svcomp27_vguide"
+        elif [[ "$mode" == "source-prior-loops" ]]; then
+          out="output/vguide/experiments/${set}_source_prior_loops"
+        elif [[ "$mode" == "source-prior-overflow" ]]; then
+          out="output/vguide/experiments/${set}_source_prior_overflow"
         else
           out="output/vguide/experiments/${set}_vguide"
         fi
@@ -169,6 +173,16 @@ cmd_cpa() {
       VGUIDE_SVCOMP=1
       VGUIDE_CONFIG=config/svcomp27-vguide.properties
       VGUIDE_SPEC="$REPO/config/specification/sv-comp-reachability.spc"
+    )
+  elif [[ "$mode" == "source-prior-loops" ]]; then
+    env_extra+=(
+      VGUIDE_CONFIG=config/vguide-experiment-source-prior-loops.properties
+      VGUIDE_SPEC="$REPO/config/specification/default.spc"
+    )
+  elif [[ "$mode" == "source-prior-overflow" ]]; then
+    env_extra+=(
+      VGUIDE_CONFIG=config/vguide-experiment-source-prior-overflow.properties
+      VGUIDE_SPEC="$REPO/config/specification/sv-comp-overflow.spc"
     )
   fi
   case "$ablation" in
