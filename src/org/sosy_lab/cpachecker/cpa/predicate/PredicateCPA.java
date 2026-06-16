@@ -56,6 +56,8 @@ import org.sosy_lab.cpachecker.util.predicates.regions.RegionManager;
 import org.sosy_lab.cpachecker.util.predicates.regions.SymbolicRegionManager;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.sosy_lab.cpachecker.cpa.predicate.vguide.VGuideRefinementBridge;
 import org.sosy_lab.java_smt.api.SolverException;
 
 /** CPA that defines symbolic predicate abstraction. */
@@ -118,6 +120,8 @@ public class PredicateCPA
   private final PredicateTransferRelation transfer;
 
   private final PredicatePrecision initialPrecision;
+  private @Nullable VGuideRefinementBridge preCegarBridge = null;
+  private @Nullable PredicatePrecision cachedMergedPrecision = null;
   private final PathFormulaManager pathFormulaManager;
   private final Solver solver;
   private final PredicateCPAStatistics stats;
@@ -311,8 +315,18 @@ public class PredicateCPA
         PathCopyingPersistentTreeMap.of());
   }
 
+  public void registerPreCegarBridge(VGuideRefinementBridge bridge) {
+    preCegarBridge = bridge;
+  }
+
   @Override
   public Precision getInitialPrecision(CFANode pNode, StateSpacePartition pPartition) {
+    if (preCegarBridge != null) {
+      if (cachedMergedPrecision == null) {
+        cachedMergedPrecision = preCegarBridge.mergePreCegarInto(initialPrecision);
+      }
+      return cachedMergedPrecision;
+    }
     return initialPrecision;
   }
 

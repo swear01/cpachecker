@@ -210,6 +210,12 @@ public final class PredicateCPARefinerFactory {
                 + " useVocabularyGuide");
       }
 
+      if (vguideOptions.isSourcePriorMode()) {
+        logger.log(Level.INFO, "VGuide source-prior mode: firing LLM before analysis start");
+        bridge.firePreCegarLlm();
+        predicateCpa.registerPreCegarBridge(bridge);
+      }
+
       refiner =
           new PredicateCPARefiner(
               config,

@@ -114,6 +114,13 @@ public class VGuideOptions {
 
   @Option(
       secure = true,
+      description =
+          "Fire LLM before any CEGAR round using source-code only (no CE context). Predicates"
+              + " injected into initial precision. Replaces first-spurious trigger.")
+  private boolean sourcePriorMode = false;
+
+  @Option(
+      secure = true,
       description = "Strengthen interpolants with predicates ENTAILED on block formulas")
   private boolean allowInterpolantStrengthen = true;
 
@@ -230,6 +237,10 @@ public class VGuideOptions {
 
   public Path getFrozenDir() {
     return frozenDir;
+  }
+
+  public boolean isSourcePriorMode() {
+    return sourcePriorMode;
   }
 
   public boolean isAllowInterpolantStrengthen() {

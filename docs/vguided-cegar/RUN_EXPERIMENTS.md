@@ -157,6 +157,20 @@ export VGUIDE_CONFIG=config/vguide-experiment-freq20-n12.properties
 
 ./scripts/vguided-cegar/run.sh cpa --set full_scalar --ablation no-l3 --parallel 8 --timelimit 300 \
   --out output/vguide/experiments/full_scalar_vguide_noL3_freq20_n12_adaptive_<date>
+
+# ── 消融實驗：source-prior mode ──────────────────────────────────────────────
+# LLM 在分析開始前（CEGAR 第 0 輪前）以純 source code 猜 predicates，
+# 注入 initial precision，無 CE context。對比 first_spurious（有 CE context）。
+#
+# Loops / ReachSafety:
+export VGUIDE_CONFIG=config/vguide-experiment-source-prior-loops.properties
+./scripts/vguided-cegar/run.sh cpa --set combined300_loops --parallel 8 --timelimit 300 \
+  --out output/vguide/experiments/combined300_loops_source_prior_<date>
+#
+# NoOverflow:
+export VGUIDE_CONFIG=config/vguide-experiment-source-prior-overflow.properties
+./scripts/vguided-cegar/run.sh cpa --set combined300_noovf --parallel 8 --timelimit 300 \
+  --out output/vguide/experiments/combined300_noovf_source_prior_<date>
 ```
 
 ---
@@ -220,7 +234,7 @@ export VGUIDE_CONFIG=config/vguide-experiment-freq20-n12.properties
 
 Legacy：`compare_official_reference.py --baseline fmpa2` 僅歷史對照，不作主報告。
 
-對照解讀：stock = 同 config、無 LLM；主數字以 `post_batch_analysis.sh` 輸出為準。歷史報告見 [`archive/.../2026-06-04_vguide-report_deepseek-chat_HISTORICAL.md`](../../archive/vguided-docs/reports/2026-06-04_vguide-report_deepseek-chat_HISTORICAL.md)；現行見 [`reports/README.md`](reports/README.md)。
+對照解讀：stock = 同 config、無 LLM；主數字以 `post_batch_analysis.sh` 輸出為準。歷史報告見本機 `archive/vguided-docs/reports/`；現行見 [`reports/README.md`](reports/README.md)。
 
 ---
 

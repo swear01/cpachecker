@@ -12,6 +12,9 @@ public enum VGuideOutcome {
   /** At least one spurious CE; LLM proposal path ran or was scheduled. */
   FIRST_SPURIOUS_LLM,
 
+  /** Source-prior mode: LLM fired before any CEGAR round using source-only context. */
+  SOURCE_PRIOR_LLM,
+
   /** No spurious within budget; optional frozen predicates injected from predicate_sets/. */
   FROZEN_SEED_EXCEPTION,
 

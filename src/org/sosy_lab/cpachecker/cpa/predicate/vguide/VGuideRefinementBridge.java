@@ -12,10 +12,12 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
@@ -31,6 +33,7 @@ import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractionManager;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision;
 import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
 import org.sosy_lab.cpachecker.util.LoopStructure;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
@@ -67,6 +70,7 @@ public final class VGuideRefinementBridge {
   private @Nullable ValidationResult lastValidation;
   private @Nullable PendingRefinementDump pendingDump;
   private VGuideOutcome outcome = VGuideOutcome.NO_SPURIOUS_GIVE_UP;
+  private @Nullable List<ValidatedPredicate> preCegarValidated = null;
 
   private static final AtomicInteger BRIDGE_SEQUENCE = new AtomicInteger();
 
@@ -161,6 +165,93 @@ public final class VGuideRefinementBridge {
     }
   }
 
+  /**
+   * Called before analysis starts (source-prior mode). Fires LLM with source-only context pack,
+   * validates predicates with L1/L2 only, and stores results for initial-precision injection.
+   */
+  public void firePreCegarLlm() {
+    if (llmClient == null || !wallBudget.hasRemainingForLlm()) {
+      logger.log(Level.INFO, "VGuide source-prior: skip pre-CEGAR LLM (no client or wall budget)");
+      return;
+    }
+    ContextPack pack = contextPackBuilder.buildSourceOnly();
+    PredicateBudget budget = options.getPredicateBudget();
+    BudgetResolution budgetRes = new BudgetResolution(budget, "source_prior", -1);
+    long t0 = System.currentTimeMillis();
+    try {
+      List<String> rawPreds = new ArrayList<>();
+      PromptMessages safeMessages =
+          promptBuilder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
+      LlmProposalResult safeResult = llmClient.proposeWithUsage(safeMessages);
+      rawPreds.addAll(LlmResponseParser.parsePredicates(safeResult.content()));
+      if (options.isDualPromptMode()) {
+        PromptMessages bugMessages =
+            promptBuilder.buildPrompt(pack, budget, PromptProfile.BUG_HUNT, 1);
+        LlmProposalResult bugResult = llmClient.proposeWithUsage(bugMessages);
+        rawPreds.addAll(LlmResponseParser.parsePredicates(bugResult.content()));
+      }
+      long latency = System.currentTimeMillis() - t0;
+      wallBudget.recordLlmCall(latency);
+      llmScheduler.recordCallCompleted();
+      preCegarValidated = validateSourceOnly(pack, rawPreds);
+      outcome = VGuideOutcome.SOURCE_PRIOR_LLM;
+      logger.log(
+          Level.INFO,
+          "VGuide source-prior LLM: raw=",
+          rawPreds.size(),
+          " validated=",
+          preCegarValidated.size(),
+          " latencyMs=",
+          latency);
+      if (analysisDumper != null) {
+        analysisDumper.recordLlmApiCall(
+            0, 0, "safe_primary", "source_prior_safe",
+            safeMessages.fullText(), pack, PromptProfile.SAFE, safeResult,
+            List.of(), budgetRes);
+      }
+    } catch (IOException e) {
+      logger.logUserException(Level.WARNING, e, "VGuide source-prior LLM call failed");
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  private List<ValidatedPredicate> validateSourceOnly(ContextPack pack, List<String> rawPreds) {
+    BooleanFormulaManager bfmgr = fmgr.getBooleanFormulaManager();
+    List<ValidatedPredicate> out = new ArrayList<>();
+    Set<String> seen = new HashSet<>();
+    for (String raw : rawPreds) {
+      if (!PredicateContractValidator.isValid(raw)) {
+        continue;
+      }
+      BooleanFormula parsed = VocabularyGuide.parsePredicate(raw, fmgr, Set.of());
+      if (parsed == null || bfmgr.isTrue(parsed) || bfmgr.isFalse(parsed)) {
+        continue;
+      }
+      if (!seen.add(raw.strip())) {
+        continue;
+      }
+      for (LoopHeadInfo head : pack.loopHeads()) {
+        out.add(
+            new ValidatedPredicate(
+                parsed, head.node(), ValidatedPredicate.Classification.PRECISION_ONLY));
+      }
+      logger.log(Level.INFO, "VGuide source-prior L1/L2 validated: ", raw);
+    }
+    return out;
+  }
+
+  /**
+   * Merges pre-CEGAR validated predicates into the given base {@link PredicatePrecision}. Called
+   * from {@code PredicateCPA.getInitialPrecision()} so predicates are active from round 0.
+   */
+  public PredicatePrecision mergePreCegarInto(PredicatePrecision base) {
+    if (preCegarValidated == null || preCegarValidated.isEmpty()) {
+      return base;
+    }
+    return precisionInjector.mergePreCegarInto(base, preCegarValidated);
+  }
+
   /** Updated after each refinement attempt so a shutdown hook can write partial dumps. */
   public void trackAnalysisProgress(int refinementCount, @Nullable ARGReachedSet reached) {
     trackedRefinementCount = refinementCount;
@@ -207,6 +298,11 @@ public final class VGuideRefinementBridge {
         || counterexample.getInterpolants() == null
         || counterexample.getInterpolants().isEmpty()) {
       dump.llmSkipReason = "no_interpolants";
+      return counterexample;
+    }
+
+    if (options.isSourcePriorMode()) {
+      dump.llmSkipReason = "source_prior";
       return counterexample;
     }
 
@@ -420,7 +516,7 @@ public final class VGuideRefinementBridge {
    * path needs injection into the initial predicate precision before analysis starts.
    */
   public void onAnalysisEnd(int refinementCount, Result result, @Nullable ARGReachedSet reached) {
-    if (refinementCount == 0 && reached != null) {
+    if (refinementCount == 0 && reached != null && outcome != VGuideOutcome.SOURCE_PRIOR_LLM) {
       String benchmark = benchmarkBaseName();
       Optional<ImmutableList<String>> frozen = frozenLoader.loadForBenchmark(benchmark);
       if (frozen.isPresent()) {

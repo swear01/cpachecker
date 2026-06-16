@@ -38,6 +38,24 @@ public final class ContextPackBuilder {
     this.fmgr = fmgr;
   }
 
+  public ContextPack buildSourceOnly() {
+    String source = readSource();
+    String assertion = extractAssertion(source);
+    ImmutableList<LoopHeadInfo> loopHeads = loopHeadIndex.getLoopHeads();
+    var varContract = VarContractBuilder.build(Set.of());
+    return new ContextPack(
+        0,
+        source,
+        assertion,
+        loopHeads,
+        varContract,
+        ImmutableSet.of(),
+        new BlockFormulas(ImmutableList.of()),
+        ImmutableList.of(),
+        "",
+        "");
+  }
+
   public ContextPack build(
       int refinementIndex,
       BlockFormulas formulas,

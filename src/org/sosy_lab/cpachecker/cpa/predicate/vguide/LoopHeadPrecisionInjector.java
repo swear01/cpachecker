@@ -36,6 +36,33 @@ public final class LoopHeadPrecisionInjector {
     this.predAbsManager = predAbsManager;
   }
 
+  public PredicatePrecision mergePreCegarInto(
+      PredicatePrecision base, List<ValidatedPredicate> preds) {
+    if (preds.isEmpty() || predAbsManager == null) {
+      return base;
+    }
+    List<Map.Entry<org.sosy_lab.cpachecker.cfa.model.CFANode, AbstractionPredicate>> entries =
+        new ArrayList<>();
+    Set<String> seen = new LinkedHashSet<>();
+    for (ValidatedPredicate vp : preds) {
+      String key = vp.loopHeadNode().getNodeNumber() + ":" + vp.formula().hashCode();
+      if (!seen.add(key)) {
+        continue;
+      }
+      try {
+        entries.add(Map.entry(vp.loopHeadNode(), predAbsManager.getPredicateFor(vp.formula())));
+      } catch (Exception e) {
+        logger.logDebugException(e, "VGuide source-prior AbstractionPredicate failed");
+      }
+    }
+    if (entries.isEmpty()) {
+      return base;
+    }
+    PredicatePrecision merged = base.addLocalPredicates(entries);
+    logger.log(Level.INFO, "VGuide source-prior merged ", entries.size(), " predicates into initial precision");
+    return merged;
+  }
+
   public boolean inject(
       ARGReachedSet reached, List<ValidatedPredicate> precisionPredicates) {
     if (precisionPredicates.isEmpty() || predAbsManager == null) {
