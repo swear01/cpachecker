@@ -6,7 +6,8 @@
 | `config/vguide.properties` | Runtime defaults: LLM scheduling (`min_interval`, `every_n`), L3 toggle |
 | `config/predicateAnalysis-vguide.properties` | PredicateCPA + VGuide entry config |
 | `config/svcomp26-vguide.properties` | Competition config: routes reachability + overflow through VGuide |
-| `config/vguide-experiment-source-prior-{loops,overflow}.properties` | 消融實驗：source-prior mode（pre-CEGAR LLM，無 CE context） |
+| `config/vguide-experiment-source-prior-{loops,overflow}.properties` | 消融實驗：source-prior mode，base config（predicateAnalysis-vguide 底） |
+| `config/vguide-experiment-source-prior-svcomp26-{loops,overflow}.properties` | 消融實驗：source-prior mode，svcomp26 portfolio 底 |
 | `scripts/vguided-cegar/run.sh` | **Single entry point** for all experiments and bench setup |
 | `scripts/vguided-cegar/post_batch_analysis.sh` | PAR-2 / cactus analysis after batch runs |
 | `docs/vguided-cegar/` | All active research documentation |

@@ -18,7 +18,10 @@
 
 ## Decisions
 
-- **Source-prior ablation:** `vguide.sourcePriorMode=true` fires LLM at analysis start (before any CEGAR round) with source-code-only context (no CE trace). Predicates injected into `PredicateCPA.getInitialPrecision()` via `registerPreCegarBridge()`, so they are active from round 0. Risk: LLM call on all tasks including fast ones (PAR-2 overhead). Run with `--mode source-prior-loops` / `source-prior-overflow`. Ablation question: does CE context help, or is source code enough?
+- **Source-prior ablation:** `vguide.sourcePriorMode=true` fires LLM at analysis start (before any CEGAR round) with source-code-only context (no CE trace). Predicates injected into `PredicateCPA.getInitialPrecision()` via `registerPreCegarBridge()`, so they are active from round 0. Risk: LLM call on all tasks including fast ones (PAR-2 overhead). Ablation question: does CE context help, or is source code enough?
+  - base config: `--mode source-prior-loops` / `source-prior-overflow` (8 parallel OK)
+  - svcomp26 portfolio: `--mode source-prior-svcomp26-loops` / `source-prior-svcomp26-overflow` (2 parallel MAX — heavier)
+  - **Must run one experiment group at a time** — running two groups simultaneously makes results inaccurate (too many JVMs competing). See `RUN_EXPERIMENTS.md` for the sequential launch block.
 
 - **Unified VGuide (single Java path):** Previous B2/B4/B5 sidecar design was replaced. Only one implementation path now. See `architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`.
 - **Class-A first:** Any new property category should attempt config-only generalization (Class-A) before touching Java. v1.6 overflow proved this works for predicate-CEGAR-based branches.

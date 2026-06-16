@@ -158,17 +158,19 @@ export VGUIDE_CONFIG=config/vguide-experiment-freq20-n12.properties
 ./scripts/vguided-cegar/run.sh cpa --set full_scalar --ablation no-l3 --parallel 8 --timelimit 300 \
   --out output/vguide/experiments/full_scalar_vguide_noL3_freq20_n12_adaptive_<date>
 
-# ── 消融實驗：source-prior mode ──────────────────────────────────────────────
+# ── 消融實驗：source-prior mode（順序跑，一個一個） ──────────────────────────
 # LLM 在分析開始前（CEGAR 第 0 輪前）以純 source code 猜 predicates，
 # 注入 initial precision，無 CE context。對比 first_spurious（有 CE context）。
+# 規則：不能同時跑多個 JVM 群——base+vguide 上限 8、svcomp26+vguide 上限 2。
 #
-# Loops / ReachSafety:
-bash -ic './scripts/vguided-cegar/run.sh cpa --set loops_reachsafety_unreach \
-  --mode source-prior-loops --parallel 8 --timelimit 300'
-#
-# NoOverflow:
-bash -ic './scripts/vguided-cegar/run.sh cpa --set no_overflow_scalar \
-  --mode source-prior-overflow --parallel 8 --timelimit 300'
+# 全部 4 組順序跑（copy-paste 整塊）：
+bash -ic '
+  cd ~/cpachecker
+  ./scripts/vguided-cegar/run.sh cpa --set loops_reachsafety_unreach  --mode source-prior-loops            --parallel 8 --timelimit 300 &&
+  ./scripts/vguided-cegar/run.sh cpa --set no_overflow_scalar          --mode source-prior-overflow          --parallel 8 --timelimit 300 &&
+  ./scripts/vguided-cegar/run.sh cpa --set loops_reachsafety_unreach  --mode source-prior-svcomp26-loops    --parallel 2 --timelimit 300 &&
+  ./scripts/vguided-cegar/run.sh cpa --set no_overflow_scalar          --mode source-prior-svcomp26-overflow --parallel 2 --timelimit 300
+'
 ```
 
 ---
