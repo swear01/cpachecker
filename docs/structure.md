@@ -21,6 +21,7 @@
 | `output/vguide/experiments/` | **Active raw output** — batch run products, written by `run.sh` (gitignored) |
 | `archive/raw-legacy/` | **Retired raw output** parking — `mv` old raw here instead of deleting (gitignored) |
 | `archive/` | **Obsolete** historical material — never treat as current truth |
+| `paper/` | **IEEE preprint** — `main.tex` (IEEEtran), `macros.tex` (數字), `references.bib`, `sections/`, `figures/` |
 | `test/` | CPAchecker upstream test suite |
 | `build/`, `classes/` | Compiled artifacts |
 | `doc/` | Upstream CPAchecker official docs |
