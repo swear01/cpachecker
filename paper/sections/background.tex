@@ -1,0 +1,79 @@
+\section{Background}
+\label{sec:background}
+
+\subsection{Predicate Abstraction}
+
+Predicate abstraction represents a program's state space as a Boolean formula over a
+finite set of predicates $\Pi = \{p_1, \ldots, p_k\}$, where each $p_i$ is a first-order
+formula over program variables~\cite{predabstraction1997}. The abstract domain is the
+powerset lattice of truth-value assignments to $\Pi$. The abstract transformer for a
+statement $\textit{op}$ at a program location $\ell$ maps an abstract state
+$\hat{s}$ to the strongest Boolean combination of $\Pi$ that is implied by
+$\textit{WP}(\textit{op}, \hat{s})$, where $\textit{WP}$ denotes weakest precondition.
+Because the predicate set $\Pi$ is fixed, this computation reduces to a finite set of
+SMT queries---one per predicate---making the abstract transformer decidable. Predicate
+abstraction is precise when $\Pi$ contains the right relational invariants; its
+expressive power is bounded by the predicates that have been added to $\Pi$.
+
+\subsection{The CEGAR Loop}
+
+CEGAR~\cite{cegar2003} automates the discovery of $\Pi$ through an iterative
+abstraction--check--refine cycle. Given a program $P$ and a safety property $\phi$,
+CEGAR proceeds as follows. (1)~\emph{Abstraction}: construct the abstract program
+$\hat{P}_\Pi$ using the current predicate set $\Pi$. (2)~\emph{Model checking}: run
+a model checker on $\hat{P}_\Pi$. If $\hat{P}_\Pi \models \phi$, conclude $P \models
+\phi$ by soundness of the abstraction. If the model checker finds a counterexample
+path $\pi$ in $\hat{P}_\Pi$, proceed to step 3. (3)~\emph{Feasibility check}: check
+whether $\pi$ is also a feasible execution in $P$ using an SMT solver. If $\pi$ is
+feasible, it is a genuine bug and $P \not\models \phi$. If $\pi$ is infeasible,
+proceed to step 4. (4)~\emph{Refinement}: extract new predicates from the
+infeasibility proof of $\pi$ and add them to $\Pi$; go to step 1.
+
+The CEGAR loop is sound and complete for finite-state abstractions, and converges in
+practice for many structured program families. Its performance is determined entirely
+by the quality of predicates discovered during refinement.
+
+\subsection{Interpolation-Based Refinement}
+
+The standard refinement strategy extracts Craig interpolants from the
+infeasibility proof of a spurious CE~\cite{interpolation2003}. Given an unsatisfiable
+conjunction of path formulas $F_1 \wedge F_2 \wedge \cdots \wedge F_k = \bot$, a
+Craig interpolant sequence $I_1, \ldots, I_{k-1}$ satisfies $F_1 \wedge \cdots \wedge
+F_i \models I_i$ and $I_i \wedge F_{i+1} \wedge \cdots \wedge F_k \models \bot$. Each
+interpolant $I_i$ is a formula that summarizes why the prefix of the path up to step
+$i$ cannot be extended to a feasible execution. These interpolants are added to $\Pi$
+as new predicates, precisely blocking the infeasible CE from recurring.
+
+The fundamental limitation of interpolation-based refinement is its path-local scope.
+An interpolant $I_i$ characterizes the infeasibility of a single path segment; it does
+not generalize across loop iterations. For a loop that increments two variables $x$ and
+$y$ simultaneously, each unrolling produces a fresh CE with a fresh interpolant of the
+form $x = c_1 \wedge y = c_2$ for the specific constants on that path. The relational
+constraint $x + y = n$ that captures the joint evolution across all iterations is
+invisible to interpolation because no single CE path witnesses more than one iteration.
+In the worst case, predicate abstraction with interpolation-based refinement must
+unroll the loop once per abstract state, leading to an exponential blowup in refinement
+rounds.
+
+\subsection{CPAChecker}
+
+CPAChecker~\cite{cpachecker2011} is an open-source, configurable software verification
+framework built around the concept of a Configurable Program Analysis (CPA). A CPA
+encapsulates an abstract domain, a transfer relation, and a merge/stop operator. Multiple
+CPAs are composed via standard product operations. The PredicateCPA implements predicate
+abstraction and CEGAR, and is CPAChecker's primary workhorse for safety verification.
+CPAChecker participates annually in SV-COMP and consistently ranks among the top tools.
+VGuide is implemented as an extension of PredicateCPA, intercepting the CEGAR
+refinement hook without modifying any existing CPA logic.
+
+\subsection{The Loop Invariant Gap}
+
+For a program with a loop at location $\ell$, a loop invariant is a formula $I$ over
+program variables such that (i) $I$ holds on every iteration of the loop, and (ii) the
+post-condition of the loop is derivable from $I$ and the loop exit condition. In
+predicate abstraction, $I$ must be expressible as a conjunction of predicates in $\Pi$.
+Interpolation-based refinement populates $\Pi$ one path at a time; it cannot produce
+$I$ unless some CE path through the loop directly witnesses the relational structure of
+$I$. For affine relations over multiple variables, no single CE path suffices, and the
+refinement sequence diverges. This is the loop invariant gap that VGuide addresses by
+injecting externally sourced candidate predicates at loop heads before divergence begins.

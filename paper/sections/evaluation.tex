@@ -1,0 +1,159 @@
+\section{Evaluation}
+\label{sec:evaluation}
+
+\subsection{Experimental Setup}
+
+\paragraph{Benchmarks.} We evaluate on two SV-COMP benchmark sets. The primary set is
+the SV-COMP Loops ReachSafety suite (\texttt{loops\_reachsafety\_unreach}), comprising
+764 tasks drawn from the official \texttt{Loops.set} with the
+\texttt{unreach-call.prp} property specification. This set is chosen because loop
+invariant discovery is precisely the bottleneck that VGuide targets, making it the most
+informative evaluation domain. The secondary set is the NoOverflow scalar subset
+(\texttt{no\_overflow\_scalar}), comprising 452 tasks, used in the competition-grade
+combined evaluation to assess cross-domain transfer.
+
+\paragraph{Time limit.} All experiments use a 300\,s per-task wall-clock time limit,
+matching the official SV-COMP competition setting. Memory limit is 15\,GB per task.
+
+\paragraph{Tool and configurations.} We use CPAChecker with VGuide extensions. Two
+configurations are evaluated. \texttt{predicateAnalysis-vguide} is the base predicate
+analysis configuration with VGuide enabled; its stock baseline is standard
+\texttt{predicateAnalysis} without VGuide. \texttt{svcomp26-vguide} is the full
+SV-COMP 2026 competition portfolio with VGuide integrated into the predicate-analysis
+component; its stock baseline is \texttt{svcomp26} without VGuide. The portfolio
+configuration runs multiple analysis strategies in parallel---symbolic execution,
+k-induction, value analysis, and predicate analysis---with VGuide active only in the
+predicate-analysis worker.
+
+\paragraph{LLM.} All VGuide runs use \LLMName{} (non-thinking mode). The LLM is queried
+once per task, on the first spurious CE, with the dual-prompt design described in
+\Cref{sec:design}. API access uses the standard DeepSeek endpoint with a fixed
+temperature of~0 for reproducibility.
+
+\paragraph{Metrics.} We report (i)~tasks solved, counting a task as solved if
+CPAChecker returns \textsc{True} or \textsc{False} (i.e., a verdict is produced, not
+\textsc{Unknown} or an error); (ii)~PAR-2 score, defined as the average of wall-clock
+time for solved tasks and $2 \times 300 = 600$\,s for unsolved tasks, lower being
+better; and (iii)~wrong verdicts, the count of tasks for which the tool returned
+\textsc{True} on an expected-\textsc{False} task or vice versa.
+
+\subsection{Main Results: Loops ReachSafety}
+
+\Cref{tab:loops} reports results on the 764-task Loops ReachSafety set for all
+four configurations.
+
+\begin{table}[t]
+  \caption{Results on SV-COMP Loops ReachSafety (764 tasks, 300\,s limit).
+           \emph{Solved}: tasks with a definite verdict. \emph{PAR-2}: lower is
+           better. \emph{Wrong}: wrong verdicts (soundness violations).}
+  \label{tab:loops}
+  \centering
+  \begin{tabular}{lccc}
+    \toprule
+    Configuration & Solved & PAR-2 (s) & Wrong \\
+    \midrule
+    predicateAnalysis (stock)   & \LoopsStock{}          & \LoopsPARStock{}          & 0 \\
+    predicateAnalysis + VGuide  & \LoopsVGuide{}         & \LoopsPARVGuide{}         & 0 \\
+    \addlinespace
+    svcomp26 (stock)            & \PortfolioLoopsStock{} & \PortfolioPARStock{}      & 0 \\
+    svcomp26 + VGuide           & \PortfolioLoopsVGuide{}& \PortfolioPARVGuide{}     & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+VGuide gains \LoopsDelta{} tasks over the base predicate analysis
+(\LoopsStock{}$\to$\LoopsVGuide{}), a 16.4\% relative improvement, and reduces PAR-2
+by \LoopsPARDelta{}\,s (6.2\% reduction). The performance improvement is achieved with
+zero soundness violations across all \LoopsVGuide{} solved tasks and all unsolved tasks.
+
+On the full svcomp26 portfolio, the gain is \PortfolioLoopsDelta{} tasks
+(\PortfolioLoopsStock{}$\to$\PortfolioLoopsVGuide{}), with PAR-2 reduced by
+\PortfolioPARDelta{}\,s. The smaller absolute gain is expected and arises from
+portfolio saturation: the svcomp26 baseline already deploys symbolic execution,
+k-induction, and value analysis in parallel. Tasks that VGuide can uniquely solve on
+the base predicate configuration are frequently solved by one of these other strategies
+in the portfolio, leaving fewer tasks where VGuide's predicate hints provide the sole
+path to a verdict. The \PortfolioLoopsDelta{} gain therefore represents cases where
+VGuide's predicate injection enables the predicate-analysis worker to return a result
+faster than any parallel worker could.
+
+All \LoopsDelta{} incremental wins in the base configuration are \textsc{True} verdicts
+(safety proofs); the \textsc{False} count is unchanged. This is consistent with the
+design: VGuide injects predicates that support invariant proofs; it does not provide
+counterexample witnesses for genuine bugs.
+
+\subsection{Competition-Grade Combined Results}
+
+\Cref{tab:combined} reports the competition-grade combined evaluation merging
+Loops ReachSafety and NoOverflow scalar results under the svcomp26 portfolio
+configurations.
+
+\begin{table}[t]
+  \caption{Competition-grade combined results (ReachSafety + NoOverflow scalar,
+           300\,s limit, svcomp26 portfolio). \emph{$\Delta$}: gain over stock.}
+  \label{tab:combined}
+  \centering
+  \begin{tabular}{lcccc}
+    \toprule
+    Category & Stock & VGuide & $\Delta$ & PAR-2 (stock / VGuide) \\
+    \midrule
+    ReachSafety  & \CompReachStock{} & \CompReachVGuide{} & \CompReachDelta{} & \CompPARReachStock{}\,s / \CompPARReachVGuide{}\,s \\
+    NoOverflow   & \CompOvfStock{}   & \CompOvfVGuide{}   & \CompOvfDelta{}   & \CompPAROvfStock{}\,s  / \CompPAROvfVGuide{}\,s  \\
+    \midrule
+    Total        & ---               & ---                & \CompTotalDelta{} & --- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+VGuide improves on both categories: \CompReachDelta{} additional ReachSafety tasks
+(\CompReachStock{}$\to$\CompReachVGuide{}) and \CompOvfDelta{} additional NoOverflow
+tasks (\CompOvfStock{}$\to$\CompOvfVGuide{}). PAR-2 drops by \CompPARReachDelta{}\,s
+on ReachSafety and by \CompPAROvfDelta{}\,s on NoOverflow. No wrong verdicts are
+produced on either category.
+
+The transfer to NoOverflow is noteworthy: VGuide's context pack and validation cascade
+were designed with ReachSafety in mind, yet the predicate injection strategy extends to
+overflow-checking tasks without modification. Overflow tasks share the loop counting
+patterns of the ReachSafety set---arithmetic on bounded integer variables---and the
+LLM's predicate suggestions are similarly relevant.
+
+\subsection{Ablation: Is CE Context Necessary?}
+
+To isolate the contribution of CE-context from static program understanding, we
+compare three configurations on the base predicate analysis setting.
+
+\begin{table}[t]
+  \caption{Ablation study on SV-COMP Loops ReachSafety (764 tasks, 300\,s).
+           \emph{source\_prior}: LLM fires at analysis start with source only, no
+           CE trace. \emph{first\_spurious}: LLM fires on first spurious CE (full
+           VGuide).}
+  \label{tab:ablation}
+  \centering
+  \begin{tabular}{lccc}
+    \toprule
+    Configuration & Solved & PAR-2 (s) & Wrong \\
+    \midrule
+    predicateAnalysis (stock) & \LoopsStock{}           & \LoopsPARStock{}  & 0 \\
+    source\_prior             & \AblationSourcePrior{}  & 427.1             & 0 \\
+    first\_spurious (VGuide)  & \AblationFirstSpurious{}& \LoopsPARVGuide{} & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The \emph{source\_prior} variant fires the LLM at the beginning of the analysis, before
+any CE has been found, with the stripped C source but no CE trace or block formula. The
+LLM proposes predicates based purely on static program structure; these are validated
+through the same L1/L2/L3 cascade and injected into the initial precision.
+
+The result is unambiguous: source\_prior solves \AblationSourcePrior{} tasks, identical
+to the stock result, with PAR-2 marginally worse (427.1\,s vs.\ \LoopsPARStock{}\,s).
+The initial predicate injection provides no benefit whatsoever. In contrast,
+first\_spurious (full VGuide) solves \AblationFirstSpurious{} tasks (\LoopsDelta{}
+over stock).
+
+This ablation establishes a clear causal claim: the \LLMName{} predicate oracle is
+entirely without value when given only source code. Its contribution is activated
+exclusively by the CE trace. The LLM's capability is not \emph{static pattern recognition
+on source structure} but \emph{relational reasoning over concrete execution paths}. This
+finding validates the central design decision of VGuide: CE-guided refinement is the
+correct and necessary integration point for LLM predicates in a CEGAR-based verifier.

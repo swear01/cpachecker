@@ -1,0 +1,44 @@
+\begin{tikzpicture}[
+    font=\small,
+    box/.style={draw, rounded corners=3pt, minimum width=2.0cm, minimum height=0.75cm,
+                align=center, inner sep=4pt},
+    vbox/.style={draw, rounded corners=3pt, minimum width=2.2cm, minimum height=0.65cm,
+                 align=center, inner sep=3pt, fill=gray!12},
+    region/.style={draw=gray!60, fill=gray!8, rounded corners=5pt, dashed},
+    arr/.style={->, >=stealth, thick},
+    annot/.style={font=\scriptsize, text=gray!70},
+  ]
+
+  \node[box] (prog) at (0,0) {Program\\(C)};
+
+  \node[box, minimum width=2.2cm, minimum height=1.6cm] (cegar) at (3.2,0) {};
+  \node[font=\small\bfseries] at (3.2,0.2) {CEGAR};
+  \node[annot] at (3.2,-0.45) {(CPAChecker)};
+
+  \node[box, fill=blue!8, minimum width=2.2cm] (bridge) at (6.6,0) {VGuide\\Bridge};
+
+  \node[vbox] (ctx)  at (10.2, 1.0) {Context Pack};
+  \node[vbox] (llm)  at (10.2, 0.0) {LLM\\(\LLMName{})};
+  \node[vbox] (val)  at (10.2,-1.0) {L1 / L2 / L3\\Validation};
+
+  \begin{scope}[on background layer]
+    \node[region, fit=(ctx)(llm)(val), inner sep=6pt] (vregion) {};
+  \end{scope}
+
+  \draw[arr] (prog.east) -- (cegar.west)
+    node[midway, above, annot] {};
+
+  \draw[arr] ([yshift=3pt]cegar.east) -- ([yshift=3pt]bridge.west)
+    node[midway, above, annot] {Spurious CE};
+
+  \draw[arr] ([yshift=-3pt]bridge.west) -- ([yshift=-3pt]cegar.east)
+    node[midway, below, annot] {Valid preds};
+
+  \draw[arr] (bridge.east) -- (ctx.west);
+
+  \draw[arr] (ctx.south) -- (llm.north);
+  \draw[arr] (llm.south) -- (val.north);
+
+  \draw[arr] (val.west) to[out=180, in=0] (bridge.east);
+
+\end{tikzpicture}

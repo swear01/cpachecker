@@ -1,0 +1,70 @@
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{LLM-guided invariant and lemma generation.}
+The use of large language models to generate candidate loop invariants has attracted
+significant recent attention. CIll~\cite{cill2026} is the closest prior work to
+VGuide: it uses CTI (counterexample trace) context to guide an LLM in generating
+invariants for hardware model checking. Like VGuide, CIll exploits the CE trace
+rather than static source analysis, and its LLM oracle is subject to external
+validation before use. The primary difference is the verification domain---hardware
+model checking of RTL circuits versus software CEGAR over C programs---and the
+abstraction mechanism: CIll targets transition-system invariants for symbolic model
+checkers, while VGuide targets predicate-abstraction refinement in a CEGAR loop.
+The hybrid LLM+SMT framework of~\cite{loopinvariant2025} addresses software loop
+invariant synthesis by alternating between LLM candidate generation and SMT
+validation, achieving strong results on standard benchmarks. That work focuses on
+standalone invariant synthesis rather than integration into the CEGAR refinement
+loop; its validation step is analogous to VGuide's L3 tier, but it operates outside
+a running verifier. Quokka~\cite{quokka2025} accelerates program verification by
+using LLMs to synthesize auxiliary invariants that are then checked by a
+portfolio of solvers; it reports gains comparable to VGuide on overlapping benchmarks
+and shares the insight that LLM-generated invariants must be independently
+certified. VGuide differs from Quokka in its CE-triggered query strategy and
+its direct integration into CPAChecker's CEGAR loop. Work on synthesizing
+inductive invariants for distributed protocols~\cite{ic3llm2026} applies the LLM
+oracle principle to IC3-based model checking of distributed systems---the oracle
+architecture is closely related to VGuide, with the LLM proposing invariant
+candidates that IC3 checks; the domain difference (distributed protocols and TLA+
+vs.\ C programs and predicate abstraction) makes the technical challenges distinct.
+Large Lemma Miners~\cite{largelemma2025} explores whether LLMs can generate inductive
+lemmas for hardware verification, finding that while LLMs can identify structurally
+similar lemmas, they struggle with deep inductive reasoning, motivating the
+validate-before-inject approach that VGuide also adopts.
+Not All Invariants Are Equal~\cite{notallequal2026} takes an orthogonal direction:
+rather than using LLMs at inference time to generate predicates, it curates training
+data to improve the quality of a small language model specialized for invariant
+synthesis. This training-time approach complements VGuide's inference-time oracle and
+could in principle be used to fine-tune a local model for VGuide's predicate oracle.
+
+\paragraph{Neuro-symbolic and agentic verification.}
+At a broader scale, neuro-symbolic proof generation~\cite{neurosymbolic2026} uses
+LLM guidance to drive interactive theorem provers (Lean, Coq) for systems software
+verification. The integration philosophy resembles VGuide---LLM provides hints,
+formal tool validates---but the target is interactive proof construction rather than
+predicate abstraction, and the feedback cycle operates at the level of proof tactics
+rather than counterexample traces. Agentic model checking~\cite{agenticmc2026}
+proposes wrapping a model checker in an LLM agent loop: the agent iteratively
+selects configurations, interprets results, and mutates the checking strategy. VGuide
+is deliberately lighter-weight: it makes a single structured oracle call per task and
+injects the result into a standard CEGAR loop, without autonomous agent logic or
+iterative replanning. This design choice reduces the attack surface for LLM
+misbehavior and keeps the latency overhead minimal. The use of LLMs to extract
+problem structure for SAT local search~\cite{satllm2025} shares the philosophy of
+using learned models to provide high-quality starting points for combinatorial
+solvers; VGuide can be understood as the CEGAR analogue of that idea, where the
+``starting point'' is a set of predicates at loop heads rather than a variable
+assignment for local search.
+
+\paragraph{Foundation: CEGAR and predicate abstraction.}
+VGuide is built directly on the CEGAR paradigm~\cite{cegar2003} and predicate
+abstraction~\cite{predabstraction1997}. Craig-interpolation-based
+refinement~\cite{interpolation2003} is the standard predicate discovery mechanism
+that VGuide supplements at loop heads. The SLAM project~\cite{slam2002} demonstrated
+the practical utility of predicate abstraction for industrial software, establishing
+the paradigm that CPAChecker~\cite{cpachecker2011} implements and that VGuide extends.
+VGuide is implemented within CPAChecker and participates in the SV-COMP
+ecosystem~\cite{svcomp2022}. The soundness arguments in \Cref{sec:design} rely
+directly on the theoretical foundations of these works: VGuide does not modify the
+abstraction--model-check--refine cycle, and its predicate injection step respects
+the monotonicity of predicate abstraction that underpins the CEGAR soundness proof.
