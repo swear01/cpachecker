@@ -1,0 +1,26 @@
+\begin{frame}{Ablation: The Counterexample Drives the Gain}
+  \begin{center}
+  \small Loops ReachSafety — 764 tasks @ 300\,s\\[0.4em]
+  \renewcommand{\arraystretch}{1.22}
+  \begin{tabular}{lrrr}
+    \toprule
+    \textbf{LLM context} & \textbf{Solved} & \textbf{$\Delta$ stock} & \textbf{PAR-2} \\
+    \midrule
+    Stock (no LLM)                & \LoopsSimple    & ---                                          & \LoopsSimplePAR \\
+    Source code only \,(no CE)    & \AblSourcePrior & \textcolor{WarnRed}{\textbf{\AblSourcePriorDelta}} & \AblSourcePriorPAR \\
+    \midrule
+    \textbf{VGuide} (first spurious CE) & \alert{\LoopsSimpleVG} & \alert{\textbf{\LoopsSimpleDelta}} & \alert{\LoopsSimpleVGPAR} \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+
+  \vspace{0.4em}
+  {\color{slidebar}\hrule}
+  \vspace{0.45em}
+
+  \begin{center}
+    Drop the counterexample $\Rightarrow$ LLM output \textbf{= stock} (\textcolor{WarnRed}{+0}).\\[0.3em]
+    \small The LLM reads the source — the \alert{counterexample} tells it \emph{where to look}.
+  \end{center}
+  \note{Ablation isolating the active ingredient. source\_prior mode fires the LLM once before any CEGAR round using only the source file --- no CE trace, no interpolants --- and injects into the initial precision. Result: 225 = 225, exactly stock, PAR-2 unchanged. The same harness with the first spurious counterexample as context gives +37 (225 to 262) and lowers PAR-2. So source-code understanding alone buys nothing; the gain comes specifically from the LLM reasoning over the counterexample trace. This reconciles the case study: yes the LLM proposes invariants from source that CEGAR never finds, but it needs the CE to anchor which invariant matters. 0 wrong verdicts in both modes.}
+\end{frame}
