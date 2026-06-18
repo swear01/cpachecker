@@ -112,3 +112,33 @@ paper/*.blg
 paper/*.log
 paper/*.out
 paper/*.pdf
+
+# Report (LNCS) build artifacts — source-only in git, PDF lives on Zenodo
+report/*.aux
+report/*.bbl
+report/*.blg
+report/*.log
+report/*.out
+report/*.pdf
+
+# Slides build artifacts (main.pdf is tracked intentionally)
+slides/**/*.aux
+slides/**/*.fdb_latexmk
+slides/**/*.fls
+slides/**/*.log
+slides/**/*.nav
+slides/**/*.out
+slides/**/*.snm
+slides/**/*.synctex.gz
+slides/**/*.toc
+slides/**/*.vrb
+
+# Root LaTeX scratch logs
+/main.log
+/texput.log
+
+# Claude Code local worktrees / state
+/.claude/
+
+# VGuide artifact bundle (large; distributed via Zenodo)
+/vguide-artifact.zip
