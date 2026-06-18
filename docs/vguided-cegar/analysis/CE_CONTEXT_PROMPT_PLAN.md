@@ -1,6 +1,6 @@
 # CE 摘要進 Prompt（併入 v1.4）
 
-**狀態**：計劃（未實作）  
+**狀態**：已實作（v1.4.0）— CE summary 進 `CeSummaryBuilder`，見 [CE_SUMMARY_COMPRESSION.md](CE_SUMMARY_COMPRESSION.md)  
 **壓縮設計**：[CE_SUMMARY_COMPRESSION.md](CE_SUMMARY_COMPRESSION.md)（**語意壓縮，非字元 cap**）  
 **總覽**：[DUAL_PROMPT_V1_PLAN.md](DUAL_PROMPT_V1_PLAN.md)
 

@@ -1,7 +1,7 @@
 # v1.4 計劃：雙 prompt（SAFE + BUG_HUNT）+ cache + JSON mode + CE 摘要
 
-**狀態**：計劃（未實作）  
-**版本標**：實測通過後 `v1.4.0`  
+**狀態**：已實作（v1.4.0，2026-06-10）— 結果見 [`reports/2026-06-10_dual_prompt_v1_noL3.md`](../reports/2026-06-10_dual_prompt_v1_noL3.md)  
+**版本標**：`v1.4.0`  
 **相關**：[FALSE_ORIENTED_VGUIDE_PLAN.md](FALSE_ORIENTED_VGUIDE_PLAN.md)、[CE_CONTEXT_PROMPT_PLAN.md](CE_CONTEXT_PROMPT_PLAN.md)
 
 ---

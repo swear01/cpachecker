@@ -5,9 +5,14 @@
 - **v1.6.1 overflow prompt improvement** (`SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md`): 91 fired / 37 fired-but-UNKNOWN on overflow; reachability prompt actively discourages bound predicates. P0 config elimination done (neutral). P1 = overflow-aware prompt (main lever, A/B result: neutral — cheap levers exhausted). Status: evaluating next steps.
 - **svcomp-integration branch**: VGuide v1.5 integration into svcomp27 competition submission (`SVCOMP_INTEGRATION_PLAN.md`).
 
+## Recently Done
+
+- **v2.0 Termination ranking-function hook — DONE; small sound gain, verdict = small ceiling** (`vguided-cegar/TERMINATION_RANKING_HOOK_PLAN.md` §13–15, report `reports/2026-06-17_termination_ranking_hook.md`): LLM proposes ranking functions on loops where LassoRanker templates fail; each verified by a decrease+bounded SMT check (Tier S); env-gated lasso-route hook; 14 unit tests. termination_scalar 146: stock 80 → **vguide 84 @300s (+4 / 0 lost / 0 wrong)** (60s +3). **Cheap candidate-quality levers exhausted** (prompt/repair/stem-context all ≤ baseline); 40/56 targets never produce a lasso (pointer/array/string, structurally out of reach); competition-net ≤ isolated and not measured (terminationToSafety has no AI path, runs stock in parallel). Hook kept as sound opt-in building block, not a headline result.
+
 ## Next Up
 
-- v1.6.1: decide whether to pursue overflow-aware prompt further or move to next property category
+- **Higher-impact LLM intervention point (open question)** — the termination ranking hook has a small ceiling. The next LLM-intervention effort should target a higher-leverage point: the structural earlier-injection that would reach the 40 never-fired (pointer/array/string) loops, or a different category/mechanism altogether. See `LLM_RESEARCH_ROADMAP.md`.
+- v1.6.1: cheap levers exhausted (config +1, prompt +0); deferred — see `SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md` §8
 - **v1.5.2+ portfolio LLM** (`SVCOMP26_PORTFOLIO_LLM_PLAN.md`): extend LLM from predicate injection to portfolio routing / budget / guards / hints (layers A–G) — still within reachability branch
 - **Next Class-A target**: MemSafety or DataRace branches (predicate-CEGAR based?) — probe feasibility per `LLM_RESEARCH_ROADMAP.md`
 

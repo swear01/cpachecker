@@ -4,7 +4,8 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
 ## Backlog
 
-- **v2.0: Ranking-function hook for Termination** — requires new Java engine hook in `TerminationToReachCPA`; Class-B (cannot be done config-only). See `SVCOMP26_TERMINATION_VGUIDE_PROBE.md`.
+- **Termination ranking hook — 300s competition-grade confirmation** + higher per-loop cap / ensemble. The hook itself is **implemented and validated** (see Recently Done); this is the follow-up to strengthen the number, mirroring overflow P2.
+- **v2.1: Termination ranking hook — earlier injection point (the expensive headroom)** — 2026-06-18 diagnosis (`TERMINATION_RANKING_HOOK_PLAN.md` §13): on a 56-target subset the hook only *fired* on 9; **40/56 are pointer/array/string loops where the lasso safety analysis gives up before producing a lasso**, so the current hook (which sits after `checkTermination` returns unknown) is never reached. Winning these needs a structurally earlier injection (before lasso construction / at the safety-analysis counterexample stage) or pointer/array handling. Class-B+, not a prompt tweak. This is where the real headroom is.
 - **MemSafety / DataRace probes** — check if predicate-CEGAR fires; if yes, Class-A config generalization. See `LLM_RESEARCH_ROADMAP.md §3.1`.
 - **FALSE path / witness generation** — LLM for counterexample witness hints (Tier S). Long horizon.
 - **Offline corpus learning** — pre-compute predicate libraries per program class. Exploratory.
@@ -12,6 +13,7 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
 ## Recently Done
 
+- **v2.0 Termination ranking-function hook — IMPLEMENTED + validated; small sound gain, cheap levers exhausted** — Class-B Java hook in the lasso route: LLM proposes ranking functions (+ optional supporting invariant), verified by a decrease+bounded SMT check (Tier S). termination_scalar 146: stock 80 → **vguide 84 @300s (+4 / 0 lost / 0 wrong)** (60s: +3). New code under `core/algorithm/termination/lasso_analysis/vguide/`, 14 unit tests. **Verdict (2026-06-18): small ceiling** — cheap candidate-quality levers (prompt/repair/stem-context) all exhausted (≤ baseline); 40/56 targets never produce a lasso (pointer/array/string, structurally out of reach); competition-net ≤ isolated and not measured (terminationToSafety ∥ lasso, terminationToSafety has no AI path). Higher-impact LLM interventions lie elsewhere. Report: `reports/2026-06-17_termination_ranking_hook.md`; plan §13–15. (2026-06-17/18)
 - **消融實驗 source-prior 完成** — 4 組（base+svcomp26 × loops+overflow）順序跑；CE context 對 base config 至關重要（source_prior≈stock=225），svcomp26 portfolio 差距微小（loops −7、overflow −1），0 wrong；報告：`reports/2026-06-17_source_prior_ablation.md` (2026-06-17)
 - **消融實驗 source-prior 實作** — `vguide.sourcePriorMode`、`ContextPackBuilder.buildSourceOnly()`、`PredicateCPA.registerPreCegarBridge()`、4 個實驗 config；`run.sh` 加 4 個 source-prior mode (2026-06-16)
 - v1.6: Overflow Class-A generalization — `svcomp26-vguide` now routes overflow through VGuide; +6 solved, 0 wrong (2026-06-15)

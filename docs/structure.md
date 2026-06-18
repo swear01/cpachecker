@@ -22,6 +22,7 @@
 | `archive/raw-legacy/` | **Retired raw output** parking — `mv` old raw here instead of deleting (gitignored) |
 | `archive/` | **Obsolete** historical material — never treat as current truth |
 | `paper/` | **IEEE preprint** — `main.tex` (IEEEtran), `macros.tex` (數字), `references.bib`, `sections/`, `figures/` |
+| `slides/vguide-presentation/` | **Beamer deck** (dark metropolis) — `main.tex`, `metadata.tex` (數字), `slides/NN_*.tex` (一 frame 一檔), `figures/`; `build.sh [light]` |
 | `test/` | CPAchecker upstream test suite |
 | `build/`, `classes/` | Compiled artifacts |
 | `doc/` | Upstream CPAchecker official docs |
