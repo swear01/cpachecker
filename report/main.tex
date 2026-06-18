@@ -1,0 +1,412 @@
+\documentclass[runningheads]{llncs}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage[hidelinks]{hyperref}
+\usepackage{cleveref}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  numbers=none, frame=single, framesep=4pt,
+  xleftmargin=1em, columns=fullflexible, keepspaces=true,
+  language=C, showstringspaces=false, aboveskip=4pt, belowskip=4pt
+}
+
+\newcommand{\tool}{\textsc{VGuide}}
+\newcommand{\cpa}{\textsc{CPAchecker}}
+\newcommand{\llm}{DeepSeek\,V4}
+
+\begin{document}
+
+\title{From Predicates to Ranking Functions:\\
+LLM-Proposed, SMT-Certified Candidates for\\
+CEGAR-Based Software Verification}
+
+\author{Ssu-Wei Huang}
+\institute{National Taiwan University, Taipei, Taiwan\\
+\email{stanley.yellow1@gmail.com}\\
+Student ID: R14K41044}
+
+\titlerunning{LLM-Proposed, SMT-Certified Candidates for CEGAR}
+\authorrunning{Ssu-Wei Huang}
+
+\maketitle
+
+\begin{abstract}
+Counterexample-guided abstraction refinement (CEGAR) with predicate abstraction and
+lasso-based termination analysis are two pillars of automated software verification, yet
+both stall on a common task: discovering the \emph{relational} facts that span a loop.
+Craig interpolation reasons about one counterexample path and cannot synthesise
+multi-variable loop invariants; template-based ranking-function synthesis only finds
+measures inside a fixed template family. We present \tool, which augments \cpa{} with a
+large-language-model (LLM) oracle that follows a single principle: \emph{the LLM
+proposes, an SMT check certifies, and the verifier decides}. We show that this
+``verified-candidate provider'' role is \emph{artifact-agnostic}: the same architecture
+supplies (i)~loop predicates for safety proofs and (ii)~ranking functions with supporting
+invariants for termination proofs, and in both cases no unvalidated LLM output can change a
+verdict. On 764 SV-COMP Loops ReachSafety tasks, \tool{} predicates solve 37 more tasks
+than the base predicate analysis ($225\to262$) and 7 more in the full competition
+portfolio; a competition-grade combined run over ReachSafety and NoOverflow gains 19 tasks
+with zero wrong verdicts. For termination, an LLM ranking-function oracle that fires when
+template synthesis fails solves 4 additional tasks ($80\to84$, 0 lost, 0 wrong) on 146
+integer-termination tasks. We report these gains \emph{with} their limits: an ablation
+shows the predicate oracle is worthless without counterexample context; the termination
+gain has a small, clearly characterised ceiling; and the cheap prompt/repair levers we
+tried did not raise it. The contribution is a clean, sound, and honestly-bounded
+generalisation of LLM-guided refinement across verification artifacts.
+
+\keywords{Software verification \and CEGAR \and Predicate abstraction \and
+Termination \and Ranking functions \and Large language models.}
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Predicate abstraction with CEGAR~\cite{cegar2003,predabstraction1997,slam2002} and
+termination analysis via lasso-based ranking-function synthesis~\cite{ranking2004,ultimate2014}
+are two of the most successful paradigms in automated software verification, both
+implemented at scale in \cpa{}~\cite{cpachecker2011} and routinely competitive at
+SV-COMP~\cite{svcomp2022}. They share a structural weakness at the loop. CEGAR refines its
+predicate abstraction from Craig interpolants~\cite{interpolation2003}, which reason about a
+\emph{single} counterexample (CE) path; when the property needs a \emph{relational}
+invariant relating several variables across all iterations, interpolation produces one
+predicate per unrolling and never converges. Termination analysis dually fails: lasso-based
+synthesis~\cite{ultimate2014} only discovers ranking functions expressible by its fixed
+template family (affine and nested), and returns \textsc{Unknown} when the terminating
+measure lies outside it.
+
+\paragraph{A running example.}
+\Cref{lst:example} shows a counting loop. Proving the assertion \emph{safe} requires the
+relational invariant $x+y=n$; proving the loop \emph{terminates} requires the ranking
+function $f=y$ (non-negative and strictly decreasing). Stock CEGAR diverges on the safety
+proof: it discovers $\{y=n\}$, then $\{y=n-1\wedge x=1\}$, one conjunct per unrolling, and
+after 69 refinements times out at \textsc{Unknown}. The closing invariant $x+y=n$ is never
+seen, because no single CE trace makes it visible.
+
+\begin{figure}[t]
+\begin{lstlisting}
+x = 0; y = n;                 // n is an unknown non-negative input
+while (y > 0) { x++; y--; }   // safety needs  x + y == n
+assert(x == n);               // termination needs ranking f = y
+\end{lstlisting}
+\vspace{-6pt}
+\caption{Running example. One loop exposes both gaps: a relational \emph{predicate}
+($x{+}y{=}n$) for the safety proof, and a \emph{ranking function} ($f{=}y$) for the
+termination proof.}
+\label{lst:example}
+\end{figure}
+
+A language model pre-trained on code can plausibly name $x+y=n$ and $f=y$ from structural
+pattern matching. The obstacle is trust: an incorrect predicate, injected into the abstract
+domain, could make CEGAR report a wrong \textsc{True}, destroying the soundness that gives
+verification its value. Using LLM output directly is not an option.
+
+\tool{} resolves this with one principle---\emph{the LLM proposes, an SMT check certifies,
+the verifier decides}---and our central observation is that this principle is
+\emph{artifact-agnostic}. The LLM is a \emph{verified-candidate provider}: it proposes a
+candidate artifact, a sound engine certifies it, and only then is it used. Instantiating the
+same role for two different artifacts---predicates (safety) and ranking functions
+(termination)---reuses one soundness argument across two paradigms. This paper contributes:
+
+\begin{enumerate}
+  \item \textbf{A verified-candidate-provider architecture} (\Cref{sec:approach}) with an
+        explicit soundness taxonomy (\emph{Tier~S}: verified candidate; \emph{Tier~R}:
+        resource/routing only; \emph{Tier~X}: direct verdict---forbidden). \tool{} is
+        strictly Tier~S.
+  \item \textbf{A predicate oracle} for CEGAR: a CE-triggered query and a three-tier
+        validation cascade that injects only SMT-certified predicates at loop heads.
+  \item \textbf{A ranking-function oracle} for termination: when template synthesis fails,
+        the LLM proposes a ranking function and a supporting invariant, both discharged by a
+        four-condition SMT check before use.
+  \item \textbf{An honest empirical study} (\Cref{sec:eval,sec:discussion}): strong predicate
+        gains (37/7/19 tasks, 0 wrong) with an ablation proving CE context is necessary; a
+        small but sound termination gain (+4, 0 wrong, 0 lost); and a frank account of where
+        the method's ceiling lies and which cheap levers failed to raise it.
+\end{enumerate}
+
+\section{Background}
+\label{sec:background}
+
+\paragraph{Predicate abstraction and CEGAR.}
+A predicate abstraction tracks the program over a finite set $\Pi$ of Boolean predicates.
+\cpa{} model-checks the abstraction; on a counterexample it checks feasibility, and if the
+CE is \emph{spurious}, refinement extracts interpolants and adds new predicates to $\Pi$,
+monotonically refining the abstraction. The abstraction is always a sound
+over-approximation, so a proof on the abstraction is a proof on the program. Large-block
+encoding summarises straight-line code between abstraction points, reducing the number of
+abstraction queries.
+
+\paragraph{Lasso-based termination.}
+To prove termination, \cpa{} searches for a \emph{lasso}: a stem path reaching a loop, plus a
+cyclic path through it. For a lasso it tries to synthesise a \emph{ranking function} $f$---an
+integer measure that is bounded below and strictly decreases on every iteration; a valid $f$
+proves the lasso cannot recur forever~\cite{ranking2004,ultimate2014}. Synthesis searches a
+fixed template family; if no template fits, the lasso is reported \textsc{Unknown}.
+A separate non-termination check (omitted here) handles \textsc{False}.
+
+\section{Approach}
+\label{sec:approach}
+
+\subsection{The Verified-Candidate-Provider Principle}
+
+\tool{} permits the LLM exactly one role and forbids another (\Cref{tab:tiers}). In
+\emph{Tier~S}, the LLM proposes a candidate artifact that a sound engine must certify before
+use; a wrong proposal merely wastes CPU and can never cause a wrong verdict. \emph{Tier~R}
+would let the LLM choose resources or routing only (verdict still decided by the engine).
+\emph{Tier~X}---trusting LLM output as a verdict or unchecked assumption---is forbidden.
+Everything below is Tier~S.
+
+\begin{table}[t]
+\caption{Soundness tiers for LLM intervention. \tool{} uses only Tier~S.}
+\label{tab:tiers}
+\centering
+\begin{tabular}{lll}
+\toprule
+Tier & LLM role & Worst case on error \\
+\midrule
+S (used) & propose candidate; engine certifies & wasted CPU; never a wrong verdict \\
+R        & pick resource/strategy only         & slower; verdict unaffected \\
+X (forbidden) & output trusted as verdict      & \emph{wrong verdict} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Predicate Oracle (Safety)}
+\label{sec:pred}
+
+\tool{} intercepts CEGAR at one point: immediately after the \emph{first} spurious CE, before
+interpolation. This is the earliest moment with a concrete, property-relevant execution to
+reason about. \tool{} builds a \emph{context pack}, queries the LLM, validates the response,
+and injects survivors at loop heads; standard CEGAR then resumes (\Cref{fig:pipeline}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=6mm and 9mm, >={Stealth[]},
+  box/.style={draw, rounded corners, align=center, inner sep=3pt, font=\footnotesize}]
+  \node[box] (cegar) {CEGAR\\(first spurious CE)};
+  \node[box, right=of cegar] (pack) {context pack:\\source + CE + loop heads};
+  \node[box, right=of pack] (llm) {LLM\\proposes candidates};
+  \node[box, below=of llm] (val) {certify\\(L1/L2/L3 \,or\, 4 VCs)};
+  \node[box, left=of val] (inject) {inject certified\\artifact};
+  \draw[->] (cegar)--(pack); \draw[->] (pack)--(llm); \draw[->] (llm)--(val);
+  \draw[->] (val)--(inject); \draw[->] (inject)--(cegar);
+  \draw[->] (val.south) to[out=-90,in=-90] node[below,font=\scriptsize]{reject} (llm.south);
+\end{tikzpicture}
+\caption{Verified-candidate-provider loop. The LLM proposes; an SMT certifier accepts or
+rejects; only certified artifacts reach the engine, which keeps full control of the verdict.}
+\label{fig:pipeline}
+\end{figure}
+
+\paragraph{Context pack.} Three components: (i)~the stripped C source (global structure,
+declarations, loop topology); (ii)~the spurious CE as an SMT-LIB2 block formula
+$\varphi_1\wedge\cdots\wedge\varphi_k=\bot$ with SSA renaming, exposing concrete per-iteration
+state; and (iii)~the CFA loop-head labels, which double as the only legal injection targets,
+so hallucinated locations are rejected by construction.
+
+\paragraph{Validation cascade.} Every proposed predicate must clear three tiers or be
+silently discarded. \textbf{L1 (contract)}: valid JSON, a recognised loop-head key, and a
+syntactically valid C Boolean expression. \textbf{L2 (vocabulary)}: every free variable is in
+scope at the target loop head, killing the common ``undeclared variable'' hallucination.
+\textbf{L3 (SMT entailment)}: Z3 confirms the predicate is satisfiable (not trivially false)
+and not already entailed by the abstract state, so each accepted predicate is a genuine
+refinement. Survivors are added to the PredicateCPA precision; adding predicates only refines
+the abstraction, so the CEGAR soundness invariant is preserved unconditionally.
+
+\paragraph{Configuration.} \tool{} uses \llm{} with chain-of-thought \emph{disabled}:
+predicate expressions are short, so reasoning traces add 50--90\,s of latency without usable
+output, whereas non-thinking returns a JSON predicate map at $2.4$\,s median latency---small
+within a 300\,s budget.
+
+\subsection{Ranking-Function Oracle (Termination)}
+\label{sec:rank}
+
+The same role transfers to termination with a different artifact. When lasso-based template
+synthesis returns \textsc{Unknown} for a lasso, \tool{} asks the LLM for one or more candidate
+ranking functions, each with an optional \emph{supporting invariant} $I$ (the LLM is told $f$
+must be provably non-negative, and to supply the invariant that bounds it if needed). A
+candidate $(f,I)$ is parsed into a linear integer term and certified against the lasso
+transition relation $T(x,x')$ by four SMT unsatisfiability checks:
+\begin{align*}
+\text{initiation: } &\textit{Stem}\Rightarrow I(x_{\text{entry}}) &
+\text{bounded: } &I(x)\wedge T(x,x')\Rightarrow f(x)\ge 0\\
+\text{consecution: } &I(x)\wedge T(x,x')\Rightarrow I(x') &
+\text{decrease: } &I(x)\wedge T(x,x')\Rightarrow f(x')<f(x)
+\end{align*}
+When $I=\mathit{true}$ the first two are trivial and this reduces to a pure ranking check. If
+all four hold, $(f,I)$ \emph{soundly} proves the lasso terminates and is handed to the
+termination engine exactly as a template-synthesised argument would be; otherwise the
+candidate is discarded. Soundness is immediate and stronger than in the predicate case: $I$
+is \emph{verified inductive} (not assumed), and a candidate for a genuinely non-terminating
+lasso cannot pass the decrease check, so the oracle can never turn a non-terminating program
+into \textsc{True}. The loop transition is read on the JavaSMT side of the lasso construction,
+so the four checks run with no translation to the synthesiser's term representation.
+
+\section{Evaluation}
+\label{sec:eval}
+
+\paragraph{Setup.} All runs use \cpa{} with \tool{} extensions, a per-task limit (300\,s
+unless noted), and \llm{} (non-thinking, temperature 0) queried at most once per loop. We
+report tasks \emph{solved} (a definite \textsc{True}/\textsc{False} verdict), PAR-2 (lower is
+better), and \emph{wrong} verdicts (soundness violations). Safety benchmarks are SV-COMP Loops
+ReachSafety (764 tasks) and a NoOverflow scalar subset (452). Termination is evaluated on
+\texttt{termination\_scalar}: 146 integer-termination tasks (125 terminating, 21
+non-terminating) drawn from the SV-COMP crafted, crafted-lit, and numeric termination
+families.
+
+\subsection{Predicate Oracle}
+
+\Cref{tab:safety} (top) shows that on Loops ReachSafety the predicate oracle solves 37 more
+tasks than the base predicate analysis ($225\to262$, $+16.4\%$) and lowers PAR-2 from
+$426.2$ to $399.7$\,s, with \textbf{zero} wrong verdicts. In the full svcomp26 portfolio the
+gain is $+7$ ($486\to493$): smaller, because parallel strategies (symbolic execution,
+$k$-induction, value analysis) already cover many tasks the predicate worker uniquely solves
+in isolation. A competition-grade combined run (\Cref{tab:safety}, bottom) gains $+15$
+ReachSafety and $+4$ NoOverflow, $+19$ total, again with no wrong verdicts; the transfer to
+overflow tasks is free, as they share the bounded-counter loop patterns the LLM reasons about.
+On the running example, the oracle proposes nine predicates including \texttt{x+y==n}; five
+clear the cascade, and CEGAR then converges in 2 refinements at 3.9\,s instead of timing out
+after 69 (a 95\% wall-time and 97\% refinement reduction).
+
+\begin{table}[t]
+\caption{Predicate oracle. Top: Loops ReachSafety (764). Bottom: competition-grade combined
+(svcomp26 portfolio). \emph{Wrong} is the soundness count.}
+\label{tab:safety}
+\centering
+\begin{tabular}{lccc}
+\toprule
+Configuration & Solved & PAR-2 (s) & Wrong \\
+\midrule
+predicateAnalysis (stock)  & 225 & 426.2 & 0 \\
+\quad + \tool{}            & \textbf{262} (\,+37\,) & 399.7 & 0 \\
+svcomp26 (stock)           & 486 & 222.5 & 0 \\
+\quad + \tool{}            & \textbf{493} (\,+7\,)  & 216.9 & 0 \\
+\midrule
+ReachSafety (stock $\to$ \tool{}) & $479\to\mathbf{494}$ (\,+15\,) & $227.9\to216.6$ & 0 \\
+NoOverflow  (stock $\to$ \tool{}) & $362\to\mathbf{366}$ (\,+4\,)  & $122.3\to116.9$ & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Ablation: CE context is necessary.} A \emph{source-prior} variant fires the LLM at
+analysis start with source code only (no CE trace), validated and injected through the same
+cascade. It solves 225 tasks---\emph{identical to stock}---while full \tool{} (first-spurious)
+solves 262. The LLM's value is therefore not static pattern matching on source but
+\emph{relational reasoning over the concrete counterexample}; CE-guided refinement is the
+correct integration point.
+
+\subsection{Ranking-Function Oracle}
+
+\Cref{tab:term} shows the termination oracle on \texttt{termination\_scalar}. Stock lasso
+analysis solves 80 tasks; with the LLM ranking oracle it solves 84---$+4$, with \textbf{0
+lost} and \textbf{0 wrong} (all 21 non-terminating tasks stay \textsc{False}). The four new
+solves are LLM-proposed, SMT-certified ranking functions that lie outside the template family,
+e.g.\ $f=n-i$, $f=k-i$, $f=x$, and---needing a co-synthesised supporting invariant---$f=y_1+y_2$
+with $I=(y_1>0\wedge y_2>0)$. Stock solves the same 80 at both 60\,s and 300\,s, confirming the
+remaining tasks are template-\emph{unsolvable}, not time-limited.
+
+\begin{table}[t]
+\caption{Ranking-function oracle on \texttt{termination\_scalar} (146 tasks, 300\,s,
+lasso analysis in isolation).}
+\label{tab:term}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+Configuration & Solved & \textsc{True} & \textsc{False} & Wrong \\
+\midrule
+lasso analysis (stock) & 80 & 69 & 11 & 0 \\
+\quad + \tool{} ranking oracle & \textbf{84} (\,+4\,) & 73 & 11 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discussion and Limitations}
+\label{sec:discussion}
+
+We report the gains \emph{with} their boundaries; the boundaries are as informative as the
+gains.
+
+\paragraph{Sound predicates can still be noisy hints.} Validation guarantees that an accepted
+predicate is \emph{correct}, not that it is \emph{useful}. On \texttt{nested-3}, the LLM
+proposes \texttt{st==0} and \texttt{st==1}; both are individually satisfiable and accepted, but
+their joint injection splits the abstract state and enlarges the search, turning a 2-refinement
+stock proof into a timeout. A mutual-consistency check across injected predicates would help, at
+extra SMT cost.
+
+\paragraph{The termination gain has a small, characterised ceiling.} On the 56 stock-\textsc{Unknown}
+terminating tasks, the oracle only \emph{fires} on 9 (winning 4): \textbf{40 never produce a lasso}
+at all---they are pointer/array/string loops where the lasso safety analysis gives up before the
+injection point is reached---and so are structurally beyond this oracle. We tried three cheap levers
+to raise the gain on the tasks that do fire and \emph{none helped}: a boundedness-pushing prompt
+made first-round results worse ($4\to3$); a verify-and-repair loop that feeds the failing SMT check
+back to the LLM added nothing ($+0$); and injecting the stem formula as ``loop-entry facts'' was
+worse still ($4\to2$), as the SSA-indexed dump is noise the model cannot use. The lesson mirrors our
+predicate ablation: extra context and instructions degraded the model, and the plain source with a
+simple prompt was best. The remaining failures are not a context problem but the limit of
+single-shot \emph{linear} ranking-function guessing.
+
+\paragraph{Isolated vs.\ portfolio gain.} The $+4$ is measured on the lasso route \emph{in
+isolation}, for clean attribution. In the real competition branch the lasso route runs in
+parallel with a termination-to-safety strategy that has \emph{no} LLM path; that strategy may
+independently solve some of the four wins, so the portfolio-net gain is $\le 4$. We therefore
+present $+4$ as the oracle's contribution to the lasso route, not a competition-category delta,
+and the termination benchmark itself is a hook-favourable integer subset, not the full category.
+
+\paragraph{Online LLM dependency.} \tool{} calls an external API; the SV-COMP setting is
+network-isolated. The artifact is reproducible offline---it bundles the recorded experiment
+outputs and analysis scripts, so every reported number regenerates without network access,
+while live re-runs need an API key---but a competition \emph{submission} would still need a
+local or distilled model or a pre-computed candidate cache.
+
+\paragraph{\textsc{False}-path blindness.} Both oracles improve only \textsc{True} counts. The
+predicate oracle supplies proof-supporting invariants, not bug witnesses; the ranking oracle proves
+termination, never non-termination. Bug-finding is untouched.
+
+\section{Related Work}
+\label{sec:related}
+
+LLM-guided invariant generation is active. CIll~\cite{cill2026} uses counterexample context to
+guide an LLM for hardware model checking---like \tool{}, it exploits the CE and validates before
+use, but targets transition-system invariants rather than software CEGAR. Hybrid LLM+SMT loop-invariant
+synthesis~\cite{loopinvariant2025} and Quokka~\cite{quokka2025} alternate LLM generation with solver
+checking, but as standalone synthesis outside a running verifier; \tool{} instead injects at the CEGAR
+loop head, CE-triggered. IC3-based protocol invariant synthesis~\cite{ic3llm2026} applies the same
+propose-and-check oracle to distributed protocols. Neuro-symbolic proof
+generation~\cite{neurosymbolic2026} drives interactive provers with LLM hints, and agentic model
+checking~\cite{agenticmc2026} wraps a checker in an autonomous LLM loop; \tool{} is deliberately
+lighter---one structured oracle call, no autonomous replanning---which shrinks the LLM attack surface.
+Against all of these, our distinguishing point is breadth of \emph{one} soundness role: the same
+verified-candidate provider supplies both predicates (safety) and ranking functions (termination).
+\tool{} builds directly on CEGAR~\cite{cegar2003}, predicate abstraction~\cite{predabstraction1997},
+interpolation~\cite{interpolation2003}, and lasso-based ranking-function
+synthesis~\cite{ranking2004,ultimate2014} in \cpa{}~\cite{cpachecker2011}.
+
+\section{Conclusion and Future Work}
+\label{sec:concl}
+
+\tool{} shows that an LLM can be a \emph{sound} verified-candidate provider for \cpa{}, and that
+this role is artifact-agnostic: the identical propose--certify--decide architecture supplies loop
+predicates for safety (37/7/19 more tasks, 0 wrong, with an ablation proving CE context is essential)
+and ranking functions for termination (+4, 0 lost, 0 wrong, including a case needing a co-synthesised
+supporting invariant). Equally, we have bounded the method honestly: the predicate gain shrinks under
+portfolio saturation and can be hurt by noisy-but-correct predicates; the termination gain has a small
+ceiling, set not by prompt engineering---three cheap levers failed---but by the injection point, since
+40 of 56 target loops never reach the oracle. The clearest future direction follows directly from that
+boundary: a \emph{structurally earlier} injection point that reaches pointer/array loops before the
+lasso analysis gives up, which would do far more than tuning the existing hook. Complementary
+directions are a local or distilled model to remove the online-API dependency for competition use, and
+extending the oracle toward \textsc{False} (non-termination and bug witnesses). The artifact---source,
+configurations, benchmark lists, recorded experiment outputs, and evaluation
+scripts---is archived at \url{https://doi.org/10.5281/zenodo.20745141} (DOI
+\texttt{10.5281/zenodo.20745141}), with the development repository at
+\url{https://github.com/swear01/cpachecker}; all reported tables regenerate offline from the
+recorded outputs, and the experiments can be re-run live with an API key.
+
+\bibliographystyle{splncs04}
+\bibliography{references}
+
+\end{document}
