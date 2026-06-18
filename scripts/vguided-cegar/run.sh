@@ -95,9 +95,9 @@ cmd_cpa() {
   [[ -n "$set" ]] || die "cpa requires --set <sample|full_scalar|...>"
   require_java
   case "$mode" in
-    stock|svcomp26|svcomp27-stock|svcomp26-overflow) ;;
-    vguide|svcomp26-vguide|svcomp27-vguide|svcomp|svcomp26-overflow-vguide|source-prior-loops|source-prior-overflow|source-prior-svcomp26-loops|source-prior-svcomp26-overflow) require_api ;;
-    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26, svcomp26-vguide, svcomp26-overflow, svcomp26-overflow-vguide, svcomp27-stock, svcomp27-vguide, source-prior-loops, source-prior-overflow, source-prior-svcomp26-loops, source-prior-svcomp26-overflow)" ;;
+    stock|svcomp26|svcomp27-stock|svcomp26-overflow|termination-stock) ;;
+    vguide|svcomp26-vguide|svcomp27-vguide|svcomp|svcomp26-overflow-vguide|source-prior-loops|source-prior-overflow|source-prior-svcomp26-loops|source-prior-svcomp26-overflow|termination-vguide) require_api ;;
+    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26, svcomp26-vguide, svcomp26-overflow, svcomp26-overflow-vguide, svcomp27-stock, svcomp27-vguide, source-prior-loops, source-prior-overflow, source-prior-svcomp26-loops, source-prior-svcomp26-overflow, termination-stock, termination-vguide)" ;;
   esac
   if [[ -z "$out" ]]; then
     case "$ablation" in
@@ -126,6 +126,10 @@ cmd_cpa() {
           out="output/vguide/experiments/${set}_source_prior_svcomp26_loops"
         elif [[ "$mode" == "source-prior-svcomp26-overflow" ]]; then
           out="output/vguide/experiments/${set}_source_prior_svcomp26_overflow"
+        elif [[ "$mode" == "termination-stock" ]]; then
+          out="output/vguide/experiments/${set}_termination_stock"
+        elif [[ "$mode" == "termination-vguide" ]]; then
+          out="output/vguide/experiments/${set}_termination_vguide"
         else
           out="output/vguide/experiments/${set}_vguide"
         fi
@@ -200,6 +204,31 @@ cmd_cpa() {
       VGUIDE_CONFIG=config/vguide-experiment-source-prior-svcomp26-overflow.properties
       VGUIDE_SPEC="$REPO/config/specification/sv-comp-overflow.spc"
     )
+  elif [[ "$mode" == "termination-stock" ]]; then
+    # lasso-only termination (isolates the lasso route for clean hook attribution).
+    # VGUIDE_SPEC= (empty): config uses internal termination automata; passing default.spc
+    # would override it and break termination detection.
+    # USE_VOCABULARY_GUIDE=false: the inner safety analysis is predicate-based, so leaving it
+    # on would enable the *reachability* VGuide inside termination and confound the ranking hook.
+    env_extra+=(
+      VGUIDE_CONFIG=config/components/termination-composition-lassoBasedAnalysis.properties
+      VGUIDE_SPEC=
+      VGUIDE_USE_VOCABULARY_GUIDE=false
+    )
+  elif [[ "$mode" == "termination-vguide" ]]; then
+    # VGUIDE_TERMINATION_RANKING=on activates the LLM ranking-function fallback inside LassoAnalysis
+    # (env-gated to avoid termination.config self-reference option-propagation issues).
+    env_extra+=(
+      VGUIDE_CONFIG=config/vguide-experiment-termination.properties
+      VGUIDE_SPEC=
+      VGUIDE_USE_VOCABULARY_GUIDE=false
+      VGUIDE_TERMINATION_RANKING=on
+    )
+  fi
+  # Termination-* tasks (termination-crafted/-crafted-lit/-numeric) are all LP64; the harness
+  # otherwise defaults to ILP32 and wrong int widths can flip termination verdicts (0-wrong risk).
+  if [[ "$mode" == termination-* ]]; then
+    extra+=(--option analysis.machineModel=Linux64)
   fi
   case "$ablation" in
     ""|"no-l3"|"no_l3"|"precision-only")

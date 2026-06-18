@@ -161,17 +161,30 @@ public class LassoBuilder {
     shutdownNotifier.shutdownIfNecessary();
     stats.stemAndLoopConstructionFinished();
 
+    return buildLasso(stemAndLoop, pRelevantVariables);
+  }
+
+  /**
+   * Builds the lassos for an already-constructed {@link StemAndLoop}. Exposed so callers that also
+   * need the {@link StemAndLoop} itself (e.g. an external ranking-function provider that verifies a
+   * candidate against the loop transition) can build it once via {@link
+   * #createStemAndLoop(CounterexampleInfo)} and reuse it here.
+   */
+  public Collection<Lasso> buildLasso(
+      StemAndLoop pStemAndLoop, Set<CVariableDeclaration> pRelevantVariables)
+      throws InterruptedException, TermException, SolverException {
+
     ImmutableMap<String, CVariableDeclaration> relevantVariables =
         Maps.uniqueIndex(pRelevantVariables, AVariableDeclaration::getQualifiedName);
     try {
       stats.lassosCreationStarted();
-      return createLassos(stemAndLoop, relevantVariables);
+      return createLassos(pStemAndLoop, relevantVariables);
     } finally {
       stats.lassosCreationFinished();
     }
   }
 
-  private StemAndLoop createStemAndLoop(CounterexampleInfo pCounterexampleInfo)
+  public StemAndLoop createStemAndLoop(CounterexampleInfo pCounterexampleInfo)
       throws CPATransferException, InterruptedException {
     PathIterator path = pCounterexampleInfo.getTargetPath().fullPathIterator();
 

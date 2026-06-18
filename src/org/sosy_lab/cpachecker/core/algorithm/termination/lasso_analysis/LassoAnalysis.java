@@ -49,8 +49,11 @@ import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.ast.c.CVariableDeclaration;
 import org.sosy_lab.cpachecker.core.AnalysisDirection;
 import org.sosy_lab.cpachecker.core.algorithm.termination.lasso_analysis.RankingRelationBuilder.RankingRelationException;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.cpachecker.core.algorithm.termination.lasso_analysis.construction.LassoBuilder;
+import org.sosy_lab.cpachecker.core.algorithm.termination.lasso_analysis.construction.LassoBuilder.StemAndLoop;
 import org.sosy_lab.cpachecker.core.algorithm.termination.lasso_analysis.toolchain.LassoRankerToolchainStorage;
+import org.sosy_lab.cpachecker.core.algorithm.termination.lasso_analysis.vguide.LlmRankingFunctionProvider;
 import org.sosy_lab.cpachecker.core.counterexample.CounterexampleInfo;
 import org.sosy_lab.cpachecker.exceptions.CPATransferException;
 import org.sosy_lab.cpachecker.util.LoopStructure.Loop;
@@ -173,6 +176,9 @@ public class LassoAnalysis {
 
   private final ImmutableList<RankingTemplate> rankingTemplates;
 
+  // VGuide termination ranking-function hook; null when not constructed (e.g. DCA path).
+  private final @Nullable LlmRankingFunctionProvider rankingProvider;
+
   @SuppressWarnings({"resource", "unchecked"})
   public static LassoAnalysis create(
       LassoBuilder pLassoBuilder,
@@ -190,7 +196,8 @@ public class LassoAnalysis {
         pLogger,
         pConfig,
         pShutdownNotifier,
-        pStatistics);
+        pStatistics,
+        null);
   }
 
   @SuppressWarnings({"resource", "unchecked"})
@@ -237,6 +244,14 @@ public class LassoAnalysis {
             formulaManagerView,
             formulaManager.getFormulaCreator());
 
+    // Only construct the provider when the hook is enabled, so the stock/default termination path
+    // pays zero overhead (no source read, no HTTP client, no extra objects).
+    LlmRankingFunctionProvider rankingProvider =
+        LlmRankingFunctionProvider.isEnabledByEnv()
+            ? new LlmRankingFunctionProvider(
+                pLogger, formulaManagerView, () -> solverContext.newProverEnvironment(), pCfa)
+            : null;
+
     return new LassoAnalysis(
         lassoBuilder,
         rankingRelationBuilder,
@@ -244,7 +259,8 @@ public class LassoAnalysis {
         pLogger,
         pConfig,
         pShutdownNotifier,
-        pStatistics);
+        pStatistics,
+        rankingProvider);
   }
 
   private LassoAnalysis(
@@ -254,9 +270,11 @@ public class LassoAnalysis {
       LogManager pLogger,
       Configuration pConfig,
       ShutdownNotifier pShutdownNotifier,
-      LassoAnalysisStatistics pStatistics)
+      LassoAnalysisStatistics pStatistics,
+      @Nullable LlmRankingFunctionProvider pRankingProvider)
       throws InvalidConfigurationException {
 
+    rankingProvider = pRankingProvider;
     pConfig.inject(this);
     logger = checkNotNull(pLogger);
     shutdownNotifier = checkNotNull(pShutdownNotifier);
@@ -404,9 +422,11 @@ public class LassoAnalysis {
       Loop pLoop, CounterexampleInfo pCounterexample, Set<CVariableDeclaration> pRelevantVariables)
       throws CPATransferException, InterruptedException {
     Collection<Lasso> lassos;
+    StemAndLoop stemAndLoop;
     statistics.lassoConstructionStarted();
     try {
-      lassos = lassoBuilder.buildLasso(pCounterexample, pRelevantVariables);
+      stemAndLoop = lassoBuilder.createStemAndLoop(pCounterexample);
+      lassos = lassoBuilder.buildLasso(stemAndLoop, pRelevantVariables);
       statistics.lassosConstructed(pLoop, lassos.size());
 
     } catch (TermException | SolverException e) {
@@ -416,8 +436,9 @@ public class LassoAnalysis {
       statistics.lassoConstructionFinished();
     }
 
+    LassoAnalysisResult result;
     try {
-      return checkTermination(pLoop, lassos, pRelevantVariables);
+      result = checkTermination(pLoop, lassos, pRelevantVariables);
 
     } catch (IOException | SMTLIBException | TermException | SolverException e) {
       logger.logUserException(
@@ -426,6 +447,14 @@ public class LassoAnalysis {
     } catch (ToolchainCanceledException e) {
       throw new InterruptedException(e.getMessage());
     }
+
+    // VGuide fallback: when LassoRanker's template synthesis can neither prove nor disprove
+    // termination, let an LLM propose a ranking function (with optional supporting invariant),
+    // verified by a decrease+bounded SMT check before use.
+    if (result.isUnknown() && rankingProvider != null && rankingProvider.isEnabled()) {
+      result = result.update(rankingProvider.tryProve(pLoop, stemAndLoop, pRelevantVariables));
+    }
+    return result;
   }
 
   public LassoAnalysisResult checkTermination(
