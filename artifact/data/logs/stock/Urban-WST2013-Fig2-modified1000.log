@@ -1,0 +1,450 @@
+Running CPAchecker with Java heap of size 2000M.
+Running CPAchecker with default stack size (1024k). Specify a larger value with --stack if needed.
+Using the following resource limits: CPU-time limit of 300s (ResourceLimitChecker.fromConfiguration, INFO)
+
+CPAchecker 4.2.2-2096-gb9f51b640f+ / termination-composition-lassoBasedAnalysis (OpenJDK 64-Bit Server VM 21.0.10) started (CPAchecker.run, INFO)
+
+Parsing CFA from file(s) "/home/swear01/sv-benchmarks/c/termination-crafted-lit/Urban-WST2013-Fig2-modified1000.c" (CPAchecker.parse, INFO)
+
+Using predicate analysis with MathSAT5 version 5.6.11 (1a1154baf0ab) (Aug  9 2024 08:45:22, gmp 6.2.0, gcc 7.5.0, 64-bit, reentrant) and JFactory 1.21. (PredicateCPA:PredicateCPA.<init>, INFO)
+
+Using refinement for predicate analysis with PredicateAbstractionRefinementStrategy strategy. (PredicateCPA:PredicateCPARefiner.<init>, INFO)
+
+Using unsound approximation of ints with unbounded integers and floats with rationals for encoding program semantics. (FormulaManagerView.<init>, WARNING)
+
+The following configuration options were specified but are not used:
+ counterexample.checker.config
+ counterexample.checker 
+ (CPAchecker.printConfigurationWarnings, WARNING)
+
+Starting analysis ... (CPAchecker.runAlgorithm, INFO)
+
+Starting termination algorithm. (TerminationAlgorithm.run0, INFO)
+
+refinement # 1 : predicates= 3  traceStates= 4 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 2 : predicates= 3  traceStates= 4 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 3 : predicates= 3  traceStates= 4 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 4 : predicates= 3  traceStates= 4 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 5 : predicates= 4  traceStates= 5 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 6 : predicates= 5  traceStates= 6 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 7 : predicates= 6  traceStates= 7 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 8 : predicates= 7  traceStates= 8 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 9 : predicates= 8  traceStates= 9 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 10 : predicates= 9  traceStates= 10 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 11 : predicates= 10  traceStates= 11 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 12 : predicates= 11  traceStates= 12 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 13 : predicates= 12  traceStates= 13 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 14 : predicates= 13  traceStates= 14 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 15 : predicates= 14  traceStates= 15 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 16 : predicates= 15  traceStates= 16 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 17 : predicates= 16  traceStates= 17 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 18 : predicates= 17  traceStates= 18 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 19 : predicates= 18  traceStates= 19 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 20 : predicates= 19  traceStates= 20 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 21 : predicates= 20  traceStates= 21 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 22 : predicates= 21  traceStates= 22 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 23 : predicates= 22  traceStates= 23 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 24 : predicates= 23  traceStates= 24 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 25 : predicates= 24  traceStates= 25 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 26 : predicates= 25  traceStates= 26 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 27 : predicates= 26  traceStates= 27 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 28 : predicates= 27  traceStates= 28 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 29 : predicates= 28  traceStates= 29 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 30 : predicates= 29  traceStates= 30 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 31 : predicates= 30  traceStates= 31 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 32 : predicates= 31  traceStates= 32 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 33 : predicates= 32  traceStates= 33 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 34 : predicates= 33  traceStates= 34 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 35 : predicates= 34  traceStates= 35 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 36 : predicates= 35  traceStates= 36 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 37 : predicates= 36  traceStates= 37 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 38 : predicates= 37  traceStates= 38 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 39 : predicates= 38  traceStates= 39 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 40 : predicates= 39  traceStates= 40 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 41 : predicates= 40  traceStates= 41 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 42 : predicates= 41  traceStates= 42 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 43 : predicates= 42  traceStates= 43 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 44 : predicates= 43  traceStates= 44 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 45 : predicates= 44  traceStates= 45 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 46 : predicates= 45  traceStates= 46 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 47 : predicates= 46  traceStates= 47 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 48 : predicates= 47  traceStates= 48 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 49 : predicates= 48  traceStates= 49 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 50 : predicates= 49  traceStates= 50 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 51 : predicates= 50  traceStates= 51 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 52 : predicates= 51  traceStates= 52 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 53 : predicates= 52  traceStates= 53 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 54 : predicates= 53  traceStates= 54 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 55 : predicates= 54  traceStates= 55 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 56 : predicates= 55  traceStates= 56 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 57 : predicates= 56  traceStates= 57 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 58 : predicates= 57  traceStates= 58 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 59 : predicates= 58  traceStates= 59 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 60 : predicates= 59  traceStates= 60 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 61 : predicates= 60  traceStates= 61 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 62 : predicates= 61  traceStates= 62 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 63 : predicates= 62  traceStates= 63 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 64 : predicates= 63  traceStates= 64 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 65 : predicates= 64  traceStates= 65 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 66 : predicates= 65  traceStates= 66 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 67 : predicates= 66  traceStates= 67 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 68 : predicates= 67  traceStates= 68 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 69 : predicates= 68  traceStates= 69 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 70 : predicates= 69  traceStates= 70 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 71 : predicates= 70  traceStates= 71 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 72 : predicates= 71  traceStates= 72 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 73 : predicates= 72  traceStates= 73 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 74 : predicates= 73  traceStates= 74 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 75 : predicates= 74  traceStates= 75 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 76 : predicates= 75  traceStates= 76 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 77 : predicates= 76  traceStates= 77 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 78 : predicates= 77  traceStates= 78 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 79 : predicates= 78  traceStates= 79 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 80 : predicates= 79  traceStates= 80 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 81 : predicates= 80  traceStates= 81 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 82 : predicates= 81  traceStates= 82 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 83 : predicates= 82  traceStates= 83 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 84 : predicates= 83  traceStates= 84 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 85 : predicates= 84  traceStates= 85 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 86 : predicates= 85  traceStates= 86 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 87 : predicates= 86  traceStates= 87 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 88 : predicates= 87  traceStates= 88 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 89 : predicates= 88  traceStates= 89 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 90 : predicates= 89  traceStates= 90 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 91 : predicates= 90  traceStates= 91 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 92 : predicates= 91  traceStates= 92 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 93 : predicates= 92  traceStates= 93 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 94 : predicates= 93  traceStates= 94 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 95 : predicates= 94  traceStates= 95 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 96 : predicates= 95  traceStates= 96 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 97 : predicates= 96  traceStates= 97 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 98 : predicates= 97  traceStates= 98 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 99 : predicates= 98  traceStates= 99 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 100 : predicates= 99  traceStates= 100 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 101 : predicates= 100  traceStates= 101 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 102 : predicates= 101  traceStates= 102 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 103 : predicates= 102  traceStates= 103 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 104 : predicates= 103  traceStates= 104 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 105 : predicates= 104  traceStates= 105 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 106 : predicates= 105  traceStates= 106 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 107 : predicates= 106  traceStates= 107 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 108 : predicates= 107  traceStates= 108 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 109 : predicates= 108  traceStates= 109 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 110 : predicates= 109  traceStates= 110 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 111 : predicates= 110  traceStates= 111 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 112 : predicates= 111  traceStates= 112 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 113 : predicates= 112  traceStates= 113 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 114 : predicates= 113  traceStates= 114 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+refinement # 115 : predicates= 114  traceStates= 115 (PredicateCPA:PredicateCPARefiner.performRefinementForPathImpl, INFO)
+
+Shutdown requested (The CPU-time limit of 300s has elapsed.), waiting for termination. (ForceTerminationOnShutdown$1.shutdownRequested, WARNING)
+
+Warning: Analysis interrupted (The CPU-time limit of 300s has elapsed.) (ShutdownNotifier.shutdownIfNecessary, WARNING)
+
+
+PredicateCPA statistics
+-----------------------
+Number of abstractions:            12968 (32% of all post computations)
+  Times abstraction was reused:    0
+  Because of function entry/exit:  0 (0%)
+  Because of loop head:            12850 (99%)
+  Because of join nodes:           0 (0%)
+  Because of threshold:            0 (0%)
+  Because of target state:         118 (1%)
+  Times precision was empty:       137 (1%)
+  Times precision was {false}:     6415 (49%)
+  Times result was cached:         2 (0%)
+  Times cartesian abs was used:    0 (0%)
+  Times boolean abs was used:      6414 (49%)
+  Times result was 'false':        6301 (49%)
+Number of strengthen sat checks:   0
+Number of coverage checks:         475540
+  BDD entailment checks:           475260
+Number of SMT sat checks:          0
+  trivial:                         0
+  cached:                          0
+
+Max ABE block size:                       8
+Avg ABE block size:                                2.04 (sum: 26470, count: 12968, min: 0, max: 8)
+Number of predicates discovered:          115
+Number of abstraction locations:          2
+Max number of predicates per location:    112
+Avg number of predicates per location:    56
+Total predicates per abstraction:         484213
+Max number of predicates per abstraction: 112
+Avg number of predicates per abstraction: 37.74
+Number of irrelevant predicates:          6417 (1%)
+Number of preds handled by boolean abs:   477796 (99%)
+  Total number of models for allsat:      244035
+  Max number of models for allsat:        112
+  Avg number of models for allsat:        38.05
+Number of path formula cache hits:        37805 (93%)
+
+Time for post operator:                                0.177s
+  Time for path formula creation:                      0.168s
+Time for strengthen operator:                          0.019s
+Time for prec operator:                              275.402s
+  Time for abstraction:                275.236s (Max:     0.302s, Count: 12968)
+    Boolean abstraction:               255.312s
+    Solving time:                       19.924s (Max:     0.010s)
+    Model enumeration time:            240.067s
+    Time for BDD construction:          40.670s (Max:     0.009s)
+Time for merge operator:                               0.002s
+Time for coverage checks:                              1.450s
+  Time for BDD entailment checks:                      1.437s
+Total time for SMT solver (w/o itp):   259.991s
+
+Number of BDD nodes:                               295656
+Size of BDD node table:                            350437
+Size of BDD cache:                                 35051
+Size of BDD node cleanup queue:                    1.12 (sum: 1146012, count: 1021377, min: 0, max: 40710)
+Time for BDD node cleanup:                             0.128s
+Time for BDD garbage collection:                       6.176s (in 3544 runs)
+
+Invariant Generation statistics
+-------------------------------
+
+AutomatonAnalysis (NonTerminationLabelAutomaton) statistics
+-----------------------------------------------------------
+Number of states:                                  1
+Total time for successor computation:                  0.040s
+Automaton transfers with branching:                0
+Automaton transfer successors:                     1.00 (sum: 40534, count: 40534, min: 1, max: 1) [1 x 40534]
+Number of states with assumption transitions:      0
+
+AutomatonAnalysis (TerminatingFunctions) statistics
+---------------------------------------------------
+Number of states:                                  1
+Total time for successor computation:                  0.007s
+Automaton transfers with branching:                0
+Automaton transfer successors:                     1.00 (sum: 40534, count: 40534, min: 1, max: 1) [1 x 40534]
+Number of states with assumption transitions:      0
+
+Termination Algorithm statistics
+--------------------------------
+Total time :                                          291.567s
+Time for recursion analysis:                            0.000s
+
+Number of analysed loops:                               2 (100%)
+Total time for loop analysis:                         291.566s
+  Avg time per loop analysis:                         145.783s
+  Max time per loop analysis:                         291.282s
+
+Number of safety analysis runs:                         3
+  Avg safety analysis run per loop:                     1.50
+  Max safety analysis run per loop:                     2 	 for loops [N40]
+Total time for safety analysis:                       291.394s
+  Avg time per safety analysis run:                    97.131s
+  Max time per safety analysis run:                   291.282s
+
+Number of analysed lassos:                              1
+  Avg number of lassos per loop:                        0.50
+  Max number of lassos per loop:                        1 	 for loops [N40]
+  Avg number of lassos per iteration:                   1.00
+  Max number of lassos per iteration:                   1
+
+Total time for lassos analysis:                         0.170s
+  Avg time per iteration:                               0.170s
+  Max time per iteration:                               0.170s
+  Time for lassos construction:                         0.034s
+    Avg time for lasso construction per iteration:      0.034s
+    Max time for lasso construction per iteration:      0.034s
+      Time for stem and loop construction:                         0.000s
+        Avg time for stem and loop construction per iteration:      0.000s
+        Max time for stem and loop construction per iteration:      0.000s
+      Time for lassos creation:                         0.029s
+        Avg time for lassos creation per iteration:      0.029s
+        Max time for lassos creation per iteration:      0.029s
+  Total time for non-termination analysis:              0.042s
+    Avg time for non-termination analysis per lasso:    0.042s
+    Max time for non-termination analysis per lasso:    0.042s
+  Total time for termination analysis:                  0.094s
+    Avg time for termination analysis per lasso:        0.094s
+    Max time for termination analysis per lasso:        0.094s
+
+Total number of termination arguments:                  1
+  Avg termination arguments per loop:                   0.50
+  Max termination arguments per loop:                   1 	 for loops [N40]
+
+  affine:                                               1
+
+Code Coverage
+-----------------------------
+  Function coverage:      1.000
+  Visited lines:          11
+  Total lines:            11
+  Line coverage:          1.000
+  Visited conditions:     4
+  Total conditions:       8
+  Condition coverage:     0.500
+
+CPAchecker general statistics
+-----------------------------
+Number of program locations:                       21
+Number of CFA edges (per node):                          22 (count: 21, min: 0, max: 2, avg: 1.05)
+Number of relevant variables:                      2
+Number of functions:                               1
+Number of loops (and loop nodes):                         2 (sum: 11, min: 3, max: 8, avg: 5.50)
+Size of reached set:             435
+  Number of reached locations:   13 (62%)
+    Avg states per location:     33
+    Max states per location:     85 (at node N35)
+  Number of reached functions:   1 (100%)
+  Number of partitions:          349
+    Avg size of partitions:      1
+    Max size of partitions:      85 (with key [N40 (before line 21), Function main called from node N23, stack depth 1 [563a89b5], stack [main]])
+  Number of target states:       0
+  Size of final wait list:       1
+
+Time for analysis setup:          0.662s
+  Time for loading CPAs:          0.170s
+  Time for loading parser:        0.096s
+  Time for CFA construction:      0.237s
+    Time for parsing file(s):     0.098s
+    Time for AST to CFA:          0.073s
+    Time for CFA sanity check:    0.007s
+    Time for post-processing:     0.038s
+    Time for loop structure:      0.003s
+    Time for AST structure:       0.000s
+      Time for function pointers resolving:            0.001s
+        Function calls via function pointers:             0 (count: 1, min: 0, max: 0, avg: 0.00)
+        Instrumented function pointer calls:              0 (count: 1, min: 0, max: 0, avg: 0.00)
+        Function calls with function pointer arguments:        0 (count: 1, min: 0, max: 0, avg: 0.00)
+        Instrumented function pointer arguments:          0 (count: 1, min: 0, max: 0, avg: 0.00)
+      Time for classifying variables:                  0.022s
+        Time for collecting variables:                 0.008s
+        Time for solving dependencies:                 0.000s
+        Time for building hierarchy:                   0.000s
+        Time for building classification:              0.014s
+        Time for exporting data:                       0.000s
+Time for Analysis:              291.567s
+CPU time for analysis:          298.350s
+Total time for CPAchecker:      292.229s
+Total CPU time for CPAchecker:  299.980s
+Time for statistics:              0.017s
+
+Time for Garbage Collector:       0.172s (in 52 runs)
+Garbage Collector(s) used:    PS MarkSweep, PS Scavenge
+Used heap memory:                554MB (   528 MiB) max;    245MB (   233 MiB) avg;    652MB (   622 MiB) peak
+Used non-heap memory:             57MB (    54 MiB) max;     56MB (    54 MiB) avg;     60MB (    57 MiB) peak
+Used in PS Old Gen pool:         111MB (   106 MiB) max;     78MB (    74 MiB) avg;    111MB (   106 MiB) peak
+Allocated heap memory:          2010MB (  1917 MiB) max;   1722MB (  1642 MiB) avg
+Allocated non-heap memory:        60MB (    57 MiB) max;     59MB (    57 MiB) avg
+Total process virtual memory:   7994MB (  7624 MiB) max;   7885MB (  7520 MiB) avg
+
+Verification result: UNKNOWN, incomplete analysis.
+More details about the verification run can be found in the directory "./output".

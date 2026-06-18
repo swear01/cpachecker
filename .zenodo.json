@@ -1,0 +1,53 @@
+{
+  "title": "From Predicates to Ranking Functions: LLM-Proposed, SMT-Certified Candidates for CEGAR-Based Software Verification",
+  "upload_type": "software",
+  "description": "<p>Artifact for the Formal Methods final project report of the same title. VGuide augments CPAchecker with a large language model acting as a <em>verified-candidate provider</em>: the LLM proposes a candidate artifact (a loop predicate for safety, or a ranking function with a supporting invariant for termination), a sound SMT check certifies it, and only then is it used; no unvalidated LLM output can change a verdict (strictly Tier S).</p><p>This artifact bundles the VGuide source (a CPAchecker fork), configurations, benchmark lists, recorded experiment outputs, and evaluation scripts. The termination result (report Table 3: 80 -> 84 solved, +4, 0 lost, 0 wrong) regenerates deterministically and offline with <code>python3 reproduce_termination.py</code> (no API key, no solver, no CPAchecker run). The predicate results (Tables 1-2) are documented with their recorded run reports and can be re-run live. See README.md for Getting Started and Step-by-Step instructions.</p>",
+  "creators": [
+    {
+      "name": "Huang, Ssu-Wei",
+      "affiliation": "National Taiwan University",
+      "orcid": "0009-0006-3983-5525"
+    }
+  ],
+  "contributors": [
+    {
+      "name": "Lee, Nian-Ze",
+      "affiliation": "National Taiwan University",
+      "type": "Supervisor",
+      "orcid": "0000-0002-8096-5595"
+    }
+  ],
+  "keywords": [
+    "software verification",
+    "CEGAR",
+    "predicate abstraction",
+    "termination",
+    "ranking functions",
+    "large language models",
+    "CPAchecker",
+    "SV-COMP"
+  ],
+  "license": "Apache-2.0",
+  "language": "eng",
+  "version": "1.6.1",
+  "publication_date": "2026-06-18",
+  "access_right": "open",
+  "notes": "Reproduction artifact for the National Taiwan University Formal Methods (2026) final project report of the same title. Offline reproduction of the main termination result: run 'python3 reproduce_termination.py' (no API key, no network, no CPAchecker invocation). See README.md for Getting Started and Step-by-Step instructions. Built on CPAchecker (Apache-2.0).",
+  "method": "VGuide intercepts CPAchecker at two points: (i) on the first spurious counterexample in predicate-CEGAR, an LLM proposes loop predicates that are filtered by a three-tier validation cascade (contract, scope-vocabulary, Z3 SMT entailment) before injection; and (ii) when lasso-based template synthesis fails for a loop, an LLM proposes a ranking function with an optional supporting invariant that is certified by four SMT checks (initiation, consecution, boundedness, decrease) before use. No unvalidated LLM output can change a verdict. Evaluation is on SV-COMP benchmarks with CPAchecker; the termination result is reproduced offline from recorded per-task outputs.",
+  "related_identifiers": [
+    {"identifier": "https://github.com/swear01/cpachecker", "relation": "isSupplementTo", "scheme": "url"},
+    {"identifier": "10.1007/978-3-642-22110-1_16", "relation": "isDerivedFrom", "resource_type": "publication-conferencepaper", "scheme": "doi"}
+  ],
+  "references": [
+    "Beyer, D., Keremoglu, M.E.: CPAchecker: A Tool for Configurable Software Verification. CAV 2011. LNCS 6806, pp. 184-190 (2011)",
+    "Clarke, E.M., Grumberg, O., Jha, S., Lu, Y., Veith, H.: Counterexample-Guided Abstraction Refinement. J. ACM 50(5), 752-794 (2003)",
+    "Graf, S., Saidi, H.: Construction of Abstract State Graphs with PVS. CAV 1997. LNCS 1254, pp. 72-83 (1997)",
+    "Ball, T., Rajamani, S.K.: The SLAM Project: Debugging System Software via Static Analysis. POPL 2002, pp. 1-3 (2002)",
+    "Beyer, D.: Progress on Software Verification: SV-COMP 2022. TACAS 2022. LNCS 13244, pp. 375-402 (2022)",
+    "McMillan, K.L.: Interpolation and SAT-Based Model Checking. CAV 2003. LNCS 2725, pp. 1-13 (2003)",
+    "Podelski, A., Rybalchenko, A.: A Complete Method for the Synthesis of Linear Ranking Functions. VMCAI 2004. LNCS 2937, pp. 239-251 (2004)",
+    "Cook, B., Podelski, A., Rybalchenko, A.: Termination Proofs for Systems Code. PLDI 2006, pp. 415-426 (2006)",
+    "Heizmann, M., Hoenicke, J., Podelski, A.: Termination Analysis by Learning Terminating Programs. CAV 2014. LNCS 8559, pp. 797-813 (2014)",
+    "DeepSeek-AI: DeepSeek-V3 Technical Report. arXiv:2412.19437 (2025)"
+  ]
+}

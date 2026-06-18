@@ -1,0 +1,48 @@
+Running CPAchecker with Java heap of size 2000M.
+Running CPAchecker with default stack size (1024k). Specify a larger value with --stack if needed.
+Using the following resource limits: CPU-time limit of 300s (ResourceLimitChecker.fromConfiguration, INFO)
+
+CPAchecker 4.2.2-2096-gb9f51b640f+ / termination-composition-lassoBasedAnalysis (OpenJDK 64-Bit Server VM 21.0.10) started (CPAchecker.run, INFO)
+
+Parsing CFA from file(s) "/home/swear01/sv-benchmarks/c/termination-crafted-lit/HenzingerJhalaMajumdarSutre-POPL2002-LockingExample.c" (CPAchecker.parse, INFO)
+
+Using predicate analysis with MathSAT5 version 5.6.11 (1a1154baf0ab) (Aug  9 2024 08:45:22, gmp 6.2.0, gcc 7.5.0, 64-bit, reentrant) and JFactory 1.21. (PredicateCPA:PredicateCPA.<init>, INFO)
+
+Using refinement for predicate analysis with PredicateAbstractionRefinementStrategy strategy. (PredicateCPA:PredicateCPARefiner.<init>, INFO)
+
+Using unsound approximation of ints with unbounded integers and floats with rationals for encoding program semantics. (FormulaManagerView.<init>, WARNING)
+
+The following configuration options were specified but are not used:
+ counterexample.checker.config
+ counterexample.checker 
+ (CPAchecker.printConfigurationWarnings, WARNING)
+
+Starting analysis ... (CPAchecker.runAlgorithm, INFO)
+
+Starting termination algorithm. (TerminationAlgorithm.run0, INFO)
+
+Warning: Could not create error path (ARG branches where there is no AssumeEdge!) (PredicateCPA:Preconditions.checkArgument, WARNING)
+
+Inconsistent replayed error path! No variable values will be available. (PredicateCPA:PathChecker.createCounterexample, WARNING)
+
+Exception in thread "main" java.lang.AssertionError: Found imprecise counterexample in PredicateCPA. If this is expected for this configuration (e.g., because of UF-based heap encoding), set counterexample.export.allowImpreciseCounterexamples=true. Otherwise please report this as a bug.
+	at org.sosy_lab.cpachecker.util.predicates.PathChecker.createImpreciseCounterexample(PathChecker.java:256)
+	at org.sosy_lab.cpachecker.util.predicates.PathChecker.createCounterexample(PathChecker.java:225)
+	at org.sosy_lab.cpachecker.util.predicates.PathChecker.handleFeasibleCounterexample(PathChecker.java:180)
+	at org.sosy_lab.cpachecker.cpa.predicate.PredicateStaticRefiner.performStaticRefinementForPath(PredicateStaticRefiner.java:269)
+	at org.sosy_lab.cpachecker.cpa.predicate.PredicateStaticRefiner.performRefinementForPath(PredicateStaticRefiner.java:202)
+	at org.sosy_lab.cpachecker.cpa.arg.AbstractARGBasedRefiner.performRefinementForPath(AbstractARGBasedRefiner.java:158)
+	at org.sosy_lab.cpachecker.cpa.arg.AbstractARGBasedRefiner.performRefinement(AbstractARGBasedRefiner.java:104)
+	at org.sosy_lab.cpachecker.core.algorithm.CEGARAlgorithm.refine(CEGARAlgorithm.java:309)
+	at org.sosy_lab.cpachecker.core.algorithm.CEGARAlgorithm.run(CEGARAlgorithm.java:255)
+	at org.sosy_lab.cpachecker.core.algorithm.termination.TerminationAlgorithm.proveLoopTermination(TerminationAlgorithm.java:330)
+	at org.sosy_lab.cpachecker.core.algorithm.termination.TerminationAlgorithm.run0(TerminationAlgorithm.java:267)
+	at org.sosy_lab.cpachecker.core.algorithm.termination.TerminationAlgorithm.run(TerminationAlgorithm.java:232)
+	at org.sosy_lab.cpachecker.core.CPAchecker.runAlgorithm(CPAchecker.java:549)
+	at org.sosy_lab.cpachecker.core.CPAchecker.run0(CPAchecker.java:407)
+	at org.sosy_lab.cpachecker.core.CPAchecker.run(CPAchecker.java:312)
+	at org.sosy_lab.cpachecker.cmdline.CPAMain.main(CPAMain.java:157)
+
+--- VGuide batch runner post-process 2026-06-18T02:18:12+08:00 ---
+Verification result: UNKNOWN, incomplete analysis (Java exception).
+Total time for CPAchecker: 300.000s
