@@ -45,7 +45,34 @@ Correct solves: baseline **3** → new **7** (= **+4**). 0 baseline solves lost.
   new schedule skips the LLM (stock solves ~7–10× faster); on `count_up_down-1` it fires at
   refinement 10 and still wins.
 
+## Full 764-task result (both arms, controlled)
+
+Same setup scaled to the whole `loops_reachsafety_unreach` set (764 tasks), both arms
+`svcomp27-vguide`, only the schedule differs. Every solved verdict cross-checked against the
+task `.yml` `unreach-call` `expected_verdict`.
+
+| | baseline (old, fire-#1) | new (`every_n_or_interval`) |
+|---|---|---|
+| solved | 482 | **493** |
+| TRUE / FALSE | 334 / 148 | 346 / 147 |
+| UNKNOWN | 282 | 271 |
+| **wrong verdicts** | **0** | **0** |
+
+**Net +11 = +17 new − 6 lost, 0 wrong, 0 TRUE↔FALSE flips.**
+
+- **+17 new** (UNKNOWN→solved): incl. `nested-3`, `nested_5`, `functions_1-1`, `in-de41`, `down`,
+  `hhk2008`, `loopv1/2`, `mono-crafted_1/13`, `nested3-1`, `nested_6`, `lcm1_unwindbound2` (FALSE), …
+- **−6 lost** (solved→UNKNOWN): `heapsort`, `nested9` (both **case-study direct-LLM-#1 wins** — they
+  genuinely needed the LLM at refinement #1, which the stock-first schedule no longer provides),
+  `iftelse`, `sumt4`, `array_1-1` (FALSE), `array_3-2` (FALSE).
+
+The 6 regressions are the honest cost of never firing at #1, and they point directly at the next
+step: the **peel-based trigger ①** (fire early when the refinement sequence is *diverging*, not at a
+fixed count) would recover the churn-but-few-refinement wins like `heapsort`/`nested9` without
+re-introducing the `nested-3`-type regressions. Tuning K/D is the cheaper lever to try first.
+
 ## Status
 
-- Made `every_n_or_interval` (K=10/D=15s) the default in `config/vguide.properties`.
-- Full 764-task `loops_reachsafety_unreach` both-arm run: see follow-up (net delta on the whole set).
+- `every_n_or_interval` (K=10/D=15s) is the default in `config/vguide.properties`. **Net +11 / 0 wrong
+  on full 764** vs the old fire-at-#1 schedule.
+- Next: peel-based trigger ① (recover the 6 early-need losses) + K/D tuning. See plan A1.2/A1.5.
