@@ -105,14 +105,6 @@ results/
 .git-rewrite/
 /CLAUDE.md
 
-# Paper build artifacts
-paper/*.aux
-paper/*.bbl
-paper/*.blg
-paper/*.log
-paper/*.out
-paper/*.pdf
-
 # Report (LNCS) build artifacts — source-only in git, PDF lives on Zenodo
 report/*.aux
 report/*.bbl
