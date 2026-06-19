@@ -119,15 +119,19 @@ refinement 軌跡。本質上是「LLM 去幫一個根本不需要幫的題,而�
 
 #### A1.5 實作步驟（phased）
 
-1. **加偵測、先不改行為(observe-only)**:在 `onSpuriousBeforeRefinement` 算 peel 次數、距上次 call 的秒數、
-   ARG closure 趨勢,寫進 `VGuideAnalysisDumper`。對現有 win/loss 跑一遍,**驗證兩個觸發器真能分開兩堆**
-   (尤其確認「少次但很貴」的 loss 會被觸發器②抓到、`nested-3` 兩者都不跳)。
-2. **把訊號餵進決策**:`LlmCallScheduler.shouldCall` 從只吃 `refinementIndex` 升級成吃 signal struct
-   (peel 計數、距上次 call 秒數、closure flag);新增 `DIVERGENCE_OR_INTERVAL` schedule = 觸發器① OR ②。
-   觸發器②**沿用既有** `llmMinIntervalSec` 的 interval 機制,只改兩點:首次開火也等 D(從 analysis 起點量)、
-   拿掉 `refinementIndex == 1` 自動開火。
-3. **targeted ablation 校 K / R / D**(見 §4)。
+1. ✅ **時間觸發器②(`EVERY_N_OR_INTERVAL`)** — 已實作(2026-06-20)。`LlmCallSchedule` 新增
+   `EVERY_N_OR_INTERVAL`;`LlmCallScheduler.shouldCall` 對該 mode =
+   觸發器①(every-N floor:在 #N、#2N… 開火,**不在 #1**) **OR**
+   觸發器②(沿用 `llmMinIntervalSec` 的 interval,改成**首次也等 D**、從 analysis 起點量,拿掉 #1 自動開火)。
+   為可測試注入了 clock;單元測試在 `LlmCallSchedulerTest`。
+2. ⏳ **發散偵測(觸發器①的 peel 精修)** — 待 observe-only。先在 `onSpuriousBeforeRefinement` 算 loop-head
+   攤開次數 + ARG closure 趨勢寫進 `VGuideAnalysisDumper`,對現有 win/loss 驗證 peel 訊號真能分開兩堆,
+   再把 `shouldCall` 從只吃 `refinementIndex` 升級成吃 signal struct,把 every-N floor 換成「≥K ∧ peel 遞增」。
+3. ⏳ **targeted ablation 校 K / D**(見 §4)——需 benchmark 計算資源。
 4. (A1.4 並排暫不做。)
+
+> 實作現況(2026-06-20):步驟 1 完成、單元測試通過;步驟 2–3 待 observe-only 數據與 ablation 計算資源。
+> 目前 `EVERY_N_OR_INTERVAL` 的觸發器①是 every-N floor(尚無 peel),peel 是步驟 2 的精修。
 
 #### A1.6 邊界（誠實）
 

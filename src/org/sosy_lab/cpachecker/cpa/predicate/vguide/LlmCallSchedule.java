@@ -27,7 +27,16 @@ public enum LlmCallSchedule {
   MIN_INTERVAL,
 
   /** Both {@link #EVERY_N_SPURIOUS} and {@link #MIN_INTERVAL} must be satisfied. */
-  EVERY_N_AND_INTERVAL;
+  EVERY_N_AND_INTERVAL,
+
+  /**
+   * Fire when <em>either</em> trigger fires (logical OR): the every-N refinement trigger (first at
+   * refinement #N, never #1) or the wall-clock interval trigger. The interval trigger waits {@code
+   * llmMinIntervalSec} seconds from analysis start for the first call, then from the previous call,
+   * so sparse-but-expensive refinements still get a call once enough wall-clock has elapsed. Subject
+   * to the max rounds cap.
+   */
+  EVERY_N_OR_INTERVAL;
 
   public static LlmCallSchedule fromConfig(String value) throws IllegalArgumentException {
     if (value == null || value.isBlank()) {
@@ -38,11 +47,13 @@ public enum LlmCallSchedule {
       case "every_n", "every_n_spurious", "everyn" -> EVERY_N_SPURIOUS;
       case "min_interval", "interval", "time" -> MIN_INTERVAL;
       case "every_n_and_interval", "every_n_interval", "both" -> EVERY_N_AND_INTERVAL;
+      case "every_n_or_interval", "every_n_interval_or", "either", "or" -> EVERY_N_OR_INTERVAL;
       default ->
           throw new IllegalArgumentException(
               "Unknown vguide.llmCallSchedule: "
                   + value
-                  + " (use first_spurious, every_n, min_interval, every_n_and_interval)");
+                  + " (use first_spurious, every_n, min_interval, every_n_and_interval,"
+                  + " every_n_or_interval)");
     };
   }
 }
