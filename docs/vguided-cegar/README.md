@@ -20,6 +20,7 @@
 
 | 文件 | 狀態 | 用途 |
 |------|------|------|
+| [reports/2026-06-20_reachsafety_stockfirst_guard.md](reports/2026-06-20_reachsafety_stockfirst_guard.md) | 結果記錄 | **A1 止血 schedule ablation**：`every_n_or_interval` stock-first guard，15 loss 題 **+4 / 0 lost / 0 wrong**（portfolio 回歸 `nested-3` 修好） |
 | [SVCOMP26_OVERFLOW_VGUIDE_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md) | ✓ v1.6 | 把 reachability 的 predicate-CEGAR hook 泛化到 NoOverflow branch（Class-A、config-only、零 Java）——+6/0 lost/0 wrong |
 | [SVCOMP26_VGUIDE_FULLSET_PLAN.md](SVCOMP26_VGUIDE_FULLSET_PLAN.md) | ✓ v1.5.1 | **svcomp26-vguide** full-set 計劃與完成狀態 |
 | [SVCOMP26_TERMINATION_VGUIDE_PROBE.md](SVCOMP26_TERMINATION_VGUIDE_PROBE.md) | ✓ 結案(RED) | probe RED → Class-B：引擎是 `TerminationToReachCPA` 非 predicate-CEGAR，VGuide 無從 fire；termination 留 v2.0 ranking-function Java hook |

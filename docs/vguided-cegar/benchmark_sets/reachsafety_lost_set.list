@@ -1,0 +1,18 @@
+# reachsafety_lost_set: the case-study baseline losses (UNKNOWN under svcomp26-vguide, old schedule)
+# Source: reports/2026-06-14_svcomp26_vguide_case_studies.md (10 lost + 5 adaptive-recovered).
+# A1 止血 validation: do these recover under the every_n_or_interval stock-first schedule?
+nla-digbench-scaling/divbin_unwindbound20.i # expected=false
+loops-crafted-1/sum_by_3.c # expected=true
+loop-simple/nested_5.c # expected=true
+nla-digbench-scaling/prodbin-ll_valuebound100.c # expected=true
+nla-digbench-scaling/freire1_valuebound50.c # expected=true
+nla-digbench-scaling/fermat2-ll_valuebound20.c # expected=true
+nla-digbench-scaling/geo2-ll_valuebound10.c # expected=true
+nla-digbench-scaling/geo3-ll_valuebound10.c # expected=true
+nla-digbench-scaling/lcm2_valuebound20.c # expected=true
+loop-industry-pattern/nested-3.c # expected=true
+loop-new/count_by_nondet.i # expected=true
+loop-invgen/down.i # expected=true
+loop-acceleration/functions_1-1.c # expected=true
+loops-crafted-1/in-de41.c # expected=true
+loop-invgen/up.i # expected=true

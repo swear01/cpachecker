@@ -130,8 +130,11 @@ refinement 軌跡。本質上是「LLM 去幫一個根本不需要幫的題,而�
 3. ⏳ **targeted ablation 校 K / D**(見 §4)——需 benchmark 計算資源。
 4. (A1.4 並排暫不做。)
 
-> 實作現況(2026-06-20):步驟 1 完成、單元測試通過;步驟 2–3 待 observe-only 數據與 ablation 計算資源。
-> 目前 `EVERY_N_OR_INTERVAL` 的觸發器①是 every-N floor(尚無 peel),peel 是步驟 2 的精修。
+> 實作現況(2026-06-20):步驟 1 完成、單元測試通過。**已驗證(controlled ablation)**:`svcomp27-vguide`
+> portfolio、15 個 case-study loss 題、只換 schedule → **+4 recovered / 0 lost / 0 wrong**
+> (`nested-3` 等;portfolio 回歸被修好)。報告 [`reports/2026-06-20_reachsafety_stockfirst_guard.md`](reports/2026-06-20_reachsafety_stockfirst_guard.md)。
+> `every_n_or_interval`(K=10/D=15s)已設為 `config/vguide.properties` 預設。步驟 2(peel 精修)、
+> 完整 764 net 仍待做;目前觸發器①是 every-N floor(尚無 peel)。
 
 #### A1.6 邊界（誠實）
 

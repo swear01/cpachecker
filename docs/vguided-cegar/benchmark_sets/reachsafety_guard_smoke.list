@@ -1,0 +1,6 @@
+# reachsafety_guard_smoke: stock-first guard A1 demo — 1 known win + 2 known losses
+# Win: count_up_down-1 (stock churns 69 refinements; LLM solves in 2-4).
+# Losses under FIRST_SPURIOUS: nested-3 (LLM at #1 → 42 refinements UNKNOWN), sum_by_3.
+loops/count_up_down-1.c # yml=loops/count_up_down-1.yml expected=true
+loop-industry-pattern/nested-3.c # yml=loop-industry-pattern/nested-3.yml expected=true
+loops-crafted-1/sum_by_3.c # yml=loops-crafted-1/sum_by_3.yml expected=true
