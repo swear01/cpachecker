@@ -4,7 +4,7 @@
 > 完整 764 `svcomp27-vguide`(只換 schedule/peel):old 482 → v1.7.0 **493** → v1.7.1 **504**(**累積 +22 / 0 wrong**)。
 > 報告 [`...stockfirst_guard.md`](reports/2026-06-20_reachsafety_stockfirst_guard.md)、
 > [`...peel_trigger.md`](reports/2026-06-20_reachsafety_peel_trigger.md)。
-> 待做:A2 CPU 隔離(救 v1.7.1 的 −7 resource churn)、B 新注入點。
+> 待做:B 新注入點(k-induction 候選 invariant)。A2 CPU 隔離**評估後砍**(見 §3.2 / §6)。
 
 目標：把 reachability / Loops 的 predicate 注入這塊的 solve 數再往上推。
 承接 [`reports/2026-06-14_svcomp26_vguide_case_studies.md`](reports/2026-06-14_svcomp26_vguide_case_studies.md)
@@ -119,7 +119,7 @@ refinement 軌跡。本質上是「LLM 去幫一個根本不需要幫的題,而�
 - **目前 vguide config 是「取代」不是「並排」**:portfolio 的 predicate child 已被換成 vguide 版
   (parallel 清單裡只有 `…-vguide--…-predicateAnalysis`,沒有 stock predicate),這正是 predicate regression 會變 loss 的結構主因;
 - 並排 = 把 stock predicate child 加回 parallel 清單(config-only 一行),但**目前無此 config、無 ablation 驗證**,
-  且多拆一個 child 會**惡化 A2 的 CPU starvation**;
+  且多拆一個 child 會**惡化 portfolio CPU starvation**;
 - 成本/風險 vs 它只救「窄窗病態題」這一小群 → **暫不做**。先靠 A1.2 兩觸發器涵蓋絕大多數;
   若 observe-only(A1.5)顯示窄窗題佔比夠大,再回來評估。
 
@@ -142,7 +142,7 @@ refinement 軌跡。本質上是「LLM 去幫一個根本不需要幫的題,而�
 > - **累積 +22(482→504),0 wrong**。
 >
 > 兩者都已設為 `config/vguide.properties` 預設。peel 把 v1.7.0 那 6 個 #1-need 回歸(`heapsort`/`nested9` 等)
-> 救回。v1.7.1 的 −7 是 resource-sensitive churn → 由 A2(CPU 隔離)處理。報告
+> 救回。v1.7.1 的 −7 是 resource-sensitive noise → **不處理**(A2 已評估後砍,見 §3.2/§6)。報告
 > [`...stockfirst_guard.md`](reports/2026-06-20_reachsafety_stockfirst_guard.md)、
 > [`...peel_trigger.md`](reports/2026-06-20_reachsafety_peel_trigger.md)。
 
@@ -153,31 +153,22 @@ refinement 軌跡。本質上是「LLM 去幫一個根本不需要幫的題,而�
 
 全程仍是 **Tier R**:只改「何時 fire」,predicate 一樣要 SMT 驗證,**0-wrong 不動**。
 
-### 3.2 出血點 B：portfolio CPU starvation（~5,resource-sensitive）
+### 3.2 出血點 B：portfolio CPU starvation —— **評估後砍（A2, 2026-06-20 結案）**
 
-**證據**
+現象:`freire1`(kInduction)、`prodbin`/`nested_5`(symbolicExecution)等被 VGuide 搶 CPU 而丟、重跑又解回。
+根因(已確認):portfolio 是 5-child 並行、**共用一個全域 CPU 限**(`ParallelAlgorithm` 無 per-child 上限),
+VGuide 的 predicate child 多燒 CPU → 會解的 sibling 拿不到足夠 CPU → UNKNOWN。
 
-| Task | vguide full-set | 重跑 | 重跑 decider |
-|------|-----------------|------|--------------|
-| `freire1_valuebound50` | UNKNOWN | TRUE | `kInduction` |
-| `prodbin-ll_valuebound100` | UNKNOWN | TRUE | `symbolicExecution` |
-| `nested_5` | UNKNOWN | TRUE | `symbolicExecution` |
-
-**根因**：portfolio 的 parallel children **共用一個 global CPU budget**。VGuide 多出來的 LLM round +
-較大的 predicate set 吃掉了 CPU,**餓死**本來會在時限內完成的 sibling（`symbolicExecution` /
-`kInduction`）。這些題 VGuide 的 predicate 元件**沒給錯答案**,是它**搶走了別人的時間**。
-
-**修法（A2,Tier R）**
-
-- **給 VGuide 一個 budget envelope**：限制 vguide predicate child 可用的 CPU / 限制單次 LLM round 的 wall,
-  使它不能侵蝕 sibling 的 budget。
-- **sibling 進度感知**：若某 sibling（symbolic / k-induction）顯示快速進度,就壓低/暫停 VGuide predicate 工作。
-- （因為不考慮競賽,也可以單純加總 CPU;但那是遮蔽問題,不是修它。原則性的修法是 budget 隔離/accounting。）
+**決定不做。** 理由:
+- race 是 CPAchecker portfolio 的**標準機制**,vguide 只把 predicate child 換成較重的版本,**沒壞、0-wrong 不受影響**。
+- VGuide 的「貪」是**同一枚硬幣兩面**:多燒 CPU 正是贏下 +18 的原因;同樣的多燒在贏不了的題上才擠到 sibling。
+  runtime 分不出「會贏」vs「該讓位」,鈍的上限會**連 +18 一起砍**(可能淨負),progress-aware 版又複雜。
+- −7 是 **resource-sensitive noise**(run 間會跳),ROI 低、量測吵。v1.7.1 的 **+22 / 0-wrong** 已是乾淨收手點。
 
 ## 4. 驗收與量測
 
 - **先做 targeted `new ∪ lost` ablation**：把每個 delta 分類成 stable / resource-sensitive / config-sensitive,
-  確認假設（A 修 regression、B 修 starvation）。
+  確認假設（A 已驗證修 regression;resource-sensitive 的部分歸 §6 不做）。
 - **full-set acceptance**：**0 wrong** + **lost < 10**（目標把 lost 壓到 0–3）+ new 不掉。
 - 因為存在 resource-sensitivity,borderline delta 用**較低 outer-parallelism / BenchExec** 量,避免 wall
   contention 汙染——這是量測嚴謹,與競賽無關。
@@ -199,3 +190,5 @@ refinement 軌跡。本質上是「LLM 去幫一個根本不需要幫的題,而�
 - ❌ 加大 predicate budget（full-set 邊際 + precision pollution）。
 - ❌ 競賽導向方向：offline candidate cache、distilled/local model、網路隔離適配、把「single-run no-retry」
   當硬限制——本計畫不考慮競賽。
+- ❌ **A2 portfolio CPU 隔離(2026-06-20 砍)**:race 是標準機制、沒壞;capping VGuide 會連贏下的 +18 一起砍
+  (同一枚硬幣兩面),−7 又是 resource noise,ROI 低、量測吵。詳見 §3.2。

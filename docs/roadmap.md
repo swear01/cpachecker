@@ -4,7 +4,7 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
 ## Backlog
 
-- **A2 CPU-budget isolation** — the −7 churn from v1.7.1 (and the resource-sensitive lost solves generally) is portfolio CPU contention, not predicate quality. Give the VGuide predicate child a budget envelope so it can't starve siblings. See `REACHSAFETY_IMPROVEMENT_PLAN.md` A2.
+- ~~A2 CPU-budget isolation~~ — **rejected 2026-06-20**: the parallel race is the standard portfolio mechanism (not broken, 0-wrong unaffected); capping VGuide's CPU would also cut the +18 wins it earns by spending that CPU (same coin), and the −7 is run-to-run resource noise. Low ROI. See `REACHSAFETY_IMPROVEMENT_PLAN.md` §3.2/§6.
 - **Termination ranking hook — 300s competition-grade confirmation** + higher per-loop cap / ensemble. The hook itself is **implemented and validated** (see Recently Done); this is the follow-up to strengthen the number, mirroring overflow P2.
 - **v2.1: Termination ranking hook — earlier injection point (the expensive headroom)** — 2026-06-18 diagnosis (`TERMINATION_RANKING_HOOK_PLAN.md` §13): on a 56-target subset the hook only *fired* on 9; **40/56 are pointer/array/string loops where the lasso safety analysis gives up before producing a lasso**, so the current hook (which sits after `checkTermination` returns unknown) is never reached. Winning these needs a structurally earlier injection (before lasso construction / at the safety-analysis counterexample stage) or pointer/array handling. Class-B+, not a prompt tweak. This is where the real headroom is.
 - **MemSafety / DataRace probes** — check if predicate-CEGAR fires; if yes, Class-A config generalization. See `LLM_RESEARCH_ROADMAP.md §3.1`.

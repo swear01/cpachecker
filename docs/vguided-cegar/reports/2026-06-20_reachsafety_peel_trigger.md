@@ -51,4 +51,7 @@ Every solved verdict cross-checked against the `.yml` `unreach-call` `expected_v
 
 - `vguide.peelLoopHeadThreshold = 4` is the default in `config/vguide.properties`. Unit tests 12/12.
 - Trigger ① is now peel-based (the every-N floor remains a backstop alongside the time trigger).
-- Next: the −7 churn is resource-sensitive; A2 (CPU-budget isolation) is the lever for those.
+- The −7 churn is run-to-run resource-sensitive noise. A2 (CPU-budget isolation) was evaluated and
+  **rejected** (2026-06-20): the parallel race is the standard portfolio mechanism, and capping
+  VGuide's CPU would also cut the +18 wins it earns by spending that CPU (same coin). Next leverage
+  is a new injection point (k-induction / IMC candidate invariants), not fighting resource noise.
