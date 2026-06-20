@@ -197,7 +197,7 @@ and injects survivors at loop heads; standard CEGAR then resumes (\Cref{fig:pipe
   \node[box] (cegar) {CEGAR\\(first spurious CE)};
   \node[box, right=of cegar] (pack) {context pack:\\source + CE + loop heads};
   \node[box, right=of pack] (llm) {LLM\\proposes candidates};
-  \node[box, below=of llm] (val) {certify\\(L1/L2/L3 \,or\, 4 VCs)};
+  \node[box, below=of llm] (val) {certify\\(L1/L2/L3 \,or\, 4 conditions)};
   \node[box, left=of val] (inject) {inject certified\\artifact};
   \draw[->] (cegar)--(pack); \draw[->] (pack)--(llm); \draw[->] (llm)--(val);
   \draw[->] (val)--(inject); \draw[->] (inject)--(cegar);
