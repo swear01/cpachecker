@@ -332,10 +332,11 @@ trajectories: converging tasks peak at three visits and never fire, while diverg
 four at refinement \#2--\#4---far earlier than the count/time triggers would.
 
 \Cref{tab:schedule} reports the effect on the full 764-task Loops set under the svcomp27
-portfolio (only the firing schedule changes between rows). Solved rises from 482 (first-spurious)
-to 493 (stock-first) to \textbf{504} (peel): \textbf{$+22$ with zero wrong verdicts}. This is a
-pure Tier~R change---only the firing time moves, every predicate is still SMT-certified---so it
-composes with the predicate oracle of \Cref{sec:eval}. The residual losses are run-to-run
+portfolio (only the firing schedule changes between rows). The divergence-aware schedule solves \textbf{504} of 764 tasks---\textbf{$+22$} over the
+first-spurious baseline, with zero wrong verdicts---and lowers PAR-2 from 231 to 210\,s. The two
+triggers contribute in sequence: the stock-first step alone gives $+11$, the peel trigger the
+remaining $+11$. This is a pure Tier~R change---only the firing time moves, every predicate is
+still SMT-certified---so it composes with the predicate oracle of \Cref{sec:eval}. The residual losses are run-to-run
 resource-sensitive noise, not regressions in predicate quality.
 
 \begin{table}[t]
@@ -353,6 +354,27 @@ stock-first (\#1 skipped; $K{=}10$ / $D{=}15$\,s) & 493 (\,+11\,) & 225.5 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{Case Studies}
+\label{sec:casestudies}
+
+\paragraph{A predicate win: \texttt{count\_up\_down-1}.} This is the running example of
+\Cref{lst:example}. Stock predicate analysis discovers one conjunct per loop unrolling and times
+out after 69 refinements. On the first spurious CE, \tool{} proposes four predicates---$y=n-x$
+(the relational invariant the example needs), $x\ge 0$, $y\le n$, and $x>0$; all four clear the
+L1--L3 cascade, and CEGAR then closes the proof in \textbf{2 refinements at 3.9\,s}---a 95\%
+wall-time and 97\% refinement reduction from a single oracle call.
+
+\paragraph{Why timing decides it: \texttt{heapsort} vs.\ \texttt{nested-3}.} These two tasks show
+the scheduling principle concretely. \texttt{heapsort} diverges under stock and needs the oracle
+\emph{early}: the peel trigger detects the loop being unrolled at refinement~\#4 and fires,
+injecting index bounds ($1\le i,j,l\le n$) that close the proof; with a count/time-only schedule
+the call arrives too late and the analysis exhausts its CPU budget at \textsc{Unknown}.
+\texttt{nested-3} is the mirror image: stock converges in 2 refinements, so the oracle must
+\emph{not} fire---an early call injects the mutually exclusive facts $\mathit{st}=0$ and
+$\mathit{st}=1$, each individually certified but jointly noisy, blowing the proof up to dozens of
+refinements and a timeout. The divergence-aware schedule fires on the first and stays silent on
+the second; this asymmetry is exactly what the $+22$ rests on.
 
 \subsection{Ranking-Function Oracle}
 
