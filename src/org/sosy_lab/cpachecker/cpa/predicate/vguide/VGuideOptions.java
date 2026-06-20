@@ -107,6 +107,15 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
+          "For every_n_or_interval: also fire (peel/divergence trigger) when the counterexample"
+              + " passes loop heads >= this many times, i.e. stock is unrolling a loop. Fires early"
+              + " (refinement #2+) instead of waiting for the every_n / interval trigger. 0 = off.")
+  @IntegerOption(min = 0)
+  private int peelLoopHeadThreshold = 0;
+
+  @Option(
+      secure = true,
+      description =
           "Directory containing predicate_sets/<benchmark>.md or .json for NO_SPURIOUS"
               + " exception path")
   @FileOption(FileOption.Type.OPTIONAL_INPUT_FILE)
@@ -233,6 +242,10 @@ public class VGuideOptions {
 
   public int getLlmMinIntervalSec() {
     return llmMinIntervalSec;
+  }
+
+  public int getPeelLoopHeadThreshold() {
+    return peelLoopHeadThreshold;
   }
 
   public Path getFrozenDir() {

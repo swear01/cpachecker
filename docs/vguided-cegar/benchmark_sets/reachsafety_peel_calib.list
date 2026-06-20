@@ -1,0 +1,8 @@
+# peel calibration: diverging (need early LLM) vs converging (don't fire) — LLM off, observe peel
+loops/count_up_down-1.c
+loop-invgen/heapsort.i
+loop-invgen/nested9.i
+loop-industry-pattern/nested-3.c
+loops-crafted-1/iftelse.c
+loops-crafted-1/sumt4.c
+loop-simple/nested_5.c

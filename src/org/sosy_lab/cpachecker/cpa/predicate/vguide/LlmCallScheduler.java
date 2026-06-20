@@ -20,6 +20,7 @@ public final class LlmCallScheduler {
   private final int maxCallsPerProcess;
   private final int everyNSpuriousRefinements;
   private final long minIntervalMs;
+  private final int peelLoopHeadThreshold;
   private final LongSupplier clock;
   private final long analysisStartMs;
 
@@ -41,11 +42,12 @@ public final class LlmCallScheduler {
     everyNSpuriousRefinements = Math.max(1, options.getLlmEveryNSpuriousRefinements());
     long intervalSec = options.getLlmMinIntervalSec();
     minIntervalMs = intervalSec > 0 ? intervalSec * 1000L : 0L;
+    peelLoopHeadThreshold = options.getPeelLoopHeadThreshold();
     analysisStartMs = clock.getAsLong();
   }
 
   /** Returns whether an LLM call is allowed for this spurious refinement index. */
-  public boolean shouldCall(int refinementIndex) {
+  public boolean shouldCall(int refinementIndex, int loopHeadVisits) {
     if (llmCallsDone >= maxCallsPerAnalysis) {
       logger.log(
           Level.FINE,
@@ -74,7 +76,10 @@ public final class LlmCallScheduler {
           case EVERY_N_SPURIOUS -> refinementSlot;
           case MIN_INTERVAL -> intervalOk;
           case EVERY_N_AND_INTERVAL -> refinementSlot && intervalOk;
-          case EVERY_N_OR_INTERVAL -> matchesEveryNFloor(refinementIndex) || intervalElapsed();
+          case EVERY_N_OR_INTERVAL ->
+              matchesEveryNFloor(refinementIndex)
+                  || intervalElapsed()
+                  || peelFire(refinementIndex, loopHeadVisits);
         };
     if (!call) {
       logger.log(
@@ -176,6 +181,18 @@ public final class LlmCallScheduler {
     }
     long reference = lastLlmCallMs == 0 ? analysisStartMs : lastLlmCallMs;
     return clock.getAsLong() - reference >= minIntervalMs;
+  }
+
+  /**
+   * Peel trigger for {@link LlmCallSchedule#EVERY_N_OR_INTERVAL}: fire early (refinement #2+) when
+   * the counterexample passes loop heads at least {@code peelLoopHeadThreshold} times — the loop is
+   * being unrolled (divergence), where one LLM-supplied relational predicate breaks the cycle.
+   * Disabled when threshold is 0. The #2 floor keeps tasks stock solves at refinement #1–#2 alone.
+   */
+  private boolean peelFire(int refinementIndex, int loopHeadVisits) {
+    return peelLoopHeadThreshold > 0
+        && refinementIndex >= 2
+        && loopHeadVisits >= peelLoopHeadThreshold;
   }
 
   static void resetProcessRoundCounterForTest() {

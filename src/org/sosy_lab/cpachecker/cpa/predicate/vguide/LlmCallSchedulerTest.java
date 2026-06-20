@@ -66,35 +66,50 @@ public class LlmCallSchedulerTest {
         new VGuideOptions(config), LogManager.createTestLogManager(), clock);
   }
 
+  private static LlmCallScheduler schedulerWithPeel(int peelThreshold, int everyN, int minSec)
+      throws Exception {
+    Configuration config =
+        Configuration.builder()
+            .setOption("vguide.llmCallSchedule", "every_n_or_interval")
+            .setOption("vguide.maxLlmRoundsPerAnalysis", "20")
+            .setOption("vguide.maxLlmRoundsPerProcess", "0")
+            .setOption("vguide.llmEveryNSpuriousRefinements", Integer.toString(everyN))
+            .setOption("vguide.llmMinIntervalSec", Integer.toString(minSec))
+            .setOption("vguide.peelLoopHeadThreshold", Integer.toString(peelThreshold))
+            .build();
+    return new LlmCallScheduler(
+        new VGuideOptions(config), LogManager.createTestLogManager(), new FakeClock(0));
+  }
+
   @Test
   public void firstSpurious_onlyRefinementOne() throws Exception {
     LlmCallScheduler.resetProcessRoundCounterForTest();
     LlmCallScheduler s = scheduler("first_spurious", 10, 5, 0);
-    assertThat(s.shouldCall(1)).isTrue();
-    assertThat(s.shouldCall(2)).isFalse();
-    assertThat(s.shouldCall(6)).isFalse();
+    assertThat(s.shouldCall(1, 0)).isTrue();
+    assertThat(s.shouldCall(2, 0)).isFalse();
+    assertThat(s.shouldCall(6, 0)).isFalse();
   }
 
   @Test
   public void everyN_callsOnOneAndEveryNth() throws Exception {
     LlmCallScheduler.resetProcessRoundCounterForTest();
     LlmCallScheduler s = scheduler("every_n", 10, 5, 0);
-    assertThat(s.shouldCall(1)).isTrue();
-    assertThat(s.shouldCall(2)).isFalse();
-    assertThat(s.shouldCall(6)).isTrue();
-    assertThat(s.shouldCall(11)).isTrue();
-    assertThat(s.shouldCall(7)).isFalse();
+    assertThat(s.shouldCall(1, 0)).isTrue();
+    assertThat(s.shouldCall(2, 0)).isFalse();
+    assertThat(s.shouldCall(6, 0)).isTrue();
+    assertThat(s.shouldCall(11, 0)).isTrue();
+    assertThat(s.shouldCall(7, 0)).isFalse();
   }
 
   @Test
   public void maxCallsCapsTotalInvocations() throws Exception {
     LlmCallScheduler.resetProcessRoundCounterForTest();
     LlmCallScheduler s = scheduler("every_n", 2, 1, 0);
-    assertThat(s.shouldCall(1)).isTrue();
+    assertThat(s.shouldCall(1, 0)).isTrue();
     s.recordCallCompleted();
-    assertThat(s.shouldCall(2)).isTrue();
+    assertThat(s.shouldCall(2, 0)).isTrue();
     s.recordCallCompleted();
-    assertThat(s.shouldCall(3)).isFalse();
+    assertThat(s.shouldCall(3, 0)).isFalse();
   }
 
   @Test
@@ -103,12 +118,12 @@ public class LlmCallSchedulerTest {
     LlmCallScheduler firstBridge = scheduler("every_n", 10, 1, 0, 2);
     LlmCallScheduler secondBridge = scheduler("every_n", 10, 1, 0, 2);
 
-    assertThat(firstBridge.shouldCall(1)).isTrue();
+    assertThat(firstBridge.shouldCall(1, 0)).isTrue();
     firstBridge.recordCallCompleted();
-    assertThat(secondBridge.shouldCall(1)).isTrue();
+    assertThat(secondBridge.shouldCall(1, 0)).isTrue();
     secondBridge.recordCallCompleted();
 
-    assertThat(firstBridge.shouldCall(2)).isFalse();
+    assertThat(firstBridge.shouldCall(2, 0)).isFalse();
     assertThat(firstBridge.skipReason(2)).isEqualTo("process_round_cap");
   }
 
@@ -117,11 +132,11 @@ public class LlmCallSchedulerTest {
     LlmCallScheduler.resetProcessRoundCounterForTest();
     // minSec=0 disables the time trigger, isolating the count trigger.
     LlmCallScheduler s = schedulerWithClock("every_n_or_interval", 20, 5, 0, new FakeClock(0));
-    assertThat(s.shouldCall(1)).isFalse(); // key fix: no auto-fire at refinement #1
-    assertThat(s.shouldCall(4)).isFalse();
-    assertThat(s.shouldCall(5)).isTrue();
-    assertThat(s.shouldCall(6)).isFalse();
-    assertThat(s.shouldCall(10)).isTrue();
+    assertThat(s.shouldCall(1, 0)).isFalse(); // key fix: no auto-fire at refinement #1
+    assertThat(s.shouldCall(4, 0)).isFalse();
+    assertThat(s.shouldCall(5, 0)).isTrue();
+    assertThat(s.shouldCall(6, 0)).isFalse();
+    assertThat(s.shouldCall(10, 0)).isTrue();
   }
 
   @Test
@@ -130,11 +145,11 @@ public class LlmCallSchedulerTest {
     FakeClock clock = new FakeClock(1_000_000L);
     // everyN huge so the count trigger never fires within the test; D = 10s.
     LlmCallScheduler s = schedulerWithClock("every_n_or_interval", 20, 100_000, 10, clock);
-    assertThat(s.shouldCall(1)).isFalse(); // 0s elapsed < 10s
+    assertThat(s.shouldCall(1, 0)).isFalse(); // 0s elapsed < 10s
     clock.advanceSec(9);
-    assertThat(s.shouldCall(2)).isFalse(); // 9s < 10s
+    assertThat(s.shouldCall(2, 0)).isFalse(); // 9s < 10s
     clock.advanceSec(1);
-    assertThat(s.shouldCall(3)).isTrue(); // 10s elapsed since analysis start
+    assertThat(s.shouldCall(3, 0)).isTrue(); // 10s elapsed since analysis start
   }
 
   @Test
@@ -143,11 +158,11 @@ public class LlmCallSchedulerTest {
     FakeClock clock = new FakeClock(0);
     LlmCallScheduler s = schedulerWithClock("every_n_or_interval", 20, 100_000, 10, clock);
     clock.advanceSec(10);
-    assertThat(s.shouldCall(2)).isTrue();
+    assertThat(s.shouldCall(2, 0)).isTrue();
     s.recordCallCompleted(); // last-call timestamp = now
-    assertThat(s.shouldCall(3)).isFalse(); // 0s since last call
+    assertThat(s.shouldCall(3, 0)).isFalse(); // 0s since last call
     clock.advanceSec(10);
-    assertThat(s.shouldCall(4)).isTrue(); // 10s since last call
+    assertThat(s.shouldCall(4, 0)).isTrue(); // 10s since last call
   }
 
   @Test
@@ -155,6 +170,24 @@ public class LlmCallSchedulerTest {
     LlmCallScheduler.resetProcessRoundCounterForTest();
     // D = 100s (never elapses here), but the count trigger at #5 still fires -> proves OR.
     LlmCallScheduler s = schedulerWithClock("every_n_or_interval", 20, 5, 100, new FakeClock(0));
-    assertThat(s.shouldCall(5)).isTrue();
+    assertThat(s.shouldCall(5, 0)).isTrue();
+  }
+
+  @Test
+  public void everyNOrInterval_peelFiresEarlyAtThreshold() throws Exception {
+    LlmCallScheduler.resetProcessRoundCounterForTest();
+    // peel threshold 4; count (everyN huge) and time (minSec 0) off -> isolate the peel trigger.
+    LlmCallScheduler s = schedulerWithPeel(4, 100_000, 0);
+    assertThat(s.shouldCall(1, 10)).isFalse(); // never at refinement #1 even with high peel
+    assertThat(s.shouldCall(2, 3)).isFalse(); // 3 < 4
+    assertThat(s.shouldCall(2, 4)).isTrue(); // peel fires early once loop-head visits reach 4
+    assertThat(s.shouldCall(3, 6)).isTrue();
+  }
+
+  @Test
+  public void everyNOrInterval_peelDisabledWhenThresholdZero() throws Exception {
+    LlmCallScheduler.resetProcessRoundCounterForTest();
+    LlmCallScheduler s = schedulerWithPeel(0, 100_000, 0); // peel off
+    assertThat(s.shouldCall(3, 100)).isFalse(); // huge peel ignored when threshold is 0
   }
 }

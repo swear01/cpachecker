@@ -260,6 +260,28 @@ public final class VGuideRefinementBridge {
     }
   }
 
+  /**
+   * Number of abstraction states in the counterexample trace located at a loop head. A trace that
+   * passes a loop head more times each refinement is "peeling" the loop (divergence signature).
+   */
+  private static int countLoopHeadVisits(
+      @Nullable List<ARGState> trace, ImmutableList<LoopHeadInfo> loopHeads) {
+    if (trace == null || loopHeads.isEmpty()) {
+      return 0;
+    }
+    Set<CFANode> heads = new HashSet<>();
+    for (LoopHeadInfo h : loopHeads) {
+      heads.add(h.node());
+    }
+    int visits = 0;
+    for (ARGState s : trace) {
+      if (heads.contains(extractLocation(s))) {
+        visits++;
+      }
+    }
+    return visits;
+  }
+
   private void finishDumpOnShutdown() {
     if (analysisDumper == null || analysisEndFinished.get()) {
       return;
@@ -284,6 +306,15 @@ public final class VGuideRefinementBridge {
 
     ContextPack pack =
         contextPackBuilder.build(refinementIndex, formulas, counterexample, abstractionStatesTrace);
+    int loopHeadVisits = countLoopHeadVisits(abstractionStatesTrace, pack.loopHeads());
+    logger.log(
+        Level.INFO,
+        "VGuide peel: refinement #"
+            + refinementIndex
+            + " loopHeadVisits="
+            + loopHeadVisits
+            + " traceLen="
+            + (abstractionStatesTrace == null ? 0 : abstractionStatesTrace.size()));
     PendingRefinementDump dump = new PendingRefinementDump();
     dump.refinementIndex = refinementIndex;
     dump.pack = pack;
@@ -306,7 +337,7 @@ public final class VGuideRefinementBridge {
       return counterexample;
     }
 
-    if (!llmScheduler.shouldCall(refinementIndex)) {
+    if (!llmScheduler.shouldCall(refinementIndex, loopHeadVisits)) {
       dump.llmSkipReason = llmScheduler.skipReason(refinementIndex);
       return counterexample;
     }
