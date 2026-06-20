@@ -20,6 +20,7 @@
 
 | 文件 | 狀態 | 用途 |
 |------|------|------|
+| [reports/2026-06-20_reachsafety_exploration_summary.md](reports/2026-06-20_reachsafety_exploration_summary.md) | **階段總結** | **ReachSafety LLM 改進探索收尾**:v1.7.0+v1.7.1 = +22/0 wrong(504/764);nla-digbench 非線性 out-of-scope、A2/peel-prompt/FALSE-fuzzing 已評估後砍/降優先;**PAUSED at v1.7.1** |
 | [reports/2026-06-20_reachsafety_stockfirst_guard.md](reports/2026-06-20_reachsafety_stockfirst_guard.md) | 結果記錄 | **A1 止血 schedule ablation (v1.7.0)**：`every_n_or_interval` stock-first guard。targeted 15 loss → +4/0/0;**完整 764 both-arm → 482→493 淨 +11（+17 new −6 lost）、0 wrong** |
 | [reports/2026-06-20_reachsafety_peel_trigger.md](reports/2026-06-20_reachsafety_peel_trigger.md) | 結果記錄 | **A1.2 peel 觸發器 (v1.7.1)**:早開火(loop-head visits ≥ 4),救回 v1.7.0 的 #1-need 回歸。**完整 764 → 493→504 淨 +11（+18 new −7 lost）、0 wrong;累積 +22** |
 | [SVCOMP26_OVERFLOW_VGUIDE_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md) | ✓ v1.6 | 把 reachability 的 predicate-CEGAR hook 泛化到 NoOverflow branch（Class-A、config-only、零 Java）——+6/0 lost/0 wrong |

@@ -299,6 +299,27 @@ solves 262. The LLM's value is therefore not static pattern matching on source b
 \emph{relational reasoning over the concrete counterexample}; CE-guided refinement is the
 correct integration point.
 
+\subsection{LLM-Call Scheduling (post-submission addendum)}
+
+\emph{This subsection was added after the FM final-project submission; the archived artifact
+(DOI \texttt{10.5281/zenodo.20745141}) does not include it.}
+
+An orthogonal lever is \emph{when} the oracle fires, not which predicates it proposes. The
+submitted configuration fires on the first spurious CE; two failure modes show this is
+suboptimal. Firing on a task stock would solve in one or two refinements injects
+noisy-but-correct predicates that derail it (\texttt{nested-3}: 2 refinements grow to dozens,
+\textsc{Unknown}). Firing too late lets stock burn the CPU budget on a diverging loop before the
+LLM helps, hitting the time limit with an incomplete analysis (\texttt{heapsort}). We replace
+first-spurious firing with a \emph{stock-first} schedule that fires only when stock is \emph{not
+converging}---after $K{=}10$ refinements or $D{=}15$\,s wall-clock, never at refinement~\#1---and
+refine it with a \emph{peel} trigger that fires early (refinement~\#2+) when the counterexample
+passes loop heads $\ge 4$ times, i.e.\ the loop is being unrolled, exactly where one LLM
+relational predicate breaks the cycle. The threshold is calibrated so converging tasks (which
+peak at 3 loop-head visits) never fire. On the full 764-task Loops set under the svcomp27
+portfolio, solved rises from 482 (first-spurious) to 493 (stock-first) to \textbf{504} (peel),
+\textbf{$+22$ with 0 wrong verdicts}. This is purely a Tier~R change---only the firing time
+moves; every predicate is still SMT-validated---so it composes with the predicate oracle.
+
 \subsection{Ranking-Function Oracle}
 
 \Cref{tab:term} shows the termination oracle on \texttt{termination\_scalar}. Stock lasso

@@ -1,10 +1,12 @@
 # ReachSafety 提升計畫（止血優先）
 
-> **狀態:A1 = v1.7.0 + v1.7.1 ✅(2026-06-20)** — stock-first schedule + **peel 觸發器①**都已實作並設為預設。
-> 完整 764 `svcomp27-vguide`(只換 schedule/peel):old 482 → v1.7.0 **493** → v1.7.1 **504**(**累積 +22 / 0 wrong**)。
-> 報告 [`...stockfirst_guard.md`](reports/2026-06-20_reachsafety_stockfirst_guard.md)、
-> [`...peel_trigger.md`](reports/2026-06-20_reachsafety_peel_trigger.md)。
-> 待做:B 新注入點(k-induction 候選 invariant)。A2 CPU 隔離**評估後砍**(見 §3.2 / §6)。
+> **狀態:本探索階段 PAUSED 於 v1.7.1(2026-06-20)。** A1 = v1.7.0 stock-first + v1.7.1 peel 觸發器①,都已實作並設預設。
+> 完整 764 `svcomp27-vguide`(只換 schedule/peel):old 482 → **493** → **504**(**累積 +22 / 0 wrong**)。
+> **cheap LLM-on-predicate 槓桿已用盡。** 階段總結(含 nla-digbench 非線性 out-of-scope、FALSE/fuzzing 調查):
+> [`reports/2026-06-20_reachsafety_exploration_summary.md`](reports/2026-06-20_reachsafety_exploration_summary.md)。
+> 個別報告 [stockfirst_guard](reports/2026-06-20_reachsafety_stockfirst_guard.md)、[peel_trigger](reports/2026-06-20_reachsafety_peel_trigger.md)。
+> **已評估後砍/降優先**:A2 CPU 隔離(§3.2/§6)、nla-digbench 非線性、peel-aware prompt、FALSE/bug-finding(CPAchecker 無 fuzzer)。
+> 再投需**新能力**(非線性合成 / k-induction 新注入點 / execution-based bug-finding),皆高成本。
 
 目標：把 reachability / Loops 的 predicate 注入這塊的 solve 數再往上推。
 承接 [`reports/2026-06-14_svcomp26_vguide_case_studies.md`](reports/2026-06-14_svcomp26_vguide_case_studies.md)
