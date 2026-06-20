@@ -265,7 +265,9 @@ non-terminating) drawn from the SV-COMP crafted, crafted-lit, and numeric termin
 families. We write \emph{stock} for the unmodified \cpa{} configuration (no \tool{} extensions),
 and \texttt{svcomp26}/\texttt{svcomp27} for its full SV-COMP competition-portfolio configurations
 of the respective years; the predicate-oracle results use the 2026 portfolio and the later
-scheduling study (\Cref{sec:scheduling}) the 2027 one.
+scheduling study (\Cref{sec:scheduling}) the 2027 one. Across \emph{every} configuration in this
+section \tool{} produced \textbf{zero wrong verdicts} (no soundness violation); we therefore omit
+a wrong-verdict column from the tables and state soundness once here.
 
 \subsection{Predicate Oracle}
 
@@ -283,20 +285,20 @@ after 69 (a 95\% wall-time and 97\% refinement reduction).
 
 \begin{table}[t]
 \caption{Predicate oracle. Top: Loops ReachSafety (764). Bottom: competition-grade combined
-(svcomp26 portfolio). \emph{Wrong} is the soundness count.}
+(svcomp26 portfolio).}
 \label{tab:safety}
 \centering
-\begin{tabular}{lccc}
+\begin{tabular}{lcc}
 \toprule
-Configuration & Solved & PAR-2 (s) & Wrong \\
+Configuration & Solved & PAR-2 (s) \\
 \midrule
-predicateAnalysis (stock)  & 225 & 426.2 & 0 \\
-\quad + \tool{}            & \textbf{262} (\,+37\,) & 399.7 & 0 \\
-svcomp26 (stock)           & 486 & 222.5 & 0 \\
-\quad + \tool{}            & \textbf{493} (\,+7\,)  & 216.9 & 0 \\
+predicateAnalysis (stock)  & 225 & 426.2 \\
+\quad + \tool{}            & \textbf{262} (\,+37\,) & 399.7 \\
+svcomp26 (stock)           & 486 & 222.5 \\
+\quad + \tool{}            & \textbf{493} (\,+7\,)  & 216.9 \\
 \midrule
-ReachSafety (stock $\to$ \tool{}) & $479\to\mathbf{494}$ (\,+15\,) & $227.9\to216.6$ & 0 \\
-NoOverflow  (stock $\to$ \tool{}) & $362\to\mathbf{366}$ (\,+4\,)  & $122.3\to116.9$ & 0 \\
+ReachSafety (stock $\to$ \tool{}) & $479\to\mathbf{494}$ (\,+15\,) & $227.9\to216.6$ \\
+NoOverflow  (stock $\to$ \tool{}) & $362\to\mathbf{366}$ (\,+4\,)  & $122.3\to116.9$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -338,16 +340,16 @@ resource-sensitive noise, not regressions in predicate quality.
 
 \begin{table}[t]
 \caption{Divergence-aware scheduling on Loops ReachSafety (764, svcomp27 portfolio). Only the
-LLM-call schedule differs; \emph{Wrong} is the soundness count.}
+LLM-call schedule differs.}
 \label{tab:schedule}
 \centering
 \begin{tabular}{lcc}
 \toprule
-Firing schedule & Solved & Wrong \\
+Firing schedule & Solved & PAR-2 (s) \\
 \midrule
-first-spurious (fire at refinement \#1)        & 482 & 0 \\
-stock-first (\#1 skipped; $K{=}10$ / $D{=}15$\,s) & 493 (\,+11\,) & 0 \\
-\quad + peel trigger (loop-head visits $\ge 4$)   & \textbf{504} (\,+22\,) & 0 \\
+first-spurious (fire at refinement \#1)        & 482 & 231.2 \\
+stock-first (\#1 skipped; $K{=}10$ / $D{=}15$\,s) & 493 (\,+11\,) & 225.5 \\
+\quad + peel trigger (loop-head visits $\ge 4$)   & \textbf{504} (\,+22\,) & \textbf{209.7} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -367,12 +369,12 @@ remaining tasks are template-\emph{unsolvable}, not time-limited.
 lasso analysis in isolation).}
 \label{tab:term}
 \centering
-\begin{tabular}{lcccc}
+\begin{tabular}{lccc}
 \toprule
-Configuration & Solved & \textsc{True} & \textsc{False} & Wrong \\
+Configuration & Solved & \textsc{True} & \textsc{False} \\
 \midrule
-lasso analysis (stock) & 80 & 69 & 11 & 0 \\
-\quad + \tool{} ranking oracle & \textbf{84} (\,+4\,) & 73 & 11 & 0 \\
+lasso analysis (stock) & 80 & 69 & 11 \\
+\quad + \tool{} ranking oracle & \textbf{84} (\,+4\,) & 73 & 11 \\
 \bottomrule
 \end{tabular}
 \end{table}
