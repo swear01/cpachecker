@@ -262,7 +262,10 @@ better), and \emph{wrong} verdicts (soundness violations). Safety benchmarks are
 ReachSafety (764 tasks) and a NoOverflow scalar subset (452). Termination is evaluated on
 \texttt{termination\_scalar}: 146 integer-termination tasks (125 terminating, 21
 non-terminating) drawn from the SV-COMP crafted, crafted-lit, and numeric termination
-families.
+families. We write \emph{stock} for the unmodified \cpa{} configuration (no \tool{} extensions),
+and \texttt{svcomp26}/\texttt{svcomp27} for its full SV-COMP competition-portfolio configurations
+of the respective years; the predicate-oracle results use the 2026 portfolio and the later
+scheduling study (\Cref{sec:scheduling}) the 2027 one.
 
 \subsection{Predicate Oracle}
 
@@ -391,7 +394,7 @@ extra SMT cost.
 
 \paragraph{The reachability gain is also bounded.} After the scheduling improvement, the cheap
 predicate-mechanism levers are exhausted. Of the remaining unsolved tasks, roughly 70\% are
-\texttt{nla-digbench} \emph{nonlinear} instances---e.g.\ \texttt{cohencu} asserts $x=n^3$ and
+\emph{nonlinear-arithmetic} instances (the SV-COMP \texttt{nla-digbench} family)---e.g.\ \texttt{cohencu} asserts $x=n^3$ and
 $y=3n^2{+}3n{+}1$---whose proofs need polynomial invariants that linear predicate abstraction
 cannot express and whose nonlinear SMT queries cost tens of seconds each; the LLM, riding on a
 linear engine, essentially never converts them (9 of $\sim$480 across the family). These are out
