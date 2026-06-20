@@ -1,9 +1,10 @@
 # ReachSafety 提升計畫（止血優先）
 
-> **狀態:A1 = v1.7.0 ✅(2026-06-20)** — `every_n_or_interval` stock-first schedule 已實作並設為預設;
-> 完整 764 both-arm `svcomp27-vguide` **482 → 493(+11 / 0 wrong)**。報告
-> [`reports/2026-06-20_reachsafety_stockfirst_guard.md`](reports/2026-06-20_reachsafety_stockfirst_guard.md)。
-> 待做:peel 觸發器①(救回 6 個 #1-need 回歸)、K/D tuning、A2 CPU 隔離、B 新注入點。
+> **狀態:A1 = v1.7.0 + v1.7.1 ✅(2026-06-20)** — stock-first schedule + **peel 觸發器①**都已實作並設為預設。
+> 完整 764 `svcomp27-vguide`(只換 schedule/peel):old 482 → v1.7.0 **493** → v1.7.1 **504**(**累積 +22 / 0 wrong**)。
+> 報告 [`...stockfirst_guard.md`](reports/2026-06-20_reachsafety_stockfirst_guard.md)、
+> [`...peel_trigger.md`](reports/2026-06-20_reachsafety_peel_trigger.md)。
+> 待做:A2 CPU 隔離(救 v1.7.1 的 −7 resource churn)、B 新注入點。
 
 目標：把 reachability / Loops 的 predicate 注入這塊的 solve 數再往上推。
 承接 [`reports/2026-06-14_svcomp26_vguide_case_studies.md`](reports/2026-06-14_svcomp26_vguide_case_studies.md)
@@ -129,20 +130,21 @@ refinement 軌跡。本質上是「LLM 去幫一個根本不需要幫的題,而�
    觸發器①(every-N floor:在 #N、#2N… 開火,**不在 #1**) **OR**
    觸發器②(沿用 `llmMinIntervalSec` 的 interval,改成**首次也等 D**、從 analysis 起點量,拿掉 #1 自動開火)。
    為可測試注入了 clock;單元測試在 `LlmCallSchedulerTest`。
-2. ⏳ **發散偵測(觸發器①的 peel 精修)** — 待 observe-only。先在 `onSpuriousBeforeRefinement` 算 loop-head
-   攤開次數 + ARG closure 趨勢寫進 `VGuideAnalysisDumper`,對現有 win/loss 驗證 peel 訊號真能分開兩堆,
-   再把 `shouldCall` 從只吃 `refinementIndex` 升級成吃 signal struct,把 every-N floor 換成「≥K ∧ peel 遞增」。
-3. ⏳ **targeted ablation 校 K / D**(見 §4)——需 benchmark 計算資源。
+2. ✅ **發散偵測(觸發器①的 peel)= v1.7.1** — `countLoopHeadVisits` 在 `onSpuriousBeforeRefinement` 數 CE
+   經過 loop head 次數;`peelFire`(scheduler)= refinement ≥2 ∧ `loopHeadVisits ≥ peelLoopHeadThreshold`,
+   折進 `every_n_or_interval` 第三個 OR branch。校準 threshold=4(收斂題 nested-3 峰值 3、發散題在 #2–4 跨 4)。
+3. ✅ **校 threshold = 4**(observe-only LLM-off 校準 + 764 A/B 驗證,見下)。
 4. (A1.4 並排暫不做。)
 
-> 實作現況(2026-06-20):步驟 1 完成、單元測試通過。**已驗證**:
-> - targeted(15 loss 題)→ +4 recovered / 0 lost / 0 wrong;
-> - **完整 764 both-arm(svcomp27-vguide,只換 schedule)→ 482 → 493 = 淨 +11(+17 new − 6 lost)、0 wrong**。
+> 實作現況(2026-06-20):**A1 兩步都完成、單元測試 12/12**。完整 764 `svcomp27-vguide`(只換 schedule/peel):
+> - v1.7.0 stock-first(`every_n_or_interval` K=10/D=15s):482 → **493**(+11 / 0 wrong);
+> - v1.7.1 peel(`peelLoopHeadThreshold=4`,早開火):493 → **504**(+11 = +18 new − 7 lost / 0 wrong)。
+> - **累積 +22(482→504),0 wrong**。
 >
-> `every_n_or_interval`(K=10/D=15s)已設為 `config/vguide.properties` 預設。報告
-> [`reports/2026-06-20_reachsafety_stockfirst_guard.md`](reports/2026-06-20_reachsafety_stockfirst_guard.md)。
-> 6 個 regression(`heapsort`/`nested9` 等需要 #1 早開火的 case-study wins)→ 正是步驟 2 **peel 觸發器①**
-> 要救的;先試 K/D tuning。目前觸發器①是 every-N floor(尚無 peel)。
+> 兩者都已設為 `config/vguide.properties` 預設。peel 把 v1.7.0 那 6 個 #1-need 回歸(`heapsort`/`nested9` 等)
+> 救回。v1.7.1 的 −7 是 resource-sensitive churn → 由 A2(CPU 隔離)處理。報告
+> [`...stockfirst_guard.md`](reports/2026-06-20_reachsafety_stockfirst_guard.md)、
+> [`...peel_trigger.md`](reports/2026-06-20_reachsafety_peel_trigger.md)。
 
 #### A1.6 邊界（誠實）
 

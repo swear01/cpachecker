@@ -22,7 +22,7 @@
 
 | 名稱 | schedule | everyN | minInterval | max | 說明 |
 |------|----------|--------|-------------|-----|------|
-| **default**（現行,v1.7.0） | `every_n_or_interval` | **10** | **15** | **5** | stock-first guard;不在 #1,次數 OR 時間。764 both-arm **+11 / 0 wrong** |
+| **default**（現行,v1.7.1） | `every_n_or_interval` + **peel=4** | **10** | **15** | **5** | stock-first + **peel 觸發器**(loop-head visits ≥ 4 早開火,refinement #2+)。764 累積 **+22 / 0 wrong**(482→493→504) |
 | `every_n_and_interval`（舊預設 ≤v1.5.1） | `every_n_and_interval` | 72 | 15 | 5 | full_scalar 舊主實驗(會在 #1 開火) |
 | `bootstrap_only` | `first_spurious` | — | 0 | 1 | 最便宜、僅首輪 spurious |
 | `thorough` | `every_n_and_interval` | **50** | **25** | **8** | 單題深挖 |

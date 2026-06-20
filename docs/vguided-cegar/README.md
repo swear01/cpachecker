@@ -12,7 +12,7 @@
 | [reports/README.md](reports/README.md) | 報告索引 | 進度報告總入口 |
 | [SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md) | 現行 v1.6.1 | 91 fired/37 fired-but-UNKNOWN；reachability prompt 主動勸退 overflow 需要的 bound predicate → P1 overflow-aware prompt 是最大 lever |
 | [SVCOMP26_PORTFOLIO_LLM_PLAN.md](SVCOMP26_PORTFOLIO_LLM_PLAN.md) | 現行 v1.5.2+ | 把 LLM 從 PredicateCPA 擴展到 svcomp26 portfolio strategy（routing / budget / guards / hints）。**guards 層 = P1 stock-first guard ✅ v1.7.0 done** |
-| [REACHSAFETY_IMPROVEMENT_PLAN.md](REACHSAFETY_IMPROVEMENT_PLAN.md) | **A1 = v1.7.0 ✅** | ReachSafety 再提升。A1 stock-first schedule **done：764 both-arm 482→493（+11 / 0 wrong）**;待做 peel 觸發器①、A2 CPU 隔離、B 新注入點。**不考慮競賽** |
+| [REACHSAFETY_IMPROVEMENT_PLAN.md](REACHSAFETY_IMPROVEMENT_PLAN.md) | **A1 = v1.7.0+v1.7.1 ✅** | ReachSafety 再提升。stock-first schedule + **peel 觸發器①** done:764 `svcomp27-vguide` **482→493→504（累積 +22 / 0 wrong）**;待做 A2 CPU 隔離、B 新注入點。**不考慮競賽** |
 | [SVCOMP_INTEGRATION_PLAN.md](SVCOMP_INTEGRATION_PLAN.md) | 現行 svcomp27 | **svcomp27** × VGuide v1.5 整合計劃 |
 | [LLM_RESEARCH_ROADMAP.md](LLM_RESEARCH_ROADMAP.md) | 現行 roadmap | **v1.6 → v2.0 → exploratory**：長 horizon 廣域地圖——跨 property category、跨 CPA domain、FALSE/witness、離線 corpus 學習；含 S/R/X soundness 守則 |
 
@@ -20,7 +20,8 @@
 
 | 文件 | 狀態 | 用途 |
 |------|------|------|
-| [reports/2026-06-20_reachsafety_stockfirst_guard.md](reports/2026-06-20_reachsafety_stockfirst_guard.md) | 結果記錄 | **A1 止血 schedule ablation**：`every_n_or_interval` stock-first guard。targeted 15 loss → +4/0/0;**完整 764 both-arm → 482→493 淨 +11（+17 new −6 lost）、0 wrong** |
+| [reports/2026-06-20_reachsafety_stockfirst_guard.md](reports/2026-06-20_reachsafety_stockfirst_guard.md) | 結果記錄 | **A1 止血 schedule ablation (v1.7.0)**：`every_n_or_interval` stock-first guard。targeted 15 loss → +4/0/0;**完整 764 both-arm → 482→493 淨 +11（+17 new −6 lost）、0 wrong** |
+| [reports/2026-06-20_reachsafety_peel_trigger.md](reports/2026-06-20_reachsafety_peel_trigger.md) | 結果記錄 | **A1.2 peel 觸發器 (v1.7.1)**:早開火(loop-head visits ≥ 4),救回 v1.7.0 的 #1-need 回歸。**完整 764 → 493→504 淨 +11（+18 new −7 lost）、0 wrong;累積 +22** |
 | [SVCOMP26_OVERFLOW_VGUIDE_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md) | ✓ v1.6 | 把 reachability 的 predicate-CEGAR hook 泛化到 NoOverflow branch（Class-A、config-only、零 Java）——+6/0 lost/0 wrong |
 | [SVCOMP26_VGUIDE_FULLSET_PLAN.md](SVCOMP26_VGUIDE_FULLSET_PLAN.md) | ✓ v1.5.1 | **svcomp26-vguide** full-set 計劃與完成狀態 |
 | [SVCOMP26_TERMINATION_VGUIDE_PROBE.md](SVCOMP26_TERMINATION_VGUIDE_PROBE.md) | ✓ 結案(RED) | probe RED → Class-B：引擎是 `TerminationToReachCPA` 非 predicate-CEGAR，VGuide 無從 fire；termination 留 v2.0 ranking-function Java hook |
