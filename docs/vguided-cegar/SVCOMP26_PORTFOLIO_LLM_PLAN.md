@@ -213,6 +213,12 @@ Acceptance:
 
 ### P1 — Stock-first / delayed-first-LLM guard
 
+> ✅ **DONE (v1.5.2, 2026-06-20)** — 實作成 `every_n_or_interval` schedule(次數觸發 never #1 **OR**
+> 每 D=15s 時間觸發),已設為 `config/vguide.properties` 預設。完整 764 both-arm `svcomp27-vguide`:
+> 482 → **493(+11 / 0 wrong)**;`nested-3` 回歸修好。報告
+> [`reports/2026-06-20_reachsafety_stockfirst_guard.md`](reports/2026-06-20_reachsafety_stockfirst_guard.md)、
+> 設計 [`REACHSAFETY_IMPROVEMENT_PLAN.md`](REACHSAFETY_IMPROVEMENT_PLAN.md) A1。
+
 Purpose：避免 `nested-3` 這類 stock predicate 很快解掉的題被 first-spurious LLM 改壞。
 
 Candidate runtime rule：

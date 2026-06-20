@@ -1,5 +1,10 @@
 # ReachSafety 提升計畫（止血優先）
 
+> **狀態:A1 = v1.5.2 ✅(2026-06-20)** — `every_n_or_interval` stock-first schedule 已實作並設為預設;
+> 完整 764 both-arm `svcomp27-vguide` **482 → 493(+11 / 0 wrong)**。報告
+> [`reports/2026-06-20_reachsafety_stockfirst_guard.md`](reports/2026-06-20_reachsafety_stockfirst_guard.md)。
+> 待做:peel 觸發器①(救回 6 個 #1-need 回歸)、K/D tuning、A2 CPU 隔離、B 新注入點。
+
 目標：把 reachability / Loops 的 predicate 注入這塊的 solve 數再往上推。
 承接 [`reports/2026-06-14_svcomp26_vguide_case_studies.md`](reports/2026-06-14_svcomp26_vguide_case_studies.md)
 與 [`SVCOMP26_PORTFOLIO_LLM_PLAN.md`](SVCOMP26_PORTFOLIO_LLM_PLAN.md)。

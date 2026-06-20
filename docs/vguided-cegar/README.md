@@ -11,8 +11,8 @@
 | [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) | 現行入口 | **`run.sh` 怎麼跑**；批次後 PAR-2 / cactus |
 | [reports/README.md](reports/README.md) | 報告索引 | 進度報告總入口 |
 | [SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md) | 現行 v1.6.1 | 91 fired/37 fired-but-UNKNOWN；reachability prompt 主動勸退 overflow 需要的 bound predicate → P1 overflow-aware prompt 是最大 lever |
-| [SVCOMP26_PORTFOLIO_LLM_PLAN.md](SVCOMP26_PORTFOLIO_LLM_PLAN.md) | 現行 v1.5.2+ | 把 LLM 從 PredicateCPA 擴展到 svcomp26 portfolio strategy（routing / budget / guards / hints） |
-| [REACHSAFETY_IMPROVEMENT_PLAN.md](REACHSAFETY_IMPROVEMENT_PLAN.md) | 現行（止血優先） | ReachSafety 再提升：先把 −10 lost 救回（stock-first guard + CPU 隔離,Tier R）,再開 k-induction 候選 invariant 新注入點。**不考慮競賽** |
+| [SVCOMP26_PORTFOLIO_LLM_PLAN.md](SVCOMP26_PORTFOLIO_LLM_PLAN.md) | 現行 v1.5.2+ | 把 LLM 從 PredicateCPA 擴展到 svcomp26 portfolio strategy（routing / budget / guards / hints）。**guards 層 = P1 stock-first guard ✅ v1.5.2 done** |
+| [REACHSAFETY_IMPROVEMENT_PLAN.md](REACHSAFETY_IMPROVEMENT_PLAN.md) | **A1 = v1.5.2 ✅** | ReachSafety 再提升。A1 stock-first schedule **done：764 both-arm 482→493（+11 / 0 wrong）**;待做 peel 觸發器①、A2 CPU 隔離、B 新注入點。**不考慮競賽** |
 | [SVCOMP_INTEGRATION_PLAN.md](SVCOMP_INTEGRATION_PLAN.md) | 現行 svcomp27 | **svcomp27** × VGuide v1.5 整合計劃 |
 | [LLM_RESEARCH_ROADMAP.md](LLM_RESEARCH_ROADMAP.md) | 現行 roadmap | **v1.6 → v2.0 → exploratory**：長 horizon 廣域地圖——跨 property category、跨 CPA domain、FALSE/witness、離線 corpus 學習；含 S/R/X soundness 守則 |
 
