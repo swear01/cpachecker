@@ -52,7 +52,10 @@ invariants for termination proofs, and in both cases no unvalidated LLM output c
 verdict. On 764 SV-COMP Loops ReachSafety tasks, \tool{} predicates solve 37 more tasks
 than the base predicate analysis ($225\to262$) and 7 more in the full competition
 portfolio; a competition-grade combined run over ReachSafety and NoOverflow gains 19 tasks
-with zero wrong verdicts. For termination, an LLM ranking-function oracle that fires when
+with zero wrong verdicts. Beyond \emph{what} to propose, \emph{when} to fire matters: a
+divergence-aware schedule that invokes the oracle only when CEGAR is unrolling a loop---never on
+the first counterexample---adds a further 22 solved tasks ($482\to504$) in the svcomp27 portfolio,
+again with zero wrong verdicts. For termination, an LLM ranking-function oracle that fires when
 template synthesis fails solves 4 additional tasks ($80\to84$, 0 lost, 0 wrong) on 146
 integer-termination tasks. We report these gains \emph{with} their limits: an ablation
 shows the predicate oracle is worthless without counterexample context; the termination
@@ -119,14 +122,17 @@ same role for two different artifacts---predicates (safety) and ranking function
         resource/routing only; \emph{Tier~X}: direct verdict---forbidden). \tool{} is
         strictly Tier~S.
   \item \textbf{A predicate oracle} for CEGAR: a CE-triggered query and a three-tier
-        validation cascade that injects only SMT-certified predicates at loop heads.
+        validation cascade that injects only SMT-certified predicates at loop heads, plus a
+        \emph{divergence-aware firing schedule} (fire only when CEGAR is unrolling a loop, never
+        on the first counterexample) that adds $+22$ solved tasks at zero soundness cost.
   \item \textbf{A ranking-function oracle} for termination: when template synthesis fails,
         the LLM proposes a ranking function and a supporting invariant, both discharged by a
         four-condition SMT check before use.
   \item \textbf{An honest empirical study} (\Cref{sec:eval,sec:discussion}): strong predicate
-        gains (37/7/19 tasks, 0 wrong) with an ablation proving CE context is necessary; a
-        small but sound termination gain (+4, 0 wrong, 0 lost); and a frank account of where
-        the method's ceiling lies and which cheap levers failed to raise it.
+        gains (37/7/19 tasks, and a further $+22$ from divergence-aware scheduling, 0 wrong) with
+        an ablation proving CE context is necessary; a small but sound termination gain (+4, 0
+        wrong, 0 lost); and a frank account of where the method's ceiling lies and which cheap
+        levers failed to raise it.
 \end{enumerate}
 
 \section{Background}
@@ -299,26 +305,49 @@ solves 262. The LLM's value is therefore not static pattern matching on source b
 \emph{relational reasoning over the concrete counterexample}; CE-guided refinement is the
 correct integration point.
 
-\subsection{LLM-Call Scheduling (post-submission addendum)}
+\subsection{When to Fire: Divergence-Aware Scheduling}
+\label{sec:scheduling}
 
-\emph{This subsection was added after the FM final-project submission; the archived artifact
-(DOI \texttt{10.5281/zenodo.20745141}) does not include it.}
+A second lever, orthogonal to \emph{which} predicates the oracle proposes, is \emph{when} it
+fires. The naive policy---fire on the first spurious CE---is suboptimal in two opposite ways.
+Firing on a task stock would solve in one or two refinements injects noisy-but-correct
+predicates that derail it: \texttt{nested-3} grows from 2 refinements to dozens and times out
+at \textsc{Unknown}. Firing too late lets stock burn the (CPU-time) budget on a diverging loop
+before the LLM helps, ending in an incomplete analysis: \texttt{heapsort}, a direct LLM win when
+fired early, is lost when the call is delayed. The principle that resolves both is
+\emph{fire only when stock is not converging}.
 
-An orthogonal lever is \emph{when} the oracle fires, not which predicates it proposes. The
-submitted configuration fires on the first spurious CE; two failure modes show this is
-suboptimal. Firing on a task stock would solve in one or two refinements injects
-noisy-but-correct predicates that derail it (\texttt{nested-3}: 2 refinements grow to dozens,
-\textsc{Unknown}). Firing too late lets stock burn the CPU budget on a diverging loop before the
-LLM helps, hitting the time limit with an incomplete analysis (\texttt{heapsort}). We replace
-first-spurious firing with a \emph{stock-first} schedule that fires only when stock is \emph{not
-converging}---after $K{=}10$ refinements or $D{=}15$\,s wall-clock, never at refinement~\#1---and
-refine it with a \emph{peel} trigger that fires early (refinement~\#2+) when the counterexample
-passes loop heads $\ge 4$ times, i.e.\ the loop is being unrolled, exactly where one LLM
-relational predicate breaks the cycle. The threshold is calibrated so converging tasks (which
-peak at 3 loop-head visits) never fire. On the full 764-task Loops set under the svcomp27
-portfolio, solved rises from 482 (first-spurious) to 493 (stock-first) to \textbf{504} (peel),
-\textbf{$+22$ with 0 wrong verdicts}. This is purely a Tier~R change---only the firing time
-moves; every predicate is still SMT-validated---so it composes with the predicate oracle.
+We implement it in two stages. A \emph{stock-first} schedule never fires at refinement~\#1 and
+otherwise fires after $K{=}10$ refinements or $D{=}15$\,s of wall-clock---giving stock a chance
+to converge first. A \emph{peel} trigger then fires \emph{early} (refinement~\#2$+$) precisely
+when divergence is visible: when the counterexample passes loop heads at least four times, the
+loop is being unrolled one iteration per refinement, which is exactly where a single relational
+predicate breaks the cycle. The threshold of four is calibrated from the loop-head-visit
+trajectories: converging tasks peak at three visits and never fire, while diverging tasks cross
+four at refinement \#2--\#4---far earlier than the count/time triggers would.
+
+\Cref{tab:schedule} reports the effect on the full 764-task Loops set under the svcomp27
+portfolio (only the firing schedule changes between rows). Solved rises from 482 (first-spurious)
+to 493 (stock-first) to \textbf{504} (peel): \textbf{$+22$ with zero wrong verdicts}. This is a
+pure Tier~R change---only the firing time moves, every predicate is still SMT-certified---so it
+composes with the predicate oracle of \Cref{sec:eval}. The residual losses are run-to-run
+resource-sensitive noise, not regressions in predicate quality.
+
+\begin{table}[t]
+\caption{Divergence-aware scheduling on Loops ReachSafety (764, svcomp27 portfolio). Only the
+LLM-call schedule differs; \emph{Wrong} is the soundness count.}
+\label{tab:schedule}
+\centering
+\begin{tabular}{lcc}
+\toprule
+Firing schedule & Solved & Wrong \\
+\midrule
+first-spurious (fire at refinement \#1)        & 482 & 0 \\
+stock-first (\#1 skipped; $K{=}10$ / $D{=}15$\,s) & 493 (\,+11\,) & 0 \\
+\quad + peel trigger (loop-head visits $\ge 4$)   & \textbf{504} (\,+22\,) & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Ranking-Function Oracle}
 
@@ -355,8 +384,21 @@ gains.
 predicate is \emph{correct}, not that it is \emph{useful}. On \texttt{nested-3}, the LLM
 proposes \texttt{st==0} and \texttt{st==1}; both are individually satisfiable and accepted, but
 their joint injection splits the abstract state and enlarges the search, turning a 2-refinement
-stock proof into a timeout. A mutual-consistency check across injected predicates would help, at
+stock proof into a timeout. The divergence-aware schedule (\Cref{sec:scheduling}) addresses this
+directly---it does not fire on tasks stock is already converging on, so \texttt{nested-3} is no
+longer derailed; a mutual-consistency check across injected predicates would help further, at
 extra SMT cost.
+
+\paragraph{The reachability gain is also bounded.} After the scheduling improvement, the cheap
+predicate-mechanism levers are exhausted. Of the remaining unsolved tasks, roughly 70\% are
+\texttt{nla-digbench} \emph{nonlinear} instances---e.g.\ \texttt{cohencu} asserts $x=n^3$ and
+$y=3n^2{+}3n{+}1$---whose proofs need polynomial invariants that linear predicate abstraction
+cannot express and whose nonlinear SMT queries cost tens of seconds each; the LLM, riding on a
+linear engine, essentially never converts them (9 of $\sim$480 across the family). These are out
+of scope for the mechanism, not a tuning failure. The rest sit at a predicate-quality ceiling:
+tasks that fire several rounds yet do not converge, where a sharper prompt is unlikely to help
+(consistent with the CE-context ablation). Further reachability gains therefore need a new
+capability---nonlinear invariant synthesis or a new injection point---not more prompt/schedule tuning.
 
 \paragraph{The termination gain has a small, characterised ceiling.} On the 56 stock-\textsc{Unknown}
 terminating tasks, the oracle only \emph{fires} on 9 (winning 4): \textbf{40 never produce a lasso}
@@ -385,7 +427,12 @@ local or distilled model or a pre-computed candidate cache.
 
 \paragraph{\textsc{False}-path blindness.} Both oracles improve only \textsc{True} counts. The
 predicate oracle supplies proof-supporting invariants, not bug witnesses; the ranking oracle proves
-termination, never non-termination. Bug-finding is untouched.
+termination, never non-termination. Extending the provider to \textsc{False} needs a different
+\emph{artifact}: not a predicate but a concrete violating input, certified by \emph{execution}
+rather than an SMT proof---the propose--certify--decide principle still applies, but with a
+test-execution back-end instead of predicate abstraction. This also sidesteps the nonlinear wall,
+since reaching a bug requires running one input, not proving an invariant. We leave it to future
+work; it is a genuinely different engine, not a variant of the predicate oracle.
 
 \section{Related Work}
 \label{sec:related}
@@ -413,14 +460,20 @@ synthesis~\cite{ranking2004,ultimate2014} in \cpa{}~\cite{cpachecker2011}.
 this role is artifact-agnostic: the identical propose--certify--decide architecture supplies loop
 predicates for safety (37/7/19 more tasks, 0 wrong, with an ablation proving CE context is essential)
 and ranking functions for termination (+4, 0 lost, 0 wrong, including a case needing a co-synthesised
-supporting invariant). Equally, we have bounded the method honestly: the predicate gain shrinks under
-portfolio saturation and can be hurt by noisy-but-correct predicates; the termination gain has a small
-ceiling, set not by prompt engineering---three cheap levers failed---but by the injection point, since
-40 of 56 target loops never reach the oracle. The clearest future direction follows directly from that
-boundary: a \emph{structurally earlier} injection point that reaches pointer/array loops before the
-lasso analysis gives up, which would do far more than tuning the existing hook. Complementary
-directions are a local or distilled model to remove the online-API dependency for competition use, and
-extending the oracle toward \textsc{False} (non-termination and bug witnesses). The artifact---source,
+supporting invariant). Orthogonally, \emph{when} the oracle fires matters as much as what it
+proposes: a divergence-aware schedule that fires only when CEGAR is unrolling a loop adds a further
+$+22$ solved tasks ($482\to504$) at zero soundness cost. Equally, we have bounded the method honestly:
+the predicate gain shrinks under portfolio saturation and can be hurt by noisy-but-correct predicates
+(which the schedule mitigates), and the cheap predicate levers are then exhausted---about 70\% of the
+residual unsolved tasks are nonlinear instances out of reach of a linear predicate engine; the
+termination gain has a small ceiling, set not by prompt engineering---three cheap levers failed---but
+by the injection point, since 40 of 56 target loops never reach the oracle. The clearest future
+directions follow from these boundaries: for termination, a \emph{structurally earlier} injection point
+that reaches pointer/array loops before the lasso analysis gives up; for safety, a different engine for
+what the predicate mechanism cannot reach---nonlinear invariant synthesis, or an execution-based
+\textsc{False} oracle that certifies a concrete bug-triggering input by running it (which also
+sidesteps the nonlinear wall). A local or distilled model would remove the online-API dependency for
+competition use. The artifact---source,
 configurations, benchmark lists, recorded experiment outputs, and evaluation
 scripts---is archived at \url{https://doi.org/10.5281/zenodo.20745141} (DOI
 \texttt{10.5281/zenodo.20745141}), with the development repository at

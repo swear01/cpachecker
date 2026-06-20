@@ -23,7 +23,7 @@
 
 | Version / Task | Result |
 |----------------|--------|
-| **FM 期末報告 (LNCS)** | `report/` LNCS 論文（llncs.cls）；submitted 2026-06-18，Zenodo DOI `10.5281/zenodo.20745141` |
+| **FM 期末報告 (LNCS)** | `report/` LNCS 論文（llncs.cls）;**草稿、尚未投稿**,持續修訂(已納入 v1.7.x schedule 結果);Zenodo artifact DOI `10.5281/zenodo.20745141` |
 | **消融實驗 source-prior** | CE context 必要（source_prior=stock=225，first_spurious +37）；0 wrong；報告 `reports/2026-06-17_source_prior_ablation.md` |
 | v1.6 | Overflow Class-A: 363 solved vs stock 357 (+6 / 0 lost / 0 wrong) |
 | v1.7.1 | ReachSafety peel trigger (early divergence firing, loop-head visits ≥ 4): full 764 svcomp27-vguide 493 → 504 (**+11** = +18 new − 7 lost / 0 wrong); cumulative **+22** vs old schedule |

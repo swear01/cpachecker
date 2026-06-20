@@ -21,7 +21,7 @@
 | `output/vguide/experiments/` | **Active raw output** — batch run products, written by `run.sh` (gitignored) |
 | `archive/raw-legacy/` | **Retired raw output** parking — `mv` old raw here instead of deleting (gitignored) |
 | `archive/` | **Obsolete** historical material — never treat as current truth |
-| `report/` | **LNCS report** (FM 期末，已投稿；Zenodo DOI `10.5281/zenodo.20745141`) — `main.tex` (llncs.cls), `references.bib`；build artifacts + PDF gitignored |
+| `report/` | **LNCS report** (FM 期末,**草稿、尚未投稿**,持續修訂——已納入 v1.7.x schedule 結果;Zenodo artifact DOI `10.5281/zenodo.20745141`) — `main.tex` (llncs.cls), `references.bib`；build artifacts + PDF gitignored |
 | `slides/vguide-presentation/` | **Beamer deck** (dark metropolis) — `main.tex`, `metadata.tex` (數字), `slides/NN_*.tex` (一 frame 一檔), `figures/`; `build.sh [light]` |
 | `test/` | CPAchecker upstream test suite |
 | `build/`, `classes/` | Compiled artifacts |
