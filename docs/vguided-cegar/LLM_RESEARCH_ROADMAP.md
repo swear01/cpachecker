@@ -219,7 +219,7 @@ termination-safety 原以為屬 (i)；feasibility probe **RED**：其引擎是 `
 
 | Horizon | 主題 | 項目 | 進場 gate |
 |---------|------|------|-----------|
-| **v1.5.2（stock-first ✅ done）** | 收緊 reachability predicate portfolio | **stock-first guard ✅ `every_n_or_interval`,764 both-arm +11/0 wrong**（[report](reports/2026-06-20_reachsafety_stockfirst_guard.md)）;adaptive budget / SAFE-only / peel 觸發器①待做 | 見 `SVCOMP26_PORTFOLIO_LLM_PLAN.md` P0–P1、`REACHSAFETY_IMPROVEMENT_PLAN.md` |
+| **v1.5.2 horizon → stock-first ✅(v1.7.0)** | 收緊 reachability predicate portfolio | **stock-first guard ✅ `every_n_or_interval`,764 both-arm +11/0 wrong**（[report](reports/2026-06-20_reachsafety_stockfirst_guard.md)）;adaptive budget / SAFE-only / peel 觸發器①待做 | 見 `SVCOMP26_PORTFOLIO_LLM_PLAN.md` P0–P1、`REACHSAFETY_IMPROVEMENT_PLAN.md` |
 | **v1.6（現行）** | **跨 branch 泛化 feasibility 研究** | **Overflow Class-A scoped variant（config-only，最快實證泛化）→ [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)**；把 5 個 branch 做 §4.2 A/B/C 分級；termination safety-路 probe **RED → Class-B**（[probe](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）；輸出每個 Class-B 的 hook scope。可並行 reachability 內 broaden（§3.2 domain routing[R]、§3.4 witness invariant[S]）| 需 Overflow baseline；每個 Class-A branch 需同時限 baseline |
 | **v2.0** | 建 Class-B sound 注入 hook | **Termination lasso 路 candidate ranking-function hook[S]（最高槓桿）**、MemSafety memory-invariant hook[S]、§3.3 FALSE-task seeding[S] | 需 v1.6 矩陣判定該 branch 值得；需新 Java + per-engine 驗證 |
 | **exploratory** | 跨 corpus 學習 | §3.5 learned dispatcher[R]、跨年 generalization、§3.6 離線/本地模型 | 需 §3.7 harness 成熟、需離線 precompute 管線 |

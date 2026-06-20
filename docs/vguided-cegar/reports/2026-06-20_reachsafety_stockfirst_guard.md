@@ -1,4 +1,4 @@
-# ReachSafety stock-first guard (A1, v1.5.2) — schedule ablation (2026-06-20)
+# ReachSafety stock-first guard (A1, v1.7.0) — schedule ablation (2026-06-20)
 
 Validates A1 of [`../REACHSAFETY_IMPROVEMENT_PLAN.md`](../REACHSAFETY_IMPROVEMENT_PLAN.md): the
 `every_n_or_interval` LLM-call schedule (fire only when stock is not converging — by refinement

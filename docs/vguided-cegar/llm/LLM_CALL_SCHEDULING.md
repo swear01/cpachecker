@@ -16,13 +16,13 @@
 2. **`every_n`**：快題上應很大，或依 `ceil(min_interval / t_ref)` 推算
 3. **`maxLlmRoundsPerAnalysis`** = 會叫 LLM 的 **spurious 輪數** 上限（300s 建議 **5–8**）
 4. **`every_n_and_interval`**：兩條件 **都** 要滿足
-5. **`every_n_or_interval`（現行預設,v1.5.2 stock-first）**：任一條件滿足即開火,但 **不在 #1**(every_n 從 #N 起算);時間軸首次也等 `min_interval`(從分析起點量,不是立即)。只在 stock 不收斂時介入——次數(many cheap)**OR** 牆鐘(few expensive)。設計見 [`../REACHSAFETY_IMPROVEMENT_PLAN.md`](../REACHSAFETY_IMPROVEMENT_PLAN.md) A1。
+5. **`every_n_or_interval`（現行預設,v1.7.0 stock-first）**：任一條件滿足即開火,但 **不在 #1**(every_n 從 #N 起算);時間軸首次也等 `min_interval`(從分析起點量,不是立即)。只在 stock 不收斂時介入——次數(many cheap)**OR** 牆鐘(few expensive)。設計見 [`../REACHSAFETY_IMPROVEMENT_PLAN.md`](../REACHSAFETY_IMPROVEMENT_PLAN.md) A1。
 
 ## 預設（`config/vguide.properties`）
 
 | 名稱 | schedule | everyN | minInterval | max | 說明 |
 |------|----------|--------|-------------|-----|------|
-| **default**（現行,v1.5.2） | `every_n_or_interval` | **10** | **15** | **5** | stock-first guard;不在 #1,次數 OR 時間。764 both-arm **+11 / 0 wrong** |
+| **default**（現行,v1.7.0） | `every_n_or_interval` | **10** | **15** | **5** | stock-first guard;不在 #1,次數 OR 時間。764 both-arm **+11 / 0 wrong** |
 | `every_n_and_interval`（舊預設 ≤v1.5.1） | `every_n_and_interval` | 72 | 15 | 5 | full_scalar 舊主實驗(會在 #1 開火) |
 | `bootstrap_only` | `first_spurious` | — | 0 | 1 | 最便宜、僅首輪 spurious |
 | `thorough` | `every_n_and_interval` | **50** | **25** | **8** | 單題深挖 |
