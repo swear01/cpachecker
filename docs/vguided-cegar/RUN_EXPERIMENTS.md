@@ -126,9 +126,10 @@ Classifier 摘要（324 程式）：`RUN_SCALAR` 220、`RUN_ARRAY_SCALAR` 8、�
 | `--heap` | `2000M` | |
 | `--out` | `output/vguide/experiments/<set>_vguide` 或 `_stock` | 見上表 |
 | `--dry-run` | | 只印命令 |
+| `--ablation` | （無 = noL3） | 歷史消融：`l3` / `no-l3`（主線不用 L3） |
 | `--` 之後 | | 傳給 `cpa.sh` 的額外 `--option` |
 
-排程與 LLM 預設見 `config/vguide.properties`。**v1.4 計劃**：`dualPromptMode=true`，`llmSamplesPerCall=1` = **SAFE×1 + BUG×1** / 輪。見 [LLM_ENSEMBLE.md](llm/LLM_ENSEMBLE.md)、[PREDICATE_BUDGET.md](llm/PREDICATE_BUDGET.md)；已完成的 v1.4 計劃文件不再是現行入口。覆寫例：
+排程與 LLM 預設見 `config/vguide.properties`。**L3 不用**：驗證只跑 L1/L2；2026-06-07 `full_scalar` 消融顯示 L3-on 整體較差，主線 svcomp26 / full_scalar 皆 noL3。**v1.4 計劃**：`dualPromptMode=true`，`llmSamplesPerCall=1` = **SAFE×1 + BUG×1** / 輪。見 [LLM_ENSEMBLE.md](llm/LLM_ENSEMBLE.md)、[PREDICATE_BUDGET.md](llm/PREDICATE_BUDGET.md)；已完成的 v1.4 計劃文件不再是現行入口。覆寫例：
 
 ```bash
 # 僅 first spurious、單次 draw（省 API，對照舊 batch）

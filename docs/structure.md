@@ -3,7 +3,7 @@
 | Path | Purpose |
 |------|---------|
 | `src/org/sosy_lab/cpachecker/cpa/predicate/vguide/` | **VGuide Java implementation** — LLM bridge, validator, precision injector |
-| `config/vguide.properties` | Runtime defaults: LLM scheduling (`min_interval`, `every_n`), L3 toggle |
+| `config/vguide.properties` | Runtime defaults: LLM scheduling; **L3 off** (not used after ablation) |
 | `config/predicateAnalysis-vguide.properties` | PredicateCPA + VGuide entry config |
 | `config/svcomp26-vguide.properties` | Competition config: routes reachability + overflow through VGuide |
 | `config/vguide-experiment-source-prior-{loops,overflow}.properties` | 消融實驗：source-prior mode，base config（predicateAnalysis-vguide 底） |

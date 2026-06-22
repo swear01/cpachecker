@@ -9,7 +9,8 @@
 | LLM | **全 Java `HttpClient`**（與 CPAchecker 同 JVM） |
 | 觸發 | **第一條 spurious**（之前不呼叫 LLM） |
 | 注入 | **僅 loop head**，`addLocalPredicates`（LBE 對齊） |
-| ENTAILED | **允許** strengthen interpolant；否則只 precision |
+| ENTAILED | L3-on 時：`block ⊨ pred` → strengthen interpolant（**主線不用 L3**） |
+| L3 (SMT entailment) | **不用**（2026-06-07 消融：L3-on 整體較差 → `enableL3Entailment=false`） |
 | NO_SPURIOUS | **Exception**：可選 [FROZEN_PREDICATES](../evaluation/FROZEN_PREDICATES.md) |
 | Replay | **Frozen predicate 檔**，不用 hash cache |
 | Legacy B2/B4/B5 | **已歸檔** |
@@ -21,7 +22,7 @@ org.sosy_lab.cpachecker.cpa.predicate.vguide
   VGuideRefinementBridge      // 唯一入口，掛在 PredicateCPARefiner
   ContextPackBuilder          // source + CE + loop_heads + var_contract
   PredicateProposalClient     // DeepSeek HttpClient，可 parallel variants
-  PredicateValidationPipeline // L1 contract, L2 parse, L3 SMT entailed
+  PredicateValidationPipeline // L1 contract, L2 parse (L3 implemented, not used)
   LoopHeadPrecisionInjector   // local inject only
   FrozenPredicateLoader       // NO_SPURIOUS exception
   VGuideOutcome               // FIRST_SPURIOUS | FROZEN_SEED | NO_SPURIOUS_GIVE_UP
@@ -59,6 +60,7 @@ vguide.llm.wall_budget_sec=60
 vguide.llm.per_call_timeout_sec=90
 vguide.inject.loop_heads_only=true
 vguide.inject.allow_interpolant_strengthen=true
+vguide.enableL3Entailment=false   # not used (ablation worse)
 vguide.exception.frozen_dir=docs/vguided-cegar/predicate_sets
 ```
 

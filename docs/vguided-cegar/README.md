@@ -2,6 +2,8 @@
 
 **單一路徑、全 Java。** 設計見 [architecture/UNIFIED_VGUIDE_ARCHITECTURE.md](architecture/UNIFIED_VGUIDE_ARCHITECTURE.md)。
 
+**Predicate 驗證**：L1 contract + L2 parse 必跑；**L3 不用**（消融整體較差，`enableL3Entailment=false`）。
+
 ## 快速入口
 
 ### 現行入口與計劃（active）

@@ -20,6 +20,8 @@ CPAchecker is a configurable software verifier for C programs, used in SV-COMP c
 | Class-B | Requires Java engine hook; not yet attempted |
 | PAR-2 | Penalized Average Runtime × 2 — the competition scoring metric |
 | `min_interval` / `every_n` | LLM call scheduling knobs in `config/vguide.properties` |
+| L1 / L2 | Predicate validation: contract + parse (always on) |
+| noL3 | L3 SMT entailment not used (`enableL3Entailment=false`); ablation showed worse solved count / PAR-2 |
 
 ## External Resources
 
