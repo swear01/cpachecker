@@ -49,8 +49,8 @@ proposes, an SMT check certifies, and the verifier decides}. We show that this
 ``verified-candidate provider'' role is \emph{artifact-agnostic}: the same architecture
 supplies (i)~loop predicates for safety proofs and (ii)~ranking functions with supporting
 invariants for termination proofs, and in both cases no unvalidated LLM output can change a
-verdict. On 764 SV-COMP Loops ReachSafety tasks, \tool{} predicates solve 37 more tasks
-than the base predicate analysis ($225\to262$) and 7 more in the full competition
+verdict. On 764 SV-COMP Loops ReachSafety tasks, \tool{} predicates solve 29 more tasks
+than the base predicate analysis ($224\to253$) and 7 more in the full competition
 portfolio; a competition-grade combined run over ReachSafety and NoOverflow gains 19 tasks
 with zero wrong verdicts. Beyond \emph{what} to propose, \emph{when} to fire matters: a
 divergence-aware schedule that invokes the oracle only when CEGAR is unrolling a loop---never on
@@ -129,7 +129,7 @@ same role for two different artifacts---predicates (safety) and ranking function
         the LLM proposes a ranking function and a supporting invariant, both discharged by a
         four-condition SMT check before use.
   \item \textbf{An honest empirical study} (\Cref{sec:eval,sec:discussion}): strong predicate
-        gains (37/7/19 tasks, and a further $+22$ from divergence-aware scheduling, 0 wrong) with
+        gains (29/7/19 tasks, and a further $+22$ from divergence-aware scheduling, 0 wrong) with
         an ablation proving CE context is necessary; a small but sound termination gain (+4, 0
         wrong, 0 lost); and a frank account of where the method's ceiling lies and which cheap
         levers failed to raise it.
@@ -271,9 +271,9 @@ a wrong-verdict column from the tables and state soundness once here.
 
 \subsection{Predicate Oracle}
 
-\Cref{tab:safety} (top) shows that on Loops ReachSafety the predicate oracle solves 37 more
-tasks than the base predicate analysis ($225\to262$, $+16.4\%$) and lowers PAR-2 from
-$426.2$ to $399.7$\,s, with \textbf{zero} wrong verdicts. In the full svcomp26 portfolio the
+\Cref{tab:safety} (top) shows that on Loops ReachSafety the predicate oracle solves 29 more
+tasks than the base predicate analysis ($224\to253$, $+12.9\%$) and lowers PAR-2 from
+$428.4$ to $406.5$\,s, with \textbf{zero} wrong verdicts. In the full svcomp26 portfolio the
 gain is $+7$ ($486\to493$): smaller, because parallel strategies (symbolic execution,
 $k$-induction, value analysis) already cover many tasks the predicate worker uniquely solves
 in isolation. A competition-grade combined run (\Cref{tab:safety}, bottom) gains $+15$
@@ -292,8 +292,8 @@ after 69 (a 95\% wall-time and 97\% refinement reduction).
 \toprule
 Configuration & Solved & PAR-2 (s) \\
 \midrule
-predicateAnalysis (stock)  & 225 & 426.2 \\
-\quad + \tool{}            & \textbf{262} (\,+37\,) & 399.7 \\
+predicateAnalysis (stock)  & 224 & 428.4 \\
+\quad + \tool{}            & \textbf{253} (\,+29\,) & 406.5 \\
 svcomp26 (stock)           & 486 & 222.5 \\
 \quad + \tool{}            & \textbf{493} (\,+7\,)  & 216.9 \\
 \midrule
@@ -305,8 +305,8 @@ NoOverflow  (stock $\to$ \tool{}) & $362\to\mathbf{366}$ (\,+4\,)  & $122.3\to11
 
 \paragraph{Ablation: CE context is necessary.} A \emph{source-prior} variant fires the LLM at
 analysis start with source code only (no CE trace), validated and injected through the same
-cascade. It solves 225 tasks---\emph{identical to stock}---while full \tool{} (first-spurious)
-solves 262. The LLM's value is therefore not static pattern matching on source but
+cascade. It solves 224 tasks---\emph{identical to stock}---while full \tool{} (every-N-and-interval,
+firing at the first CE) solves 253. The LLM's value is therefore not static pattern matching on source but
 \emph{relational reasoning over the concrete counterexample}; CE-guided refinement is the
 correct integration point.
 
@@ -485,7 +485,7 @@ synthesis~\cite{ranking2004,ultimate2014} in \cpa{}~\cite{cpachecker2011}.
 
 \tool{} shows that an LLM can be a \emph{sound} verified-candidate provider for \cpa{}, and that
 this role is artifact-agnostic: the identical propose--certify--decide architecture supplies loop
-predicates for safety (37/7/19 more tasks, 0 wrong, with an ablation proving CE context is essential)
+predicates for safety (29/7/19 more tasks, 0 wrong, with an ablation proving CE context is essential)
 and ranking functions for termination (+4, 0 lost, 0 wrong, including a case needing a co-synthesised
 supporting invariant). Orthogonally, \emph{when} the oracle fires matters as much as what it
 proposes: a divergence-aware schedule that fires only when CEGAR is unrolling a loop adds a further
