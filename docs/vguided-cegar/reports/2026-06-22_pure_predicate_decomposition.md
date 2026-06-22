@@ -79,17 +79,24 @@ reproduction of the v14 schedule):
 
 - `tab:safety` top two rows: `225 / 426.2 → 224 / 428.4` (stock) and `262 (+37) / 399.7 → 253 (+29) / 406.5` (+VGuide).
 - abstract: `225→262`, `37 more` → `224→253`, `29 more`.
-- contributions / conclusion: `37/7/19` → `29/7/19`.
+- contributions / conclusion: `37/7/19` → `+29` (safety as main contribution; the `/19`
+  combined-portfolio figure was dropped — see restructuring below).
 - Predicate Oracle prose: `$225\to262$, $+16.4\%$`, `426.2 to 399.7` → `$224\to253$, $+12.9\%$`, `428.4 to 406.5`.
 - Ablation paragraph: source-prior `225` → `224` (identical-to-stock claim unchanged); the
   vguide arm label corrected from "first-spurious" to "every-N-and-interval, firing at the
   first CE" (what v14 actually ran, per `loops_reachsafety_unreach_v14_20260612` logs:
   `schedule= EVERY_N_AND_INTERVAL prompt= first`, 619 first-CE rounds, 0 peel lines).
 
-svcomp26 portfolio (486→493), combined ReachSafety/NoOverflow (479→494 / 362→366), and the
-scheduling table (482→504) are unchanged — those are portfolio-side numbers, not the pure
-predicate isolation, and were re-confirmed on the same codebase in
-`full764_baseline_oldsched` / `full764_new_orinterval` / `full764_peel4`.
+### Restructuring: safety as the main contribution
+
+The competition-grade combined rows (ReachSafety `479→494` / NoOverflow `362→366`) were
+**removed from `tab:safety`** and the overflow/combined transfer is now brushed over in one
+sentence in the abstract, setup, and Predicate-Oracle prose ("we tried generalising … modest
+transfer … not the focus"). `tab:safety` now has only the four reachability rows: pure
+predicate isolation (`224→253`) and the svcomp26 portfolio (`486→493`). The `29/7/19` summary
+became `+29` (with `+7` portfolio kept in the abstract and contributions). Rationale: the
+overflow (+4) and combined (+15) gains are small and not the core safety result; presenting
+them as a co-equal table row overstated them. The scheduling table (`482→504`) is unchanged.
 
 ## Verification
 

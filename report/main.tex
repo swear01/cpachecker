@@ -51,8 +51,8 @@ supplies (i)~loop predicates for safety proofs and (ii)~ranking functions with s
 invariants for termination proofs, and in both cases no unvalidated LLM output can change a
 verdict. On 764 SV-COMP Loops ReachSafety tasks, \tool{} predicates solve 29 more tasks
 than the base predicate analysis ($224\to253$) and 7 more in the full competition
-portfolio; a competition-grade combined run over ReachSafety and NoOverflow gains 19 tasks
-with zero wrong verdicts. Beyond \emph{what} to propose, \emph{when} to fire matters: a
+portfolio, with zero wrong verdicts; a brief generalisation to a competition-grade combined
+config and to overflow tasks shows modest transfer but is not the focus. Beyond \emph{what} to propose, \emph{when} to fire matters: a
 divergence-aware schedule that invokes the oracle only when CEGAR is unrolling a loop---never on
 the first counterexample---adds a further 22 solved tasks ($482\to504$) in the svcomp27 portfolio,
 again with zero wrong verdicts. For termination, an LLM ranking-function oracle that fires when
@@ -129,7 +129,7 @@ same role for two different artifacts---predicates (safety) and ranking function
         the LLM proposes a ranking function and a supporting invariant, both discharged by a
         four-condition SMT check before use.
   \item \textbf{An honest empirical study} (\Cref{sec:eval,sec:discussion}): strong predicate
-        gains (29/7/19 tasks, and a further $+22$ from divergence-aware scheduling, 0 wrong) with
+        gains (+29 tasks on Loops ReachSafety, +7 in the full portfolio, and a further $+22$ from divergence-aware scheduling, 0 wrong) with
         an ablation proving CE context is necessary; a small but sound termination gain (+4, 0
         wrong, 0 lost); and a frank account of where the method's ceiling lies and which cheap
         levers failed to raise it.
@@ -259,7 +259,7 @@ so the four checks run with no translation to the synthesiser's term representat
 unless noted), and \llm{} (non-thinking, temperature 0) queried at most once per loop. We
 report tasks \emph{solved} (a definite \textsc{True}/\textsc{False} verdict), PAR-2 (lower is
 better), and \emph{wrong} verdicts (soundness violations). Safety benchmarks are SV-COMP Loops
-ReachSafety (764 tasks) and a NoOverflow scalar subset (452). Termination is evaluated on
+ReachSafety (764 tasks), with a brief generalisation check on a NoOverflow subset (452). Termination is evaluated on
 \texttt{termination\_scalar}: 146 integer-termination tasks (125 terminating, 21
 non-terminating) drawn from the SV-COMP crafted, crafted-lit, and numeric termination
 families. We write \emph{stock} for the unmodified \cpa{} configuration (no \tool{} extensions),
@@ -276,16 +276,16 @@ tasks than the base predicate analysis ($224\to253$, $+12.9\%$) and lowers PAR-2
 $428.4$ to $406.5$\,s, with \textbf{zero} wrong verdicts. In the full svcomp26 portfolio the
 gain is $+7$ ($486\to493$): smaller, because parallel strategies (symbolic execution,
 $k$-induction, value analysis) already cover many tasks the predicate worker uniquely solves
-in isolation. A competition-grade combined run (\Cref{tab:safety}, bottom) gains $+15$
-ReachSafety and $+4$ NoOverflow, $+19$ total, again with no wrong verdicts; the transfer to
-overflow tasks is free, as they share the bounded-counter loop patterns the LLM reasons about.
+in isolation. We also tried generalising the oracle to a competition-grade combined config
+and to overflow tasks; the transfer is modest and not the focus here---the safety gain is the
+main result.
 On the running example, the oracle proposes nine predicates including \texttt{x+y==n}; five
 clear the cascade, and CEGAR then converges in 2 refinements at 3.9\,s instead of timing out
 after 69 (a 95\% wall-time and 97\% refinement reduction).
 
 \begin{table}[t]
-\caption{Predicate oracle. Top: Loops ReachSafety (764). Bottom: competition-grade combined
-(svcomp26 portfolio).}
+\caption{Predicate oracle on Loops ReachSafety (764). Pure predicate analysis in isolation
+(top); the full svcomp26 competition portfolio (bottom).}
 \label{tab:safety}
 \centering
 \begin{tabular}{lcc}
@@ -296,9 +296,6 @@ predicateAnalysis (stock)  & 224 & 428.4 \\
 \quad + \tool{}            & \textbf{253} (\,+29\,) & 406.5 \\
 svcomp26 (stock)           & 486 & 222.5 \\
 \quad + \tool{}            & \textbf{493} (\,+7\,)  & 216.9 \\
-\midrule
-ReachSafety (stock $\to$ \tool{}) & $479\to\mathbf{494}$ (\,+15\,) & $227.9\to216.6$ \\
-NoOverflow  (stock $\to$ \tool{}) & $362\to\mathbf{366}$ (\,+4\,)  & $122.3\to116.9$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -485,7 +482,7 @@ synthesis~\cite{ranking2004,ultimate2014} in \cpa{}~\cite{cpachecker2011}.
 
 \tool{} shows that an LLM can be a \emph{sound} verified-candidate provider for \cpa{}, and that
 this role is artifact-agnostic: the identical propose--certify--decide architecture supplies loop
-predicates for safety (29/7/19 more tasks, 0 wrong, with an ablation proving CE context is essential)
+predicates for safety (+29 more tasks on Loops ReachSafety, 0 wrong, with an ablation proving CE context is essential)
 and ranking functions for termination (+4, 0 lost, 0 wrong, including a case needing a co-synthesised
 supporting invariant). Orthogonally, \emph{when} the oracle fires matters as much as what it
 proposes: a divergence-aware schedule that fires only when CEGAR is unrolling a loop adds a further
