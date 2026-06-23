@@ -24,7 +24,7 @@
 \begin{document}
 
 \title{From Predicates to Ranking Functions:\\
-LLM-Proposed, SMT-Certified Candidates for\\
+LLM-Proposed, Engine-Validated Candidates for\\
 CEGAR-Based Software Verification}
 
 \author{Ssu-Wei Huang}
@@ -32,30 +32,30 @@ CEGAR-Based Software Verification}
 \email{stanley.yellow1@gmail.com}\\
 Student ID: R14K41044}
 
-\titlerunning{LLM-Proposed, SMT-Certified Candidates for CEGAR}
+\titlerunning{LLM-Proposed, Engine-Validated Candidates for CEGAR}
 \authorrunning{Ssu-Wei Huang}
 
 \maketitle
 
 \begin{abstract}
-Counterexample-guided abstraction refinement (CEGAR) with predicate abstraction and
-lasso-based termination analysis both stall on discovering the \emph{relational} facts
-that span a loop: interpolation reasons about one counterexample path; template ranking
-is confined to a fixed family. We present \tool, which augments \cpa{} with a
-large-language-model (LLM) oracle on one principle: \emph{the LLM proposes, an SMT check
-certifies, and the verifier decides}. This verified-candidate provider role is
-\emph{artifact-agnostic}: the same architecture supplies loop predicates for safety and
-ranking functions for termination, and no unvalidated LLM output can change a verdict.
-On 764 SV-COMP Loops ReachSafety tasks, \tool{} predicates solve 29 more tasks than the
-base predicate analysis ($224\to253$); on the \texttt{svcomp26} competition portfolio the
-naive deployment adds $+7$ ($486\to493$), while a divergence-aware firing schedule addresses
-when the oracle helps versus hurts, with portfolio-wide step counts reported in
-\Cref{tab:safety}. For termination, a ranking-function oracle adds 4 tasks
-($80\to84$, 0 lost, 0 wrong) on 146 integer-termination tasks. We report these gains with
-their limits: most residual unsolved safety tasks are nonlinear instances out of reach of a
-linear engine, and the termination gain has a small, characterised ceiling. The contribution
-is a clean, sound, and honestly-bounded generalisation of LLM-guided refinement across
-verification artifacts.
+Predicate abstraction with CEGAR and lasso-based termination both fail in the same place: a
+loop needs a \emph{relational} fact---an invariant coupling variables, or a ranking measure
+outside a fixed template---that no single counterexample path or synthesis family exposes.
+We present \tool{}, an LLM oracle for \cpa{} governed by one rule: \emph{the model proposes,
+the verifier decides, and nothing unvalidated reaches the engine}. The same
+\emph{verified-candidate-provider} shell covers two artifacts with \emph{different} gates.
+For safety, loop predicates must pass contract and vocabulary checks and are injected only as
+precision refinements at loop heads (monotone, so useless suggestions cannot yield a wrong
+\textsc{True}); an SMT entailment tier was implemented but dropped after ablation hurt overall
+performance. For termination, each ranking function and supporting invariant must discharge a
+four-condition SMT proof on the lasso before use. On 764 SV-COMP Loops ReachSafety tasks,
+\tool{} solves 29 more tasks than base predicate analysis in isolation ($224{\to}253$); on the
+\texttt{svcomp26} portfolio a naive deployment adds $+7$ ($486{\to}493$); a stock-first schedule
+and peel trigger add $+11$ each in controlled full-set arms ($493{\to}504$, 0 wrong;
+\Cref{tab:safety}). Termination adds four tasks ($80{\to}84$, 0 lost, 0 wrong) on 146
+integer-termination benchmarks. We report these gains together with their limits: most
+residual safety tasks are nonlinear and out of scope for a linear predicate engine, and the
+termination lift has a small, characterised ceiling.
 
 \keywords{Software verification \and CEGAR \and Predicate abstraction \and
 Termination \and Ranking functions \and Large language models.}
@@ -64,26 +64,25 @@ Termination \and Ranking functions \and Large language models.}
 \section{Introduction}
 \label{sec:intro}
 
-Predicate abstraction with CEGAR~\cite{cegar2003,predabstraction1997,slam2002} and
-termination analysis via lasso-based ranking-function synthesis~\cite{ranking2004,ultimate2014}
-are two of the most successful paradigms in automated software verification, both
-implemented at scale in \cpa{}~\cite{cpachecker2011} and routinely competitive at
-SV-COMP~\cite{svcomp2022}. They share a structural weakness at the loop. CEGAR refines its
-predicate abstraction from Craig interpolants~\cite{interpolation2003}, which reason about a
-\emph{single} counterexample (CE) path; when the property needs a \emph{relational}
-invariant relating several variables across all iterations, interpolation produces one
-predicate per unrolling and never converges. Termination analysis dually fails: lasso-based
-synthesis~\cite{ultimate2014} only discovers ranking functions expressible by its fixed
-template family (affine and nested), and returns \textsc{Unknown} when the terminating
-measure lies outside it.
+Software verification has two mature loop-centric paradigms, both implemented at scale in
+\cpa{}~\cite{cpachecker2011} and competitive at SV-COMP~\cite{svcomp2022}: predicate
+abstraction with CEGAR~\cite{cegar2003,predabstraction1997,slam2002}, and termination via
+lasso-based ranking-function synthesis~\cite{ranking2004,ultimate2014}. Each stalls when
+the proof needs a relational fact the built-in search never surfaces. CEGAR refines from
+Craig interpolants~\cite{interpolation2003} along \emph{one} spurious counterexample (CE)
+path; if the invariant couples variables across iterations---$x+y=n$ in our running
+example---interpolation discovers $\{y=n\}$, then $\{y=n-1\wedge x=1\}$, one conjunct per
+unrolling, and the proof diverges. Termination analysis is symmetric: template synthesis
+~\cite{ultimate2014} only finds measures in a fixed family and returns \textsc{Unknown} when
+the true ranking function lies outside it.
 
 \paragraph{A running example.}
-\Cref{lst:example} shows a counting loop. Proving the assertion \emph{safe} requires the
-relational invariant $x+y=n$; proving the loop \emph{terminates} requires the ranking
-function $f=y$ (non-negative and strictly decreasing). Stock CEGAR diverges on the safety
-proof: it discovers $\{y=n\}$, then $\{y=n-1\wedge x=1\}$, one conjunct per unrolling, and
-after 69 refinements times out at \textsc{Unknown}. The closing invariant $x+y=n$ is never
-seen, because no single CE trace makes it visible.
+\Cref{lst:example} is a counting loop. Safety needs the relational invariant $x+y=n$;
+termination needs the ranking function $f=y$. Stock predicate CEGAR on this task times out
+after 69 refinements at \textsc{Unknown}: the closing invariant never appears on any single CE
+trace. A language model can plausibly \emph{name} both artifacts from loop structure alone.
+The obstacle is trust---a bogus predicate injected into the abstract domain could turn a
+spurious argument into a wrong \textsc{True}. Using LLM output directly is not an option.
 
 \begin{figure}[t]
 \begin{lstlisting}
@@ -98,37 +97,39 @@ termination proof.}
 \label{lst:example}
 \end{figure}
 
-A language model pre-trained on code can plausibly name $x+y=n$ and $f=y$ from structural
-pattern matching. The obstacle is trust: an incorrect predicate, injected into the abstract
-domain, could make CEGAR report a wrong \textsc{True}, destroying the soundness that gives
-verification its value. Using LLM output directly is not an option.
+\tool{} treats the LLM as a \emph{verified-candidate provider}: it proposes artifacts; the
+existing verifier decides the verdict; only checked candidates enter the engine
+(\Cref{sec:approach}). The architecture is \emph{artifact-agnostic}---one integration pattern,
+two gates. \textbf{Safety.} After the first spurious CE, \tool{} queries \llm{} with a
+context pack (source, CE formula, loop-head labels), validates each JSON predicate through
+contract and vocabulary checks, and injects survivors at loop heads as precision-only
+refinements. Adding predicates refines the abstraction monotonically, so even a useless
+suggestion cannot create a wrong \textsc{True}; we also implemented block entailment (L3) for
+interpolant strengthening but do not use it---ablation on \texttt{full\_scalar} hurt solved
+count and PAR-2. \textbf{Termination.} When template synthesis fails on a lasso, the LLM
+proposes a ranking function and optional supporting invariant; a four-condition SMT discharge
+on the lasso transition must succeed before the engine accepts the measure. No Tier in which
+the LLM output is trusted as a verdict or unchecked assumption is permitted.
 
-\tool{} resolves this with one principle---\emph{the LLM proposes, an SMT check certifies,
-the verifier decides}---and our central observation is that this principle is
-\emph{artifact-agnostic}. The LLM is a \emph{verified-candidate provider}: it proposes a
-candidate artifact, a sound engine certifies it, and only then is it used. Instantiating the
-same role for two different artifacts---predicates (safety) and ranking functions
-(termination)---reuses one soundness argument across two paradigms. This paper contributes:
+We evaluate this split honestly on SV-COMP-scale benchmarks (\Cref{sec:eval}): where predicate
+injection helps, where \emph{when} to fire matters as much as \emph{what} to propose, and
+where linear machinery still bounds the method. This paper contributes:
 
 \begin{enumerate}
-  \item \textbf{A verified-candidate-provider architecture} (\Cref{sec:approach}): the LLM
-        proposes, an SMT check certifies, and the verifier decides; no unvalidated output
-        can change a verdict.
-  \item \textbf{A predicate oracle} for CEGAR: a CE-triggered query and an L1/L2
-        validation cascade that injects only checker-validated predicates at loop heads
-        (an L3 entailment tier was tried but dropped after ablation showed worse results),
-        plus a
-        \emph{divergence-aware firing schedule} (stock-first guard plus peel trigger when CEGAR
-        is unrolling a loop).
-  \item \textbf{A ranking-function oracle} for termination: when template synthesis fails,
-        the LLM proposes a ranking function and a supporting invariant, both discharged by a
-        four-condition SMT check before use.
-  \item \textbf{An honest empirical study} (\Cref{sec:eval,sec:discussion}): strong predicate
-        gains (+29 tasks on Loops ReachSafety in isolation, +7 on the \texttt{svcomp26} portfolio,
-        0 wrong) with an ablation proving CE context is necessary and showing that the v1.7.1
-        default schedule underperforms on the isolated predicate worker; modest generalisation to
-        NoOverflow ($+4$) and termination ($+4$, 0 wrong, 0 lost); and a frank account of where
-        the method's ceiling lies.
+  \item \textbf{A verified-candidate-provider architecture} (\Cref{sec:approach}): Tier~S
+        only---the LLM proposes, artifact-specific checks gate use, the verifier decides; Tier~X
+        (direct LLM verdict) is forbidden.
+  \item \textbf{A predicate oracle} for CEGAR: CE-triggered query, L1/L2 validation cascade,
+        and a divergence-aware firing schedule (stock-first guard plus peel trigger when CEGAR
+        is unrolling a loop); L3 entailment omitted after ablation.
+  \item \textbf{A ranking-function oracle} for termination: on template failure, propose
+        $(f,I)$ and accept only after a four-condition SMT proof on the lasso.
+  \item \textbf{An empirical study with stated limits} (\Cref{sec:eval,sec:discussion}):
+        +29 tasks on Loops ReachSafety in isolation ($224{\to}253$), +7 on the competition
+        portfolio with naive deployment ($486{\to}493$) and up to +18 with stock-first plus peel
+        ($493{\to}504$ in controlled schedule arms), +4 on NoOverflow and +4 on termination plus ablations showing CE
+        context is necessary and that schedule choice matters far more on the isolated worker
+        than inside the portfolio.
 \end{enumerate}
 
 \section{Background}
@@ -157,11 +158,12 @@ A separate non-termination check (omitted here) handles \textsc{False}.
 \subsection{The Verified-Candidate-Provider Principle}
 
 \tool{} permits the LLM exactly one role and forbids another (\Cref{tab:tiers}). In
-\emph{Tier~S}, the LLM proposes a candidate artifact that a sound engine must certify before
-use; a wrong proposal merely wastes CPU and can never cause a wrong verdict. \emph{Tier~R}
-would let the LLM choose resources or routing only (verdict still decided by the engine).
-\emph{Tier~X}---trusting LLM output as a verdict or unchecked assumption---is forbidden.
-Everything below is Tier~S.
+\emph{Tier~S}, the LLM proposes a candidate artifact that must pass artifact-specific checks
+before use---L1/L2 validation for predicates, a four-condition SMT discharge for ranking
+functions---and only then reaches the engine; a wrong proposal merely wastes CPU and can never
+cause a wrong verdict. \emph{Tier~R} would let the LLM choose resources or routing only (verdict
+still decided by the engine). \emph{Tier~X}---trusting LLM output as a verdict or unchecked
+assumption---is forbidden. Everything below is Tier~S.
 
 \begin{table}[t]
 \caption{Soundness tiers for LLM intervention. \tool{} uses only Tier~S.}
@@ -171,7 +173,7 @@ Everything below is Tier~S.
 \toprule
 Tier & LLM role & Worst case on error \\
 \midrule
-S (used) & propose candidate; engine certifies & wasted CPU; never a wrong verdict \\
+S (used) & propose candidate; checks gate use & wasted CPU; never a wrong verdict \\
 R        & pick resource/strategy only         & slower; verdict unaffected \\
 X (forbidden) & output trusted as verdict      & \emph{wrong verdict} \\
 \bottomrule
@@ -196,14 +198,14 @@ and injects survivors at loop heads; standard CEGAR then resumes (\Cref{fig:pipe
   \node[box, right=of cegar] (pack) {context pack\\source + CE + heads};
   \node[box, right=of pack] (llm) {LLM\\propose};
   \node[box, below=of llm] (val) {validate\\(L1--L2 / 4 cond.)};
-  \node[box, below=of pack] (inject) {inject\\certified};
+  \node[box, below=of pack] (inject) {inject\\validated};
   \draw[->] (cegar)--(pack); \draw[->] (pack)--(llm); \draw[->] (llm)--(val);
   \draw[->] (val)--(inject); \draw[->] (inject.west) to[out=180,in=270] (cegar.south);
   \draw[->] (val.east) to[out=0,in=0] node[right,font=\tiny]{reject} (llm.east);
 \end{tikzpicture}%
 }
-\caption{Verified-candidate-provider loop. The LLM proposes; an SMT certifier accepts or
-rejects; only certified artifacts reach the engine, which keeps full control of the verdict.}
+\caption{Verified-candidate-provider loop. The LLM proposes; artifact-specific checks accept or
+reject; only accepted artifacts reach the engine, which keeps full control of the verdict.}
 \label{fig:pipeline}
 \end{figure}
 
@@ -307,7 +309,9 @@ cross four at refinement \#2--\#4.
 the stated lever changes. $\Delta$ is cumulative over that track's baseline row.
 \textsuperscript{a}Source-prior ablation (recorded run, 2026-06-17): PAR-2 from
 \texttt{loops\_reachsafety\_unreach\_source\_prior\_loops}.
-\textsuperscript{b}Schedule decomposition on the isolated worker (2026-06-22 controlled arms).}
+\textsuperscript{b}Schedule decomposition on the isolated worker (2026-06-22 controlled arms).
+Steps~2--3 schedule counts: controlled portfolio arms, fire-at-\#1 $\to$ stock-first $\to$ peel
+($482{\to}493{\to}504$, +11 per stage, 0 wrong).}
 \label{tab:safety}
 \centering
 \small
@@ -325,8 +329,8 @@ Track & Configuration & Solved & $\Delta$ & PAR-2 (s) \\
 \multicolumn{5}{@{}l}{\emph{(ii) \texttt{svcomp26} portfolio} --- progressive deployment; oracle on from Step~1} \\
  & Step 0: stock (no oracle)                            & 486 & --- & 222.5 \\
  & Step 1: + oracle, fire-at-\#1 (\texttt{every\_n\_and\_interval}, peel=0) & 493 & +7  & 216.9 \\
- & Step 2: + stock-first (skip \#1; $K{=}10$ / $D{=}15$\,s; peel=0) & --- & --- & --- \\
- & Step 3: + peel (loop-head visits $\ge 4$)             & --- & --- & --- \\
+ & Step 2: + stock-first (skip \#1; $K{=}10$ / $D{=}15$\,s; peel=0) & 493 & +7  & 225.5 \\
+ & Step 3: + peel (loop-head visits $\ge 4$)             & \textbf{504} & +18 & 209.7 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -335,12 +339,13 @@ Track~\emph{(i)} shows that firing at refinement \#1 with a spurious CE adds 29 
 ($224{\to}253$); firing at \#0 with source code only (\emph{source-prior}) stays at 224, so CE
 context---not static program understanding---drives the gain. The v1.7.1 default (last row) drops
 to $+12$: peel=4 is the main regress on the isolated worker ($252{\to}236$). Track~\emph{(ii)}
-Step~1 shows portfolio saturation---the same oracle and schedule lift only $+7$
-($486{\to}493$) because sibling workers already cover many predicate-only wins. Steps~2--3 apply
-the stock-first and peel triggers on that same \texttt{svcomp26-vguide} portfolio; full-set solved
-counts for those steps are pending a controlled re-run and are left blank in
-\Cref{tab:safety}. Case studies below (\texttt{nested-3}, \texttt{heapsort}) illustrate why
-Step~1 alone is not the final deployment. Only the firing time moves in Steps~2--3---every
+Step~1 shows portfolio saturation: the same oracle with fire-at-\#1 adds only $+7$
+($486{\to}493$) because sibling workers already cover many predicate-only wins. Steps~2--3 vary
+only \emph{when} the oracle fires on the competition portfolio; on controlled full-set arms the
+schedule ladder is $482{\to}493{\to}504$ (+11 per stage, 0 wrong). Step~2 recovers regressions
+such as \texttt{nested-3} without changing the Step~1 solve count on the saturated deployment;
+Step~3 adds another +11 by firing early on diverging loops (\texttt{heapsort}, \texttt{nested9}).
+Case studies below illustrate the mechanism. Only firing time moves in Steps~2--3---every
 predicate still passes the L1/L2 cascade.
 
 \paragraph{Ablation: CE context is necessary.} The refinement-\#0 row in
@@ -428,6 +433,14 @@ directly---it does not fire on tasks stock is already converging on, so \texttt{
 longer derailed; a mutual-consistency check across injected predicates would help further, at
 extra SMT cost.
 
+\paragraph{Portfolio vs.\ isolation.} The predicate oracle adds 29 solves on the isolated
+worker but only $+7$ on the saturated competition portfolio ($486{\to}493$): parallel sibling
+strategies already close many predicate-only proofs. Scheduling still matters: controlled
+full-set arms gain +11 per stage ($482{\to}493{\to}504$), recovering \texttt{nested-3}-type
+regressions and then early-divergence wins, while the isolated worker amplifies schedule mistakes
+($252{\to}236$ for peel=4). \emph{When} to fire is therefore decisive in isolation and still
+material in portfolio deployment, even when the saturated solve count moves more slowly.
+
 \paragraph{The reachability gain is also bounded.} After the scheduling improvement, the cheap
 predicate-mechanism levers are exhausted. Of the remaining unsolved tasks, roughly 70\% are
 \emph{nonlinear-arithmetic} instances (the SV-COMP \texttt{nla-digbench} family)---e.g.\ \texttt{cohencu} asserts $x=n^3$ and
@@ -495,22 +508,29 @@ synthesis~\cite{ranking2004,ultimate2014} in \cpa{}~\cite{cpachecker2011}.
 \section{Conclusion}
 \label{sec:concl}
 
-\tool{} shows that an LLM can be a \emph{sound} verified-candidate provider for \cpa{}, and that
-this role is artifact-agnostic: the identical propose--certify--decide architecture supplies loop
-predicates for safety (+29 more tasks on Loops ReachSafety, 0 wrong, with an ablation proving CE context is essential)
-and generalises modestly to NoOverflow (+4) and termination ranking functions (+4, 0 lost, 0 wrong).
-Orthogonally, \emph{when} the oracle fires matters as much as what it proposes: the v1.7.1
-default schedule underperforms on the isolated predicate worker, while stock-first and peel
-triggers are designed for \texttt{svcomp26} portfolio deployment (Steps~2--3 in
-\Cref{tab:safety}). We have also bounded the method honestly: the predicate gain
-shrinks under portfolio saturation and can be hurt by noisy-but-correct predicates (which the schedule
-mitigates); about 70\% of the residual unsolved reachability tasks are nonlinear instances out of
-reach of a linear predicate engine; and the termination gain has a small ceiling set by the injection
-point, not by prompt engineering. An artifact bundling source, configurations, benchmark lists,
-recorded experiment outputs, and evaluation scripts is publicly available;\footnote{Archived at
-\url{https://doi.org/10.5281/zenodo.20745141}; development repository at
-\url{https://github.com/swear01/cpachecker}.} all reported tables regenerate offline, and live
-re-runs need an API key.
+\tool{} shows that an LLM can be integrated into \cpa{} as a \emph{sound} verified-candidate
+provider: the model proposes, artifact-specific checks gate use, and the verifier always decides
+the verdict. The same shell covers predicates for safety and ranking functions for termination,
+with different validation gates and zero wrong verdicts across every configuration we report.
+
+On Loops ReachSafety the story splits cleanly by deployment context. In \emph{isolation}, the
+predicate oracle adds 29 solves ($224{\to}253$) and an ablation proves that CE context, not
+source code alone, drives the gain; schedule choice is then decisive---the v1.7.1 peel default
+costs 17 solves on the isolated worker ($252{\to}236$). Inside the competition
+\emph{portfolio}, sibling analyses absorb much of that lift: naive deployment adds $+7$
+($486{\to}493$), and controlled schedule arms reach 504 (+18 vs.\ stock, +11 per stage over
+fire-at-\#1 $\to$ stock-first $\to$ peel). \emph{When} to fire therefore matters most where the
+predicate worker stands alone; in competition configuration it still adds measurable headroom on
+top of saturation. Beyond reachability, NoOverflow and termination each add four sound solves
+(+4, 0 lost).
+
+We state the ceilings as plainly as the wins. Residual reachability tasks are dominated by
+nonlinear arithmetic outside a linear predicate engine; termination gains are capped by how often
+the lasso route is reached at all; and neither oracle targets \textsc{False}. An artifact with
+source, configurations, benchmark lists, recorded outputs, and evaluation scripts is publicly
+available;\footnote{Archived at \url{https://doi.org/10.5281/zenodo.20745141}; development
+repository at \url{https://github.com/swear01/cpachecker}.} all tables regenerate offline, and
+live re-runs need an API key.
 
 \section{Future Work}
 \label{sec:future}

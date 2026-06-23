@@ -65,14 +65,13 @@ recursion(BAM)/concurrency/complexLoop/cex-check/property-specific 全部指向*
 | `…svcomp26-vguide--multipleLoopsConfig.properties` | 同名 | 首項指向 vguide parallel-multipleLoops |
 | `…svcomp26-vguide--parallel-singleLoop.properties` | 同名 | predicate 項指向 `svcomp26-vguide--singleLoop-predicateAnalysis.properties`；其餘 4 分析不變 |
 | `…svcomp26-vguide--parallel-multipleLoops.properties` | 同名 | predicate 項指向 vguide 版 |
-| `…svcomp26-vguide--singleLoop-predicateAnalysis.properties` | 同名 | 原檔 + 下方 2 行 |
-| `…svcomp26-vguide--multipleLoops-predicateAnalysis.properties` | 同名 | 原檔 + 下方 2 行 |
+| `…svcomp26-vguide--singleLoop-predicateAnalysis.properties` | 同名 | 僅 `useVocabularyGuide=true`（**不**再 `#include vguide.properties`） |
+| `…svcomp26-vguide--multipleLoops-predicateAnalysis.properties` | 同名 | 同上 |
 | `…svcomp26-vguide--configselection-restart-bmc-fallbacks.properties` | 同名 | 末項指向 `svcomp26-vguide--…predicateAnalysis-end` |
-| `…svcomp26-vguide--configselection-restartcomponent-predicateAnalysis-end.properties` | 同名 | 原檔 + 下方 2 行 |
+| `…svcomp26-vguide--configselection-restartcomponent-predicateAnalysis-end.properties` | 同名 | 僅 `useVocabularyGuide=true` |
 
-predicate 元件變體加的 2 行（**注意路徑比 svcomp27 多一層**）：
+predicate 元件只加一行（`vguide.*` 在 top `svcomp26-vguide.properties` `#include ../vguide.properties`，CLI `--option` 才能覆寫排程）：
 ```properties
-#include ../../vguide.properties
 cpa.predicate.refinement.useVocabularyGuide = true
 ```
 
@@ -167,7 +166,7 @@ VGUIDE_ANALYSIS_TIMELIMIT_SEC=300 \
 
 | 項目 | 狀態 | 摘要 |
 |------|------|------|
-| 9 個 svcomp26-vguide config 變體 | DONE | top `config/unmaintained/svcomp26-vguide.properties` + 8 個 components；predicate 元件 `#include ../../vguide.properties` + `useVocabularyGuide=true`；recursion/concurrency/complexLoop/property configs 全指向官方原檔；top 設 `vguide.maxLlmRoundsPerProcess=10`；9 檔 SPDX header 齊全 |
+| 9 個 svcomp26-vguide config 變體 | DONE | top `#include ../vguide.properties` + `maxLlmRoundsPerProcess=10`；predicate 元件僅 `useVocabularyGuide=true`（vguide 選項不可在 nested 重複 include，否則 `--option` 排程失效） |
 | Runner `--mode svcomp26-vguide` | DONE | `run.sh` 加 mode（require_api、`VGUIDE_SVCOMP=1`、`config/unmaintained/svcomp26-vguide.properties`、reachability spec、out `<set>_svcomp26_vguide`）；`run_benchmark_set.sh` 的 SVCOMP_MODE fallback 加 `*svcomp26-vguide*`（**不**動 svcomp26.properties stock 的 baseline 跑法）；既有 mode 行為不變；`bash -n` 通過 |
 | svcomp27-vguide 標記 | DONE | `config/svcomp27-vguide.properties` header 加 NOTE：非當前實驗主線，保留供未來 trunk 對齊；當前實驗用 svcomp26-vguide |
 | 3 向煙霧驗證 | DONE | (1) `overflow_1-1` svcomp26-vguide → **TRUE** + vguide fired；(2) 同題 svcomp26 stock → UNKNOWN（對照，印證 v1.5 VGuide-only solve；`aggregateBasicBlocks` mismatch INFO 官方 stock 亦有，非變體引入）；(3) `recursive/Ackermann01-2` svcomp26-vguide → BAM fallback 觸發、vguide 完全未開（enabled=0, LLM rounds=0）、零 exception、不 crash |

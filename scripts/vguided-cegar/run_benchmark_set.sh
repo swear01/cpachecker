@@ -246,6 +246,10 @@ run_one() {
   fi
   "${cmd[@]}" >"$log" 2>&1 || true
   finalize_log_verdict "$log"
+  if [[ "$SVCOMP_MODE" == "1" ]] && grep -q \
+    "Mismatch of configuration options when loading.*'vguide\." "$log" 2>/dev/null; then
+    echo "WARN: $task — nested config ignored a vguide --option (see CPA log); schedule ablation invalid" >&2
+  fi
   local result refs wall
   result="$(extract 'Verification result:' "$log" | sed -n 's/.*Verification result:[[:space:]]*\([A-Za-z]*\).*/\1/p' | head -1 | tr '[:lower:]' '[:upper:]')"
   refs="$(extract 'Number of predicate refinements:' "$log" | grep -oE '[0-9]+' | head -1)"

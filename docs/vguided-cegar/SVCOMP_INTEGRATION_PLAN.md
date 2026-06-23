@@ -31,10 +31,11 @@
    - `components/svcomp27--recursion.properties`（**BAM** predicate，見 P0-3）
    - complexLoop 鏈（valueAnalysis chain）**沒有** predicate 主分析，只有 cex-check。
 
-3. **選項傳遞：** `NestingAlgorithm.buildSubConfig()`（NestingAlgorithm.java:105）先
-   `copyFrom(globalConfig)` 再 `loadFromFile()` → **命令列 `--option` 會傳進所有巢狀分析**
-   （子檔案同名選項優先）。例外：counterexample check
-   （CounterexampleCPAchecker.java:216 只 `loadFromFile`，不繼承全域）→ vguide 不會漏進 cex-check。
+3. **選項傳遞：** `NestingAlgorithm.buildSubConfig()` 先 `copyFrom(globalConfig)` 再
+   `loadFromFile()` → **子 config 檔內同名選項會覆蓋** global（含 CLI `--option`）。因此
+   `vguide.*` 必須只出現在 **portfolio 頂層**（`svcomp26-vguide.properties` 等 `#include
+   vguide.properties`），**不可**在 nested predicate component 再 `#include vguide.properties`。
+   實驗排程用 `./run.sh cpa --mode svcomp26-vguide -- --option vguide.llmCallSchedule=...`。
 
 4. **Interrupt 安全已確認：** ParallelAlgorithm 用 `future.cancel(true)`（interrupt）收掉輸家，
    `HttpClient.send()` 可被 interrupt（丟 InterruptedException），bridge 把
