@@ -8,11 +8,11 @@ below — you only need to log in and upload.
 
 1. Log in at <https://zenodo.org> (you can sign in with GitHub/ORCID).
 2. Click **New upload**.
-3. Drag in the prepared archive **`vguide-artifact.zip`** (built next to this file at the
-   repository root).
+3. Drag in the prepared archive **`vguide-artifact-v2.zip`** (built via
+   `bash scripts/vguided-cegar/build_artifact_zip.sh` at the repository root).
 4. Fill the metadata using the values below (or they auto-fill if you connect the GitHub
    repo, which carries `.zenodo.json`):
-   - **Title:** From Predicates to Ranking Functions: LLM-Proposed, SMT-Certified Candidates
+   - **Title:** From Predicates to Ranking Functions: LLM-Proposed, Engine-Validated Candidates
      for CEGAR-Based Software Verification (Artifact)
    - **Upload type:** Software
    - **Authors:** Huang, Ssu-Wei — National Taiwan University

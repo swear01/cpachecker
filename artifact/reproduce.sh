@@ -17,8 +17,9 @@ ANT="${ANT:-ant}"
 
 hr() { printf '\n==================== %s ====================\n' "$1"; }
 
-hr "0. Offline regeneration of report Table 3 (recorded outputs; no build, no API key)"
+hr "0. Offline checks (recorded outputs; no build, no API key)"
 python3 "$HERE/reproduce_termination.py"
+python3 "$HERE/reproduce_reachsafety.py"
 
 hr "1. Build CPAchecker + VGuide (offline; lib/ is bundled)"
 if [ ! -f classes/org/sosy_lab/cpachecker/cmdline/CPAMain.class ]; then
@@ -49,5 +50,5 @@ if [ "${1:-}" = "full" ]; then
 fi
 
 hr "DONE"
-echo "Table 3 (+4, 0 wrong) regenerated offline in step 0; tool built and unit-tested in steps 1-2;"
-echo "real verification runs in step 3 (and step 4 with an API key)."
+echo "Table 3 and Table 2 summaries verified offline in step 0;"
+echo "tool built and unit-tested in steps 1-2; real verification runs in step 3 (and step 4 with an API key)."

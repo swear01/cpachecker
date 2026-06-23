@@ -1,0 +1,5 @@
+track,step,dir,schedule,peel,solved,delta_vs_stock,par2_s,wrong
+ii,0,step0_stock,stock,0,486,0,222.5,0
+ii,1,step1_fire1,every_n_and_interval,0,493,7,217.9,0
+ii,2,step2_stockfirst,every_n_or_interval,0,505,19,209.0,0
+ii,3,step3_peel4,every_n_or_interval,4,505,19,211.3,0

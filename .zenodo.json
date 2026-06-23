@@ -1,7 +1,7 @@
 {
-  "title": "From Predicates to Ranking Functions: LLM-Proposed, SMT-Certified Candidates for CEGAR-Based Software Verification",
+  "title": "From Predicates to Ranking Functions: LLM-Proposed, Engine-Validated Candidates for CEGAR-Based Software Verification",
   "upload_type": "software",
-  "description": "<p>Artifact for the Formal Methods final project report of the same title. VGuide augments CPAchecker with a large language model acting as a <em>verified-candidate provider</em>: the LLM proposes a candidate artifact (a loop predicate for safety, or a ranking function with a supporting invariant for termination), a sound SMT check certifies it, and only then is it used; no unvalidated LLM output can change a verdict (strictly Tier S).</p><p>This artifact bundles the VGuide source (a CPAchecker fork), configurations, benchmark lists, recorded experiment outputs, and evaluation scripts. The termination result (report Table 3: 80 -> 84 solved, +4, 0 lost, 0 wrong) regenerates deterministically and offline with <code>python3 reproduce_termination.py</code> (no API key, no solver, no CPAchecker run). The predicate results (Tables 1-2) are documented with their recorded run reports and can be re-run live. See README.md for Getting Started and Step-by-Step instructions.</p>",
+  "description": "<p>Artifact for the Formal Methods (2026) final project report of the same title. VGuide augments CPAchecker with a large language model acting as an <em>engine-validated candidate provider</em>: the LLM proposes a candidate artifact (a loop predicate for safety, or a ranking function with a supporting invariant for termination), artifact-specific checks gate use, and the verifier decides; no unvalidated LLM output can change a verdict (strictly Tier S).</p><p>This bundle ships source, prebuilt classes, solver libraries, a termination benchmark subset, recorded experiment summaries, and reproduction scripts. Offline: <code>python3 reproduce_termination.py</code> regenerates report Table 3 (termination 80→84, +4, 0 lost, 0 wrong); <code>python3 reproduce_reachsafety.py</code> checks report Table 2 summaries (Loops ReachSafety 764 tasks, 0 wrong). Live re-run instructions are in README.md. Report PDF included under <code>cpachecker/report/main.pdf</code>.</p>",
   "creators": [
     {
       "name": "Huang, Ssu-Wei",
@@ -29,11 +29,11 @@
   ],
   "license": "Apache-2.0",
   "language": "eng",
-  "version": "1.6.1",
-  "publication_date": "2026-06-18",
+  "version": "2.0.0",
+  "publication_date": "2026-06-23",
   "access_right": "open",
-  "notes": "Reproduction artifact for the National Taiwan University Formal Methods (2026) final project report of the same title. Offline reproduction of the main termination result: run 'python3 reproduce_termination.py' (no API key, no network, no CPAchecker invocation). See README.md for Getting Started and Step-by-Step instructions. Built on CPAchecker (Apache-2.0).",
-  "method": "VGuide intercepts CPAchecker at two points: (i) on the first spurious counterexample in predicate-CEGAR, an LLM proposes loop predicates that are filtered by a three-tier validation cascade (contract, scope-vocabulary, Z3 SMT entailment) before injection; and (ii) when lasso-based template synthesis fails for a loop, an LLM proposes a ranking function with an optional supporting invariant that is certified by four SMT checks (initiation, consecution, boundedness, decrease) before use. No unvalidated LLM output can change a verdict. Evaluation is on SV-COMP benchmarks with CPAchecker; the termination result is reproduced offline from recorded per-task outputs.",
+  "notes": "Reproduction artifact v2.0 for the NTU Formal Methods (2026) final project. Offline: run reproduce_termination.py and reproduce_reachsafety.py under cpachecker/artifact/ (no API key). Full smoke: bash cpachecker/artifact/reproduce.sh. Built on CPAchecker (Apache-2.0).",
+  "method": "VGuide intercepts CPAchecker at two points: (i) on spurious counterexamples in predicate-CEGAR, an LLM proposes loop predicates filtered by L1/L2 validation before loop-head injection (L3 entailment disabled in all reported runs); and (ii) when lasso-based template synthesis fails, an LLM proposes ranking functions verified by four SMT checks on the lasso before use. Evaluation uses SV-COMP benchmarks; reachability numbers are recorded as summary tables with full reports under artifact/recorded-reports/.",
   "related_identifiers": [
     {"identifier": "https://github.com/swear01/cpachecker", "relation": "isSupplementTo", "scheme": "url"},
     {"identifier": "10.1007/978-3-642-22110-1_16", "relation": "isDerivedFrom", "resource_type": "publication-conferencepaper", "scheme": "doi"}
@@ -48,6 +48,6 @@
     "Podelski, A., Rybalchenko, A.: A Complete Method for the Synthesis of Linear Ranking Functions. VMCAI 2004. LNCS 2937, pp. 239-251 (2004)",
     "Cook, B., Podelski, A., Rybalchenko, A.: Termination Proofs for Systems Code. PLDI 2006, pp. 415-426 (2006)",
     "Heizmann, M., Hoenicke, J., Podelski, A.: Termination Analysis by Learning Terminating Programs. CAV 2014. LNCS 8559, pp. 797-813 (2014)",
-    "DeepSeek-AI: DeepSeek-V3 Technical Report. arXiv:2412.19437 (2025)"
+    "DeepSeek-AI: DeepSeek-V4: Towards Highly Efficient Million-Token Context Intelligence. arXiv:2606.19348 (2026)"
   ]
 }
