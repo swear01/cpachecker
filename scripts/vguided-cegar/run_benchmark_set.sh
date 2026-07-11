@@ -20,6 +20,7 @@
 #   VGUIDE_SET_DIR — override manifest directory
 #   VGUIDE_DRY_RUN=1 — print commands only
 #   VGUIDE_SKIP_MISSING=1 — default; skip tasks whose .i is not found
+#   VGUIDE_LLM_RECORD_DIR / VGUIDE_LLM_REPLAY_DIR — paired-response cache root (mutually exclusive)
 #
 # Scheduling defaults come from config/vguide.properties.
 # Summary rows are appended after each task (flock); safe to tail -f while running.
@@ -87,8 +88,13 @@ shift
 MANIFEST="$SET_DIR/${SET}.list"
 [[ -f "$MANIFEST" ]] || die "Unknown set '$SET' (no $MANIFEST)"
 
-if [[ "$USE_VGUIDE" == "true" && -z "${DEEPSEEK_API_KEY:-}" ]]; then
-  die "DEEPSEEK_API_KEY required for Unified VGuide"
+if [[ -n "${VGUIDE_LLM_RECORD_DIR:-}" && -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then
+  die "VGUIDE_LLM_RECORD_DIR and VGUIDE_LLM_REPLAY_DIR are mutually exclusive"
+fi
+if [[ "$USE_VGUIDE" == "true" \
+  && -z "${DEEPSEEK_API_KEY:-}" \
+  && -z "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then
+  die "DEEPSEEK_API_KEY required unless VGUIDE_LLM_REPLAY_DIR is set"
 fi
 
 mkdir -p "$OUT_BASE/logs"
@@ -244,7 +250,7 @@ run_one() {
     echo "$task,$(basename "$prog"),DRY_RUN,0,0,$log"
     return 0
   fi
-  "${cmd[@]}" >"$log" 2>&1 || true
+  VGUIDE_LLM_CACHE_NAMESPACE="$task" "${cmd[@]}" >"$log" 2>&1 || true
   finalize_log_verdict "$log"
   if [[ "$SVCOMP_MODE" == "1" ]] && grep -q \
     "Mismatch of configuration options when loading.*'vguide\." "$log" 2>/dev/null; then

@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -50,7 +51,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "3";
+  public static final String SCHEMA_VERSION = "4";
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -213,6 +214,10 @@ public final class VGuideAnalysisDumper {
     row.put("latency_ms", api.latencyMs());
     row.put("call_start_epoch_ms", api.startEpochMs());
     row.put("prompt_chars", prompt.length());
+    row.put("prompt_hash", hashUtf8(prompt));
+    row.put("request_hash", api.requestHash());
+    row.put("response_hash", hashUtf8(api.content()));
+    row.put("response_source", api.responseSource());
     row.set("prompt_components", promptComponents(pack));
     if (usage != null) {
       row.set("usage", usage);
@@ -246,6 +251,10 @@ public final class VGuideAnalysisDumper {
       row.put("prompt_path", "prompts/" + promptFileName);
     }
     appendJsonLine(llmRoundsFile, row);
+  }
+
+  private static String hashUtf8(String value) {
+    return Hashing.sha256().hashString(value, StandardCharsets.UTF_8).toString();
   }
 
   private final AtomicBoolean taskFinished = new AtomicBoolean(false);
@@ -305,6 +314,15 @@ public final class VGuideAnalysisDumper {
       manifest.put("benchmark_set", System.getenv().getOrDefault("VGUIDE_ANALYSIS_BENCHMARK_SET", ""));
       manifest.put("model", System.getenv().getOrDefault("DEEPSEEK_MODEL", "deepseek-v4-pro"));
       manifest.put("llm_thinking", llmThinkingModeForManifest());
+      manifest.put("llm_response_mode", llmResponseModeForManifest());
+      manifest.put(
+          "llm_cache_dir",
+          System.getenv().getOrDefault(
+              "VGUIDE_LLM_REPLAY_DIR",
+              System.getenv().getOrDefault("VGUIDE_LLM_RECORD_DIR", "")));
+      manifest.put(
+          "llm_replay_preserve_latency",
+          System.getenv().getOrDefault("VGUIDE_LLM_REPLAY_PRESERVE_LATENCY", "true"));
       manifest.put("timelimit_sec", System.getenv().getOrDefault("VGUIDE_ANALYSIS_TIMELIMIT_SEC", ""));
       manifest.put("git_commit", readGitCommit());
       manifest.put("dump_prompts", dumpPrompts);
@@ -329,6 +347,16 @@ public final class VGuideAnalysisDumper {
       case "enabled", "true", "on", "1" -> "enabled";
       default -> "disabled";
     };
+  }
+
+  private static String llmResponseModeForManifest() {
+    if (!System.getenv().getOrDefault("VGUIDE_LLM_REPLAY_DIR", "").isBlank()) {
+      return "replay";
+    }
+    if (!System.getenv().getOrDefault("VGUIDE_LLM_RECORD_DIR", "").isBlank()) {
+      return "live_recorded";
+    }
+    return "live";
   }
 
   private static String readGitCommit() {

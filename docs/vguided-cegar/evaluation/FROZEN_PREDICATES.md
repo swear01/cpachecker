@@ -1,6 +1,8 @@
 # Frozen Predicates（透明 Replay 替代方案）
 
-取代 `VGUIDE_LLM_RECORD` / `VGUIDE_LLM_REPLAY` hash cache。所有內容 **可讀、可 diff、可 cite**，適合論文與 advisor。
+這是可讀、可diff、可cite的semantic predicate seed；它取代舊sidecar的
+`VGUIDE_LLM_RECORD` / `VGUIDE_LLM_REPLAY` protocol。2026-07-11新增的
+`VGUIDE_LLM_{RECORD,REPLAY}_DIR`只用於paired API-response因果實驗，不是predicate source，兩者不可混稱。
 
 ## 術語
 
@@ -60,7 +62,10 @@ Java `FrozenPredicateLoader` 讀取後 **只** `addLocalPredicates(loopHead, ·)
 - `VGUIDE_LLM_CACHE_DIR` / prompt hash replay（已歸檔實驗腳本）  
 - 不透明 `response.txt` only cache  
 
+現行paired evaluation的`VGUIDE_LLM_{RECORD,REPLAY}_DIR`是新的schema/hash/ordinal response
+cache，只用來固定兩個arms的proposal與latency；它不取代本文件的可讀semantic seeds。
+
 ## 與主路徑的界線
 
-- **主路徑：** 第一條 spurious → Java HttpClient → 即時提案  
+- **主路徑：** scheduled spurious refinement → Java HttpClient（或paired response replay）→ proposal
 - **Exception：** 無 spurious → frozen 檔（**不算** LLM 自動成功）

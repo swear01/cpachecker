@@ -2,7 +2,7 @@
 
 | Path | Purpose |
 |------|---------|
-| `src/org/sosy_lab/cpachecker/cpa/predicate/vguide/` | **VGuide Java implementation** — LLM bridge, validator, precision injector |
+| `src/org/sosy_lab/cpachecker/cpa/predicate/vguide/` | **VGuide Java implementation** — LLM bridge, validator, precision injector, usefulness gate, fail-closed paired-response cache |
 | `config/vguide.properties` | Runtime defaults: LLM scheduling; **L3 off** (not used after ablation) |
 | `config/predicateAnalysis-vguide.properties` | PredicateCPA + VGuide entry config |
 | `config/vguide-experiment-usefulness-gate-{off,on}.properties` | Frozen paired experiment configs; general default remains off |
@@ -12,6 +12,7 @@
 | `scripts/vguided-cegar/run.sh` | **Single entry point** for all experiments and bench setup |
 | `scripts/vguided-cegar/oracle_capacity_harness.py` | VGuide-NLA TDD harness：catalog/hash validation、ordinary/KI-PDR/direct-PDR consumers、root/vocabulary modes、comparison/provenance |
 | `scripts/vguided-cegar/analyze_predicate_usefulness_gate.py` | Replays the frozen first-call gate over recorded stock/VGuide summaries and logs |
+| `scripts/vguided-cegar/verify_llm_response_pair.py` | Fails unless replay call hashes are an exact per-task prefix of the recorded live arm |
 | `scripts/vguided-cegar/post_batch_analysis.sh` | PAR-2 / cactus analysis after batch runs |
 | `docs/vguided-cegar/` | All active research documentation |
 | `docs/vguided-cegar/VGUIDE_NLA_PLAN.md` | **Current main plan** — two execution batches; sole breakpoint before changing BMC core |
@@ -38,6 +39,7 @@
 
 - VGuide code (`src/.../vguide/`) is the only place LLM integration lives. Do not add LLM calls elsewhere.
 - `PredicateUsefulnessGate` is a deterministic Tier-R filter between validation and precision injection; it never changes standard interpolation or verdict semantics.
+- `LlmResponseCache` is evaluation-only infrastructure: record and replay modes are mutually exclusive, keyed by exact request hash plus per-task ordinal, and replay never falls back to a live call.
 - `scripts/vguided-cegar/` is the only scripts directory for VGuide experiments. Legacy scripts are in `archive/`.
 - `docs/vguided-cegar/` is the single source of truth for active research docs. `archive/` is not authoritative.
 - `output/vguide/` is runtime output only — never commit it.

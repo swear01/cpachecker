@@ -4,7 +4,7 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
 ## Active
 
-- **Predicate usefulness gating**：final PDR/KI-PDR oracle matrix已all zero而STOP。Fixed first-call signature已fresh回收7/7 losses、保留2/2 wins、0 wrong；下一步只做threshold-frozen held-out/full764，不再調rule。
+- **Predicate usefulness gating**：final PDR/KI-PDR oracle matrix已all zero而STOP。Fixed first-call signature已fresh回收7/7 losses、保留2/2 wins、0 wrong；exact-response paired smoke為0/7→7/7且hash-prefix一致。下一步只做threshold-frozen prospective full764與真正held-out，不再調rule。
 
 ## Backlog
 
@@ -18,10 +18,11 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
 ## Current Order
 
-1. Fresh loss7 runtime確認multiplicative short-peel gate。
-2. 以預先固定rule做跨schedule/family holdout，不再調threshold。
-3. Gate至少消除50%已知 injection losses，且 net勝固定 `peel=0`，才跑完整764。
-4. 其他 branch/hook 全部 defer，避免同時開多條高成本研究線。
+1. ~~Fresh與paired loss7 runtime確認multiplicative short-peel gate。~~ **DONE**
+2. 以record/replay做frozen-rule prospective full764，不再調threshold。
+3. 另建真正未曝光family/content-deduplicated holdout；完整764不得稱held-out。
+4. Pure arm達GO門檻後才做portfolio validation。
+5. 其他 branch/hook 全部 defer，避免同時開多條高成本研究線。
 
 ## Recently Done
 

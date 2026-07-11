@@ -130,6 +130,10 @@ export VGUIDE_ANALYSIS_DUMP_PROMPTS=1   # 寫入完整 .prompt.txt
 | `dual_prompt_mode` | v1.4 | bool |
 | `usage` | ✓ | §2.1 完整 object |
 | `latency_ms` | ✓ | |
+| `prompt_hash` | schema-v4+ | full prompt SHA-256 |
+| `request_hash` | schema-v4+ | model/options/messages完整request body SHA-256；paired replay key |
+| `response_hash` | schema-v4+ | assistant content SHA-256 |
+| `response_source` | schema-v4+ | `live` \| `live_recorded` \| `replay` |
 | `prompt_chars` | ✓ | 實際送出字串長度 |
 | `prompt_components` | ✓ | `{source, contract, trace, rules, loop_heads}` 字元數；**v1.4** 加 `ce_summary`，later 輪 `trace=0` |
 | `prompt_path` | 若 `DUMP_PROMPTS=1` | 相對路徑 |

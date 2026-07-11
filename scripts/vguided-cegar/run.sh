@@ -22,6 +22,7 @@
 #   JAVA              — Java 21+ required for CPA
 #   DEEPSEEK_API_KEY  — required for vguide / llm-quality / verify-pack
 #   DEEPSEEK_MODEL    — optional override (default deepseek-v4-pro)
+#   VGUIDE_LLM_RECORD_DIR / VGUIDE_LLM_REPLAY_DIR — mutually exclusive paired-response modes
 #   SV_BENCHMARKS     — default $HOME/sv-benchmarks/c
 
 set -euo pipefail
@@ -56,7 +57,11 @@ require_java() {
 }
 
 require_api() {
-  [[ -n "${DEEPSEEK_API_KEY:-}" ]] || die "DEEPSEEK_API_KEY required"
+  if [[ -n "${VGUIDE_LLM_RECORD_DIR:-}" && -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then
+    die "VGUIDE_LLM_RECORD_DIR and VGUIDE_LLM_REPLAY_DIR are mutually exclusive"
+  fi
+  [[ -n "${DEEPSEEK_API_KEY:-}" || -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]] \
+    || die "DEEPSEEK_API_KEY required unless VGUIDE_LLM_REPLAY_DIR is set"
 }
 
 cmd_help() {

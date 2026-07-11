@@ -168,6 +168,60 @@ confirmation與win controls：
 Expected current result：loss7為7/7 TRUE且每個log都有`VGuide usefulness-rejected`、沒有
 `VGuide precision-injected`；win2為2/2 TRUE且兩個logs都有precision injection。
 
+### 2.2 Paired-response causal run
+
+先由gate-off arm做live call並record。Cache key包含完整request body SHA-256與同task內ordinal；
+batch runner自動把task名設成namespace：
+
+```bash
+export PAIR_CACHE="$PWD/output/vguide/llm-cache/usefulness_full764_frozen_20260711"
+
+VGUIDE_LLM_RECORD_DIR="$PAIR_CACHE" \
+VGUIDE_ANALYSIS_DUMP_DIR="$PWD/output/vguide/analysis_dumps/usefulness_full764_gate_off" \
+VGUIDE_ANALYSIS_BENCHMARK_SET=loops_reachsafety_unreach \
+VGUIDE_ANALYSIS_TIMELIMIT_SEC=300 \
+./scripts/vguided-cegar/run.sh cpa \
+  --set loops_reachsafety_unreach --mode usefulness-gate-off \
+  --parallel 8 --timelimit 300 \
+  --out output/vguide/experiments/usefulness_full764_gate_off_record
+```
+
+Gate-on arm不需要API key，重播相同response prefix：
+
+```bash
+env -u DEEPSEEK_API_KEY \
+VGUIDE_LLM_REPLAY_DIR="$PAIR_CACHE" \
+VGUIDE_LLM_REPLAY_PRESERVE_LATENCY=true \
+VGUIDE_ANALYSIS_DUMP_DIR="$PWD/output/vguide/analysis_dumps/usefulness_full764_gate_on" \
+VGUIDE_ANALYSIS_BENCHMARK_SET=loops_reachsafety_unreach \
+VGUIDE_ANALYSIS_TIMELIMIT_SEC=300 \
+./scripts/vguided-cegar/run.sh cpa \
+  --set loops_reachsafety_unreach --mode usefulness-gate-on \
+  --parallel 8 --timelimit 300 \
+  --out output/vguide/experiments/usefulness_full764_gate_on_replay
+```
+
+`VGUIDE_LLM_RECORD_DIR`與`VGUIDE_LLM_REPLAY_DIR`互斥。Replay schema/hash/ordinal miss會讓該CPA
+process失敗，不會改呼叫live API或悄悄跑stock。預設保留recorded latency；所有paired報告必須確認：
+
+1. gate-on每題的`(request_hash,response_hash)`序列等於gate-off序列的prefix；
+2. `response_source`分別為`live_recorded`與`replay`；
+3. logs沒有`LLM response replay failed`；
+4. 不能把response-cache replay稱為真正held-out或fresh-model evidence。
+
+前三項的hash/source檢查以腳本執行：
+
+```bash
+python3 scripts/vguided-cegar/verify_llm_response_pair.py \
+  --record-dump output/vguide/analysis_dumps/usefulness_full764_gate_off \
+  --replay-dump output/vguide/analysis_dumps/usefulness_full764_gate_on
+```
+
+2026-07-11 loss7 TDD smoke已符合以上四項：gate-off **0/7**、gate-on **7/7 TRUE**、0 wrong；
+18個recorded API entries、14個replayed calls，7題的gate-on序列全部是gate-off的exact hash
+prefix。這仍是已曝光的
+development set，只驗證cache與causal wiring。
+
 ---
 
 ## 3. 建議實驗順序（完整評估）

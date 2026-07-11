@@ -2,7 +2,7 @@
 
 ## In Progress
 
-- **Predicate usefulness gating — active**：固定rule「loop-head visits ≤8且至少2個unique `bvmul` predicates」已fresh runtime回收7/7 historical losses，並保留2/2 VGuide-only wins（9/9 correct、0 wrong）。Threshold現已凍結；下一關是held-out/full764，不能再調rule。
+- **Predicate usefulness gating — active**：固定rule「loop-head visits ≤8且至少2個unique `bvmul` predicates」已fresh runtime回收7/7 historical losses，並保留2/2 VGuide-only wins（9/9 correct、0 wrong）。Exact-response paired TDD smoke再確認同一proposals下gate-off 0/7、gate-on 7/7、0 wrong，且每題replay hashes都是record trajectory prefix。Threshold現已凍結；下一關是prospective full764與真正held-out，不能再調rule。
 
 ## Recently Done
 
@@ -16,7 +16,7 @@
 
 ## Next Up
 
-- **Threshold-frozen usefulness gate evaluation**：不再調rule；下一步直接做held-out/full764與portfolio regression check。
+- **Threshold-frozen usefulness gate evaluation**：不再調rule；paired record/replay infrastructure已完成，下一步直接做prospective full764、真正held-out與portfolio regression check。
 - v1.6.1: cheap levers exhausted (config +1, prompt +0); deferred — see `SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md` §8
 - **v1.5.2+ portfolio LLM** (`SVCOMP26_PORTFOLIO_LLM_PLAN.md`): guards layer **DONE** (v1.7.0 stock-first + v1.7.1 peel, +22/0 wrong). **ReachSafety LLM-on-predicate line PAUSED at v1.7.1** (cheap levers exhausted — see exploration summary). adaptive budget / SAFE-only / routing (layers A–G) still open but lower priority; further gains need new capability not prompt/schedule tuning.
 - MemSafety/DataRace/earlier-termination/FALSE-fuzzer 仍 defer。

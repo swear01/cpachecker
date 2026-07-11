@@ -69,7 +69,7 @@ ant build-project
 
 | 項目 | 說明 |
 |------|------|
-| `DEEPSEEK_API_KEY` | VGuide / 離線品質必填 |
+| `DEEPSEEK_API_KEY` | VGuide live／record與離線品質必填；`VGUIDE_LLM_REPLAY_DIR`純replay可省略 |
 | `DEEPSEEK_MODEL` | 預設 `deepseek-v4-pro` |
 | `VGUIDE_LLM_THINKING` | 預設 **`disabled`**（non-thinking）；見 [llm/LLM_API.md](llm/LLM_API.md) |
 | Rate limit | **~500/min** → 批次預設平行，見 [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) |

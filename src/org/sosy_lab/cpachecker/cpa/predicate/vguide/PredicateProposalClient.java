@@ -14,10 +14,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,7 +34,9 @@ import org.sosy_lab.common.log.LogManager;
  *
  * <p>Configuration via environment: {@code DEEPSEEK_API_KEY}, {@code DEEPSEEK_MODEL},
  * {@code VGUIDE_LLM_THINKING} ({@code disabled}|{@code enabled}, default {@code disabled}),
- * {@code VGUIDE_LLM_REASONING_EFFORT} ({@code high}|{@code max} when thinking is enabled).
+ * {@code VGUIDE_LLM_REASONING_EFFORT} ({@code high}|{@code max} when thinking is enabled), and the
+ * mutually exclusive paired-evaluation directories {@code VGUIDE_LLM_RECORD_DIR} and {@code
+ * VGUIDE_LLM_REPLAY_DIR}.
  */
 public final class PredicateProposalClient {
 
@@ -48,17 +52,19 @@ public final class PredicateProposalClient {
   private final int maxCompletionTokens;
   private final int timeoutSeconds;
   private final HttpClient http;
+  private final @Nullable LlmResponseCache responseCache;
 
-  /** Returns a client when {@code DEEPSEEK_API_KEY} is set; otherwise {@code null}. */
+  /** Returns a client when live API access or response replay is configured. */
   public static @Nullable PredicateProposalClient createOptional(LogManager pLogger) {
     return createOptional(pLogger, readPositiveIntEnv("VGUIDE_LLM_MAX_COMPLETION_TOKENS", 1024));
   }
 
-  /** Returns a client when {@code DEEPSEEK_API_KEY} is set; otherwise {@code null}. */
+  /** Returns a client when live API access or response replay is configured. */
   public static @Nullable PredicateProposalClient createOptional(
       LogManager pLogger, int pMaxCompletionTokens) {
     String key = System.getenv("DEEPSEEK_API_KEY");
-    if (key == null || key.isBlank()) {
+    String replayDir = System.getenv("VGUIDE_LLM_REPLAY_DIR");
+    if ((key == null || key.isBlank()) && (replayDir == null || replayDir.isBlank())) {
       return null;
     }
     return new PredicateProposalClient(pLogger, pMaxCompletionTokens);
@@ -70,8 +76,11 @@ public final class PredicateProposalClient {
 
   public PredicateProposalClient(LogManager pLogger, int pMaxCompletionTokens) {
     logger = pLogger;
-    apiKey = System.getenv("DEEPSEEK_API_KEY");
-    if (apiKey == null || apiKey.isBlank()) {
+    responseCache = responseCacheFromEnvironment();
+    String configuredApiKey = System.getenv("DEEPSEEK_API_KEY");
+    apiKey = configuredApiKey == null ? "" : configuredApiKey;
+    if (apiKey.isBlank()
+        && (responseCache == null || responseCache.mode() != LlmResponseCache.Mode.REPLAY)) {
       throw new IllegalStateException("DEEPSEEK_API_KEY is required for VGuide LLM client");
     }
     String configuredModel = System.getenv("DEEPSEEK_MODEL");
@@ -88,6 +97,9 @@ public final class PredicateProposalClient {
     }
     maxCompletionTokens = Math.max(256, pMaxCompletionTokens);
     logger.log(Level.INFO, "VGuide LLM max_completion_tokens: ", maxCompletionTokens);
+    if (responseCache != null) {
+      logger.log(Level.INFO, "VGuide LLM response mode: ", responseCache.mode().name());
+    }
     timeoutSeconds = readPositiveIntEnv("VGUIDE_LLM_TIMEOUT_SEC", 120);
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
   }
@@ -97,6 +109,15 @@ public final class PredicateProposalClient {
       throws IOException, InterruptedException {
     long t0 = System.currentTimeMillis();
     String body = buildRequestBody(messages);
+    LlmResponseCache.Request cachedRequest =
+        responseCache == null ? null : responseCache.nextRequest(body);
+    if (responseCache != null && responseCache.mode() == LlmResponseCache.Mode.REPLAY) {
+      try {
+        return responseCache.replay(Objects.requireNonNull(cachedRequest));
+      } catch (IOException e) {
+        throw new IllegalStateException("LLM response replay failed without live fallback", e);
+      }
+    }
     HttpRequest req =
         HttpRequest.newBuilder()
             .uri(URI.create(API_URL))
@@ -125,8 +146,22 @@ public final class PredicateProposalClient {
           " completion_tokens=",
           usage.path("completion_tokens").asInt());
     }
-    return new LlmProposalResult(
-        content.asText(), usage.isMissingNode() ? null : usage, latency, t0);
+    LlmProposalResult result =
+        new LlmProposalResult(
+            content.asText(),
+            usage.isMissingNode() ? null : usage,
+            latency,
+            t0,
+            cachedRequest == null ? requestHash(body) : cachedRequest.requestHash(),
+            responseCache == null ? "live" : "live_recorded");
+    if (responseCache != null) {
+      try {
+        responseCache.record(Objects.requireNonNull(cachedRequest), result);
+      } catch (IOException e) {
+        throw new IllegalStateException("LLM response recording failed", e);
+      }
+    }
+    return result;
   }
 
   /** Legacy: single user message (no system). */
@@ -257,5 +292,43 @@ public final class PredicateProposalClient {
     } catch (NumberFormatException e) {
       return defaultValue;
     }
+  }
+
+  private static @Nullable LlmResponseCache responseCacheFromEnvironment() {
+    String recordDir = System.getenv("VGUIDE_LLM_RECORD_DIR");
+    String replayDir = System.getenv("VGUIDE_LLM_REPLAY_DIR");
+    boolean record = recordDir != null && !recordDir.isBlank();
+    boolean replay = replayDir != null && !replayDir.isBlank();
+    if (record && replay) {
+      throw new IllegalStateException(
+          "VGUIDE_LLM_RECORD_DIR and VGUIDE_LLM_REPLAY_DIR are mutually exclusive");
+    }
+    String namespace = System.getenv().getOrDefault("VGUIDE_LLM_CACHE_NAMESPACE", "default");
+    if (record) {
+      return LlmResponseCache.forRecording(Path.of(recordDir), namespace);
+    }
+    if (replay) {
+      return LlmResponseCache.forReplay(
+          Path.of(replayDir), namespace, readBooleanEnv("VGUIDE_LLM_REPLAY_PRESERVE_LATENCY", true));
+    }
+    return null;
+  }
+
+  private static boolean readBooleanEnv(String name, boolean defaultValue) {
+    String value = System.getenv(name);
+    if (value == null || value.isBlank()) {
+      return defaultValue;
+    }
+    return switch (value.toLowerCase(Locale.ROOT)) {
+      case "1", "true", "on", "yes" -> true;
+      case "0", "false", "off", "no" -> false;
+      default -> throw new IllegalStateException("Invalid boolean environment variable " + name);
+    };
+  }
+
+  private static String requestHash(String requestBody) {
+    return com.google.common.hash.Hashing.sha256()
+        .hashString(requestBody, StandardCharsets.UTF_8)
+        .toString();
   }
 }

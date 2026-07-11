@@ -105,3 +105,30 @@ Opt-in smoke outputs：
 - `output/vguide/experiments/predicate_usefulness_loss7_gate_off_optin_smoke/`
 - `output/vguide/experiments/predicate_usefulness_loss7_gate_on_optin_smoke/`
 - `output/vguide/analysis_dumps/usefulness_gate_{off,on}_smoke_20260711/`
+
+## Exact-response paired TDD smoke
+
+為排除live model nondeterminism，新增evaluation-only `LlmResponseCache`：gate-off live arm按
+task/request hash/ordinal record；gate-on arm在未設定API key下fail-closed replay，並預設等待原始
+latency。Schema-v4 `llm_rounds.jsonl`新增prompt/request/response hashes與source，run manifest記錄
+response mode、cache directory與latency policy。
+
+同一frozen loss7、60秒、parallel4結果：
+
+| Arm | Response source | Solved/7 | Wrong |
+|---|---|---:|---:|
+| Gate off | `live_recorded` | 0 | 0 |
+| Gate on | `replay` | **7** | 0 |
+
+Cache共18個entries，gate-on重播14 calls。`verify_llm_response_pair.py`確認每題gate-on的
+`(request_hash,response_hash)`序列都等於gate-off序列的exact prefix；gate拒絕後不需要gate-off
+trajectory的後續responses。沒有cache miss、corrupt entry
+或live fallback。這把7個recovery提升為同-proposal的causal development-set evidence，但仍不是
+generalization evidence。
+
+Raw：
+
+- `output/vguide/experiments/predicate_usefulness_loss7_gate_off_paired_smoke/`
+- `output/vguide/experiments/predicate_usefulness_loss7_gate_on_paired_smoke/`
+- `output/vguide/llm-cache/usefulness_gate_loss7_paired_smoke_20260711/`
+- `output/vguide/analysis_dumps/usefulness_gate_{off,on}_paired_smoke_20260711/`
