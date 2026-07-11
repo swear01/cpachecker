@@ -170,6 +170,9 @@ Expected current result：loss7為7/7 TRUE且每個log都有`VGuide usefulness-r
 
 ### 2.2 Paired-response causal run
 
+Frozen provenance（commits、recursive expanded-config hashes、manifest hash、model/solver/resources）在
+`evaluation/predicate_usefulness_gate_frozen_20260711.json`。Primary run固定parallel4、heap15000M：
+
 先由gate-off arm做live call並record。Cache key包含完整request body SHA-256與同task內ordinal；
 batch runner自動把task名設成namespace：
 
@@ -182,7 +185,7 @@ VGUIDE_ANALYSIS_BENCHMARK_SET=loops_reachsafety_unreach \
 VGUIDE_ANALYSIS_TIMELIMIT_SEC=300 \
 ./scripts/vguided-cegar/run.sh cpa \
   --set loops_reachsafety_unreach --mode usefulness-gate-off \
-  --parallel 8 --timelimit 300 \
+  --parallel 4 --timelimit 300 --heap 15000M \
   --out output/vguide/experiments/usefulness_full764_gate_off_record
 ```
 
@@ -197,7 +200,7 @@ VGUIDE_ANALYSIS_BENCHMARK_SET=loops_reachsafety_unreach \
 VGUIDE_ANALYSIS_TIMELIMIT_SEC=300 \
 ./scripts/vguided-cegar/run.sh cpa \
   --set loops_reachsafety_unreach --mode usefulness-gate-on \
-  --parallel 8 --timelimit 300 \
+  --parallel 4 --timelimit 300 --heap 15000M \
   --out output/vguide/experiments/usefulness_full764_gate_on_replay
 ```
 

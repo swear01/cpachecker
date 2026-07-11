@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "frozen_at": "2026-07-11",
+  "gate_commit": "834f634679314dc6921ad5115f4f433589458a83",
+  "gate_tag": "vguide-usefulness-gate-frozen-20260711",
+  "paired_evaluation_commit": "fe4021a59e29dd683d3f8cfd306b29cd9cfbbef8",
+  "paired_evaluation_tag": "vguide-usefulness-gate-paired-eval-20260711",
+  "pinned_parent": "963c5743bf645162dc5e8641fe212fcf1139c597",
+  "sv_benchmarks_commit": "2e1723fde6aa65a250dcb677efa45edaa4b6b631",
+  "benchmark_manifest": {
+    "path": "docs/vguided-cegar/benchmark_sets/loops_reachsafety_unreach.list",
+    "sha256": "c072daf0d18f39de381f42299ddbc8d461e962bc093352ce07ffbd377ec456ae",
+    "tasks": 764,
+    "data_models": {
+      "ILP32": 764
+    }
+  },
+  "configs": {
+    "gate_off": {
+      "path": "config/vguide-experiment-usefulness-gate-off.properties",
+      "file_sha256": "c18e81f0f7ba3e7d630b5a7da849c5619497993e9b0bf2cb2f054679d78b0366",
+      "recursive_expansion_sha256": "9d6ca71555114506897308332f947bd2c74fa38c187f27ce506d4fa3f309a528"
+    },
+    "gate_on": {
+      "path": "config/vguide-experiment-usefulness-gate-on.properties",
+      "file_sha256": "076f84847a34b9022b3922725891b24b9db0c43293d9187619923bc285b60a13",
+      "recursive_expansion_sha256": "d0af44a8da95dc26b30b9957b86ac55f3ef4b1fee472f6b3cdc3a67e8851d263"
+    },
+    "recursive_expansion": "depth-first textual #include expansion with BEGIN/END relative-path markers"
+  },
+  "gate_rule": {
+    "version": "frozen-20260711",
+    "maximum_loop_head_visits": 8,
+    "minimum_unique_bvmul_predicates": 2,
+    "action": "REJECT_AND_SUPPRESS_FUTURE_CALLS"
+  },
+  "llm": {
+    "model": "deepseek-v4-pro",
+    "thinking": "disabled",
+    "temperature": 0,
+    "max_completion_tokens": 1024,
+    "paired_replay_preserves_recorded_latency": true
+  },
+  "solver": "MathSAT5 5.6.11 (1a1154baf0ab)",
+  "java": "OpenJDK 21.0.10",
+  "host": "Ubuntu 22.04.5 LTS; Linux 6.8.0-124-generic x86_64",
+  "primary_resources": {
+    "cpu_time_seconds": 300,
+    "outer_wall_timeout_seconds": 330,
+    "heap": "15000M",
+    "parallel_tasks": 4
+  },
+  "primary_arms": [
+    "gate-off live record",
+    "gate-on exact-response-prefix replay"
+  ],
+  "frozen_decision_rule": "Do not change thresholds, prompts, schedules, sampling, or model after observing prospective results."
+}
