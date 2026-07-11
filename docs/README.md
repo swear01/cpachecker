@@ -18,6 +18,7 @@ VGuide 現行文件：[`vguided-cegar/`](vguided-cegar/README.md)。
 
 | 要做的事 | 入口 |
 |---------|------|
+| 現行研究主線 | [`vguided-cegar/VGUIDE_NLA_PLAN.md`](vguided-cegar/VGUIDE_NLA_PLAN.md) |
 | 跑實驗 | [`vguided-cegar/RUN_EXPERIMENTS.md`](vguided-cegar/RUN_EXPERIMENTS.md) |
 | 架構 | [`vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`](vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md) |
 | Benchmark | [`vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md`](vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md) |

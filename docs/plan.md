@@ -2,11 +2,13 @@
 
 ## In Progress
 
-- **v1.6.1 overflow prompt improvement** (`SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md`): 91 fired / 37 fired-but-UNKNOWN on overflow; reachability prompt actively discourages bound predicates. P0 config elimination done (neutral). P1 = overflow-aware prompt (main lever, A/B result: neutral — cheap levers exhausted). Status: evaluating next steps.
-- **svcomp-integration branch**: VGuide v1.5 integration into svcomp27 competition submission (`SVCOMP_INTEGRATION_PLAN.md`).
+- **Predicate usefulness gating — active**：固定rule「loop-head visits ≤8且至少2個unique `bvmul` predicates」已fresh runtime回收7/7 historical losses，並保留2/2 VGuide-only wins（9/9 correct、0 wrong）。Threshold現已凍結；下一關是held-out/full764，不能再調rule。
 
 ## Recently Done
 
+- **Final PDR/KI-PDR oracle-capacity matrix — STOP** ([report](vguided-cegar/reports/2026-07-11_pdr_oracle_capacity_matrix.md))：K2/KP1/KP2/KL1/P2/P3/P4全部0/12 oracle delta；P3/P4確認1–6 predicates已seeded，但0 oracle roots confirmed、0 target proof、0 wrong。PDR stock也0/12，因此不做LLM CTI helper或routing。
+
+- **Ordinary k-induction oracle-capacity breakpoint — STOP** (`vguided-cegar/VGUIDE_NLA_PLAN.md`, [report](vguided-cegar/reports/2026-07-11_nla_oracle_capacity_smoke.md))：TDD harness + 12-task frozen catalog + three predicate-map shapes完成。exact-BV/MathSAT與修復後 exact NIA/Z3皆為 stock 0/12、oracle **0/12 @60s**；0 wrong、無 infrastructure failure。後續final PDR/KI-PDR gate也已完成並STOP。
 - **ReachSafety LLM-improvement exploration — PAUSED at v1.7.1 (+22 / 0 wrong; 504/764)** (summary `reports/2026-06-20_reachsafety_exploration_summary.md`): cheap LLM-on-predicate levers exhausted. Investigated & **deferred/rejected**: A2 CPU isolation (rejected — race is standard, capping cuts the +18 wins), nla-digbench nonlinear (out of mechanism scope — ~70% of remaining UNKNOWN, needs nonlinear synthesis), peel-aware prompt (low confidence — fired-but-failed at quality ceiling), FALSE/bug-finding (v1.5 used wrong artifact; SOTA = LLM-directed fuzzing, but CPAchecker has no fuzzer). Further gains need a **new capability** (nonlinear / new injection point / execution-based bug-finding), all high-cost. (2026-06-20)
 - **v1.7.1 ReachSafety peel trigger — DONE; +11 over v1.7.0, 0 wrong** (`vguided-cegar/REACHSAFETY_IMPROVEMENT_PLAN.md` A1.2, report `reports/2026-06-20_reachsafety_peel_trigger.md`): fire the LLM early (refinement #2+) when the CE unrolls a loop (loop-head visits ≥ 4) instead of waiting for #10 / 15s. Recovers v1.7.0's #1-need regressions (`heapsort`, `nested9`, `iftelse`, `sumt4`) + nla-digbench nonlinear. Full 764 `svcomp27-vguide`, only peel threshold differs (0→4): 493 → **504 (+11 = +18 new − 7 lost), 0 wrong, 0 flips**. Cumulative vs old fire-at-#1 schedule **+22 (482→504)**. Default `vguide.peelLoopHeadThreshold=4`; unit tests 12/12. (2026-06-20)
 - **v1.7.0 ReachSafety stock-first schedule — DONE; +11 net, 0 wrong** (`vguided-cegar/REACHSAFETY_IMPROVEMENT_PLAN.md` A1, report `reports/2026-06-20_reachsafety_stockfirst_guard.md`): new `every_n_or_interval` LLM-call schedule fires only when stock is not converging — every-N refinements (never #1) **OR** every D=15s wall-clock — realizing portfolio plan P1 (stock-first guard). Full 764 both-arm `svcomp27-vguide` (only schedule differs): 482 → **493 (+11 = +17 new − 6 lost), 0 wrong, 0 flips**. 6 regressions are case-study direct-LLM-#1 wins (`heapsort`, `nested9`) → motivates the peel-based trigger ① (next). Now default in `config/vguide.properties`; unit tests 8/8. (2026-06-20)
@@ -14,10 +16,10 @@
 
 ## Next Up
 
-- **Higher-impact LLM intervention point (open question)** — the termination ranking hook has a small ceiling. The next LLM-intervention effort should target a higher-leverage point: the structural earlier-injection that would reach the 40 never-fired (pointer/array/string) loops, or a different category/mechanism altogether. See `LLM_RESEARCH_ROADMAP.md`.
+- **Threshold-frozen usefulness gate evaluation**：不再調rule；下一步直接做held-out/full764與portfolio regression check。
 - v1.6.1: cheap levers exhausted (config +1, prompt +0); deferred — see `SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md` §8
 - **v1.5.2+ portfolio LLM** (`SVCOMP26_PORTFOLIO_LLM_PLAN.md`): guards layer **DONE** (v1.7.0 stock-first + v1.7.1 peel, +22/0 wrong). **ReachSafety LLM-on-predicate line PAUSED at v1.7.1** (cheap levers exhausted — see exploration summary). adaptive budget / SAFE-only / routing (layers A–G) still open but lower priority; further gains need new capability not prompt/schedule tuning.
-- **Next Class-A target**: MemSafety or DataRace branches (predicate-CEGAR based?) — probe feasibility per `LLM_RESEARCH_ROADMAP.md`
+- MemSafety/DataRace/earlier-termination/FALSE-fuzzer 仍 defer。
 
 ## Reference: Completed Milestones
 

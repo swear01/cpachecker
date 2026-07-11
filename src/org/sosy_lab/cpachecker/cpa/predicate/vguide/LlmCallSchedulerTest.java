@@ -190,4 +190,17 @@ public class LlmCallSchedulerTest {
     LlmCallScheduler s = schedulerWithPeel(0, 100_000, 0); // peel off
     assertThat(s.shouldCall(3, 100)).isFalse(); // huge peel ignored when threshold is 0
   }
+
+  @Test
+  public void predicateUsefulnessSuppressionIsPerAnalysis() throws Exception {
+    LlmCallScheduler.resetProcessRoundCounterForTest();
+    LlmCallScheduler suppressed = scheduler("every_n", 10, 1, 0);
+    LlmCallScheduler unaffected = scheduler("every_n", 10, 1, 0);
+
+    suppressed.suppressForPredicateUsefulnessGate();
+
+    assertThat(suppressed.shouldCall(1, 0)).isFalse();
+    assertThat(suppressed.skipReason(1)).isEqualTo("predicate_usefulness_gate");
+    assertThat(unaffected.shouldCall(1, 0)).isTrue();
+  }
 }

@@ -98,8 +98,8 @@ cmd_cpa() {
   require_java
   case "$mode" in
     stock|svcomp26|svcomp27-stock|svcomp26-overflow|termination-stock) ;;
-    vguide|svcomp26-vguide|svcomp27-vguide|svcomp|svcomp26-overflow-vguide|source-prior-loops|source-prior-overflow|source-prior-svcomp26-loops|source-prior-svcomp26-overflow|termination-vguide) require_api ;;
-    *) die "unknown --mode: $mode (supported: vguide, stock, svcomp26, svcomp26-vguide, svcomp26-overflow, svcomp26-overflow-vguide, svcomp27-stock, svcomp27-vguide, source-prior-loops, source-prior-overflow, source-prior-svcomp26-loops, source-prior-svcomp26-overflow, termination-stock, termination-vguide)" ;;
+    vguide|usefulness-gate-off|usefulness-gate-on|svcomp26-vguide|svcomp27-vguide|svcomp|svcomp26-overflow-vguide|source-prior-loops|source-prior-overflow|source-prior-svcomp26-loops|source-prior-svcomp26-overflow|termination-vguide) require_api ;;
+    *) die "unknown --mode: $mode (see run.sh usage for supported modes)" ;;
   esac
   if [[ -z "$out" ]]; then
     case "$ablation" in
@@ -108,6 +108,10 @@ cmd_cpa() {
       *)
         if [[ "$mode" == "stock" ]]; then
           out="output/vguide/experiments/${set}_stock"
+        elif [[ "$mode" == "usefulness-gate-off" ]]; then
+          out="output/vguide/experiments/${set}_usefulness_gate_off"
+        elif [[ "$mode" == "usefulness-gate-on" ]]; then
+          out="output/vguide/experiments/${set}_usefulness_gate_on"
         elif [[ "$mode" == "svcomp26" ]]; then
           out="output/vguide/experiments/${set}_svcomp26"
         elif [[ "$mode" == "svcomp26-vguide" ]]; then
@@ -146,6 +150,10 @@ cmd_cpa() {
   [[ "$dry" == "1" ]] && env_extra+=(VGUIDE_DRY_RUN=1)
   if [[ "$mode" == "stock" ]]; then
     env_extra+=(VGUIDE_USE_VOCABULARY_GUIDE=false)
+  elif [[ "$mode" == "usefulness-gate-off" ]]; then
+    env_extra+=(VGUIDE_CONFIG=config/vguide-experiment-usefulness-gate-off.properties)
+  elif [[ "$mode" == "usefulness-gate-on" ]]; then
+    env_extra+=(VGUIDE_CONFIG=config/vguide-experiment-usefulness-gate-on.properties)
   elif [[ "$mode" == "svcomp26" ]]; then
     env_extra+=(
       VGUIDE_USE_VOCABULARY_GUIDE=false

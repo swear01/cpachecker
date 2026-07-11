@@ -4,19 +4,25 @@
 
 **Predicate 驗證**：L1 contract + L2 parse 必跑；**L3 不用**（消融整體較差，`enableL3Entailment=false`）。
 
+**Predicate usefulness gate**：validation後、injection前，若目前trace的loop-head visits ≤8且
+至少2個unique formulas含`bvmul`，整批precision predicates不注入並停止後續LLM rounds；standard
+refinement照常。General default為off，只由`vguide-experiment-usefulness-gate-on.properties`
+顯式開啟。Fresh targeted結果為7/7 losses recovered、2/2 direct wins preserved、0 wrong。
+
 ## 快速入口
 
 ### 現行入口與計劃（active）
 
 | 文件 | 狀態 | 用途 |
 |------|------|------|
+| [VGUIDE_NLA_PLAN.md](VGUIDE_NLA_PLAN.md) | **STOP after final consumer gate** | Ordinary KI、conjunctive KI-PDR與direct PDR oracle arms皆0/12；不做CTI helper，轉predicate usefulness gating |
 | [RUN_EXPERIMENTS.md](RUN_EXPERIMENTS.md) | 現行入口 | **`run.sh` 怎麼跑**；批次後 PAR-2 / cactus |
 | [reports/README.md](reports/README.md) | 報告索引 | 進度報告總入口 |
-| [SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md) | 現行 v1.6.1 | 91 fired/37 fired-but-UNKNOWN；reachability prompt 主動勸退 overflow 需要的 bound predicate → P1 overflow-aware prompt 是最大 lever |
-| [SVCOMP26_PORTFOLIO_LLM_PLAN.md](SVCOMP26_PORTFOLIO_LLM_PLAN.md) | 現行 v1.5.2+ | 把 LLM 從 PredicateCPA 擴展到 svcomp26 portfolio strategy（routing / budget / guards / hints）。**guards 層 = P1 stock-first guard ✅ v1.7.0 done** |
-| [REACHSAFETY_IMPROVEMENT_PLAN.md](REACHSAFETY_IMPROVEMENT_PLAN.md) | **A1 = v1.7.0+v1.7.1 ✅** | ReachSafety 再提升。stock-first schedule + **peel 觸發器①** done:764 `svcomp27-vguide` **482→493→504（累積 +22 / 0 wrong）**;待做 B 新注入點(k-induction 候選 invariant)。A2 CPU 隔離已評估後砍。**不考慮競賽** |
-| [SVCOMP_INTEGRATION_PLAN.md](SVCOMP_INTEGRATION_PLAN.md) | 現行 svcomp27 | **svcomp27** × VGuide v1.5 整合計劃 |
-| [LLM_RESEARCH_ROADMAP.md](LLM_RESEARCH_ROADMAP.md) | 現行 roadmap | **v1.6 → v2.0 → exploratory**：長 horizon 廣域地圖——跨 property category、跨 CPA domain、FALSE/witness、離線 corpus 學習；含 S/R/X soundness 守則 |
+| [SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md](SVCOMP26_OVERFLOW_VGUIDE_IMPROVEMENT_PLAN.md) | deferred | 91 fired/37 fired-but-UNKNOWN；config/prompt cheap levers 已用盡；predicate usefulness gating完成前不再投入 |
+| [SVCOMP26_PORTFOLIO_LLM_PLAN.md](SVCOMP26_PORTFOLIO_LLM_PLAN.md) | background | 把 LLM 從 PredicateCPA 擴展到 svcomp26 portfolio strategy；guards 層已完成，後續 layers 非現行主線 |
+| [REACHSAFETY_IMPROVEMENT_PLAN.md](REACHSAFETY_IMPROVEMENT_PLAN.md) | **A1 = v1.7.0+v1.7.1 ✅** | ReachSafety stock-first + peel完成：764 `svcomp27-vguide` **482→493→504（累積 +22 / 0 wrong）**。NLA k-induction新注入點因 oracle gate 0/12取消；現轉 usefulness gating。A2 CPU隔離已評估後砍。**不考慮競賽** |
+| [SVCOMP_INTEGRATION_PLAN.md](SVCOMP_INTEGRATION_PLAN.md) | deferred | **svcomp27** × VGuide v1.5 整合背景；predicate usefulness gating完成前不投入 |
+| [LLM_RESEARCH_ROADMAP.md](LLM_RESEARCH_ROADMAP.md) | 現行 roadmap | Predicate usefulness gating優先；其餘跨 property/domain/FALSE/witness/offline方向作後續地圖；含 S/R/X soundness守則 |
 
 ### 已完成計劃與結果記錄（✓ done / 歷史）
 
@@ -38,6 +44,7 @@
 
 ```
 docs/vguided-cegar/
+├── VGUIDE_NLA_PLAN.md                 # ordinary KI + final PDR/KI-PDR RED；STOP record
 ├── RUN_EXPERIMENTS.md
 ├── LOCAL_DEVELOPMENT_ENV.md
 ├── SVCOMP_INTEGRATION_PLAN.md

@@ -28,6 +28,7 @@ public final class LlmCallScheduler {
 
   private int llmCallsDone;
   private long lastLlmCallMs;
+  private boolean predicateUsefulnessGateSuppressed;
 
   public LlmCallScheduler(VGuideOptions options, LogManager logger) {
     this(options, logger, System::currentTimeMillis);
@@ -48,6 +49,9 @@ public final class LlmCallScheduler {
 
   /** Returns whether an LLM call is allowed for this spurious refinement index. */
   public boolean shouldCall(int refinementIndex, int loopHeadVisits) {
+    if (predicateUsefulnessGateSuppressed) {
+      return false;
+    }
     if (llmCallsDone >= maxCallsPerAnalysis) {
       logger.log(
           Level.FINE,
@@ -116,8 +120,15 @@ public final class LlmCallScheduler {
     return maxCallsPerProcess > 0 && PROCESS_LLM_CALLS_DONE.get() >= maxCallsPerProcess;
   }
 
-  /** Reason when {@link #shouldCall(int)} is false (after max-rounds check). */
+  public void suppressForPredicateUsefulnessGate() {
+    predicateUsefulnessGateSuppressed = true;
+  }
+
+  /** Reason when {@link #shouldCall(int, int)} is false (after max-rounds check). */
   public String skipReason(int refinementIndex) {
+    if (predicateUsefulnessGateSuppressed) {
+      return "predicate_usefulness_gate";
+    }
     if (isMaxRoundsReached()) {
       return "max_rounds";
     }

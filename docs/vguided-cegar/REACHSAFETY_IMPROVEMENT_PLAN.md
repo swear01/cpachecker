@@ -4,6 +4,9 @@
 > 完整 764 `svcomp27-vguide`(只換 schedule/peel):old 482 → **493** → **504**(**累積 +22 / 0 wrong**)。
 > **cheap LLM-on-predicate 槓桿已用盡。** 階段總結(含 nla-digbench 非線性 out-of-scope、FALSE/fuzzing 調查):
 > [`reports/2026-06-20_reachsafety_exploration_summary.md`](reports/2026-06-20_reachsafety_exploration_summary.md)。
+> 這裡的 nonlinear「out-of-scope」只指既有 PredicateCPA injection mechanism。後續
+> [`VGUIDE_NLA_PLAN.md`](VGUIDE_NLA_PLAN.md) 曾以 polynomial search space + k-induction
+> probe新 capability，但 exact-BV與 exact NIA oracle gate皆為 0/12，已於 2026-07-11 STOP。
 > 個別報告 [stockfirst_guard](reports/2026-06-20_reachsafety_stockfirst_guard.md)、[peel_trigger](reports/2026-06-20_reachsafety_peel_trigger.md)。
 > **已評估後砍/降優先**:A2 CPU 隔離(§3.2/§6)、nla-digbench 非線性、peel-aware prompt、FALSE/bug-finding(CPAchecker 無 fuzzer)。
 > 再投需**新能力**(非線性合成 / k-induction 新注入點 / execution-based bug-finding),皆高成本。
@@ -181,7 +184,7 @@ VGuide 的 predicate child 多燒 CPU → 會解的 sibling 拿不到足夠 CPU 
 
 | 方向 | 機制 | Tier | 成本 |
 |------|------|------|------|
-| **B1 — k-induction / IMC 候選 invariant** | 目前 LLM 只餵 `PredicateCPA`;`complexLoop`（靠 k-induction、predicate 解不動）完全沒被碰。LLM 出候選 invariant,base+step 驗過才用 → 打到 predicate-CEGAR 碰不到的題 | S | 高（新 Java hook + 驗證路徑） |
+| ~~**B1 — k-induction / IMC 候選 invariant**~~ | **Rejected by final oracle-capacity gates（2026-07-11）**：ordinary KI、conjunctive KI-PDR與direct PDR均0/12 delta；只保留test-only oracle loader，不做LLM hook | S | 不執行 |
 | **B2 — predicate 以外抽象域 routing/hints** | value / interval / octagon 的 relational template 候選或 domain 選擇 | S/R | 中–高 |
 
 這些要新 Java hook、不確定性高,**等止血數據出來再評估值不值得**。

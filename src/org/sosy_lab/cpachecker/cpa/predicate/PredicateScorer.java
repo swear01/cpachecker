@@ -38,12 +38,10 @@ public class PredicateScorer {
   private static final int CONCISE_THRESHOLD = 400;
 
   private final Solver solver;
-  private final FormulaManagerView fmgr;
   private final LogManager logger;
 
   public PredicateScorer(Solver pSolver, FormulaManagerView pFmgr, LogManager pLogger) {
     solver = pSolver;
-    fmgr = pFmgr;
     logger = pLogger;
   }
 

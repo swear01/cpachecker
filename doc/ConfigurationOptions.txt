@@ -5954,6 +5954,10 @@ vguide.enableAdaptivePredicateBudget = false
 # strengthen). Enable for parity/invariant-heavy benchmarks.
 vguide.enableL3Entailment = false
 
+# Enable the frozen verifier-side gate that may suppress optional LLM
+# precision batches
+vguide.enablePredicateUsefulnessGate = false
+
 # Directory containing predicate_sets/<benchmark>.md or .json for NO_SPURIOUS
 # exception path
 vguide.frozenDir = "docs/vguided-cegar/predicate_sets"
@@ -5987,6 +5991,10 @@ vguide.llmSamplesPerCall = 1
 # API draws when llmSamplesPerCall>1). 0 = no LLM.
 vguide.maxLlmRoundsPerAnalysis = 1
 
+# Process-wide hard cap on LLM rounds across all VGuide bridges in this JVM.
+# 0 = unlimited.
+vguide.maxLlmRoundsPerProcess = 0
+
 # Hard upper bound per LLM response: prompt asks for at most this many;
 # extras truncated after parse (array order = priority).
 vguide.maxPredicatesPerCall = 6
@@ -5995,8 +6003,18 @@ vguide.maxPredicatesPerCall = 6
 # response (not enforced after parse).
 vguide.minPredicatesPerCall = 3
 
-# Wall-clock budget in seconds for LLM calls during analysis (0 = use
-# remaining CPAchecker time limit only)
+# For every_n_or_interval: also fire (peel/divergence trigger) when the
+# counterexample passes loop heads >= this many times, i.e. stock is
+# unrolling a loop. Fires early (refinement #2+) instead of waiting for the
+# every_n / interval trigger. 0 = off.
+vguide.peelLoopHeadThreshold = 0
+
+# Fire LLM before any CEGAR round using source-code only (no CE context).
+# Predicates injected into initial precision. Replaces first-spurious
+# trigger.
+vguide.sourcePriorMode = false
+
+# Wall-clock budget in seconds for LLM calls during analysis (0 = unlimited)
 vguide.wallBudgetSec = 0
 
 # Instead of comments, output the assertions into the original program as

@@ -1,0 +1,8 @@
+# Seven stock-solved tasks lost by full764_pure_vguide_skip1_nopeel.
+nla-digbench-scaling/divbin2_unwindbound5.i # yml=nla-digbench-scaling/divbin2_unwindbound5.yml expected=true
+nla-digbench-scaling/divbin2_valuebound20.i # yml=nla-digbench-scaling/divbin2_valuebound20.yml expected=true
+nla-digbench-scaling/hard-u_valuebound10.c # yml=nla-digbench-scaling/hard-u_valuebound10.yml expected=true
+nla-digbench-scaling/hard-u_valuebound100.c # yml=nla-digbench-scaling/hard-u_valuebound100.yml expected=true
+nla-digbench-scaling/hard-u_valuebound2.c # yml=nla-digbench-scaling/hard-u_valuebound2.yml expected=true
+nla-digbench-scaling/hard-u_valuebound20.c # yml=nla-digbench-scaling/hard-u_valuebound20.yml expected=true
+nla-digbench-scaling/hard-u_valuebound50.c # yml=nla-digbench-scaling/hard-u_valuebound50.yml expected=true

@@ -37,4 +37,17 @@ public class VGuideOptionsTest {
     assertThat(opts.getLlmSamplesForRefinement(1)).isEqualTo(1);
     assertThat(opts.getLlmSamplesForRefinement(2)).isEqualTo(3);
   }
+
+  @Test
+  public void predicateUsefulnessGateIsOptIn() throws InvalidConfigurationException {
+    VGuideOptions defaults = new VGuideOptions(Configuration.defaultConfiguration());
+    VGuideOptions enabled =
+        new VGuideOptions(
+            Configuration.builder()
+                .setOption("vguide.enablePredicateUsefulnessGate", "true")
+                .build());
+
+    assertThat(defaults.isPredicateUsefulnessGateEnabled()).isFalse();
+    assertThat(enabled.isPredicateUsefulnessGateEnabled()).isTrue();
+  }
 }

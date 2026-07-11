@@ -2,6 +2,12 @@
 
 這份文件是**長 horizon** 的研究地圖，不是 v1.5.2 的 sprint plan。
 
+> **2026-07-10 execution decision：**現行唯一主線改為
+> `VGUIDE_NLA_PLAN.md` 的 ordinary k-induction consumer已在oracle-capacity斷點以0/12 STOP。
+> Final PDR/KI-PDR consumer matrix也為0 delta，已轉predicate usefulness gating。Fresh targeted
+> confirmation回收7/7 losses並保留2/2 direct wins；threshold凍結等待held-out/full764。本文件
+> 其餘property/domain/FALSE/witness/offline方向保留為backlog，不同時執行。
+
 兩份既有計劃的關係：
 
 | 文件 | Horizon | Scope |
@@ -219,9 +225,10 @@ termination-safety 原以為屬 (i)；feasibility probe **RED**：其引擎是 `
 
 | Horizon | 主題 | 項目 | 進場 gate |
 |---------|------|------|-----------|
+| **現在：predicate usefulness gate** | precision pollution control | short-peel + multiplicative-candidate filter；fresh targeted 9/9 correct | rule凍結；需held-out/full764後才claim generalization，見 `reports/2026-07-11_predicate_usefulness_gate.md` |
 | **v1.5.2 horizon → ✅(v1.7.0+v1.7.1)** | 收緊 reachability predicate portfolio | **stock-first guard ✅(v1.7.0)+ peel 觸發器① ✅(v1.7.1):764 累積 +22/0 wrong**（482→504,[reports](reports/2026-06-20_reachsafety_peel_trigger.md)）;adaptive budget / SAFE-only 待做;A2 CPU 隔離已評估後砍 | 見 `REACHSAFETY_IMPROVEMENT_PLAN.md` |
-| **v1.6（現行）** | **跨 branch 泛化 feasibility 研究** | **Overflow Class-A scoped variant（config-only，最快實證泛化）→ [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)**；把 5 個 branch 做 §4.2 A/B/C 分級；termination safety-路 probe **RED → Class-B**（[probe](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）；輸出每個 Class-B 的 hook scope。可並行 reachability 內 broaden（§3.2 domain routing[R]、§3.4 witness invariant[S]）| 需 Overflow baseline；每個 Class-A branch 需同時限 baseline |
-| **v2.0** | 建 Class-B sound 注入 hook | **Termination lasso 路 candidate ranking-function hook[S]（最高槓桿）**、MemSafety memory-invariant hook[S]、§3.3 FALSE-task seeding[S] | 需 v1.6 矩陣判定該 branch 值得；需新 Java + per-engine 驗證 |
+| **v1.6（done/background）** | **跨 branch 泛化 feasibility 研究** | **Overflow Class-A scoped variant（config-only）→ [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)**；termination safety-路 probe **RED → Class-B**（[probe](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）| 已完成/歸類；非現行 execution line |
+| **v2.0（termination hook done/background）** | Class-B sound 注入 hook | Termination lasso ranking-function hook已完成但 ceiling 小；MemSafety hook與 FALSE-task seeding保留 backlog | predicate usefulness gating完成前不執行 |
 | **exploratory** | 跨 corpus 學習 | §3.5 learned dispatcher[R]、跨年 generalization、§3.6 離線/本地模型 | 需 §3.7 harness 成熟、需離線 precompute 管線 |
 
 排序理由：先把已證明有效的 predicate 層收緊（v1.5.2），再在同 category 內擴介入點（v1.6），

@@ -4,6 +4,9 @@
 
 | 報告 | 說明 |
 |------|------|
+| **[`2026-07-11_predicate_usefulness_gate.md`](2026-07-11_predicate_usefulness_gate.md)** | **Promising active fallback**：first-call multiplicative short-peel gate；fresh runtime回收7/7 losses並保留2/2 direct-win controls，9/9 correct、0 wrong；待held-out/full764 |
+| **[`2026-07-11_pdr_oracle_capacity_matrix.md`](2026-07-11_pdr_oracle_capacity_matrix.md)** | **Final consumer gate STOP**：per-location conjunction、KI-PDR、direct PDR root／abstraction vocabulary全部0/12 oracle delta，0 wrong；不做CTI helper |
+| **[`2026-07-11_nla_oracle_capacity_smoke.md`](2026-07-11_nla_oracle_capacity_smoke.md)** | **Ordinary k-induction breakpoint STOP**：12-task TDD harness完成；exact-BV/MathSAT與修復後 exact NIA/Z3皆為 stock 0/12、oracle 0/12 @60s，0 wrong；不代表direct PDR consumer結果 |
 | **[`2026-06-17_source_prior_ablation.md`](2026-06-17_source_prior_ablation.md)** | **消融實驗：source-prior vs first_spurious**：Loops 764 題 + Overflow 452 題 × base / svcomp26 共 4 組；0 wrong；CE context 對 base config 至關重要（source_prior≈stock），svcomp26 portfolio 差距微小（loops −7、overflow −1） |
 | **[`2026-06-14_svcomp26_vguide_loops.md`](2026-06-14_svcomp26_vguide_loops.md)** | **v1.5.1 svcomp26-vguide full-set**：Loops 764 題；svcomp26-vguide **493 solved** vs svcomp26 **486**（+7）、0 wrong、PAR-2 216.90s；16 direct LLM predicate wins |
 | **[`2026-06-14_svcomp26_vguide_case_studies.md`](2026-06-14_svcomp26_vguide_case_studies.md)** | **Case studies / v1.5.2 opportunities**：direct LLM wins、lost-solve stability、adaptive-budget rescue pool；next target 500+ solved |

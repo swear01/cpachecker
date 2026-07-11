@@ -2,6 +2,10 @@
 
 See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
+## Active
+
+- **Predicate usefulness gating**：final PDR/KI-PDR oracle matrix已all zero而STOP。Fixed first-call signature已fresh回收7/7 losses、保留2/2 wins、0 wrong；下一步只做threshold-frozen held-out/full764，不再調rule。
+
 ## Backlog
 
 - ~~A2 CPU-budget isolation~~ — **rejected 2026-06-20**: the parallel race is the standard portfolio mechanism (not broken, 0-wrong unaffected); capping VGuide's CPU would also cut the +18 wins it earns by spending that CPU (same coin), and the −7 is run-to-run resource noise. Low ROI. See `REACHSAFETY_IMPROVEMENT_PLAN.md` §3.2/§6.
@@ -12,8 +16,16 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 - **Offline corpus learning** — pre-compute predicate libraries per program class. Exploratory.
 - **svcomp27 full integration** — packaging VGuide into the competition submission.
 
+## Current Order
+
+1. Fresh loss7 runtime確認multiplicative short-peel gate。
+2. 以預先固定rule做跨schedule/family holdout，不再調threshold。
+3. Gate至少消除50%已知 injection losses，且 net勝固定 `peel=0`，才跑完整764。
+4. 其他 branch/hook 全部 defer，避免同時開多條高成本研究線。
+
 ## Recently Done
 
+- **Ordinary + final PDR/KI-PDR oracle-capacity — STOP** — exact-BV/MathSAT、exact NIA/Z3、per-location conjunction、KI-PDR與direct PDR oracle arms全部0/12 delta；0 wrong。Reports `reports/2026-07-11_nla_oracle_capacity_smoke.md`、`reports/2026-07-11_pdr_oracle_capacity_matrix.md`。（2026-07-11）
 - **ReachSafety LLM-improvement exploration — PAUSED at v1.7.1 (+22 / 0 wrong, 504/764)** — cheap LLM-on-predicate levers exhausted. Investigated & deferred/rejected: A2 CPU isolation (rejected), nla-digbench nonlinear (out of mechanism scope, ~70% of remaining UNKNOWN), peel-aware prompt (low confidence), FALSE/bug-finding (v1.5 wrong-artifact; SOTA = LLM-directed fuzzing but CPAchecker has no fuzzer). Further gains need a new capability (nonlinear / new injection point / execution-based bug-finding), all high-cost. Summary: `reports/2026-06-20_reachsafety_exploration_summary.md`. (2026-06-20)
 - **v1.7.1 ReachSafety peel trigger — IMPLEMENTED + validated; +11 over v1.7.0, 0 wrong** — fire the LLM early (refinement #2+) when the CE unrolls a loop (loop-head visits ≥ `vguide.peelLoopHeadThreshold`=4), recovering v1.7.0's #1-need regressions (`heapsort`/`nested9`/`iftelse`/`sumt4`). `countLoopHeadVisits` in the bridge + `peelFire` OR-branch in the scheduler. Full 764 `svcomp27-vguide` (only peel threshold differs 0→4): 493 → **504 (+11 = +18 new − 7 lost), 0 wrong**; cumulative **+22 vs old schedule (482→504)**. Unit tests 12/12. Report `reports/2026-06-20_reachsafety_peel_trigger.md`. (2026-06-20)
 - **v1.7.0 ReachSafety stock-first schedule — IMPLEMENTED + validated; +11 net, 0 wrong** — new `every_n_or_interval` LLM-call schedule (fire only when stock is not converging: every-N refinements never at #1, **OR** every D=15s wall-clock; Tier R). Realizes portfolio plan P1 (stock-first guard). Full 764 both-arm `svcomp27-vguide` (only schedule differs): 482 → **493 (+11 = +17 new − 6 lost), 0 wrong**. Now default in `config/vguide.properties`; unit tests 8/8. The 6 regressions (`heapsort`/`nested9` — direct-LLM-#1 wins) motivate the peel-based trigger ① follow-up. Report `reports/2026-06-20_reachsafety_stockfirst_guard.md`. (2026-06-20)

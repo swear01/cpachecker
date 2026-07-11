@@ -61,6 +61,9 @@ DeepSeek rate limit **~500/min** → 預設 **平行**（`PARALLEL=8` CPA、`16`
 ./scripts/vguided-cegar/run.sh llm-quality --tasks up,array_3-1 --runs 5 --parallel 20
 
 ./scripts/vguided-cegar/run.sh verify-pack --task array_3-1   # CPA 內真實 ContextPack + artifacts
+
+./scripts/vguided-cegar/run.sh nla-oracle validate
+./scripts/vguided-cegar/run.sh nla-oracle run --arm both --timelimit 60
 ```
 
 ---
@@ -87,6 +90,83 @@ DeepSeek rate limit **~500/min** → 預設 **平行**（`PARALLEL=8` CPA、`16`
 Classifier 摘要（324 程式）：`RUN_SCALAR` 220、`RUN_ARRAY_SCALAR` 8、其餘 SKIP/UNKNOWN 等。
 
 更新流程：`run.sh bench-reclassify`（非只 `bench-regen`）。
+
+---
+
+## 2.1 VGuide-NLA oracle-capacity harness
+
+12-task frozen catalog 先走 stock k-induction，再把 reference polynomial candidates 經
+`bmc.kinduction.predicatePrecisionFile` 餵回同一 engine：
+
+```bash
+# catalog + source/YAML SHA-256
+./scripts/vguided-cegar/run.sh nla-oracle validate
+
+# exact bit-vector/MathSAT；stock + oracle sequentially
+./scripts/vguided-cegar/run.sh nla-oracle run \
+  --output output/vguide/experiments/nla_oracle_capacity_smoke_current \
+  --arm both --timelimit 60
+
+# candidate dependency probes
+./scripts/vguided-cegar/run.sh nla-oracle run \
+  --arm oracle --timelimit 60 --candidate-shape supporting-first --task sqrt1-ll
+./scripts/vguided-cegar/run.sh nla-oracle run \
+  --arm oracle --timelimit 60 --candidate-shape conjunction --task sqrt1-ll
+
+# exact integer-with-wraparound/range-constraints encoding
+./scripts/vguided-cegar/run.sh nla-oracle run \
+  --arm both --timelimit 60 --encoding nia
+```
+
+`--encoding nia` 使用 repository nonlinear-integer options + Z3。若 solver/config/parse 失敗，
+harness 回傳 exit code 2，不得把它算成 UNKNOWN。2026-07-11 已從 official `z3-4.15.4`
+commit `745087e` 在 host GLIBC 2.35 重建 Java runtime，安裝於
+`~/.local/opt/z3-4.15.4`，`~/.local/bin/z3` 指向該版本。修復後 frozen NIA gate仍為
+stock 0/12、oracle 0/12 @60s，因此 ordinary k-induction polynomial path STOP；見
+[`reports/2026-07-11_nla_oracle_capacity_smoke.md`](reports/2026-07-11_nla_oracle_capacity_smoke.md)。
+注意 `ant build-project` / `ant tests` 的 Ivy refresh會覆寫 ignored
+`lib/java/runtime/libz3*.so` symlinks；refresh後需恢復 user-local links，並先從CPA log確認
+`Using predicate analysis with Z3 4.15.4.0.`。
+
+Ordinary k-induction的0/12不等同於 mutually-inductive conjunction或 direct PDR。Final consumer
+matrix沿用同一 frozen catalog與 exact-BV/MathSAT semantics：
+
+```bash
+# K2：每個loop head只產生一個 mutually-inductive conjunction candidate
+./scripts/vguided-cegar/run.sh nla-oracle run \
+  --output output/vguide/experiments/nla_oracle_matrix_k2_bv_60s \
+  --arm oracle --timelimit 60 --consumer kinduction --oracle-mode conjunction
+
+# KP0/KP2：property-directed KI-PDR，stock與conjunctive oracle
+./scripts/vguided-cegar/run.sh nla-oracle run \
+  --output output/vguide/experiments/nla_oracle_matrix_kp2_bv_60s \
+  --arm both --timelimit 60 --consumer kipdr --oracle-mode conjunction --jobs 4
+
+# Direct PDR；pdr-abstraction明確開啟ALLSAT abstraction與abstraction-based lifting
+./scripts/vguided-cegar/run.sh nla-oracle run \
+  --output output/vguide/experiments/nla_oracle_matrix_p4_bv_60s \
+  --arm both --timelimit 60 --consumer pdr-abstraction --oracle-mode both --jobs 4
+```
+
+`--oracle-mode root|conjunctive_root|abstraction|both`只適用 direct PDR；vocabulary mode只把
+reference formulas加入 location-scoped predicate abstraction precision，不把它們當成真。
+`--jobs N`只平行不同tasks；每個 CPAchecker process仍受自己的1-process timelimit約束。
+
+Final matrix all oracle delta 0後，現行fallback是deterministic predicate usefulness gate。Targeted
+confirmation與win controls：
+
+```bash
+./scripts/vguided-cegar/run.sh cpa \
+  --set predicate_usefulness_loss7 --mode usefulness-gate-on --parallel 4 --timelimit 300 \
+  --out output/vguide/experiments/predicate_usefulness_loss7_gate_current
+
+./scripts/vguided-cegar/run.sh cpa \
+  --set predicate_usefulness_win2 --mode usefulness-gate-on --parallel 2 --timelimit 300 \
+  --out output/vguide/experiments/predicate_usefulness_win2_gate_current
+```
+
+Expected current result：loss7為7/7 TRUE且每個log都有`VGuide usefulness-rejected`、沒有
+`VGuide precision-injected`；win2為2/2 TRUE且兩個logs都有precision injection。
 
 ---
 

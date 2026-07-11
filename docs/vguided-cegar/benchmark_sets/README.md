@@ -32,6 +32,9 @@
 | `rescue_core.list` | 核心 rescue | 6 |
 | **`full_scalar.list`** | 主路徑 scalar（`RUN_SCALAR` − 排除） | **217** |
 | `frozen_exception.list` | frozen 對照（`half_2`, `seq-3`） | 2 |
+| **`nla_oracle_smoke.list`** | VGuide-NLA oracle-capacity：12 個不同 nonlinear pattern、expected-TRUE、reference candidates frozen by SHA-256 | **12** |
+| **`predicate_usefulness_loss7.list`** | skip-#1/peel=0 pure-predicate arm的7個stock-solved/VGuide-lost tasks；fresh usefulness-gate confirmation | **7** |
+| **`predicate_usefulness_win2.list`** | `bhmr2007`、`nested9` VGuide-only win preservation controls | **2** |
 
 ## 排除（不進 `full_scalar`）
 

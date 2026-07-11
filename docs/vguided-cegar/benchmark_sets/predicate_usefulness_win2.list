@@ -1,0 +1,3 @@
+# Two VGuide-only wins that the frozen short-peel multiplicative rule must preserve.
+loop-lit/bhmr2007.i # yml=loop-lit/bhmr2007.yml expected=true
+loop-invgen/nested9.i # yml=loop-invgen/nested9.yml expected=true

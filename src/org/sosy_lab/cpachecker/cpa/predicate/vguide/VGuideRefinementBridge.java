@@ -71,6 +71,7 @@ public final class VGuideRefinementBridge {
   private @Nullable PendingRefinementDump pendingDump;
   private VGuideOutcome outcome = VGuideOutcome.NO_SPURIOUS_GIVE_UP;
   private @Nullable List<ValidatedPredicate> preCegarValidated = null;
+  private boolean suppressCurrentPrecisionInjection = false;
 
   private static final AtomicInteger BRIDGE_SEQUENCE = new AtomicInteger();
 
@@ -86,6 +87,7 @@ public final class VGuideRefinementBridge {
   CounterexampleTraceInfo counterexample;
   ARGReachedSet reachedBefore;
   List<VGuideAnalysisDumper.DumpValidatedPredicate> validated = List.of();
+  PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision;
   }
 
   public static VGuideRefinementBridge create(
@@ -303,6 +305,7 @@ public final class VGuideRefinementBridge {
       throws InterruptedException {
     lastValidation = null;
     pendingDump = null;
+    suppressCurrentPrecisionInjection = false;
 
     ContextPack pack =
         contextPackBuilder.build(refinementIndex, formulas, counterexample, abstractionStatesTrace);
@@ -493,7 +496,30 @@ public final class VGuideRefinementBridge {
           validationPipeline.validate(pack, rawPreds, abstractionStatesTrace);
       dump.validated =
           buildValidatedDump(pack, rawPreds, lastValidation, abstractionStatesTrace, profileByRaw);
-      if (options.isAllowInterpolantStrengthen() && options.isEnableL3Entailment()) {
+      if (options.isPredicateUsefulnessGateEnabled()) {
+        PredicateUsefulnessGate.Decision usefulnessDecision =
+            PredicateUsefulnessGate.evaluate(loopHeadVisits, lastValidation, fmgr);
+        dump.usefulnessGateDecision = usefulnessDecision;
+        if (usefulnessDecision.rejects()) {
+          suppressCurrentPrecisionInjection = true;
+          llmScheduler.suppressForPredicateUsefulnessGate();
+          logger.log(
+              Level.INFO,
+              "VGuide predicate usefulness gate rule="
+                  + PredicateUsefulnessGate.RULE_VERSION
+                  + " decision="
+                  + usefulnessDecision.action()
+                  + " loopHeadVisits="
+                  + loopHeadVisits
+                  + " uniqueValidatedPredicates="
+                  + usefulnessDecision.uniqueValidatedPredicates()
+                  + " uniqueMultiplicativePredicates="
+                  + usefulnessDecision.uniqueMultiplicativePredicates());
+        }
+      }
+      if (!suppressCurrentPrecisionInjection
+          && options.isAllowInterpolantStrengthen()
+          && options.isEnableL3Entailment()) {
         return strengthenInterpolants(
             counterexample, abstractionStatesTrace, lastValidation.entailed());
       }
@@ -511,9 +537,14 @@ public final class VGuideRefinementBridge {
     if (pendingDump != null && pendingDump.refinementIndex == refinementIndex) {
       List<VGuideAnalysisDumper.DumpValidatedPredicate> injected = List.of();
       if (lastValidation != null) {
-        ImmutableList<ValidatedPredicate> toInject = lastValidation.precisionOnly();
+        ImmutableList<ValidatedPredicate> toInject =
+            suppressCurrentPrecisionInjection
+                ? ImmutableList.of()
+                : lastValidation.precisionOnly();
         injected = markInjected(pendingDump.validated, toInject);
-        precisionInjector.inject(reached, toInject);
+        if (!suppressCurrentPrecisionInjection) {
+          precisionInjector.inject(reached, toInject);
+        }
       }
       if (analysisDumper != null) {
         analysisDumper.recordRefinement(
@@ -529,13 +560,18 @@ public final class VGuideRefinementBridge {
             pendingDump.reachedBefore,
             reached,
             pendingDump.llmCalled ? injected : null,
-            pendingDump.llmCalled ? injected : null);
+            pendingDump.llmCalled ? injected : null,
+            options.isPredicateUsefulnessGateEnabled(),
+            pendingDump.usefulnessGateDecision);
       }
       pendingDump = null;
     } else if (lastValidation != null) {
-      precisionInjector.inject(reached, lastValidation.precisionOnly());
+      if (!suppressCurrentPrecisionInjection) {
+        precisionInjector.inject(reached, lastValidation.precisionOnly());
+      }
     }
     lastValidation = null;
+    suppressCurrentPrecisionInjection = false;
   }
 
   /**

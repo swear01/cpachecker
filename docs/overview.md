@@ -2,7 +2,7 @@
 
 ## What This Is
 
-CPAchecker is a configurable software verifier for C programs, used in SV-COMP competitions. This fork adds **VGuide (Vocabulary-Guided CEGAR)**: an LLM-in-the-loop extension that injects predicate candidates into the PredicateCPA refinement loop, improving solve rates on reachability/loops benchmarks without compromising soundness. The LLM only proposes candidates; the SMT solver/checker validates them (Tier S) or controls resource/routing decisions only (Tier R). No Tier X (direct LLM verdict) is ever allowed.
+CPAchecker is a configurable software verifier for C programs, used in SV-COMP competitions. This fork adds **VGuide (Vocabulary-Guided CEGAR)**: an LLM-in-the-loop extension with implemented predicate and termination-ranking candidate paths. The current research line is **convergence-aware predicate usefulness gating** after the VGuide-NLA oracle-capacity gate failed on both exact-BV and exact NIA backends. The LLM only proposes candidates/search spaces (Tier S) or controls resource/routing decisions only (Tier R). No Tier X (direct LLM verdict or unverified assumption) is ever allowed.
 
 ## Key Concepts / Domain
 
@@ -12,6 +12,8 @@ CPAchecker is a configurable software verifier for C programs, used in SV-COMP c
 | PredicateCPA | The predicate-abstraction component; VGuide fires here on refinement |
 | Tier S / R / X | Soundness tiers: S = verified candidate, R = resource/config only, X = forbidden |
 | VGuide | The LLM bridge; Java class at `src/.../vguide/` |
+| VGuide-NLA | Stopped after ordinary KI and final PDR/KI-PDR oracle gates: every reference-candidate arm produced 0/12 target wins |
+| Usefulness gate | Opt-in Tier-R pre-injection guard: short traces with multiple multiplicative predicates keep standard refinement but skip VGuide precision injection and later LLM rounds |
 | `run.sh` | Single entry point for all experiments; reads benchmark manifests |
 | `full_scalar` | 217-task benchmark set (SV-COMP reachability); main eval suite |
 | `sample` | 8-task subset for quick smoke tests |

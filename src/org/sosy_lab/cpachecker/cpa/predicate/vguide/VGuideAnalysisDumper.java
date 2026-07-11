@@ -50,7 +50,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "2";
+  public static final String SCHEMA_VERSION = "3";
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -72,6 +72,7 @@ public final class VGuideAnalysisDumper {
   private int totalCompletionTokens;
   private int llmRoundCount;
   private int llmApiCallCount;
+  private int usefulnessGateTriggerCount;
 
   private VGuideAnalysisDumper(
       LogManager logger,
@@ -132,7 +133,9 @@ public final class VGuideAnalysisDumper {
       @Nullable ARGReachedSet reachedBefore,
       @Nullable ARGReachedSet reachedAfter,
       @Nullable List<DumpValidatedPredicate> validatedPredicates,
-      @Nullable List<DumpValidatedPredicate> injectedPredicates) {
+      @Nullable List<DumpValidatedPredicate> injectedPredicates,
+      boolean usefulnessGateEnabled,
+      PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision) {
     if (llmCalled && llmRoundIndex != null) {
       llmRoundCount = Math.max(llmRoundCount, llmRoundIndex);
     }
@@ -145,6 +148,13 @@ public final class VGuideAnalysisDumper {
     if (!llmCalled && llmSkipReason != null) {
       row.put("llm_skip_reason", llmSkipReason);
     }
+    row.set(
+        "usefulness_gate",
+        usefulnessGateJson(
+            usefulnessGateEnabled,
+            usefulnessGateDecision,
+            llmSkipReason,
+            validatedPredicates));
     row.set("interpolants_pre", interpolantsJson(counterexample, abstractionStatesTrace));
     row.set("block_formulas", blockFormulasJson(formulas));
     row.set("var_contract", varContractJson(pack.varContract()));
@@ -258,6 +268,8 @@ public final class VGuideAnalysisDumper {
     summary.put("refinements", refinementCount);
     summary.put("llm_rounds", llmRoundCount);
     summary.put("llm_api_calls", llmApiCallCount);
+    summary.put("predicate_usefulness_gate_enabled", options.isPredicateUsefulnessGateEnabled());
+    summary.put("predicate_usefulness_gate_triggers", usefulnessGateTriggerCount);
     summary.put("vguide_outcome", outcome.name());
     ObjectNode totalUsage = JSON.createObjectNode();
     totalUsage.put("prompt_tokens", totalPromptTokens);
@@ -297,6 +309,8 @@ public final class VGuideAnalysisDumper {
       manifest.put("git_commit", readGitCommit());
       manifest.put("dump_prompts", dumpPrompts);
       manifest.put("dual_prompt_mode", options.isDualPromptMode());
+      manifest.put("predicate_usefulness_gate_enabled", options.isPredicateUsefulnessGateEnabled());
+      manifest.put("predicate_usefulness_gate_rule", PredicateUsefulnessGate.RULE_VERSION);
       manifest.put("first_bridge_index", bridgeIndex);
       manifest.put(
           "bridge_task_name_policy", "first bridge keeps base name; later bridges use __bN");
@@ -483,6 +497,41 @@ public final class VGuideAnalysisDumper {
       arr.add(o);
     }
     return arr;
+  }
+
+  private ObjectNode usefulnessGateJson(
+      boolean pEnabled,
+      PredicateUsefulnessGate.@Nullable Decision pDecision,
+      @Nullable String pLlmSkipReason,
+      @Nullable List<DumpValidatedPredicate> pValidatedPredicates) {
+    ObjectNode gate = JSON.createObjectNode();
+    gate.put("enabled", pEnabled);
+    gate.put("rule_version", PredicateUsefulnessGate.RULE_VERSION);
+    boolean triggered = pDecision != null && pDecision.rejects();
+    gate.put("triggered", triggered);
+    gate.put("precision_injection_suppressed", triggered);
+    gate.put(
+        "future_llm_calls_suppressed",
+        triggered || "predicate_usefulness_gate".equals(pLlmSkipReason));
+    if (pDecision != null) {
+      gate.put("decision", pDecision.action().name());
+      gate.put("loop_head_visits", pDecision.loopHeadVisits());
+      gate.put("unique_validated", pDecision.uniqueValidatedPredicates());
+      gate.put("unique_bvmul", pDecision.uniqueMultiplicativePredicates());
+      gate.set("canonical_predicate_hashes", stringArray(pDecision.canonicalPredicateHashes()));
+      if (triggered) {
+        usefulnessGateTriggerCount++;
+      }
+    }
+    ImmutableSet<String> profiles =
+        pValidatedPredicates == null
+            ? ImmutableSet.of()
+            : pValidatedPredicates.stream()
+                .map(DumpValidatedPredicate::sourceProfile)
+                .filter(profile -> !profile.isEmpty())
+                .collect(ImmutableSet.toImmutableSet());
+    gate.set("batch_profiles", stringArray(ImmutableList.copyOf(profiles)));
+    return gate;
   }
 
   private ObjectNode promptComponents(ContextPack pack) {
