@@ -14,6 +14,8 @@
 #   ./run.sh cpa --set full_scalar --ablation l3 --parallel 8 --timelimit 300
 #   ./run.sh llm-quality [--tasks up,down,array_3-1]
 #   ./run.sh verify-pack --task array_3-1   # CPA + artifacts (real ContextPack)
+#   ./run.sh nla-oracle validate
+#   ./run.sh nla-oracle run --arm both --timelimit 60
 #   ./run.sh help
 #
 # Environment (see RUN_EXPERIMENTS.md):
@@ -303,6 +305,12 @@ cmd_verify_pack() {
   fi
 }
 
+cmd_nla_oracle() {
+  require_java
+  exec python3 "$SCRIPT_DIR/oracle_capacity_harness.py" \
+    --benchmark-root "$SV_BENCHMARKS" "$@"
+}
+
 main() {
   local cmd="${1:-help}"
   shift || true
@@ -314,6 +322,7 @@ main() {
     cpa) cmd_cpa "$@" ;;
     llm-quality) cmd_llm_quality "$@" ;;
     verify-pack) cmd_verify_pack "$@" ;;
+    nla-oracle) cmd_nla_oracle "$@" ;;
     *) die "unknown command: $cmd (try: ./run.sh help)" ;;
   esac
 }

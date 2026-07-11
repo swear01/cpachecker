@@ -1,0 +1,14 @@
+# VGuide-NLA oracle-capacity smoke: 12 expected-TRUE, stock-UNKNOWN nonlinear patterns.
+# Candidate catalog and frozen hashes: ../evaluation/nla_oracle_smoke_candidates.json
+nla-digbench/cohencu-ll.c # yml=nla-digbench/cohencu-ll.yml expected=true pattern=cubic
+nla-digbench/cohendiv-ll.c # yml=nla-digbench/cohendiv-ll.yml expected=true pattern=nested-division
+nla-digbench/dijkstra-u.c # yml=nla-digbench/dijkstra-u.yml expected=true pattern=square-root
+nla-digbench/divbin2.i # yml=nla-digbench/divbin2.yml expected=true pattern=binary-division
+nla-digbench/geo2-ll.c # yml=nla-digbench/geo2-ll.yml expected=true pattern=geometric-series
+nla-digbench/knuth.i # yml=nla-digbench/knuth.yml expected=true pattern=multi-branch-polynomial
+nla-digbench/lcm1.c # yml=nla-digbench/lcm1.yml expected=true pattern=gcd-lcm
+nla-digbench/mannadiv.c # yml=nla-digbench/mannadiv.yml expected=true pattern=division-counter
+nla-digbench/prod4br-ll.c # yml=nla-digbench/prod4br-ll.yml expected=true pattern=multi-branch-product
+nla-digbench/prodbin-ll.c # yml=nla-digbench/prodbin-ll.yml expected=true pattern=shift-add-product
+nla-digbench/ps2-ll.c # yml=nla-digbench/ps2-ll.yml expected=true pattern=quadratic-sum
+nla-digbench/sqrt1-ll.c # yml=nla-digbench/sqrt1-ll.yml expected=true pattern=finite-difference-square

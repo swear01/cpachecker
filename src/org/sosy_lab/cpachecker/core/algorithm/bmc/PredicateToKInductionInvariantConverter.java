@@ -10,6 +10,7 @@ package org.sosy_lab.cpachecker.core.algorithm.bmc;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.SetMultimap;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -27,6 +28,7 @@ import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.CPAcheckerResult.Result;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.candidateinvariants.CandidateInvariant;
+import org.sosy_lab.cpachecker.core.algorithm.bmc.candidateinvariants.CandidateInvariantCombination;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.candidateinvariants.SingleLocationFormulaInvariant;
 import org.sosy_lab.cpachecker.core.interfaces.Statistics;
 import org.sosy_lab.cpachecker.core.reachedset.UnmodifiableReachedSet;
@@ -81,6 +83,12 @@ public class PredicateToKInductionInvariantConverter implements Statistics, Auto
   private PredicatePrecisionConverterStrategy converterStrategy =
       PredicatePrecisionConverterStrategy.GLOBAL;
 
+  @Option(
+      secure = true,
+      name = "pred.conjunction",
+      description = "combine all converted predicates at each loop head into one candidate")
+  private boolean combinePredicatesPerLocation = false;
+
   private final Timer conversionTime = new Timer();
   private int numInvariants = 0;
   private InitialPredicatesOptions initialPredicatesOptions;
@@ -119,6 +127,9 @@ public class PredicateToKInductionInvariantConverter implements Statistics, Auto
         logger.log(Level.INFO, "Derive k-induction invariant from given predicate precision");
         ImmutableSet<CandidateInvariant> candidates =
             convertPredPrecToKInductionInvariant(predPrec, formulaManager, shutdownNotifier);
+        if (combinePredicatesPerLocation) {
+          candidates = combineCandidatesPerLocation(candidates);
+        }
         numInvariants += candidates.size();
         return candidates;
       } else {
@@ -136,6 +147,27 @@ public class PredicateToKInductionInvariantConverter implements Statistics, Auto
     }
 
     return ImmutableSet.of();
+  }
+
+  public static ImmutableSet<CandidateInvariant> combineCandidatesPerLocation(
+      Iterable<? extends CandidateInvariant> pCandidates) {
+    SetMultimap<CFANode, SingleLocationFormulaInvariant> candidatesPerLocation =
+        LinkedHashMultimap.create();
+    for (CandidateInvariant candidate : pCandidates) {
+      if (!(candidate instanceof SingleLocationFormulaInvariant locationCandidate)) {
+        throw new IllegalArgumentException(
+            "Cannot combine a candidate without exactly one location: " + candidate);
+      }
+      candidatesPerLocation.put(locationCandidate.getLocation(), locationCandidate);
+    }
+
+    ImmutableSet.Builder<CandidateInvariant> result = ImmutableSet.builder();
+    for (CFANode location : candidatesPerLocation.keySet()) {
+      result.add(
+          CandidateInvariantCombination.singleLocationConjunction(
+              candidatesPerLocation.get(location)));
+    }
+    return result.build();
   }
 
   private ImmutableSet<CandidateInvariant> convertPredPrecToKInductionInvariant(

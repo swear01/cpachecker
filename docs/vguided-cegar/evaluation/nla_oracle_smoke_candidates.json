@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "task": "cohencu-ll",
+      "source": "nla-digbench/cohencu-ll.c",
+      "yml": "nla-digbench/cohencu-ll.yml",
+      "expected": "TRUE",
+      "source_sha256": "bf57d72e341b105161cbeacf29e58db93d2b67f8e0e097e4dbed74551cbdcfff",
+      "yml_sha256": "0e14508a44a3b156e8d5314a76d0a1769c8aebc547ea4e6ef74521522061b092",
+      "predicates": [
+        "(= |main::z| (+ (* 6 |main::n|) 6))",
+        "(= |main::y| (+ (* 3 (* |main::n| |main::n|)) (+ (* 3 |main::n|) 1)))",
+        "(= |main::x| (* |main::n| (* |main::n| |main::n|)))",
+        "(= (+ (* |main::y| |main::z|) (* 2 |main::z|)) (+ (* 18 |main::x|) (+ (* 12 |main::y|) 6)))"
+      ]
+    },
+    {
+      "task": "cohendiv-ll",
+      "source": "nla-digbench/cohendiv-ll.c",
+      "yml": "nla-digbench/cohendiv-ll.yml",
+      "expected": "TRUE",
+      "source_sha256": "601ddeb38cc85433f6271611bfd2617c2fcbf2b89119dbe2c319aedc14aa3b17",
+      "yml_sha256": "b8a10c36d1d8d2463d31b5a2abb585b3ccb767ca567240f2245ae6b3f69bfa16",
+      "predicates": [
+        "(= |main::b| (* |main::y| |main::a|))",
+        "(= |main::x| (+ (* |main::q| |main::y|) |main::r|))",
+        "(>= |main::r| 0)"
+      ]
+    },
+    {
+      "task": "dijkstra-u",
+      "source": "nla-digbench/dijkstra-u.c",
+      "yml": "nla-digbench/dijkstra-u.yml",
+      "expected": "TRUE",
+      "source_sha256": "b586a178399b4c0df2fdcb66faa06566663e0a18b90a5f0ce0551810014ff769",
+      "yml_sha256": "0f025fd467c9c1d51bf23fe2269ce2d4d6548d0cd727557f1dc61dbf17e9b48e",
+      "predicates": [
+        "(= (+ (* |main::p| |main::p|) (* |main::r| |main::q|)) (* |main::n| |main::q|))",
+        "(= (+ (* |main::p| |main::p|) (* |main::q| |main::r|)) (* |main::n| |main::q|))"
+      ]
+    },
+    {
+      "task": "divbin2",
+      "source": "nla-digbench/divbin2.i",
+      "yml": "nla-digbench/divbin2.yml",
+      "expected": "TRUE",
+      "source_sha256": "c7e3f11d23b462949b18ec2057853f57240b0651aa6fb66cf591585739df9d3e",
+      "yml_sha256": "30bb1ed84ee9c8c5aef5d3b102a36e75a16735bbd0bff2391b46a27ddb4734cf",
+      "predicates": [
+        "(= |main::A| (+ (* |main::q| |main::b|) |main::r|))",
+        "(>= |main::b| |main::B|)"
+      ]
+    },
+    {
+      "task": "geo2-ll",
+      "source": "nla-digbench/geo2-ll.c",
+      "yml": "nla-digbench/geo2-ll.yml",
+      "expected": "TRUE",
+      "source_sha256": "e871fa33b0334d5a32c7b72bf8c566167ee8ba89fea0452fc9132a1c10a2cca9",
+      "yml_sha256": "bc0c1a172fd6839dd6ddf27c3eab74a8959e271b3e3719c421991352c04a2efc",
+      "predicates": [
+        "(= (+ 1 (* |main::x| |main::z|)) (+ |main::x| (* |main::z| |main::y|)))"
+      ]
+    },
+    {
+      "task": "knuth",
+      "source": "nla-digbench/knuth.i",
+      "yml": "nla-digbench/knuth.yml",
+      "expected": "TRUE",
+      "source_sha256": "08f39468d7757b1a22fdbf1465bbd41291a8868febbded34fd41fea8ffa53398",
+      "yml_sha256": "73f3bd376a05c1ae69654a9ddec9a4c59c16953c04e3adfa56cf21cf42a914c2",
+      "predicates": [
+        "(= (+ (* (* |main::d| |main::d|) |main::q|) (+ (* (* 4 |main::k|) |main::d|) (* 8 |main::r|))) (+ (* (* 2 |main::q|) |main::d|) (+ (* (* 4 |main::r|) |main::d|) (* 8 |main::n|))))",
+        "(= (* |main::k| |main::t|) (* |main::t| |main::t|))"
+      ]
+    },
+    {
+      "task": "lcm1",
+      "source": "nla-digbench/lcm1.c",
+      "yml": "nla-digbench/lcm1.yml",
+      "expected": "TRUE",
+      "source_sha256": "127eafc67dbf4c09ebdb87b122412adad2353ff20b5e6bda1f5cac7c627afccd",
+      "yml_sha256": "93bf00d2ad9dad8949d73e6417004a7bfa1f7102514144c0ebf17358da343c07",
+      "predicates": [
+        "(= (+ (* |main::x| |main::u|) (* |main::y| |main::v|)) (* |main::a| |main::b|))"
+      ]
+    },
+    {
+      "task": "mannadiv",
+      "source": "nla-digbench/mannadiv.c",
+      "yml": "nla-digbench/mannadiv.yml",
+      "expected": "TRUE",
+      "source_sha256": "4f0dc25e497896e48962fc4f59a3ea4856b5eb0408b9845e68b04a0b0a132067",
+      "yml_sha256": "ff02380423223648dc3ab005e2b5a7743a4159dcacd19721a5fa204b61713936",
+      "predicates": [
+        "(= (+ (* |main::y1| |main::x2|) (+ |main::y2| |main::y3|)) |main::x1|)"
+      ]
+    },
+    {
+      "task": "prod4br-ll",
+      "source": "nla-digbench/prod4br-ll.c",
+      "yml": "nla-digbench/prod4br-ll.yml",
+      "expected": "TRUE",
+      "source_sha256": "9fc373a278835802938e4c08f2544f1651ce1de6dc177c0a58501e43687c477d",
+      "yml_sha256": "f9dd3ea12cab849e88b876c720a6cd555e4e9fb2ad13146a9d55827fbd87428b",
+      "predicates": [
+        "(= (+ |main::q| (* (* |main::a| |main::b|) |main::p|)) (* |main::x| |main::y|))"
+      ]
+    },
+    {
+      "task": "prodbin-ll",
+      "source": "nla-digbench/prodbin-ll.c",
+      "yml": "nla-digbench/prodbin-ll.yml",
+      "expected": "TRUE",
+      "source_sha256": "77bbfba272f7904e5efe099569a5ed86d54de3fd07a8ce9d48301467c5048e30",
+      "yml_sha256": "588016dcb03ff3204b93454df4905ee41dfcdbd3bfff410a0803cea4fa201931",
+      "predicates": [
+        "(= (+ |main::z| (* |main::x| |main::y|)) (* |main::a| |main::b|))"
+      ]
+    },
+    {
+      "task": "ps2-ll",
+      "source": "nla-digbench/ps2-ll.c",
+      "yml": "nla-digbench/ps2-ll.yml",
+      "expected": "TRUE",
+      "source_sha256": "179b0134270d97f57074f9ac11d0788729a2f9ba65b60cccc5fdcd06091925db",
+      "yml_sha256": "d39049a76159000cf37cb7671328a6d4d6ffc5b46104d3314e2aae4ef80a47e1",
+      "predicates": [
+        "(= (+ (* |main::y| |main::y|) |main::y|) (* 2 |main::x|))"
+      ]
+    },
+    {
+      "task": "sqrt1-ll",
+      "source": "nla-digbench/sqrt1-ll.c",
+      "yml": "nla-digbench/sqrt1-ll.yml",
+      "expected": "TRUE",
+      "source_sha256": "5a667cf640b9cf5657756f4ca44157e13471ed71aebfaf7ff11f9d5251db37ae",
+      "yml_sha256": "f172451aab1feb4e49b8bbbe91fabdae5499af9116930868e4ab3063f26dad06",
+      "predicates": [
+        "(= |main::t| (+ (* 2 |main::a|) 1))",
+        "(= |main::s| (* (+ |main::a| 1) (+ |main::a| 1)))",
+        "(= (+ (* |main::t| |main::t|) (+ (* 2 |main::t|) 1)) (* 4 |main::s|))"
+      ]
+    }
+  ]
+}

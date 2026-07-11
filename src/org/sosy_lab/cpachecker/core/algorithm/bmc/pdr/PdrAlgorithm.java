@@ -18,10 +18,12 @@ import com.google.common.base.Ascii;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -44,6 +46,7 @@ import java.util.stream.Stream;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.ShutdownNotifier;
 import org.sosy_lab.common.configuration.Configuration;
+import org.sosy_lab.common.configuration.FileOption;
 import org.sosy_lab.common.configuration.InvalidConfigurationException;
 import org.sosy_lab.common.configuration.Option;
 import org.sosy_lab.common.configuration.Options;
@@ -67,11 +70,13 @@ import org.sosy_lab.cpachecker.core.algorithm.bmc.InvariantStrengthening.NextCti
 import org.sosy_lab.cpachecker.core.algorithm.bmc.InvariantStrengthenings;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.Lifting;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.PredicateAbstractionStrategy;
+import org.sosy_lab.cpachecker.core.algorithm.bmc.PredicateToKInductionInvariantConverter;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.ProverEnvironmentWithFallback;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.StandardLiftings;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.StaticCandidateProvider;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.UnrolledReachedSet;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.candidateinvariants.CandidateInvariant;
+import org.sosy_lab.cpachecker.core.algorithm.bmc.candidateinvariants.SingleLocationFormulaInvariant;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.candidateinvariants.SymbolicCandiateInvariant;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.candidateinvariants.SymbolicCandiateInvariant.BlockedCounterexampleToInductivity;
 import org.sosy_lab.cpachecker.core.algorithm.bmc.candidateinvariants.TargetLocationCandidateInvariant;
@@ -84,6 +89,7 @@ import org.sosy_lab.cpachecker.core.counterexample.CounterexampleInfo;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.core.interfaces.ConfigurableProgramAnalysis;
 import org.sosy_lab.cpachecker.core.interfaces.Statistics;
+import org.sosy_lab.cpachecker.core.interfaces.StatisticsProvider;
 import org.sosy_lab.cpachecker.core.interfaces.conditions.AdjustableConditionCPA;
 import org.sosy_lab.cpachecker.core.reachedset.AggregatedReachedSets;
 import org.sosy_lab.cpachecker.core.reachedset.ReachedSet;
@@ -121,7 +127,7 @@ import org.sosy_lab.java_smt.api.Model.ValueAssignment;
 import org.sosy_lab.java_smt.api.SolverContext.ProverOptions;
 import org.sosy_lab.java_smt.api.SolverException;
 
-public class PdrAlgorithm implements Algorithm {
+public class PdrAlgorithm implements Algorithm, StatisticsProvider {
 
   private final Algorithm algorithm;
   private final ConfigurableProgramAnalysis cpa;
@@ -140,6 +146,7 @@ public class PdrAlgorithm implements Algorithm {
   private final PdrStatistics stats;
   private final BasicPdrOptions basicPdrOptions;
   private final AbstractionStrategy abstractionStrategy;
+  private final ImmutableSet<CandidateInvariant> oracleCandidates;
 
   private final InvariantGenerator invariantGenerator;
 
@@ -157,6 +164,9 @@ public class PdrAlgorithm implements Algorithm {
 
     private final Timer satCheck = new Timer();
     private final Timer errorPathCreation = new Timer();
+    private int oraclePredicatesSeeded = 0;
+    private int oracleRootsConfirmed = 0;
+    private boolean targetConfirmedAfterOracleRoot = false;
 
     @Override
     public void printStatistics(PrintStream pOut, Result pResult, UnmodifiableReachedSet pReached) {
@@ -165,6 +175,11 @@ public class PdrAlgorithm implements Algorithm {
       }
       if (errorPathCreation.getNumberOfIntervals() > 0) {
         pOut.println("Time for error path creation:        " + errorPathCreation);
+      }
+      if (oraclePredicatesSeeded > 0 || oracleRootsConfirmed > 0) {
+        pOut.println("PDR oracle predicates seeded:        " + oraclePredicatesSeeded);
+        pOut.println("PDR oracle roots confirmed:          " + oracleRootsConfirmed);
+        pOut.println("Target confirmed after oracle root:    " + targetConfirmedAfterOracleRoot);
       }
     }
 
@@ -209,6 +224,28 @@ public class PdrAlgorithm implements Algorithm {
     bfmgr = fmgr.getBooleanFormulaManager();
     pmgr = predCpa.getPathFormulaManager();
     pam = predCpa.getPredicateManager();
+
+    if (basicPdrOptions.oraclePredicatePrecisionFile == null) {
+      oracleCandidates = ImmutableSet.of();
+    } else {
+      try (PredicateToKInductionInvariantConverter converter =
+          new PredicateToKInductionInvariantConverter(config, logger, shutdownNotifier, cfa)) {
+        oracleCandidates =
+            converter.convertPredPrecToKInductionInvariant(
+                basicPdrOptions.oraclePredicatePrecisionFile,
+                solver,
+                predCpa.getAbstractionManager());
+      }
+      if (oracleCandidates.isEmpty()) {
+        throw new InvalidConfigurationException(
+            "The PDR oracle predicate precision did not produce any candidates");
+      }
+      if (basicPdrOptions.oracleMode.usesAbstraction()
+          && !(abstractionStrategy instanceof PredicateAbstractionStrategy)) {
+        throw new InvalidConfigurationException(
+            "PDR oracle abstraction requires ALLSAT_BASED_PREDICATE_ABSTRACTION");
+      }
+    }
 
     assignmentToPathAllocator =
         new AssignmentToPathAllocator(config, shutdownNotifier, pLogger, cfa.getMachineModel());
@@ -261,11 +298,21 @@ public class PdrAlgorithm implements Algorithm {
     for (BooleanFormula locationFormula : transitionRelation.getPredecessorLocationFormulas()) {
       abstractionStrategy.refinePrecision(pam, Collections.singleton(locationFormula));
     }
+    if (basicPdrOptions.oracleMode.usesAbstraction()) {
+      seedOracleAbstraction();
+    }
 
     try {
       return runPdr(transitionRelation);
     } catch (SolverException e) {
       throw new CPAException("Solver Failure: " + e.getMessage(), e);
+    }
+  }
+
+  @Override
+  public void collectStatistics(Collection<Statistics> pStatsCollection) {
+    if (!oracleCandidates.isEmpty()) {
+      pStatsCollection.add(stats);
     }
   }
 
@@ -929,8 +976,12 @@ public class PdrAlgorithm implements Algorithm {
         rootInvariantIterator.remove();
         confirmedCandidates.add(rootInvariant);
         if (rootInvariant == TargetLocationCandidateInvariant.INSTANCE) {
+          stats.targetConfirmedAfterOracleRoot = stats.oracleRootsConfirmed > 0;
           rootInvariant.assumeTruth(pReachedSet);
           return Optional.of(AlgorithmStatus.SOUND_AND_PRECISE);
+        } else {
+          stats.oracleRootsConfirmed++;
+          logger.log(Level.INFO, "Confirmed PDR oracle root candidate: " + rootInvariant);
         }
       }
     }
@@ -1212,14 +1263,71 @@ public class PdrAlgorithm implements Algorithm {
   private CandidateGenerator getCandidateInvariants() {
     if (getTargetLocations().isEmpty() || !cfa.getAllLoopHeads().isPresent()) {
       return CandidateGenerator.EMPTY_GENERATOR;
-    } else {
+    } else if (oracleCandidates.isEmpty()) {
       return new StaticCandidateProvider(
           Collections.singleton(TargetLocationCandidateInvariant.INSTANCE));
+    } else {
+      return new StaticCandidateProvider(
+          selectRootCandidates(basicPdrOptions.oracleMode, oracleCandidates));
+    }
+  }
+
+  static ImmutableSet<CandidateInvariant> selectRootCandidates(
+      OracleMode pMode, Iterable<? extends CandidateInvariant> pOracleCandidates) {
+    ImmutableSet.Builder<CandidateInvariant> result = ImmutableSet.builder();
+    result.add(TargetLocationCandidateInvariant.INSTANCE);
+    if (pMode == OracleMode.ROOT) {
+      result.addAll(pOracleCandidates);
+    } else if (pMode.usesConjunctiveRoot()) {
+      result.addAll(
+          PredicateToKInductionInvariantConverter.combineCandidatesPerLocation(pOracleCandidates));
+    }
+    return result.build();
+  }
+
+  private void seedOracleAbstraction() throws CPATransferException, InterruptedException {
+    for (CandidateInvariant candidate : oracleCandidates) {
+      if (!(candidate instanceof SingleLocationFormulaInvariant locationCandidate)) {
+        throw new AssertionError("Predicate precision produced a non-location candidate");
+      }
+      BooleanFormula predicate = locationCandidate.getFormula(fmgr, pmgr, null);
+      abstractionStrategy.refinePrecision(
+          pam, locationCandidate.getLocation(), Collections.singleton(predicate));
+    }
+    stats.oraclePredicatesSeeded = oracleCandidates.size();
+    logger.log(
+        Level.INFO,
+        "Seeded PDR abstraction with " + oracleCandidates.size() + " oracle predicates");
+  }
+
+  enum OracleMode {
+    ROOT,
+    CONJUNCTIVE_ROOT,
+    ABSTRACTION,
+    BOTH;
+
+    boolean usesConjunctiveRoot() {
+      return this == CONJUNCTIVE_ROOT || this == BOTH;
+    }
+
+    boolean usesAbstraction() {
+      return this == ABSTRACTION || this == BOTH;
     }
   }
 
   @Options(prefix = "pdr")
   protected static class BasicPdrOptions {
+
+    @Option(
+        secure = true,
+        description = "Predicate precision file used only by the PDR oracle-capacity experiment")
+    @FileOption(FileOption.Type.OPTIONAL_INPUT_FILE)
+    private Path oraclePredicatePrecisionFile = null;
+
+    @Option(
+        secure = true,
+        description = "How PDR consumes predicates from oraclePredicatePrecisionFile")
+    private OracleMode oracleMode = OracleMode.ROOT;
 
     @Option(
         secure = true,

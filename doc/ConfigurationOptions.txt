@@ -1075,6 +1075,9 @@ bmc.kinduction.regression.witness.mappingHeuristic = ALL_LOOPS_IN_FUNCTION
 # k-induction
 bmc.kinduction.regression.witnessFile = no default value
 
+# combine all converted predicates at each loop head into one candidate
+bmc.kinduction.reuse.pred.conjunction = false
+
 # which strategy to use to convert predicate precision to k-induction
 # invariant
 bmc.kinduction.reuse.pred.strategy = GLOBAL
@@ -5303,6 +5306,13 @@ pdr.liftingAbstractionFailureThreshold = 0
 # Which strategy to use to abstract counterexamples to inductivity.
 pdr.liftingStrategy = NO_LIFTING
   enum:     [NO_LIFTING, UNSAT_CORE_BASED_LIFTING, ABSTRACTION_BASED_LIFTING]
+
+# How PDR consumes predicates from oraclePredicatePrecisionFile
+pdr.oracleMode = ROOT
+  enum:     [ROOT, CONJUNCTIVE_ROOT, ABSTRACTION, BOTH]
+
+# Predicate precision file used only by the PDR oracle-capacity experiment
+pdr.oraclePredicatePrecisionFile = no default value
 
 # Maximum number of accepted spurious transitions within a proof-obligation
 # trace before a consecution abstraction failure triggers a refinement.
