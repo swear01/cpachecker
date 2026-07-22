@@ -24,6 +24,7 @@ import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.types.MachineModel;
 import org.sosy_lab.cpachecker.core.interfaces.ConfigurableProgramAnalysis;
 import org.sosy_lab.cpachecker.cpa.arg.ARGBasedRefiner;
+import org.sosy_lab.cpachecker.cpa.predicate.vguide.VGuideRefiner;
 import org.sosy_lab.cpachecker.util.CPAs;
 import org.sosy_lab.cpachecker.util.LoopStructure;
 import org.sosy_lab.cpachecker.util.predicates.PathChecker;
@@ -198,6 +199,16 @@ public final class PredicateCPARefinerFactory {
               cfa,
               refiner);
     }
+
+    refiner =
+        VGuideRefiner.wrapIfEnabled(
+            refiner,
+            config,
+            logger,
+            cfa,
+            loopStructure,
+            predicateCpa.getAbstractionManager(),
+            solver.getFormulaManager());
 
     return refiner;
   }

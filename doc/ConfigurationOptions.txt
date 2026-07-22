@@ -263,6 +263,7 @@ solver.z3.usePhantomReferences = false
 # SPDX-FileCopyrightText: 2023 Dirk Beyer <https://www.sosy-lab.org>
 # SPDX-FileCopyrightText: 2024 Dirk Beyer <https://www.sosy-lab.org>
 # SPDX-FileCopyrightText: 2025 Dirk Beyer <https://www.sosy-lab.org>
+# SPDX-FileCopyrightText: 2026 SSU-WEI HUANG <https://github.com/swear01>
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -5925,6 +5926,30 @@ useCompositionAnalysis = false
 
 # Whether one wants to refine MemorySafety errors.
 util.refinement.refineMemorySafety = false
+
+# Environment variable containing the provider API key
+vguide.apiKeyEnvironmentVariable = ""
+
+# Number of previous counterexamples retained in context
+vguide.counterexampleHistory = 3
+
+# Enable verifier-guided predicate augmentation
+vguide.enable = false
+
+# OpenAI-compatible chat-completions endpoint
+vguide.endpoint = ""
+
+# Maximum candidates accepted from each agent
+vguide.maxCandidatesPerAgent = 8
+
+# Exact provider model identifier, including Leanstral
+vguide.model = ""
+
+# Machine-readable candidate provenance
+vguide.telemetryFile = "vguide-telemetry.json"
+
+# Provider timeout in seconds
+vguide.timeoutSeconds = 120
 
 # Instead of comments, output the assertions into the original program as
 # violations to unreach_call.prp
