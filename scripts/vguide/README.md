@@ -26,6 +26,8 @@ The runner refuses revision drift, a dirty stock checkout, LLM-related environme
 
 The formal command terminates on cgroup-preflight failure, any non-correct calibration result, an incomplete or mismatched full result, duplicate tasks, or a wrong verdict. It retrieves and hashes every YAML witness for a correct result, renders validation runs from the pinned official CPAchecker witness-validator definitions, and requires all correctness and violation validation runs to be correct. On success it writes hard-over-200-second and unsolved manifests, per-set/resource distributions, witness-validation evidence, post-run machine state, and a checksummed artifact manifest. The artifact manifest is also attempted on every post-preflight failure without masking the original exit status.
 
+Each BenchExec invocation starts in the stock checkout, exposes that checkout through an ephemeral overlay, keeps the rest of `/` read-only, and hides `/home`. This keeps the working directory visible even if the outer runner was launched from a hidden home directory and permits witness output without making the host checkout writable. BenchExec receives a fixed minimal environment so result XML files cannot capture unrelated credentials or session-specific variables from the invoking account.
+
 `config/predicateAnalysis-vguide.properties` keeps augmentation disabled unless a run explicitly supplies `vguide.enable=true`, `vguide.endpoint`, and `vguide.model`.
 
 ## Result manifests

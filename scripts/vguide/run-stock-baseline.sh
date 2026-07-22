@@ -173,19 +173,25 @@ fi
 run_benchexec() {
   local name=$1 xml=$2 output=$3 threads=$4 cores_per_run=$5
   mkdir -p "$output"
-  systemd-run --user --quiet --scope --slice=benchexec -p Delegate=yes \
-    taskset -c "$P_CORES" env JAVA="$JAVA" PYTHONPATH="$BENCHEXEC_DIR" \
-    python3 -m benchexec.benchexec \
-    --name "$name" \
-    --tool-directory "$CPACHECKER_DIR" \
-    --outputpath "$output" \
-    --allowedCores "$P_CORES" \
-    --no-hyperthreading \
-    --container \
-    --read-only-dir / \
-    --hidden-dir /home \
-    -N "$threads" -c "$cores_per_run" \
-    "$xml"
+  (
+    cd "$CPACHECKER_DIR"
+    systemd-run --user --quiet --scope --slice=benchexec -p Delegate=yes \
+      taskset -c "$P_CORES" env -i \
+      HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
+      JAVA="$JAVA" PYTHONPATH="$BENCHEXEC_DIR" \
+      /usr/bin/python3 -m benchexec.benchexec \
+      --name "$name" \
+      --tool-directory "$CPACHECKER_DIR" \
+      --outputpath "$output" \
+      --allowedCores "$P_CORES" \
+      --no-hyperthreading \
+      --container \
+      --read-only-dir / \
+      --hidden-dir /home \
+      --overlay-dir "$CPACHECKER_DIR" \
+      -N "$threads" -c "$cores_per_run" \
+      "$xml"
+  )
 }
 
 single_result() {
