@@ -122,7 +122,7 @@ run_ant_gate() {
 }
 run_ant_gate build -Divy.disable=true clean jar
 run_ant_gate unit-tests -Divy.disable=true -DskipBuild=true unit-tests-coverage
-run_ant_gate configuration-checks \
+JAVA_TOOL_OPTIONS=-Xmx4g run_ant_gate configuration-checks \
   -Divy.disable=true -DskipBuild=true configuration-checks
 run_ant_gate integration-tests -Divy.disable=true -DskipBuild=true integration-tests
 if [[ -n $(git -C "$CPACHECKER_DIR" status --porcelain) ]]; then
