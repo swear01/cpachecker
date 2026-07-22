@@ -46,7 +46,9 @@ def check(wiki_dir):
     for link in WIKI_LINK.findall(page.read_text(encoding="utf-8")):
       if "://" in link or link.startswith("#"):
         continue
-      target = link.split("#", 1)[0].removesuffix(".md")
+      target = link.split("#", 1)[0]
+      if target.endswith(".md"):
+        target = target[:-3]
       if target and target not in pages:
         broken.append(f"{page.name}: {link}")
   if broken:

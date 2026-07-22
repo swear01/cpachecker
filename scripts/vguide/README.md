@@ -22,7 +22,9 @@ env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
   /path/to/benchmark-definitions /path/to/benchexec /path/to/output
 ```
 
-The runner refuses revision drift, a dirty stock checkout, LLM-related environment variables, an unexpected P-core topology, or VGuide in the stock configuration closure.
+The runner refuses revision drift, a dirty stock checkout, LLM-related environment variables, an unexpected P-core topology, a non-empty output directory, a runtime other than the pinned OpenJDK 21.0.11, a mismatched JDK tree hash, or VGuide in the stock configuration closure. The JDK pin is the upstream CI-image runtime with its absolute image-root symlinks materialized as byte-identical files for execution outside that image. Before measurement, the runner performs a clean upstream JAR build, unit tests with coverage, configuration checks, and integration tests; every gate log is retained. It then executes three repetitions of a balanced ten-task calibration, records timing noise, runs the full 764-task corpus, and validates the witnesses. Machine state is captured before execution and after each measurement phase. Both the gate processes, BenchExec harness, and child runs are restricted to logical CPUs `0,2,4,6,8,10,12,14`, representing the eight physical P-cores without SMT siblings.
+
+The formal command terminates on cgroup-preflight failure, any non-correct calibration result, an incomplete or mismatched full result, duplicate tasks, or a wrong verdict. It retrieves and hashes every YAML witness for a correct result, renders validation runs from the pinned official CPAchecker witness-validator definitions, and requires all correctness and violation validation runs to be correct. On success it writes hard-over-200-second and unsolved manifests, per-set/resource distributions, witness-validation evidence, post-run machine state, and a checksummed artifact manifest. The artifact manifest is also attempted on every post-preflight failure without masking the original exit status.
 
 `config/predicateAnalysis-vguide.properties` keeps augmentation disabled unless a run explicitly supplies `vguide.enable=true`, `vguide.endpoint`, and `vguide.model`.
 
@@ -31,6 +33,7 @@ The runner refuses revision drift, a dirty stock checkout, LLM-related environme
 ```bash
 scripts/vguide/baseline.py summarize \
   --result /path/to/result.xml.bz2 \
+  --task-manifest /path/to/generated/selection.manifest.json \
   --output-dir /path/to/summary
 ```
 
