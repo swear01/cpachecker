@@ -308,7 +308,7 @@ specification = specification/property.spc
       validation = json.loads(output.read_text(encoding="utf-8"))
       self.assertEqual(validation["correct_result_count"], 2)
       self.assertEqual(len(validation["witnesses"]), 2)
-      xml = (generated / "stage-a-correctness-witness-validation.xml").read_text(
+      xml = (generated / "baseline-v1-correctness-witness-validation.xml").read_text(
           encoding="utf-8"
       )
       self.assertIn("${taskdef_name}/witness.yml", xml)

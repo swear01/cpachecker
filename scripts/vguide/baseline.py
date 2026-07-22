@@ -247,7 +247,7 @@ def command_provenance(args):
       [str(java_home / "bin/java"), "-version"], text=True, stderr=subprocess.STDOUT
   ).splitlines()[0]
   manifest = {
-      "stage": "SV-COMP-2027 provisional Stage A",
+      "stage": "SV-COMP-2027 snapshot baseline v1 (frozen 2026-07-22)",
       "captured_utc": subprocess.check_output(
           ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"], text=True
       ).strip(),
@@ -834,7 +834,7 @@ def command_render_validation(args):
       raise FileNotFoundError(template_path)
     benchmark_path, selection_manifest = write_validation_benchmark(
         output_dir,
-        f"stage-a-{kind}-witness-validation",
+        f"baseline-v1-{kind}-witness-validation",
         selected,
         template_path,
         args.sv_benchmarks,

@@ -101,7 +101,7 @@ fi
 java_output=$($JAVA -version 2>&1)
 java_version=${java_output%%$'\n'*}
 if [[ "$java_version" != *'21.0.11'* ]]; then
-  echo "formal Stage A requires the pinned OpenJDK 21.0.11 runtime, got: $java_version" >&2
+  echo "baseline v1 requires the pinned OpenJDK 21.0.11 runtime, got: $java_version" >&2
   exit 1
 fi
 jdk_digest_json=$("$SCRIPT_DIR/baseline.py" directory-digest --root "$JAVA_HOME")
@@ -204,7 +204,7 @@ declare -a CALIBRATION_RESULTS=()
 for repetition in 1 2 3; do
   calibration_output="$OUTPUT_DIR/results/calibration-$repetition"
   run_benchexec \
-    "stage-a-calibration-$repetition" \
+    "baseline-v1-calibration-$repetition" \
     "$OUTPUT_DIR/generated/svcomp27-loops-stock-calibration.xml" \
     "$calibration_output" \
     2 4
@@ -225,7 +225,7 @@ env JAVA_HOME="$JAVA_HOME" \
 
 full_output="$OUTPUT_DIR/results/full"
 run_benchexec \
-  stage-a-full \
+  baseline-v1-full \
   "$OUTPUT_DIR/generated/svcomp27-loops-stock.xml" \
   "$full_output" \
   2 4
@@ -257,21 +257,21 @@ validation_generated="$OUTPUT_DIR/generated/witness-validation"
 correctness_output="$OUTPUT_DIR/results/witness-validation-correctness"
 violation_output="$OUTPUT_DIR/results/witness-validation-violation"
 run_benchexec \
-  stage-a-correctness-witness-validation \
-  "$validation_generated/stage-a-correctness-witness-validation.xml" \
+  baseline-v1-correctness-witness-validation \
+  "$validation_generated/baseline-v1-correctness-witness-validation.xml" \
   "$correctness_output" \
   4 2
 run_benchexec \
-  stage-a-violation-witness-validation \
-  "$validation_generated/stage-a-violation-witness-validation.xml" \
+  baseline-v1-violation-witness-validation \
+  "$validation_generated/baseline-v1-violation-witness-validation.xml" \
   "$violation_output" \
   4 2
 correctness_result=$(single_result "$correctness_output")
 violation_result=$(single_result "$violation_output")
 correctness_manifest="$validation_generated/"
-correctness_manifest+=stage-a-correctness-witness-validation.manifest.json
+correctness_manifest+=baseline-v1-correctness-witness-validation.manifest.json
 violation_manifest="$validation_generated/"
-violation_manifest+=stage-a-violation-witness-validation.manifest.json
+violation_manifest+=baseline-v1-violation-witness-validation.manifest.json
 "$SCRIPT_DIR/baseline.py" validation-summary \
   --correctness-result "$correctness_result" \
   --correctness-manifest "$correctness_manifest" \

@@ -12,7 +12,7 @@ SPDX-License-Identifier: Apache-2.0
 
 The active research design, decisions and results live in the [GitHub Wiki](https://github.com/swear01/cpachecker/wiki). This directory contains only executable reproduction utilities and pinned machine-readable inputs.
 
-## Stock Stage A baseline
+## Frozen stock baseline v1
 
 ```bash
 env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
