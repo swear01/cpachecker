@@ -26,6 +26,18 @@ from pathlib import Path
 
 P_CORE_CPUS = (0, 2, 4, 6, 8, 10, 12, 14)
 EXPECTED_TASK_COUNT = 764
+CALIBRATION_TASKS = (
+    "c/loop-industry-pattern/aiob_4.c.v+lhb-reducer.yml",
+    "c/loop-invariants/bin-suffix-5.yml",
+    "c/loop-invgen/id_trans.yml",
+    "c/loops/count_up_down-2.yml",
+    "c/loops/trex01-1.yml",
+    "c/loops/trex03-1.yml",
+    "c/loops/trex04.yml",
+    "c/nla-digbench-scaling/cohencu-ll_unwindbound10.yml",
+    "c/nla-digbench-scaling/ps3-ll_valuebound50.yml",
+    "c/nla-digbench-scaling/sqrt1-ll_unwindbound5.yml",
+)
 
 
 def sha256_file(path):
@@ -382,12 +394,19 @@ def stable_score(task):
 
 
 def select_calibration(tasks, per_verdict):
-  selected = []
+  if per_verdict != 5:
+    raise ValueError("Baseline v1 calibration is fixed at five tasks per verdict")
+  tasks_by_name = {task["task"]: task for task in tasks}
+  missing = [task for task in CALIBRATION_TASKS if task not in tasks_by_name]
+  if missing:
+    raise ValueError(f"Pinned calibration tasks are missing: {missing}")
+  selected = [tasks_by_name[task] for task in CALIBRATION_TASKS]
   for verdict in ("true", "false"):
-    candidates = sorted(
-        (task for task in tasks if task["expected_verdict"] == verdict), key=stable_score
-    )
-    selected.extend(candidates[:per_verdict])
+    count = sum(task["expected_verdict"] == verdict for task in selected)
+    if count != per_verdict:
+      raise ValueError(
+          f"Pinned calibration has {count} {verdict} tasks, expected {per_verdict}"
+      )
   return sorted(selected, key=lambda task: task["task"])
 
 

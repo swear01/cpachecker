@@ -44,16 +44,35 @@ options:
       )
 
   def test_calibration_is_balanced_and_stable(self):
+    false_tasks = {
+        "c/loop-invgen/id_trans.yml",
+        "c/loops/count_up_down-2.yml",
+        "c/loops/trex01-1.yml",
+        "c/loops/trex03-1.yml",
+        "c/nla-digbench-scaling/cohencu-ll_unwindbound10.yml",
+    }
     tasks = [
-        {"task": f"c/{verdict}-{index}.yml", "expected_verdict": verdict}
-        for verdict in ("true", "false")
-        for index in range(10)
+        {
+            "task": task,
+            "expected_verdict": "false" if task in false_tasks else "true",
+        }
+        for task in baseline.CALIBRATION_TASKS
     ]
-    first = baseline.select_calibration(tasks, 3)
-    second = baseline.select_calibration(list(reversed(tasks)), 3)
+    tasks.append({"task": "c/distractor.yml", "expected_verdict": "true"})
+    first = baseline.select_calibration(tasks, 5)
+    second = baseline.select_calibration(list(reversed(tasks)), 5)
     self.assertEqual(first, second)
-    self.assertEqual(sum(task["expected_verdict"] == "true" for task in first), 3)
-    self.assertEqual(sum(task["expected_verdict"] == "false" for task in first), 3)
+    self.assertEqual({task["task"] for task in first}, set(baseline.CALIBRATION_TASKS))
+    self.assertEqual(sum(task["expected_verdict"] == "true" for task in first), 5)
+    self.assertEqual(sum(task["expected_verdict"] == "false" for task in first), 5)
+
+  def test_calibration_rejects_missing_pinned_task(self):
+    tasks = [
+        {"task": task, "expected_verdict": "true"}
+        for task in baseline.CALIBRATION_TASKS[:-1]
+    ]
+    with self.assertRaisesRegex(ValueError, "Pinned calibration tasks are missing"):
+      baseline.select_calibration(tasks, 5)
 
   def test_config_closure_follows_includes_referenced_configs_and_specifications(self):
     with tempfile.TemporaryDirectory() as temp:
