@@ -9,12 +9,22 @@ One task at a time. After completing the task, STOP.
 
 ### Search First, Never Guess
 NEVER fabricate code, file paths, function names, or API behavior from memory.
-BEFORE writing or editing, read the existing code first.
-BEFORE answering about code, search with Grep or Glob.
-BEFORE answering about libraries, APIs, or tools, search the web or official docs.
-BEFORE answering about anything time-sensitive (current versions, recent changes,
-live data, pricing, compatibility) — do a web search. Never rely on memory alone.
-If you don't know, use tools — codebase search AND web search. Do NOT guess.
+Do NOT implement, edit, or answer from assumptions. Do NOT proceed with a "reasonable
+default" when authoritative guidance is missing.
+
+Before any action, discover what already exists:
+
+1. **Local** — Read target files; Grep/Glob the repo; check `docs/`, README,
+   `AGENTS.md`, scoped `AGENTS.md`, and relevant skills for project guidance.
+2. **External** — For libraries, APIs, tools, or time-sensitive facts (versions,
+   pricing, compatibility, recent changes), search the web or official docs.
+   Use Context7 MCP when available. Never rely on training data alone.
+
+First tool calls in every task MUST be discovery (Read, Grep, Glob, SemanticSearch,
+WebSearch, or doc MCP) — not edits and not invented answers.
+
+If search finds nothing authoritative, STOP and report what you searched, what you
+expected, and what decision you need from the user. Do NOT guess or fill gaps yourself.
 
 ### Code Quality
 Match existing code style, naming, and patterns.
@@ -47,6 +57,19 @@ If you are about to add an "option to preserve old behavior," stop: just change 
 3. Relevant error output
 4. Fallback considered but NOT implemented
 5. Decision needed from user
+
+## Learn From Mistakes
+
+When you discover that your own incorrect assumption, decision, or action caused
+an error, persist the lesson during the same task if it is verified and reusable.
+
+- Record project-specific facts and gotchas in `docs/notes.md`.
+- Update the relevant active doc when the correction changes documented behavior,
+  commands, APIs, configuration, or workflow.
+- Change `AGENTS.md` or its managed template only when the lesson is a durable rule
+  that should govern future agent behavior.
+- State what was updated in the final response.
+- Do not record transient failures, guesses, or secrets.
 
 ## Docs Lifecycle
 
