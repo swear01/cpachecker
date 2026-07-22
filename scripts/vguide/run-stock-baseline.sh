@@ -121,7 +121,7 @@ run_ant_gate() {
   ) 2>&1 | tee "$OUTPUT_DIR/provenance/$name.log"
 }
 run_ant_gate build -Divy.disable=true clean jar
-run_ant_gate unit-tests -Divy.disable=true -DskipBuild=true unit-tests-coverage
+run_ant_gate unit-tests -Divy.disable=true -DskipBuild=true unit-tests
 JAVA_TOOL_OPTIONS=-Xmx4g run_ant_gate configuration-checks \
   -Divy.disable=true -DskipBuild=true configuration-checks
 run_ant_gate integration-tests -Divy.disable=true -DskipBuild=true integration-tests
