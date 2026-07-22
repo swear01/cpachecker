@@ -1,0 +1,22 @@
+{
+  "stage": "SV-COMP-2027 provisional Stage A",
+  "resolved_on": "2026-07-22",
+  "cpachecker": "1848f9eb597ca99a170fd98af8aad716743a2bfe",
+  "sv_benchmarks": "9cf9198156e4c8a6c517e474770158e1bb0b566d",
+  "benchmark_definitions": "22caeaa1e578d6464231e9d5ac0c8a316706452f",
+  "benchexec": "edb95ed3a8478366b8bb89f8cdd1d9a6c5fa8c84",
+  "benchexec_source": "benchmark-definitions submodule pin",
+  "scope": "C ReachSafety Loops and VerifyThis-Loops",
+  "task_count": 764,
+  "expected_true": 555,
+  "expected_false": 209,
+  "resource_limits": {
+    "cpu_time": "900 s",
+    "hard_cpu_time": "960 s",
+    "wall_time": "1000 s",
+    "memory": "15 GB",
+    "cores_per_run": 4,
+    "parallel_runs": 2,
+    "physical_p_core_cpus": [0, 2, 4, 6, 8, 10, 12, 14]
+  }
+}
