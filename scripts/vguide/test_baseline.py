@@ -171,6 +171,47 @@ specification = specification/property.spc
       self.assertEqual(summary["distributions"]["memory_bytes"]["median"], 2_000_000)
       self.assertEqual(summary["by_benchmark_set"]["Loops"]["correct"], 1)
 
+  def test_summary_quarantines_wrong_from_hard_and_unsolved_strata(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      result = root / "result.xml"
+      result.write_text(
+          """<result>
+          <run name="c/hard.yml"><column title="status" value="true"/>
+          <column title="category" value="correct"/><column title="cputime" value="201s"/></run>
+          <run name="c/unknown.yml"><column title="status" value="TIMEOUT"/>
+          <column title="category" value="error"/><column title="cputime" value="901s"/></run>
+          <run name="c/wrong.yml"><column title="status" value="false(unreach-call)"/>
+          <column title="category" value="wrong"/><column title="cputime" value="301s"/></run>
+          </result>""",
+          encoding="utf-8",
+      )
+      manifest = root / "manifest.json"
+      manifest.write_text(
+          """{"task_count":3,"tasks":[
+          {"task":"c/hard.yml","benchmark_set":"Loops","expected_verdict":"true"},
+          {"task":"c/unknown.yml","benchmark_set":"Loops","expected_verdict":"true"},
+          {"task":"c/wrong.yml","benchmark_set":"Loops","expected_verdict":"true"}]}""",
+          encoding="utf-8",
+      )
+      output = root / "summary"
+      args = SimpleNamespace(
+          result=str(result),
+          task_manifest=str(manifest),
+          output_dir=str(output),
+          hard_threshold=200.0,
+      )
+
+      with self.assertRaisesRegex(RuntimeError, "Result contains 1 wrong verdict"):
+        baseline.command_summarize(args)
+
+      with (output / "hard-over-200s.csv").open() as source:
+        hard = list(__import__("csv").DictReader(source))
+      with (output / "unsolved.csv").open() as source:
+        unsolved = list(__import__("csv").DictReader(source))
+      self.assertEqual([row["task"] for row in hard], ["c/hard.yml"])
+      self.assertEqual([row["task"] for row in unsolved], ["c/unknown.yml"])
+
   def test_summary_rejects_result_outside_manifest(self):
     with tempfile.TemporaryDirectory() as temp:
       result = Path(temp) / "result.xml"

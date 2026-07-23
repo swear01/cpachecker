@@ -598,8 +598,12 @@ def parse_result_rows(result_path, manifest, hard_threshold):
             "cpu_time_seconds": cpu_time,
             "wall_time_seconds": wall_time,
             "memory_bytes": parse_bytes(columns.get("memory")),
-            "hard": cpu_time is not None and cpu_time > hard_threshold,
-            "unsolved": category not in {"correct"},
+            "hard": (
+                category == "correct"
+                and cpu_time is not None
+                and cpu_time > hard_threshold
+            ),
+            "unsolved": category not in {"correct", "wrong"},
         }
     )
   if len(rows) != len(manifest):
