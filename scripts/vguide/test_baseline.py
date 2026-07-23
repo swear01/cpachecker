@@ -290,7 +290,7 @@ specification = specification/property.spc
       )
       result_files = root / "result.files" / "stock"
       for task in ("true.yml", "false.yml"):
-        witness_dir = result_files / task
+        witness_dir = result_files / task / "output"
         witness_dir.mkdir(parents=True)
         (witness_dir / "witness.yml").write_text("entry_type: invariant_set\n", encoding="utf-8")
       sv_benchmarks = root / "sv-benchmarks"
@@ -330,7 +330,7 @@ specification = specification/property.spc
       xml = (generated / "baseline-v1-correctness-witness-validation.xml").read_text(
           encoding="utf-8"
       )
-      self.assertIn("${taskdef_name}/witness.yml", xml)
+      self.assertIn("${taskdef_name}/output/witness.yml", xml)
       self.assertIn("--correctness-witness-validation", xml)
 
   def test_validation_summary_requires_every_validator_result_to_be_correct(self):

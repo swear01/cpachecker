@@ -777,7 +777,9 @@ def write_validation_benchmark(
     if child.tag in {"resultfiles", "option"}:
       xml.append(clone_xml_element(child))
   run = ET.SubElement(xml, "rundefinition", {"name": name})
-  witness_pattern = str(witness_run_directory / "${taskdef_name}" / "witness.yml")
+  witness_pattern = str(
+      witness_run_directory / "${taskdef_name}" / "output" / "witness.yml"
+  )
   ET.SubElement(run, "requiredfiles").text = witness_pattern
   witness_option = ET.SubElement(run, "option", {"name": "--witness"})
   witness_option.text = witness_pattern
@@ -825,7 +827,7 @@ def command_render_validation(args):
     raise RuntimeError("Correct result tasks do not have unique task-definition basenames")
   witnesses = []
   for row in correct_rows:
-    witness = witness_run_directory / Path(row["task"]).name / "witness.yml"
+    witness = witness_run_directory / Path(row["task"]).name / "output" / "witness.yml"
     if not witness.is_file() or witness.stat().st_size == 0:
       raise RuntimeError(f"Missing or empty YAML witness for correct result: {row['task']}")
     witnesses.append(
