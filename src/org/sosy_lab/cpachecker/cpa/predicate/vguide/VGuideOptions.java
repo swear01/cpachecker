@@ -23,8 +23,16 @@ import org.sosy_lab.common.configuration.Options;
 @Options(prefix = "vguide")
 final class VGuideOptions {
 
+  enum Provider {
+    OPENAI_COMPATIBLE,
+    EMPTY
+  }
+
   @Option(secure = true, description = "Enable verifier-guided predicate augmentation")
   private boolean enable = false;
+
+  @Option(secure = true, description = "Candidate-provider implementation")
+  private Provider provider = Provider.OPENAI_COMPATIBLE;
 
   @Option(secure = true, description = "OpenAI-compatible chat-completions endpoint")
   private String endpoint = "";
@@ -53,7 +61,9 @@ final class VGuideOptions {
 
   VGuideOptions(Configuration config) throws InvalidConfigurationException {
     config.inject(this);
-    if (enable && (endpoint.isBlank() || model.isBlank())) {
+    if (enable
+        && provider == Provider.OPENAI_COMPATIBLE
+        && (endpoint.isBlank() || model.isBlank())) {
       throw new InvalidConfigurationException(
           "vguide.endpoint and vguide.model are required when VGuide is enabled");
     }
@@ -61,6 +71,10 @@ final class VGuideOptions {
 
   boolean enabled() {
     return enable;
+  }
+
+  Provider provider() {
+    return provider;
   }
 
   URI endpoint() throws InvalidConfigurationException {

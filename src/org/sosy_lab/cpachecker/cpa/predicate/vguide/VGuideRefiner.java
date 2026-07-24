@@ -30,6 +30,11 @@ import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 /** Minimal post-native-refinement decorator for VGuide. */
 public final class VGuideRefiner implements ARGBasedRefiner, StatisticsProvider {
 
+  private static final String EMPTY_CANDIDATES =
+      "{\"schema_version\":\"vguide-candidates-v1\",\"candidates\":[]}";
+  private static final String EMPTY_CANDIDATES_SHA256 =
+      "950ec9013b84aed3afe9761427511822630e80cd5f009e837389312830deba94";
+
   private final ARGBasedRefiner delegate;
   private final VGuideAugmentor augmentor;
   private final VGuideStatistics statistics;
@@ -53,8 +58,12 @@ public final class VGuideRefiner implements ARGBasedRefiner, StatisticsProvider 
           "VGuide requires CPAchecker loop-structure information");
     }
     CandidateProvider provider =
-        new OpenAiCompatibleCandidateProvider(
-            options.endpoint(), options.model(), options.apiKey(), options.timeout());
+        options.provider() == VGuideOptions.Provider.EMPTY
+            ? (agentRole, systemPrompt, contextJson) ->
+                new CandidateProvider.ProviderResponse(
+                    EMPTY_CANDIDATES, "deterministic-empty-provider", EMPTY_CANDIDATES_SHA256)
+            : new OpenAiCompatibleCandidateProvider(
+                options.endpoint(), options.model(), options.apiKey(), options.timeout());
     VGuideStatistics statistics = new VGuideStatistics(logger, options.telemetryFile());
     VGuideAugmentor augmentor =
         new VGuideAugmentor(

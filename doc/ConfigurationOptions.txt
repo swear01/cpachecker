@@ -5945,6 +5945,10 @@ vguide.maxCandidatesPerAgent = 8
 # Exact provider model identifier, including Leanstral
 vguide.model = ""
 
+# Candidate-provider implementation
+vguide.provider = OPENAI_COMPATIBLE
+  enum:     [OPENAI_COMPATIBLE, EMPTY]
+
 # Machine-readable candidate provenance
 vguide.telemetryFile = "vguide-telemetry.json"
 

@@ -14,7 +14,9 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import org.sosy_lab.common.io.IO;
@@ -38,19 +40,29 @@ final class VGuideStatistics implements Statistics {
   VGuideStatistics(LogManager pLogger, Path pTelemetryFile) {
     logger = pLogger;
     telemetryFile = pTelemetryFile;
+    if (telemetryFile != null) {
+      try {
+        writeTelemetry();
+      } catch (IOException e) {
+        logger.logUserException(Level.WARNING, e, "Could not initialize VGuide telemetry");
+      }
+    }
   }
 
   synchronized void record(
       int refinement,
       AgentPortfolio.PortfolioResult portfolio,
       Iterable<ValidatedCandidate> accepted,
-      int rejectedCount) {
+      int rejectedCount,
+      boolean counterexampleVisitsLoopHead)
+      throws IOException {
     rounds.incrementAndGet();
     proposed.addAndGet(portfolio.candidates().size());
     rejected.addAndGet(rejectedCount);
     var event = events.addObject();
     event.put("schema_version", "vguide-telemetry-v1");
     event.put("refinement", refinement);
+    event.put("counterexample_visits_loop_head", counterexampleVisitsLoopHead);
     var calls = event.putArray("provider_calls");
     for (AgentPortfolio.ProviderCall call : portfolio.providerCalls()) {
       calls
@@ -69,6 +81,9 @@ final class VGuideStatistics implements Statistics {
           .put("agent_role", candidate.proposal().agentRole());
     }
     event.put("rejected_candidates", rejectedCount);
+    if (telemetryFile != null) {
+      writeTelemetry();
+    }
   }
 
   @Override
@@ -84,11 +99,23 @@ final class VGuideStatistics implements Statistics {
     if (telemetryFile == null) {
       return;
     }
-    try (Writer writer = IO.openOutputFile(telemetryFile, StandardCharsets.UTF_8)) {
-      JSON.writerWithDefaultPrettyPrinter().writeValue(writer, events);
+    try {
+      writeTelemetry();
     } catch (IOException e) {
       logger.logUserException(Level.WARNING, e, "Could not write VGuide telemetry");
     }
+  }
+
+  private void writeTelemetry() throws IOException {
+    Path temporary = telemetryFile.resolveSibling(telemetryFile.getFileName() + ".tmp");
+    try (Writer writer = IO.openOutputFile(temporary, StandardCharsets.UTF_8)) {
+      JSON.writerWithDefaultPrettyPrinter().writeValue(writer, events);
+    }
+    Files.move(
+        temporary,
+        telemetryFile,
+        StandardCopyOption.ATOMIC_MOVE,
+        StandardCopyOption.REPLACE_EXISTING);
   }
 
   @Override

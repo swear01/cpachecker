@@ -43,4 +43,15 @@ public class VGuideOptionsTest {
     assertThrows(InvalidConfigurationException.class, fileOptions::endpoint);
     assertThat(new VGuideOptions(httpEndpoint).endpoint().getScheme()).isEqualTo("http");
   }
+
+  @Test
+  public void emptyProviderRequiresNoRemoteConfiguration() throws Exception {
+    Configuration config =
+        Configuration.builder()
+            .setOption("vguide.enable", "true")
+            .setOption("vguide.provider", "EMPTY")
+            .build();
+
+    assertThat(new VGuideOptions(config).provider()).isEqualTo(VGuideOptions.Provider.EMPTY);
+  }
 }

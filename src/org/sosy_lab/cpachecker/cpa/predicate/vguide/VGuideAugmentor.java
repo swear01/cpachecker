@@ -122,7 +122,12 @@ final class VGuideAugmentor {
     ImmutableList<ValidatedCandidate> validated = validate(result.candidates());
     int rejected = result.candidates().size() - validated.size();
     apply(reached, validated);
-    statistics.record(refinement, result, validated, rejected);
+    statistics.record(
+        refinement,
+        result,
+        validated,
+        rejected,
+        currentCounterexample.stream().anyMatch(step -> !step.loopHeadId().isEmpty()));
     if (historyLimit > 0) {
       history.addLast(currentCounterexample);
       while (history.size() > historyLimit) {
