@@ -65,6 +65,18 @@ env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
 
 Development, validation, and held-out assignments are deterministic hashes of the source and program family, so a family cannot cross splits.
 
+Before publication, audit the frozen screen without consulting verifier outcomes:
+
+```bash
+scripts/vguide/dataset.py license-audit \
+  --manifest /path/to/candidate-manifest.json \
+  --sv-benchmarks /path/to/sv-benchmarks \
+  --external-root /path/to/frozen-source-checkouts \
+  --output-dir /path/to/audited-candidate-corpus
+```
+
+The audit accepts an official task only when each source has an inline license statement or a license file in the same directory, and hashes the frozen root license for each redistributed external source. It emits a license-audited manifest plus full and quarantined audit CSV files. License-unresolved tasks remain in the original screen evidence but are excluded from the paper dataset independently of all stock and augmented results.
+
 `run-cegar-probe.sh` runs the resulting hard-portfolio manifest with the matched PredicateCPA configuration and a local deterministic provider that always returns zero candidates. This cannot augment precision. PredicateCPA is single-threaded, so the probe runs eight simultaneous one-core jobs on the eight physical P-cores. An empty telemetry file is created before analysis and atomically replaced after each refinement so BenchExec can retrieve zero-event or partial evidence from timeout runs. The probe intentionally does not pass CPAchecker's `--benchmark` shortcut because that shortcut disables all output files. A task is CEGAR-eligible only after native refinement produces a spurious counterexample whose path visits a loop head. No refinement event is the structurally-unreachable census; a refinement event without a loop-head visit and missing infrastructure output remain separate strata.
 
 ## Wiki integrity

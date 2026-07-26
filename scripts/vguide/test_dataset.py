@@ -11,6 +11,7 @@
 import csv
 import importlib.util
 import json
+import subprocess
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -173,6 +174,43 @@ class DatasetTest(unittest.TestCase):
 
       self.assertEqual(
           ET.parse(output / "cegar-eligibility.xml").getroot().get("cpuCores"), "1"
+      )
+
+  def test_license_evidence_uses_headers_or_same_directory_license(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      subprocess.run(["git", "init", "-q", root], check=True)
+      subprocess.run(["git", "-C", root, "config", "user.name", "test"], check=True)
+      subprocess.run(
+          ["git", "-C", root, "config", "user.email", "test@example.com"], check=True
+      )
+      (root / "inline.c").write_text(
+          "// SPDX-License-Identifier: MIT\n", encoding="utf-8"
+      )
+      directory = root / "directory"
+      directory.mkdir()
+      (directory / "License.txt").write_text("license\n", encoding="utf-8")
+      (directory / "covered.c").write_text("int main(void) {}\n", encoding="utf-8")
+      (root / "missing.c").write_text("int main(void) {}\n", encoding="utf-8")
+      subprocess.run(["git", "-C", root, "add", "."], check=True)
+      subprocess.run(["git", "-C", root, "commit", "-qm", "fixture"], check=True)
+
+      licenses = dataset.official_license_files(root)
+
+      self.assertEqual(
+          dataset.official_license_evidence(root, "inline.c", licenses)[0][
+              "identifiers"
+          ],
+          ["MIT"],
+      )
+      self.assertEqual(
+          dataset.official_license_evidence(root, "directory/covered.c", licenses)[
+              0
+          ]["path"],
+          "directory/License.txt",
+      )
+      self.assertEqual(
+          dataset.official_license_evidence(root, "missing.c", licenses), []
       )
 
 

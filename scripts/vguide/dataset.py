@@ -35,6 +35,17 @@ SOURCE_LICENSES = {
     "esbmc": "Apache-2.0 AND BSD-4-Clause",
     "seahorn": "BSD-3-Clause-CMU",
 }
+SOURCE_LICENSE_FILES = {
+    "cbmc": "LICENSE",
+    "esbmc": "COPYING",
+    "seahorn": "license.txt",
+}
+SOURCE_URLS = {
+    "cbmc": "https://github.com/diffblue/cbmc",
+    "esbmc": "https://github.com/esbmc/esbmc",
+    "seahorn": "https://github.com/seahorn/seahorn",
+    "sv-benchmarks": "https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks",
+}
 
 
 def sha256_text(value):
@@ -621,6 +632,180 @@ def command_validate(args):
   print(json.dumps({"task_count": manifest["task_count"], "valid": True}))
 
 
+def git_blob(repo, path):
+  return subprocess.check_output(
+      ["git", "-C", str(repo), "show", f"HEAD:{path}"]
+  )
+
+
+def official_license_files(repo):
+  paths = subprocess.check_output(
+      ["git", "-C", str(repo), "ls-tree", "-r", "--name-only", "HEAD"],
+      text=True,
+  ).splitlines()
+  result = collections.defaultdict(list)
+  for path in paths:
+    if Path(path).name.lower().startswith(("license", "copying", "copyright")):
+      result[Path(path).parent.as_posix()].append(path)
+  return result
+
+
+def official_license_evidence(repo, source_path, license_files):
+  content = git_blob(repo, source_path)
+  text = content.decode("utf-8", errors="replace")
+  identifiers = []
+  statements = []
+  for line in text.splitlines():
+    if "SPDX-License-Identifier:" in line:
+      identifiers.append(
+          line.partition("SPDX-License-Identifier:")[2].strip().rstrip("*/").strip()
+      )
+    match = re.search(r"Licensed under the ([^*]+)", line, re.IGNORECASE)
+    if match:
+      statements.append(match.group(1).strip())
+  if identifiers or statements:
+    return [
+        {
+            "kind": "source_header",
+            "path": source_path,
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "identifiers": sorted(set(identifiers)),
+            "statements": sorted(set(statements)),
+        }
+    ]
+  evidence = []
+  for path in license_files.get(Path(source_path).parent.as_posix(), []):
+    blob = git_blob(repo, path)
+    evidence.append(
+        {
+            "kind": "directory_license_file",
+            "path": path,
+            "sha256": hashlib.sha256(blob).hexdigest(),
+        }
+    )
+  return evidence
+
+
+def command_license_audit(args):
+  manifest_path = Path(args.manifest).resolve()
+  validate_manifest(manifest_path, args.sv_benchmarks)
+  full_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+  sv_benchmarks = Path(args.sv_benchmarks).resolve()
+  external_root = Path(args.external_root).resolve()
+  if git_head(sv_benchmarks) != full_manifest["repositories"]["sv-benchmarks"]:
+    raise RuntimeError("sv-benchmarks revision does not match candidate manifest")
+  for source in SOURCE_LICENSE_FILES:
+    if git_head(external_root / source) != full_manifest["repositories"][source]:
+      raise RuntimeError(f"{source} revision does not match candidate manifest")
+
+  official_files = official_license_files(sv_benchmarks)
+  included = []
+  audit_rows = []
+  for task in full_manifest["tasks"]:
+    evidence = []
+    if task["source"] == "sv-benchmarks":
+      missing = []
+      for source_path in task["source_paths"]:
+        source_evidence = official_license_evidence(
+            sv_benchmarks, source_path, official_files
+        )
+        if source_evidence:
+          evidence.extend(source_evidence)
+        else:
+          missing.append(source_path)
+    else:
+      license_path = SOURCE_LICENSE_FILES[task["source"]]
+      license_content = git_blob(external_root / task["source"], license_path)
+      evidence = [
+          {
+              "kind": "repository_license_file",
+              "repository": SOURCE_URLS[task["source"]],
+              "revision": full_manifest["repositories"][task["source"]],
+              "path": license_path,
+              "sha256": hashlib.sha256(license_content).hexdigest(),
+          }
+      ]
+      missing = []
+    status = "included" if not missing else "license_unresolved"
+    audit_rows.append(
+        {
+            "task": task["task"],
+            "source": task["source"],
+            "expected_verdict": task["expected_verdict"],
+            "status": status,
+            "missing_source_paths": ";".join(missing),
+            "license_evidence": json.dumps(evidence, sort_keys=True),
+        }
+    )
+    if status == "included":
+      included.append(
+          {
+              **task,
+              "license": (
+                  task["license"]
+                  if task["source"] != "sv-benchmarks"
+                  else "see license_evidence"
+              ),
+              "license_evidence": evidence,
+          }
+      )
+
+  output = Path(args.output_dir).resolve()
+  output.mkdir(parents=True, exist_ok=True)
+  if output != manifest_path.parent:
+    shutil.copytree(manifest_path.parent / "corpus", output / "corpus")
+    shutil.copy2(manifest_path, output / "candidate-manifest.json")
+  excluded = [row for row in audit_rows if row["status"] != "included"]
+  audited_manifest = {
+      **full_manifest,
+      "schema_version": "hard-case-candidate-v1-license-audited",
+      "task_count": len(included),
+      "license_audit": {
+          "input_manifest_sha256": baseline.sha256_file(manifest_path),
+          "selection_independent_of_verifier_outcomes": True,
+          "included_task_count": len(included),
+          "excluded_task_count": len(excluded),
+          "excluded_tasks": [row["task"] for row in excluded],
+          "repositories": {
+              "sv-benchmarks": {
+                  "url": SOURCE_URLS["sv-benchmarks"],
+                  "revision": full_manifest["repositories"]["sv-benchmarks"],
+              },
+              **{
+                  source: {
+                      "url": SOURCE_URLS[source],
+                      "revision": full_manifest["repositories"][source],
+                      "license_file": SOURCE_LICENSE_FILES[source],
+                  }
+                  for source in SOURCE_LICENSE_FILES
+              },
+          },
+      },
+      "tasks": included,
+  }
+  (output / "candidate-manifest-license-audited.json").write_text(
+      json.dumps(audited_manifest, indent=2) + "\n", encoding="utf-8"
+  )
+  fieldnames = list(audit_rows[0])
+  for filename, rows in (
+      ("license-audit.csv", audit_rows),
+      ("license-quarantine.csv", excluded),
+  ):
+    with (output / filename).open("w", newline="", encoding="utf-8") as target:
+      writer = csv.DictWriter(target, fieldnames=fieldnames)
+      writer.writeheader()
+      writer.writerows(rows)
+  print(
+      json.dumps(
+          {
+              "included": len(included),
+              "license_unresolved": len(excluded),
+              "manifest": str(output / "candidate-manifest-license-audited.json"),
+          }
+      )
+  )
+
+
 def classify_probe_events(events):
   if any(event.get("counterexample_visits_loop_head") is True for event in events):
     return "cegar_eligible"
@@ -807,6 +992,12 @@ def main():
   validate.add_argument("--manifest", required=True)
   validate.add_argument("--sv-benchmarks", required=True)
   validate.set_defaults(function=command_validate)
+  license_audit = commands.add_parser("license-audit")
+  license_audit.add_argument("--manifest", required=True)
+  license_audit.add_argument("--sv-benchmarks", required=True)
+  license_audit.add_argument("--external-root", required=True)
+  license_audit.add_argument("--output-dir", required=True)
+  license_audit.set_defaults(function=command_license_audit)
   probe_summary = commands.add_parser("probe-summary")
   probe_summary.add_argument("--manifest", required=True)
   probe_summary.add_argument("--hard-portfolio", required=True)
