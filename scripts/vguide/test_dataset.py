@@ -8,10 +8,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import csv
 import importlib.util
+import json
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 
 
 SPEC = importlib.util.spec_from_file_location("dataset", Path(__file__).with_name("dataset.py"))
@@ -131,6 +135,45 @@ class DatasetTest(unittest.TestCase):
         ),
         "cegar_eligible",
     )
+
+  def test_probe_uses_one_core_per_single_threaded_predicate_run(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      manifest = root / "manifest.json"
+      manifest.write_text(
+          json.dumps(
+              {
+                  "tasks": [
+                      {
+                          "task": "c/example.yml",
+                          "task_path": "c/example.yml",
+                          "source": "sv-benchmarks",
+                      }
+                  ]
+              }
+          ),
+          encoding="utf-8",
+      )
+      hard = root / "hard.csv"
+      with hard.open("w", newline="", encoding="utf-8") as target:
+        writer = csv.DictWriter(target, fieldnames=["task"])
+        writer.writeheader()
+        writer.writerow({"task": "c/example.yml"})
+      output = root / "generated"
+
+      dataset.command_render_probe(
+          SimpleNamespace(
+              manifest=str(manifest),
+              hard_portfolio=str(hard),
+              sv_benchmarks=str(root),
+              property_file=str(root / "unreach-call.prp"),
+              output_dir=str(output),
+          )
+      )
+
+      self.assertEqual(
+          ET.parse(output / "cegar-eligibility.xml").getroot().get("cpuCores"), "1"
+      )
 
 
 if __name__ == "__main__":

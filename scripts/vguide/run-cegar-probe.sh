@@ -85,7 +85,7 @@ env JAVA_HOME="$JAVA_HOME" "$SCRIPT_DIR/baseline.py" machine \
     --read-only-dir / \
     --hidden-dir /home \
     --overlay-dir "$CPACHECKER_DIR" \
-    -N 2 -c 4 \
+    -N 8 -c 1 \
     "$OUTPUT_DIR/generated/cegar-eligibility.xml"
 )
 env JAVA_HOME="$JAVA_HOME" "$SCRIPT_DIR/baseline.py" machine \

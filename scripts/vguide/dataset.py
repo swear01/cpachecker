@@ -564,6 +564,7 @@ def command_render_probe(args):
       selected, Path(args.manifest), args.sv_benchmarks, output
   )
   root = benchmark_root("VGuide no-candidate CEGAR eligibility probe")
+  root.set("cpuCores", "1")
   ET.SubElement(root, "resultfiles").text = "**/vguide-telemetry.json"
   for name, value in (
       ("--predicateAnalysis-vguide", None),
