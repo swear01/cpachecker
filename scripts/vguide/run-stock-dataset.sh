@@ -95,7 +95,8 @@ run_benchexec() {
 single_result() {
   local directory=$1
   find "$directory" -maxdepth 1 -type f \
-    \( -name '*.results.*.xml' -o -name '*.results.*.xml.bz2' \) -print
+    \( -name '*.results.hard-case-candidates.xml' \
+    -o -name '*.results.hard-case-candidates.xml.bz2' \) -print
 }
 
 run_benchexec 1

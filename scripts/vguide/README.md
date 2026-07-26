@@ -53,6 +53,8 @@ The frozen runner validates every task and source hash, executes the stock `svco
 - `wrong_quarantine`: either run is wrong;
 - `infrastructure_failure`: a missing harness or manifest result, excluded from both research strata.
 
+BenchExec emits both combined and per-source-group result XML files; only the combined XML is an input to repeated classification.
+
 ```bash
 env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
   JAVA_HOME=/path/to/pinned-jdk-21 \
