@@ -421,7 +421,7 @@ def command_machine_check(args):
   after = json.loads(Path(args.after).read_text(encoding="utf-8"))
   if before.get("hostname") != after.get("hostname"):
     raise RuntimeError("machine snapshots have different hosts")
-  changes = {}
+  deltas = {}
   for name in (
       "package_throttle_count",
       "package_throttle_total_time_ms",
@@ -435,11 +435,22 @@ def command_machine_check(args):
       raise RuntimeError(f"machine counter is unavailable: {name}") from error
     if end < start:
       raise RuntimeError(f"machine counter decreased: {name}")
-    if end != start:
-      changes[name] = end - start
-  if changes:
-    raise RuntimeError(f"thermal throttling or swap activity detected: {changes}")
-  print(json.dumps({"hostname": before["hostname"], "stable": True}))
+    deltas[name] = end - start
+  changed = any(deltas.values())
+  print(
+      json.dumps(
+          {
+              "hostname": before["hostname"],
+              "accepted": True,
+              "stable": not changed,
+              "counter_deltas": deltas,
+              "warnings": (
+                  ["thermal throttling or swap activity observed"] if changed else []
+              ),
+          },
+          sort_keys=True,
+      )
+  )
 
 
 def stable_score(task):

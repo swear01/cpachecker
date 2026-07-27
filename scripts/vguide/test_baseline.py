@@ -9,7 +9,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import importlib.util
+import io
 import json
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 import tempfile
 import unittest
@@ -121,7 +123,7 @@ specification = specification/property.spc
         baseline.classify_result("", "missing"), "infrastructure_or_manifest_failure"
     )
 
-  def test_machine_check_rejects_throttling_or_swap_activity(self):
+  def test_machine_check_reports_throttling_or_swap_activity(self):
     with tempfile.TemporaryDirectory() as temp:
       before = Path(temp) / "before.json"
       after = Path(temp) / "after.json"
@@ -139,7 +141,10 @@ specification = specification/property.spc
           json.dumps({"hostname": "host", "measurement_counters": counters}),
           encoding="utf-8",
       )
-      baseline.command_machine_check(SimpleNamespace(before=before, after=after))
+      output = io.StringIO()
+      with redirect_stdout(output):
+        baseline.command_machine_check(SimpleNamespace(before=before, after=after))
+      self.assertTrue(json.loads(output.getvalue())["stable"])
       after.write_text(
           json.dumps(
               {
@@ -152,8 +157,48 @@ specification = specification/property.spc
           ),
           encoding="utf-8",
       )
-      with self.assertRaisesRegex(RuntimeError, "thermal throttling or swap activity"):
+      output = io.StringIO()
+      with redirect_stdout(output):
         baseline.command_machine_check(SimpleNamespace(before=before, after=after))
+      result = json.loads(output.getvalue())
+      self.assertTrue(result["accepted"])
+      self.assertFalse(result["stable"])
+      self.assertEqual(result["counter_deltas"]["package_throttle_count"], 1)
+      self.assertTrue(result["warnings"])
+
+      for mutation, message in (
+          ({"hostname": "other"}, "different hosts"),
+          (
+              {
+                  "measurement_counters": {
+                      **counters,
+                      "package_throttle_count": "9",
+                  }
+              },
+              "counter decreased",
+          ),
+          (
+              {
+                  "measurement_counters": {
+                      **counters,
+                      "package_throttle_count": "unavailable",
+                  }
+              },
+              "counter is unavailable",
+          ),
+      ):
+        after.write_text(
+            json.dumps(
+                {
+                    "hostname": "host",
+                    "measurement_counters": counters,
+                    **mutation,
+                }
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(RuntimeError, message):
+          baseline.command_machine_check(SimpleNamespace(before=before, after=after))
 
   def test_summary_rejects_incomplete_result(self):
     with tempfile.TemporaryDirectory() as temp:

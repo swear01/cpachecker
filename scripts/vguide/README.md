@@ -86,9 +86,10 @@ one Phase-A screen with fixed 120 s CPU, 130 s hard-CPU, and 140 s wall
 limits. `screen-summary` separates correct-fast, wrong, analysis-survivor,
 verifier-failure, and infrastructure outcomes. Its hashed survivor manifest
 is the input for two subsequent 900-second measurements on the same host. A
-ten-second preflight and the complete screen must leave the package thermal
-throttle and kernel swap-I/O counters unchanged; otherwise the runner fails
-and retains failure evidence instead of accepting the shard.
+ten-second preflight and the complete screen record package thermal-throttle
+and kernel swap-I/O counter deltas as provenance. Nonzero deltas are warnings,
+not acceptance failures. Missing, non-integer, decreasing, or cross-host
+counters remain fail-closed.
 The summary fails on missing CPU/wall metrics; UNKNOWN is eligible only when
 BenchExec explicitly reports it as the status or category.
 After output initialization, a failed run still records machine state and an

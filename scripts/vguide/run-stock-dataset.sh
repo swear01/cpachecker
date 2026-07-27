@@ -103,7 +103,8 @@ env JAVA_HOME="$JAVA_HOME" "$SCRIPT_DIR/baseline.py" machine \
   --output "$OUTPUT_DIR/provenance/machine-before.json"
 "$SCRIPT_DIR/baseline.py" machine-check \
   --before "$OUTPUT_DIR/provenance/machine-preflight-start.json" \
-  --after "$OUTPUT_DIR/provenance/machine-before.json"
+  --after "$OUTPUT_DIR/provenance/machine-before.json" |
+  tee "$OUTPUT_DIR/provenance/machine-preflight-check.json"
 "$SCRIPT_DIR/dataset.py" render \
   --manifest "$MANIFEST" \
   --sv-benchmarks "$SV_BENCHMARKS_DIR" \
@@ -146,7 +147,8 @@ env JAVA_HOME="$JAVA_HOME" "$SCRIPT_DIR/baseline.py" machine \
   --output "$OUTPUT_DIR/provenance/machine-after-screen.json"
 "$SCRIPT_DIR/baseline.py" machine-check \
   --before "$OUTPUT_DIR/provenance/machine-before.json" \
-  --after "$OUTPUT_DIR/provenance/machine-after-screen.json"
+  --after "$OUTPUT_DIR/provenance/machine-after-screen.json" |
+  tee "$OUTPUT_DIR/provenance/machine-screen-check.json"
 
 mapfile -t results < <(single_result "$OUTPUT_DIR/results/screen")
 if [[ ${#results[@]} -ne 1 ]]; then
