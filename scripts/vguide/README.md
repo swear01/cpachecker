@@ -81,15 +81,15 @@ Athena, Cthulhu, and Valkyrie. `validate-shards` independently recomputes the
 assignment and rejects overlap, omission, changed records, or a different
 assignment.
 
-The r5 runner accepts only the fixed 160-task Athena recovery manifest on
-Valkyrie
-(`59681ac7dbbf177ae6a4ce3cfd3bd5e5b45d57658c1d6ed467c74e1cd4f60f04`)
-and rejects every other host. Start it only when no other BenchExec process or
-workload is using the same machine's pinned P-cores. Use the r3 runner at commit
+The r4 runner at commit
+`9701fce2b28672ba6da91ea2b1b10df3f715d6ba` accepts only the fixed Cthulhu
+reroute manifest for Athena
+(`477374a2bbab9fd8559e1945e6781b5484e26afec7808266332423c1db9cddd6`)
+or Valkyrie
+(`6c5e9d46d83f9cb644cc37d9651511102cc27ce539bed7024e8b14f1698aae29`)
+and rejects Cthulhu. Use the r3 runner at commit
 `99bc3800cce4da16ec0cbf108af6197595a54ff3` for the original three shards.
-The r4 reroute runner is frozen at commit
-`9701fce2b28672ba6da91ea2b1b10df3f715d6ba`.
-r3, r4, and r5 perform one Phase-A screen with fixed 120 s CPU, 130 s
+Both protocols perform one Phase-A screen with fixed 120 s CPU, 130 s
 hard-CPU, and 140 s wall limits. `screen-summary` requires exactly one
 BenchExec `systeminfo` hostname, verifies it against the requested host and
 manifest provenance, and carries `phase_a_host` into its CSV, summary, and
@@ -127,11 +127,11 @@ scripts/vguide/dataset.py validate-reroute \
   --sv-benchmarks /path/to/sv-benchmarks
 ```
 
-Two Athena reboots interrupted its original 107-task shard and its 53-task r4
-reroute before either measurement completed or was accepted. The r5 fallback
-does not read those partial results. It concatenates the two frozen Athena
-manifests in parent order, preserves every row and both derivation lineages,
-and assigns the complete union to Valkyrie:
+Two attempts to run Athena's original 107-task shard were interrupted by
+reboots. The 53-task r4 Athena reroute was never launched. The r5 fallback
+does not read either partial original-shard result. It concatenates the frozen
+original and reroute Athena manifests in parent order, preserves every row and
+both derivation lineages, and assigns the complete union to Valkyrie:
 
 ```bash
 scripts/vguide/dataset.py athena-recovery \
@@ -147,13 +147,70 @@ scripts/vguide/dataset.py validate-athena-recovery \
   --sv-benchmarks /path/to/sv-benchmarks
 ```
 
+The current `run-stock-dataset.sh` is the r5 Valkyrie-only Phase-A runner. It
+accepts only the frozen recovery manifest; it is not a general r3/r4 runner
+and is not a Phase-B runner:
+
 ```bash
 env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
   JAVA_HOME=/path/to/pinned-jdk-21 \
   scripts/vguide/run-stock-dataset.sh \
   /path/to/cpachecker-stock /path/to/sv-benchmarks \
-  /path/to/benchexec /path/to/candidate-manifest.json /path/to/output
+  /path/to/benchexec \
+  /path/to/r5-athena-recovery/candidate-manifest-valkyrie.json \
+  /path/to/r5-phase-a-output
 ```
+
+After all three accepted Valkyrie Phase-A packages finish, `merge-survivors`
+takes the frozen 320-task parent and exactly three each of
+`--phase-a-manifest`, `--phase-a-result`, and `--survivor-manifest`: the
+original Valkyrie shard, the r4 Valkyrie reroute, and the r5 Valkyrie recovery.
+It authenticates the fixed manifests by hash, checks that they form an exact
+unchanged partition of the parent, reparses every complete result, and
+recomputes every survivor set. It writes one parent-ordered
+`candidate-manifest-valkyrie-formal.json`. Duplicate or changed task records
+fail closed. An authenticated zero-survivor merge remains valid evidence and
+produces a zero-task manifest.
+
+Every Phase-A manifest argument must be a self-contained preregistration or
+release copy whose declared `corpus_files` resolve beside that manifest. The
+three `provenance/candidate-manifest.json` files stored inside Phase-A run
+records are evidence copies only: they do not carry the corpus tree beside
+them and cannot be supplied as standalone merge inputs.
+
+Result authentication pins all three raw result and survivor-manifest hashes,
+their survivor counts, CPAchecker `4.2.2-2417-g1848f9eb59`, tool module
+`benchexec.tools.cpachecker`, and generator `BenchExec 3.35-dev`. It rejects
+an absent end time, any result-root `error`, and any run whose task,
+source-file, expected-verdict, or unreachability-property topology differs
+from its frozen manifest.
+
+The merged formal manifest is byte-pinned at
+`e8aed1d26a0920bfef4964d495d86b69bbad666efb8d72e87462f297ca243855`.
+The merge copies only files declared in the parent manifest's `corpus_files`;
+it never copies unrelated corpus sidecars. The package also contains a
+path-independent `artifact-manifest.json` whose sorted file hashes define its
+aggregate hash, so rebuilding at another output path produces identical
+bytes.
+
+`test_phase_b_production_closure` is environment-gated for upstream unit
+runs. Release verification sets `VGUIDE_PHASE_B_PARENT_MANIFEST`,
+`VGUIDE_PHASE_B_PHASE_MANIFESTS`, `VGUIDE_PHASE_B_RESULTS`,
+`VGUIDE_PHASE_B_SURVIVORS`, and `VGUIDE_PHASE_B_SV_BENCHMARKS`; each
+three-item list uses the platform path separator. Together with the existing
+r5 production variables, the full test suite must report zero skipped tests.
+
+`render-formal` is definition generation, not an executable Phase-B runner.
+It accepts only the Valkyrie merge authenticated from those three evidence
+sets, reports an empty merge as an explicit skip, and fixes the prospective
+stock definition at 900 s CPU, 910 s hard-CPU, and 920 s wall time. Formal
+`summarize` reauthenticates all three Phase-A packages and requires two
+distinct, complete Valkyrie results from that merged manifest. Both commands
+reject a nonempty output directory.
+
+Phase B is not executable yet. The formal input is pinned, but an executable
+runner intentionally remains unimplemented pending review. The existing
+Phase-A runner must not be used as a substitute.
 
 Development, validation, and held-out assignments are deterministic hashes of the source and program family, so a family cannot cross splits.
 

@@ -61,6 +61,58 @@ FROZEN_ATHENA_REROUTE_MANIFEST_SHA256 = (
 FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256 = (
     "59681ac7dbbf177ae6a4ce3cfd3bd5e5b45d57658c1d6ed467c74e1cd4f60f04"
 )
+FROZEN_PARENT_MANIFEST_SHA256 = (
+    "6b5b997c424c8649d9492a84caae1b486b6936e2e843a1d43a22944cae39ac3c"
+)
+FROZEN_PHASE_A_MANIFEST_SHA256 = {
+    "original_valkyrie": (
+        "64f25378a401f1936fc836b5901c96d304f9c654f5c9d4cf17327e086463930d"
+    ),
+    "reroute_valkyrie": (
+        "6c5e9d46d83f9cb644cc37d9651511102cc27ce539bed7024e8b14f1698aae29"
+    ),
+    "recovery_valkyrie": FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256,
+}
+FROZEN_PHASE_A_RESULT_SHA256 = {
+    "original_valkyrie": (
+        "c4e8b1d3d375c35f666f8b31c34ad7381be7119016071f739a873d817bcddca1"
+    ),
+    "reroute_valkyrie": (
+        "3b0ba3c391523935f9470e2cadad2709c9249322ed25f70669c291d77c8ba6c3"
+    ),
+    "recovery_valkyrie": (
+        "bfb0d1182a8e0797a6507b03942eb7f4fa3508931e5be84d70ca515e09d64ab2"
+    ),
+}
+FROZEN_PHASE_A_SURVIVOR_SHA256 = {
+    "original_valkyrie": (
+        "95e59919dbabe5c9a3e6de18b459214be7c849840191455b08794b91fb299b77"
+    ),
+    "reroute_valkyrie": (
+        "21635e3fe3ad5ae80b4be4e7801cd400b88284aff1ce358ffd1a9c970e82da2b"
+    ),
+    "recovery_valkyrie": (
+        "235a4f5c70aa9322197329a572ea21af12ec36758e3afedb69fc8931ea27a628"
+    ),
+}
+FROZEN_PHASE_A_SURVIVOR_TASK_COUNT = {
+    "original_valkyrie": 91,
+    "reroute_valkyrie": 45,
+    "recovery_valkyrie": 134,
+}
+FROZEN_FORMAL_MANIFEST_SHA256 = (
+    "e8aed1d26a0920bfef4964d495d86b69bbad666efb8d72e87462f297ca243855"
+)
+PHASE_A_OPERATION = {
+    "original_valkyrie": "deterministic_stratified_shard",
+    "reroute_valkyrie": "deterministic_stratified_reroute",
+    "recovery_valkyrie": "ordered_athena_recovery_merge",
+}
+FROZEN_CPACHECKER_VERSION = "4.2.2-2417-g1848f9eb59"
+FROZEN_BENCHEXEC_GENERATOR = "BenchExec 3.35-dev"
+FROZEN_TOOLMODULE = "benchexec.tools.cpachecker"
+DISCOVERY_DISPLAY = "CPAchecker frozen stock hard-case discovery screen"
+FORMAL_DISPLAY = "CPAchecker frozen stock hard-case formal measurement"
 
 
 def sha256_text(value):
@@ -495,22 +547,20 @@ def command_inventory(args):
   print(manifest_path)
 
 
-def command_render(args):
+def render_stock(args, display, limits):
   manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
   output = Path(args.output_dir).resolve()
   output.mkdir(parents=True, exist_ok=True)
   task_sets = write_task_sets(
       manifest["tasks"], Path(args.manifest), args.sv_benchmarks, output
   )
-  root = benchmark_root(
-      "CPAchecker frozen stock hard-case discovery screen", "120 s", "130 s", "140 s"
-  )
+  root = benchmark_root(display, *limits)
   ET.SubElement(root, "resultfiles").text = "**/witness.*"
   for name, value in (
       ("--svcomp27", None),
       ("--heap", "10000M"),
       ("--benchmark", None),
-      ("--timelimit", "120 s"),
+      ("--timelimit", limits[0]),
   ):
     option = ET.SubElement(root, "option", {"name": name})
     if value:
@@ -525,6 +575,35 @@ def command_render(args):
   benchmark = output / "hard-case-candidates.xml"
   write_xml(root, benchmark)
   print(benchmark)
+  return benchmark
+
+
+def command_render(args):
+  render_stock(args, DISCOVERY_DISPLAY, ("120 s", "130 s", "140 s"))
+
+
+def require_absent_or_empty_output(path):
+  output = Path(path).resolve()
+  if output.exists() and (
+      not output.is_dir() or any(output.iterdir())
+  ):
+    raise RuntimeError(f"output directory must be absent or empty: {output}")
+
+
+def command_render_formal(args):
+  require_absent_or_empty_output(args.output_dir)
+  manifest, _ = authenticate_formal_manifest(args)
+  if not manifest["tasks"]:
+    raise RuntimeError("formal Phase B skipped: authenticated host merge has no tasks")
+  property_file = (
+      Path(args.sv_benchmarks).resolve() / "c/properties/unreach-call.prp"
+  )
+  if args.property_file != str(property_file) or not property_file.is_file():
+    raise RuntimeError("formal property file must be the frozen official property")
+  benchmark = render_stock(args, FORMAL_DISPLAY, ("900 s", "910 s", "920 s"))
+  validate_formal_definition(
+      benchmark, args.manifest, manifest, args.sv_benchmarks
+  )
 
 
 def write_task_sets(rows, manifest_path, sv_benchmarks, output):
@@ -540,7 +619,7 @@ def write_task_sets(rows, manifest_path, sv_benchmarks, output):
         "\n".join(
             str(
                 (
-                    Path(sv_benchmarks)
+                    Path(sv_benchmarks).resolve()
                     if row["source"] == "sv-benchmarks"
                     else Path(manifest_path).resolve().parent
                 )
@@ -590,6 +669,208 @@ def write_xml(root, path):
   ET.ElementTree(root).write(path, encoding="unicode", xml_declaration=True)
   with path.open("a", encoding="utf-8") as target:
     target.write("\n")
+
+
+def result_metadata(path, display, time_limit):
+  with baseline.open_result(Path(path)) as source:
+    root = ET.parse(source).getroot()
+  expected = {
+      "tool": "CPAchecker",
+      "version": FROZEN_CPACHECKER_VERSION,
+      "toolmodule": FROZEN_TOOLMODULE,
+      "generator": FROZEN_BENCHEXEC_GENERATOR,
+      "displayName": display,
+      "memlimit": "15000000000B",
+      "timelimit": time_limit.replace(" ", ""),
+      "cpuCores": "4",
+      "block": "official",
+      "name": "hard-case-candidates.official",
+      "options": (
+          f"--svcomp27 --heap 10000M --benchmark --timelimit {time_limit}"
+      ),
+  }
+  if (
+      root.tag != "result"
+      or "error" in root.attrib
+      or any(root.get(name) != value for name, value in expected.items())
+  ):
+    raise RuntimeError("result metadata does not match the frozen stock protocol")
+  hosts = [node.get("hostname") for node in root.findall("systeminfo")]
+  if len(hosts) != 1 or not hosts[0]:
+    raise RuntimeError("result must contain exactly one systeminfo hostname")
+  metadata = {
+      "host": hosts[0],
+      "starttime": root.get("starttime"),
+      "endtime": root.get("endtime"),
+      "benchmarkname": root.get("benchmarkname"),
+  }
+  if (
+      not metadata["starttime"]
+      or not metadata["endtime"]
+      or not metadata["benchmarkname"]
+  ):
+    raise RuntimeError("result lacks a start time, end time, or benchmark name")
+  return metadata
+
+
+def benchexec_path_representations(
+    expected_path, sv_benchmarks, benchmark_definition
+):
+  expected = Path(expected_path).resolve()
+  sv_benchmarks = Path(sv_benchmarks).resolve()
+  representations = {expected.as_posix()}
+  if benchmark_definition:
+    relative = os.path.relpath(
+        expected, Path(benchmark_definition).resolve().parent
+    ).replace("\\", "/")
+    representations.add(relative)
+  else:
+    relative = expected.relative_to(sv_benchmarks).as_posix()
+    representations.add(
+        f"../../../../{sv_benchmarks.name}/{relative}"
+    )
+  return representations
+
+
+def validate_result_run_topology(
+    path, manifest, sv_benchmarks, benchmark_definition=None
+):
+  with baseline.open_result(Path(path)) as source:
+    root = ET.parse(source).getroot()
+  expected_attributes = {
+      "name",
+      "files",
+      "properties",
+      "propertyFile",
+      "expectedVerdict",
+  }
+  sv_benchmarks = Path(sv_benchmarks).resolve()
+  official_property = sv_benchmarks / "c/properties/unreach-call.prp"
+  property_representations = benchexec_path_representations(
+      official_property, sv_benchmarks, benchmark_definition
+  )
+  for run in root.findall("run"):
+    run_name = run.get("name", "").replace("\\", "/")
+    matching_tasks = [
+        name
+        for name, candidate in manifest.items()
+        if candidate["source"] == "sv-benchmarks"
+        and run_name
+        in benchexec_path_representations(
+            sv_benchmarks / candidate["task_path"],
+            sv_benchmarks,
+            benchmark_definition,
+        )
+    ]
+    if len(matching_tasks) != 1:
+      raise RuntimeError(f"result task path is not exact: {run_name}")
+    task_name = matching_tasks[0]
+    task = manifest[task_name]
+    if set(run.attrib) != expected_attributes:
+      raise RuntimeError(f"result run topology is not exact: {task_name}")
+    if run.get("properties") != "unreach-call":
+      raise RuntimeError(f"result property is not unreach-call: {task_name}")
+    property_file = run.get("propertyFile", "").replace("\\", "/")
+    if (
+        task["source"] != "sv-benchmarks"
+        or property_file not in property_representations
+    ):
+      raise RuntimeError(f"result property file is not exact: {task_name}")
+    if run.get("expectedVerdict", "").lower() != task["expected_verdict"]:
+      raise RuntimeError(f"result expected verdict is not exact: {task_name}")
+    files = run.get("files", "")
+    if not files.startswith("[") or not files.endswith("]"):
+      raise RuntimeError(f"result source-file topology is not exact: {task_name}")
+    actual_files = [
+        value.strip().replace("\\", "/")
+        for value in files[1:-1].split(",")
+        if value.strip()
+    ]
+    expected_files = [
+        benchexec_path_representations(
+            sv_benchmarks / source_path,
+            sv_benchmarks,
+            benchmark_definition,
+        )
+        for source_path in task["source_paths"]
+    ]
+    if len(actual_files) != len(expected_files) or any(
+        actual not in expected
+        for actual, expected in zip(actual_files, expected_files, strict=True)
+    ):
+      raise RuntimeError(f"result source files do not match manifest: {task_name}")
+
+
+def xml_shape(node):
+  return (
+      node.tag,
+      tuple(sorted(node.attrib.items())),
+      (node.text or "").strip(),
+      tuple(xml_shape(child) for child in node),
+  )
+
+
+def validate_formal_definition(path, manifest_path, manifest, sv_benchmarks):
+  root = ET.parse(path).getroot()
+  expected_attributes = {
+      "tool": "cpachecker",
+      "displayName": FORMAL_DISPLAY,
+      "timelimit": "900 s",
+      "hardtimelimit": "910 s",
+      "walltimelimit": "920 s",
+      "memlimit": "15 GB",
+      "cpuCores": "4",
+  }
+  if root.tag != "benchmark" or root.attrib != expected_attributes:
+    raise RuntimeError("formal benchmark metadata is not fixed at 900/910/920")
+  definition_dir = Path(path).resolve().parent
+  groups = {
+      "official": [
+          row for row in manifest["tasks"] if row["source"] == "sv-benchmarks"
+      ],
+      "external": [
+          row for row in manifest["tasks"] if row["source"] != "sv-benchmarks"
+      ],
+  }
+  task_sets = {
+      group: definition_dir / f"hard-case-candidates-{group}.set"
+      for group, rows in groups.items()
+      if rows
+  }
+  expected = benchmark_root(FORMAL_DISPLAY, "900 s", "910 s", "920 s")
+  ET.SubElement(expected, "resultfiles").text = "**/witness.*"
+  for name, value in (
+      ("--svcomp27", None),
+      ("--heap", "10000M"),
+      ("--benchmark", None),
+      ("--timelimit", "900 s"),
+  ):
+    option = ET.SubElement(expected, "option", {"name": name})
+    if value:
+      option.text = value
+  write_run_definition(
+      expected,
+      "hard-case-candidates",
+      task_sets,
+      Path(sv_benchmarks).resolve() / "c/properties/unreach-call.prp",
+      Path(manifest_path).resolve().parent / "corpus/properties/unreach-call.prp",
+  )
+  if xml_shape(root) != xml_shape(expected):
+    raise RuntimeError("formal benchmark definition topology is not frozen")
+  for group, task_set in task_sets.items():
+    expected_tasks = [
+        str(
+            (
+                Path(sv_benchmarks).resolve()
+                if row["source"] == "sv-benchmarks"
+                else Path(manifest_path).resolve().parent
+            )
+            / row["task_path"]
+        )
+        for row in groups[group]
+    ]
+    if task_set.read_text(encoding="utf-8").splitlines() != expected_tasks:
+      raise RuntimeError("formal benchmark task set does not match the host manifest")
 
 
 def command_render_probe(args):
@@ -1037,6 +1318,267 @@ def command_validate_athena_recovery(args):
   )
 
 
+def validate_phase_a_partition(parent, phases):
+  parent_rows = {row["task"]: row for row in parent["tasks"]}
+  tasks = [
+      row
+      for role in FROZEN_PHASE_A_MANIFEST_SHA256
+      for row in phases[role]["manifest"]["tasks"]
+  ]
+  names = [row["task"] for row in tasks]
+  if len(names) != len(set(names)):
+    raise RuntimeError("Phase-A manifests contain overlapping tasks")
+  if set(names) != set(parent_rows):
+    raise RuntimeError("Phase-A manifests do not partition the frozen parent")
+  if any(parent_rows[row["task"]] != row for row in tasks):
+    raise RuntimeError("Phase-A manifests contain changed task records")
+
+
+def authenticate_phase_b_inputs(args):
+  parent_path = Path(args.parent_manifest).resolve()
+  if baseline.sha256_file(parent_path) != FROZEN_PARENT_MANIFEST_SHA256:
+    raise RuntimeError("parent manifest hash is not the frozen 320-task input")
+  parent = validate_manifest(parent_path, args.sv_benchmarks)
+  parent_sha256 = baseline.sha256_file(parent_path)
+  phases = {}
+  role_by_hash = {
+      digest: role for role, digest in FROZEN_PHASE_A_MANIFEST_SHA256.items()
+  }
+  for value in args.phase_a_manifest:
+    path = Path(value).resolve()
+    digest = baseline.sha256_file(path)
+    role = role_by_hash.get(digest)
+    if role is None or role in phases:
+      raise RuntimeError("Phase-A manifest hash is not a distinct frozen input")
+    manifest = validate_manifest(path, args.sv_benchmarks)
+    derivation = manifest.get("derivation", {})
+    if (
+        derivation.get("host") != "valkyrie"
+        or derivation.get("operation") != PHASE_A_OPERATION[role]
+    ):
+      raise RuntimeError(f"invalid Phase-A operation or host: {role}")
+    phases[role] = {
+        "manifest": manifest,
+        "path": path,
+        "sha256": digest,
+        "role": role,
+    }
+  required_roles = set(FROZEN_PHASE_A_MANIFEST_SHA256)
+  if not (
+      required_roles
+      == set(FROZEN_PHASE_A_RESULT_SHA256)
+      == set(FROZEN_PHASE_A_SURVIVOR_SHA256)
+      == set(FROZEN_PHASE_A_SURVIVOR_TASK_COUNT)
+  ):
+    raise RuntimeError("frozen Phase-A evidence pins have inconsistent roles")
+  if set(phases) != required_roles:
+    raise RuntimeError("Phase-A inputs must contain exactly three frozen manifests")
+  validate_phase_a_partition(parent, phases)
+
+  if len(args.phase_a_result) != len(required_roles):
+    raise RuntimeError("Phase-A inputs must contain exactly three result files")
+  results = {}
+  result_role_by_hash = {
+      digest: role for role, digest in FROZEN_PHASE_A_RESULT_SHA256.items()
+  }
+  for value in args.phase_a_result:
+    path = Path(value).resolve()
+    digest = baseline.sha256_file(path)
+    role = result_role_by_hash.get(digest)
+    if role is None or role in results:
+      raise RuntimeError("Phase-A result hash is not a distinct frozen input")
+    metadata = result_metadata(path, DISCOVERY_DISPLAY, "120 s")
+    if metadata["host"] != "valkyrie":
+      raise RuntimeError("Phase-A result hostname must be valkyrie")
+    task_manifest = baseline.load_task_manifest(phases[role]["path"])
+    validate_result_run_topology(path, task_manifest, args.sv_benchmarks)
+    results[role] = {
+        "path": path,
+        "sha256": digest,
+        **metadata,
+    }
+  for field in ("starttime", "benchmarkname"):
+    if len({result[field] for result in results.values()}) != len(required_roles):
+      raise RuntimeError(f"Phase-A results must have distinct {field} values")
+  phase_by_hash = {item["sha256"]: role for role, item in phases.items()}
+  survivor_role_by_hash = {
+      digest: role for role, digest in FROZEN_PHASE_A_SURVIVOR_SHA256.items()
+  }
+  survivors = {}
+  tasks = []
+  for value in args.survivor_manifest:
+    path = Path(value).resolve()
+    digest = baseline.sha256_file(path)
+    role = survivor_role_by_hash.get(digest)
+    if role is None or role in survivors:
+      raise RuntimeError("survivor manifest hash is not a distinct frozen input")
+    manifest = validate_manifest(path, args.sv_benchmarks)
+    derivation = manifest.get("derivation", {})
+    if phase_by_hash.get(derivation.get("parent_manifest_sha256")) != role:
+      raise RuntimeError("survivor has invalid Phase-A parent")
+    phase = phases[role]
+    result_hash = derivation.get("result_sha256")
+    result = results[role]
+    if result_hash != result["sha256"]:
+      raise RuntimeError("survivor result hash does not match Phase A")
+    expected_derivation = {
+        "operation": "phase_a_analysis_survivors",
+        "parent_manifest_sha256": phase["sha256"],
+        "result_sha256": result_hash,
+        "allowed_results": sorted(ANALYSIS_UNSOLVED),
+        "phase_a_host": "valkyrie",
+        "selection_independent_of_augmented_outcomes": True,
+    }
+    if derivation != expected_derivation:
+      raise RuntimeError("survivor provenance is not frozen Phase A")
+    if manifest["task_count"] != FROZEN_PHASE_A_SURVIVOR_TASK_COUNT[role]:
+      raise RuntimeError("survivor task count is not the frozen Phase-A count")
+    runs = baseline.parse_result_rows(
+        result["path"],
+        baseline.load_task_manifest(phase["path"]),
+        hard_threshold=200,
+    )
+    if any(
+        row["cpu_time_seconds"] is None or row["wall_time_seconds"] is None
+        for row in runs
+    ):
+      raise RuntimeError("Phase-A result lacks parseable CPU or wall metrics")
+    selected = {
+        row["task"]
+        for row in runs
+        if classify_screen_result(row) == "analysis_survivor"
+    }
+    expected = manifest_subset(phase["manifest"], selected, expected_derivation)
+    if manifest != expected:
+      raise RuntimeError("survivor rows do not match recomputed Phase-A results")
+    survivors[role] = {
+        "manifest": manifest,
+        "sha256": digest,
+        "result_sha256": result_hash,
+    }
+    tasks.extend(row["task"] for row in manifest["tasks"])
+  if set(survivors) != required_roles:
+    raise RuntimeError("survivors and results must cover exactly three Phase-A inputs")
+  if len(tasks) != len(set(tasks)):
+    raise RuntimeError("Phase-A survivor sets contain duplicate tasks")
+  inputs = [
+      {
+          "role": role,
+          "phase_a_manifest_sha256": phases[role]["sha256"],
+          "phase_a_result_sha256": survivors[role]["result_sha256"],
+          "survivor_manifest_sha256": survivors[role]["sha256"],
+          "survivor_task_count": survivors[role]["manifest"]["task_count"],
+      }
+      for role in FROZEN_PHASE_A_MANIFEST_SHA256
+  ]
+  merged = manifest_subset(
+      parent,
+      tasks,
+      {
+          "operation": "merge_phase_a_survivors_single_host",
+          "parent_manifest_sha256": parent_sha256,
+          "host": "valkyrie",
+          "phase_a_inputs": inputs,
+          "selection_independent_of_augmented_outcomes": True,
+      },
+  )
+  return parent, parent_sha256, merged
+
+
+def authenticate_formal_manifest(args):
+  _, _, merged = authenticate_phase_b_inputs(args)
+  manifest_path = Path(args.manifest).resolve()
+  if baseline.sha256_file(manifest_path) != FROZEN_FORMAL_MANIFEST_SHA256:
+    raise RuntimeError("formal manifest hash is not the frozen Phase-B input")
+  manifest = validate_manifest(manifest_path, args.sv_benchmarks)
+  if manifest != merged:
+    raise RuntimeError("formal manifest does not match authenticated Valkyrie merge")
+  return manifest, "valkyrie"
+
+
+def copy_declared_corpus_files(manifest_path, manifest, output):
+  source_root = Path(manifest_path).resolve().parent
+  copied = set()
+  for row in manifest.get("corpus_files", []):
+    relative = Path(row["path"])
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or relative.as_posix() in copied
+    ):
+      raise RuntimeError(f"invalid declared corpus path: {row['path']}")
+    source = (source_root / relative).resolve()
+    try:
+      source.relative_to(source_root)
+    except ValueError as error:
+      raise RuntimeError(
+          f"declared corpus path escapes source: {row['path']}"
+      ) from error
+    target = output / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
+    copied.add(relative.as_posix())
+
+
+def write_phase_b_artifact_manifest(output):
+  path = output / "artifact-manifest.json"
+  files = [
+      candidate
+      for candidate in output.rglob("*")
+      if candidate.is_file() and candidate != path
+  ]
+  entries = []
+  aggregate = hashlib.sha256()
+  for candidate in sorted(files, key=lambda item: item.relative_to(output).as_posix()):
+    relative = candidate.relative_to(output).as_posix()
+    digest = baseline.sha256_file(candidate)
+    entries.append(
+        {
+            "path": relative,
+            "size_bytes": candidate.stat().st_size,
+            "sha256": digest,
+        }
+    )
+    aggregate.update(relative.encode("utf-8"))
+    aggregate.update(b"\0")
+    aggregate.update(bytes.fromhex(digest))
+  artifact = {
+      "root": ".",
+      "file_count": len(entries),
+      "aggregate_sha256": aggregate.hexdigest(),
+      "files": entries,
+  }
+  path.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
+  return artifact, baseline.sha256_file(path)
+
+
+def command_merge_survivors(args):
+  _, _, merged = authenticate_phase_b_inputs(args)
+  output = Path(args.output_dir).resolve()
+  require_absent_or_empty_output(output)
+  output.mkdir(parents=True, exist_ok=True)
+  path = output / "candidate-manifest-valkyrie-formal.json"
+  path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+  manifest_sha256 = baseline.sha256_file(path)
+  if manifest_sha256 != FROZEN_FORMAL_MANIFEST_SHA256:
+    raise RuntimeError("merged formal manifest differs from frozen Phase-B output")
+  copy_declared_corpus_files(args.parent_manifest, merged, output)
+  validate_manifest(path, args.sv_benchmarks)
+  artifact, artifact_sha256 = write_phase_b_artifact_manifest(output)
+  print(
+      json.dumps(
+          {
+              "aggregate_sha256": artifact["aggregate_sha256"],
+              "artifact_manifest_sha256": artifact_sha256,
+              "host": "valkyrie",
+              "manifest_sha256": manifest_sha256,
+              "task_count": merged["task_count"],
+          },
+          sort_keys=True,
+      )
+  )
+
+
 def validate_manifest(manifest_path, sv_benchmarks):
   manifest_path = Path(manifest_path).resolve()
   manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1448,19 +1990,57 @@ def command_screen_summary(args):
 
 
 def command_summarize(args):
-  manifest = baseline.load_task_manifest(args.manifest)
-  repetitions = [
-      {
-          row["task"]: row
-          for row in baseline.parse_result_rows(result, manifest, args.hard_threshold)
-      }
-      for result in args.result
-  ]
-  if len(repetitions) != 2:
+  require_absent_or_empty_output(args.output_dir)
+  if len(args.result) != 2:
     raise RuntimeError("Dataset classification requires exactly two frozen repetitions")
+  if args.hard_threshold != 200:
+    raise RuntimeError("formal hard threshold is fixed at 200 CPU seconds")
+  manifest_path = Path(args.manifest).resolve()
+  full_manifest, host = authenticate_formal_manifest(args)
+  if not full_manifest["tasks"]:
+    raise RuntimeError("formal Phase B skipped: authenticated host merge has no tasks")
+  validate_formal_definition(
+      args.benchmark_definition,
+      manifest_path,
+      full_manifest,
+      args.sv_benchmarks,
+  )
+  result_hashes = [baseline.sha256_file(Path(result)) for result in args.result]
+  if len(set(result_hashes)) != 2:
+    raise RuntimeError("formal repetitions must have distinct result hashes")
+  manifest = baseline.load_task_manifest(manifest_path)
+  repetitions = []
+  metadata = []
+  for result in args.result:
+    result_info = result_metadata(result, FORMAL_DISPLAY, "900 s")
+    if result_info["host"] != host:
+      raise RuntimeError("formal repetitions must run on the merged manifest host")
+    validate_result_run_topology(
+        result,
+        manifest,
+        args.sv_benchmarks,
+        args.benchmark_definition,
+    )
+    metadata.append(result_info)
+    repetitions.append(
+        {
+            row["task"]: row
+            for row in baseline.parse_result_rows(
+                result, manifest, args.hard_threshold
+            )
+        }
+    )
+  for field in ("starttime", "benchmarkname"):
+    if len({result[field] for result in metadata}) != 2:
+      raise RuntimeError(f"formal repetitions must have distinct {field} values")
+  if any(
+      row["cpu_time_seconds"] is None or row["wall_time_seconds"] is None
+      for repetition in repetitions
+      for row in repetition.values()
+  ):
+    raise RuntimeError("formal result lacks parseable CPU or wall metrics")
   output = Path(args.output_dir)
   output.mkdir(parents=True, exist_ok=True)
-  full_manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
   details = {row["task"]: row for row in full_manifest["tasks"]}
   rows = []
   for task in sorted(manifest):
@@ -1479,7 +2059,20 @@ def command_summarize(args):
             "statuses": ";".join(run["status"] for run in runs),
         }
     )
-  fieldnames = list(rows[0])
+  fieldnames = (
+      list(rows[0])
+      if rows
+      else [
+          "task",
+          "source",
+          "family",
+          "expected_verdict",
+          "classification",
+          "split",
+          "cpu_seconds",
+          "statuses",
+      ]
+  )
   for filename, subset in (
       ("classification.csv", rows),
       (
@@ -1528,11 +2121,24 @@ def command_summarize(args):
           )
           for source in sorted({row["source"] for row in rows})
       },
-      "result_sha256": [baseline.sha256_file(Path(result)) for result in args.result],
+      "result_sha256": result_hashes,
+      "host": host,
+      "manifest_sha256": baseline.sha256_file(manifest_path),
+      "benchmark_definition_sha256": baseline.sha256_file(
+          Path(args.benchmark_definition)
+      ),
   }
   (output / "summary.json").write_text(
       json.dumps(summary, indent=2) + "\n", encoding="utf-8"
   )
+
+
+def add_phase_b_inputs(parser):
+  parser.add_argument("--parent-manifest", required=True)
+  parser.add_argument("--phase-a-manifest", action="append", required=True)
+  parser.add_argument("--survivor-manifest", action="append", required=True)
+  parser.add_argument("--phase-a-result", action="append", required=True)
+  parser.add_argument("--sv-benchmarks", required=True)
 
 
 def main():
@@ -1588,12 +2194,22 @@ def main():
   validate_athena_recovery.set_defaults(
       function=command_validate_athena_recovery
   )
+  merge_survivors = commands.add_parser("merge-survivors")
+  add_phase_b_inputs(merge_survivors)
+  merge_survivors.add_argument("--output-dir", required=True)
+  merge_survivors.set_defaults(function=command_merge_survivors)
   render = commands.add_parser("render")
   render.add_argument("--manifest", required=True)
   render.add_argument("--sv-benchmarks", required=True)
   render.add_argument("--property-file", required=True)
   render.add_argument("--output-dir", required=True)
   render.set_defaults(function=command_render)
+  render_formal = commands.add_parser("render-formal")
+  add_phase_b_inputs(render_formal)
+  render_formal.add_argument("--manifest", required=True)
+  render_formal.add_argument("--property-file", required=True)
+  render_formal.add_argument("--output-dir", required=True)
+  render_formal.set_defaults(function=command_render_formal)
   probe = commands.add_parser("render-probe")
   probe.add_argument("--manifest", required=True)
   probe.add_argument("--hard-portfolio", required=True)
@@ -1618,7 +2234,9 @@ def main():
   probe_summary.add_argument("--output-dir", required=True)
   probe_summary.set_defaults(function=command_probe_summary)
   summarize = commands.add_parser("summarize")
+  add_phase_b_inputs(summarize)
   summarize.add_argument("--manifest", required=True)
+  summarize.add_argument("--benchmark-definition", required=True)
   summarize.add_argument("--result", action="append", required=True)
   summarize.add_argument("--output-dir", required=True)
   summarize.add_argument("--hard-threshold", type=float, default=200)

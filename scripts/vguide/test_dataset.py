@@ -12,6 +12,7 @@ import bz2
 import collections
 import copy
 import csv
+import hashlib
 import importlib.util
 import json
 import os
@@ -28,6 +29,247 @@ from unittest import mock
 SPEC = importlib.util.spec_from_file_location("dataset", Path(__file__).with_name("dataset.py"))
 dataset = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(dataset)
+
+
+def write_stock_result(path, tasks, host, formal=False, omit=None, marker=""):
+  limit = "900s" if formal else "120s"
+  root = ET.Element(
+      "result",
+      {
+          "benchmarkname": f"hard-case-candidates.{marker}",
+          "starttime": f"2026-07-27T00:00:{marker or '00'}+08:00",
+          "endtime": f"2026-07-27T00:01:{marker or '00'}+08:00",
+          "tool": "CPAchecker",
+          "version": dataset.FROZEN_CPACHECKER_VERSION,
+          "toolmodule": dataset.FROZEN_TOOLMODULE,
+          "generator": dataset.FROZEN_BENCHEXEC_GENERATOR,
+          "displayName": dataset.FORMAL_DISPLAY if formal else dataset.DISCOVERY_DISPLAY,
+          "memlimit": "15000000000B",
+          "timelimit": limit,
+          "cpuCores": "4",
+          "block": "official",
+          "name": "hard-case-candidates.official",
+          "options": (
+              f"--svcomp27 --heap 10000M --benchmark --timelimit {limit[:-1]} s"
+          ),
+      },
+  )
+  ET.SubElement(root, "systeminfo", {"hostname": host})
+  for task in tasks:
+    run = ET.SubElement(
+        root,
+        "run",
+        {
+            "name": str(path.parent / task["task_path"]),
+            "files": (
+                "["
+                + ", ".join(
+                    str(path.parent / source)
+                    for source in task["source_paths"]
+                )
+                + "]"
+            ),
+            "properties": "unreach-call",
+            "propertyFile": str(
+                path.parent / "c/properties/unreach-call.prp"
+            ),
+            "expectedVerdict": task["expected_verdict"],
+        },
+    )
+    for title, value in (
+        ("status", "TIMEOUT"),
+        ("category", "error"),
+        ("cputime", limit),
+        ("walltime", limit),
+    ):
+      if title != omit:
+        ET.SubElement(run, "column", {"title": title, "value": value})
+  ET.ElementTree(root).write(path, encoding="unicode")
+
+
+def phase_b_fixture(root):
+  corpus = root / "corpus/properties"
+  corpus.mkdir(parents=True)
+  prop = corpus / "unreach-call.prp"
+  prop.write_text("CHECK\n", encoding="utf-8")
+  official = root / "c/properties"
+  official.mkdir(parents=True)
+  (official / "unreach-call.prp").write_text("CHECK\n", encoding="utf-8")
+  rows = []
+  for index in range(6):
+    task, source = root / f"t{index}.yml", root / f"s{index}.c"
+    task.write_text(f"task {index}\n", encoding="utf-8")
+    source.write_text(f"source {index}\n", encoding="utf-8")
+    rows.append(
+        {
+            "task": task.name,
+            "task_path": task.name,
+            "task_sha256": dataset.baseline.sha256_file(task),
+            "source": "sv-benchmarks",
+            "source_paths": [source.name],
+            "source_sha256": [dataset.baseline.sha256_file(source)],
+            "family": "family",
+            "seed_class": "unsolved_seed",
+            "expected_verdict": "true",
+            "benchmark_set": "Loops",
+        }
+    )
+  parent = {
+      "task_count": len(rows),
+      "corpus_files": [
+          {
+              "path": "corpus/properties/unreach-call.prp",
+              "sha256": dataset.baseline.sha256_file(prop),
+          }
+      ],
+      "tasks": rows,
+  }
+  parent_path = root / "parent.json"
+  parent_path.write_text(json.dumps(parent), encoding="utf-8")
+  roles = tuple(dataset.PHASE_A_OPERATION)
+  phases, results, survivors = [], [], []
+  phase_hashes, result_hashes, survivor_hashes, survivor_counts = {}, {}, {}, {}
+  for index, role in enumerate(roles):
+    manifest = dataset.manifest_subset(
+        parent,
+        [row["task"] for row in rows[index * 2 : index * 2 + 2]],
+        {
+            "operation": dataset.PHASE_A_OPERATION[role],
+            "host": "valkyrie",
+            "selection_independent_of_verifier_outcomes": True,
+        },
+    )
+    path = root / f"phase-{role}.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    digest = dataset.baseline.sha256_file(path)
+    phase_hashes[role] = digest
+    result = root / f"phase-{index}.xml"
+    write_stock_result(result, manifest["tasks"], "valkyrie", marker=str(index))
+    result_hashes[role] = dataset.baseline.sha256_file(result)
+    survivor = dataset.manifest_subset(
+        manifest,
+        [row["task"] for row in manifest["tasks"]],
+        {
+            "operation": "phase_a_analysis_survivors",
+            "parent_manifest_sha256": digest,
+            "result_sha256": dataset.baseline.sha256_file(result),
+            "allowed_results": sorted(dataset.ANALYSIS_UNSOLVED),
+            "phase_a_host": "valkyrie",
+            "selection_independent_of_augmented_outcomes": True,
+        },
+    )
+    survivor_path = root / f"survivor-{index}.json"
+    survivor_path.write_text(json.dumps(survivor), encoding="utf-8")
+    survivor_hashes[role] = dataset.baseline.sha256_file(survivor_path)
+    survivor_counts[role] = survivor["task_count"]
+    phases.append(path)
+    results.append(result)
+    survivors.append(survivor_path)
+  fixture = SimpleNamespace(
+      parent_manifest=str(parent_path),
+      phase_a_manifest=[str(path) for path in phases],
+      phase_a_result=[str(path) for path in results],
+      survivor_manifest=[str(path) for path in survivors],
+      sv_benchmarks=str(root),
+      parent_sha=dataset.baseline.sha256_file(parent_path),
+      phase_hashes=phase_hashes,
+      result_hashes=result_hashes,
+      survivor_hashes=survivor_hashes,
+      survivor_counts=survivor_counts,
+      rows=rows,
+  )
+  fixture.formal_hash = fixture_formal_hash(fixture)
+  return fixture
+
+
+def fixture_formal_hash(fixture):
+  parent = json.loads(Path(fixture.parent_manifest).read_text())
+  tasks = []
+  inputs = []
+  for role, survivor_path in zip(
+      dataset.PHASE_A_OPERATION, fixture.survivor_manifest, strict=True
+  ):
+    survivor = json.loads(Path(survivor_path).read_text())
+    tasks.extend(row["task"] for row in survivor["tasks"])
+    inputs.append(
+        {
+            "role": role,
+            "phase_a_manifest_sha256": fixture.phase_hashes[role],
+            "phase_a_result_sha256": fixture.result_hashes[role],
+            "survivor_manifest_sha256": fixture.survivor_hashes[role],
+            "survivor_task_count": fixture.survivor_counts[role],
+        }
+    )
+  merged = dataset.manifest_subset(
+      parent,
+      tasks,
+      {
+          "operation": "merge_phase_a_survivors_single_host",
+          "parent_manifest_sha256": fixture.parent_sha,
+          "host": "valkyrie",
+          "phase_a_inputs": inputs,
+          "selection_independent_of_augmented_outcomes": True,
+      },
+  )
+  content = (json.dumps(merged, indent=2) + "\n").encode()
+  return hashlib.sha256(content).hexdigest()
+
+
+def phase_b_pins(fixture):
+  return mock.patch.multiple(
+      dataset,
+      FROZEN_PARENT_MANIFEST_SHA256=fixture.parent_sha,
+      FROZEN_PHASE_A_MANIFEST_SHA256=fixture.phase_hashes,
+      FROZEN_PHASE_A_RESULT_SHA256=fixture.result_hashes,
+      FROZEN_PHASE_A_SURVIVOR_SHA256=fixture.survivor_hashes,
+      FROZEN_PHASE_A_SURVIVOR_TASK_COUNT=fixture.survivor_counts,
+      FROZEN_FORMAL_MANIFEST_SHA256=fixture.formal_hash,
+  )
+
+
+def phase_b_inputs(fixture):
+  excluded = {
+      "parent_sha",
+      "phase_hashes",
+      "result_hashes",
+      "survivor_hashes",
+      "survivor_counts",
+      "formal_hash",
+      "rows",
+  }
+  return {
+      name: value
+      for name, value in vars(fixture).items()
+      if name not in excluded
+  }
+
+
+def zero_phase_a_survivors(fixture):
+  for role, result_value, survivor_value in zip(
+      dataset.PHASE_A_OPERATION,
+      fixture.phase_a_result,
+      fixture.survivor_manifest,
+      strict=True,
+  ):
+    result = Path(result_value)
+    root = ET.parse(result).getroot()
+    for run in root.findall("run"):
+      run.find("column[@title='status']").set("value", "true")
+      run.find("column[@title='category']").set("value", "correct")
+    ET.ElementTree(root).write(result, encoding="unicode")
+    survivor = json.loads(Path(survivor_value).read_text())
+    survivor["derivation"]["result_sha256"] = dataset.baseline.sha256_file(
+        result
+    )
+    survivor["task_count"] = 0
+    survivor["tasks"] = []
+    Path(survivor_value).write_text(json.dumps(survivor), encoding="utf-8")
+    fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+    fixture.survivor_hashes[role] = dataset.baseline.sha256_file(
+        Path(survivor_value)
+    )
+    fixture.survivor_counts[role] = 0
+  fixture.formal_hash = fixture_formal_hash(fixture)
 
 
 class DatasetTest(unittest.TestCase):
@@ -631,6 +873,96 @@ class DatasetTest(unittest.TestCase):
         dataset.FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256,
     )
 
+  def test_phase_b_production_closure(self):
+    names = (
+        "VGUIDE_PHASE_B_PARENT_MANIFEST",
+        "VGUIDE_PHASE_B_PHASE_MANIFESTS",
+        "VGUIDE_PHASE_B_RESULTS",
+        "VGUIDE_PHASE_B_SURVIVORS",
+        "VGUIDE_PHASE_B_SV_BENCHMARKS",
+    )
+    values = [os.environ.get(name) for name in names]
+    if not any(values):
+      self.skipTest("Phase-B production evidence paths are not configured")
+    self.assertTrue(all(values), f"set all production paths: {names}")
+    phase_manifests = values[1].split(os.pathsep)
+    results = values[2].split(os.pathsep)
+    survivors = values[3].split(os.pathsep)
+    self.assertEqual(
+        [len(phase_manifests), len(results), len(survivors)], [3, 3, 3]
+    )
+    inputs = {
+        "parent_manifest": values[0],
+        "phase_a_manifest": phase_manifests,
+        "phase_a_result": results,
+        "survivor_manifest": survivors,
+        "sv_benchmarks": values[4],
+    }
+    parent, _, merged = dataset.authenticate_phase_b_inputs(
+        SimpleNamespace(**inputs)
+    )
+    self.assertEqual(parent["task_count"], 320)
+    self.assertEqual(merged["task_count"], 270)
+    self.assertEqual(
+        dataset.FROZEN_FORMAL_MANIFEST_SHA256,
+        "e8aed1d26a0920bfef4964d495d86b69bbad666efb8d72e87462f297ca243855",
+    )
+    packages = []
+    with tempfile.TemporaryDirectory() as temp:
+      for repetition in range(2):
+        output = Path(temp) / str(repetition)
+        dataset.command_merge_survivors(
+            SimpleNamespace(**inputs, output_dir=str(output))
+        )
+        manifest_path = output / "candidate-manifest-valkyrie-formal.json"
+        authenticated, host = dataset.authenticate_formal_manifest(
+            SimpleNamespace(**inputs, manifest=str(manifest_path))
+        )
+        self.assertEqual(host, "valkyrie")
+        self.assertEqual(authenticated["task_count"], 270)
+        self.assertEqual(
+            dataset.baseline.sha256_file(manifest_path),
+            dataset.FROZEN_FORMAL_MANIFEST_SHA256,
+        )
+        declared = {row["path"] for row in parent.get("corpus_files", [])}
+        files = {
+            path.relative_to(output).as_posix(): path.read_bytes()
+            for path in output.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(
+            set(files),
+            {
+                "artifact-manifest.json",
+                "candidate-manifest-valkyrie-formal.json",
+                *declared,
+            },
+        )
+        artifact = json.loads(files["artifact-manifest.json"])
+        self.assertEqual(artifact["root"], ".")
+        self.assertEqual(artifact["file_count"], len(artifact["files"]))
+        self.assertEqual(
+            [row["path"] for row in artifact["files"]],
+            sorted(
+                {
+                    "candidate-manifest-valkyrie-formal.json",
+                    *declared,
+                }
+            ),
+        )
+        aggregate = hashlib.sha256()
+        for row in artifact["files"]:
+          self.assertEqual(len(files[row["path"]]), row["size_bytes"])
+          self.assertEqual(
+              hashlib.sha256(files[row["path"]]).hexdigest(), row["sha256"]
+          )
+          aggregate.update(row["path"].encode("utf-8"))
+          aggregate.update(b"\0")
+          aggregate.update(bytes.fromhex(row["sha256"]))
+        self.assertEqual(artifact["aggregate_sha256"], aggregate.hexdigest())
+        packages.append(files)
+    self.assertEqual(packages[0], packages[1])
+
   def test_r5_runner_accepts_only_athena_recovery_on_valkyrie(self):
     runner = Path(__file__).with_name("run-stock-dataset.sh").read_text(
         encoding="utf-8"
@@ -726,6 +1058,411 @@ class DatasetTest(unittest.TestCase):
               for option in benchmark.findall("option")
           ],
       )
+
+  def test_phase_b_survivors_merge_by_effective_host_and_recompute_results(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root)
+      output = root / "merged"
+      args = SimpleNamespace(
+          **phase_b_inputs(fixture),
+          output_dir=str(output),
+      )
+      with phase_b_pins(fixture):
+        dataset.command_merge_survivors(args)
+
+      manifest_path = output / "candidate-manifest-valkyrie-formal.json"
+      manifest = dataset.validate_manifest(manifest_path, root)
+      self.assertEqual(
+          dataset.baseline.sha256_file(manifest_path), fixture.formal_hash
+      )
+      self.assertEqual(manifest["derivation"]["host"], "valkyrie")
+      self.assertEqual(manifest["tasks"], fixture.rows)
+      self.assertEqual(
+          {
+              path.relative_to(output).as_posix()
+              for path in output.rglob("*")
+              if path.is_file()
+          },
+          {
+              "artifact-manifest.json",
+              "candidate-manifest-valkyrie-formal.json",
+              "corpus/properties/unreach-call.prp",
+          },
+      )
+      artifact = json.loads((output / "artifact-manifest.json").read_text())
+      self.assertEqual(artifact["root"], ".")
+      self.assertEqual(artifact["file_count"], len(artifact["files"]))
+      self.assertEqual(
+          [row["path"] for row in artifact["files"]],
+          [
+              "candidate-manifest-valkyrie-formal.json",
+              "corpus/properties/unreach-call.prp",
+          ],
+      )
+      aggregate = hashlib.sha256()
+      for row in artifact["files"]:
+        aggregate.update(row["path"].encode("utf-8"))
+        aggregate.update(b"\0")
+        aggregate.update(bytes.fromhex(row["sha256"]))
+      self.assertEqual(artifact["aggregate_sha256"], aggregate.hexdigest())
+      self.assertFalse(
+          (output / "candidate-manifest-publication-union.json").exists()
+      )
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "formal manifest hash is not the frozen"
+      ):
+        changed = copy.deepcopy(manifest)
+        changed["derivation"]["operation"] = "changed"
+        changed_path = output / "changed-formal.json"
+        changed_path.write_text(json.dumps(changed), encoding="utf-8")
+        dataset.command_render_formal(
+            SimpleNamespace(
+                **phase_b_inputs(fixture),
+                manifest=str(changed_path),
+                property_file=str(root / "c/properties/unreach-call.prp"),
+                output_dir=str(root / "not-runnable"),
+            )
+        )
+
+      args.phase_a_result = fixture.phase_a_result[:2]
+      args.output_dir = str(root / "missing-result")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "exactly three"
+      ):
+        dataset.command_merge_survivors(args)
+      args.phase_a_result = fixture.phase_a_result
+
+      phase = Path(fixture.phase_a_manifest[0])
+      original_phase = phase.read_text(encoding="utf-8")
+      phase.write_text(
+          json.dumps(json.loads(original_phase), indent=2), encoding="utf-8"
+      )
+      args.output_dir = str(root / "changed-phase-manifest")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "manifest hash is not a distinct frozen input"
+      ):
+        dataset.command_merge_survivors(args)
+      phase.write_text(original_phase, encoding="utf-8")
+
+      result = Path(fixture.phase_a_result[0])
+      survivor_path = Path(fixture.survivor_manifest[0])
+      role = next(iter(dataset.PHASE_A_OPERATION))
+      original_result = result.read_text(encoding="utf-8")
+      original_survivor = survivor_path.read_text(encoding="utf-8")
+      original_result_pin = fixture.result_hashes[role]
+      original_survivor_pin = fixture.survivor_hashes[role]
+
+      result.write_text(original_result + "\n", encoding="utf-8")
+      args.output_dir = str(root / "changed-result-identity")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "result hash is not a distinct frozen input"
+      ):
+        dataset.command_merge_survivors(args)
+      result.write_text(original_result, encoding="utf-8")
+
+      survivor = json.loads(original_survivor)
+      survivor_path.write_text(
+          json.dumps(survivor, indent=2), encoding="utf-8"
+      )
+      args.output_dir = str(root / "changed-survivor-identity")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "survivor manifest hash is not a distinct frozen input"
+      ):
+        dataset.command_merge_survivors(args)
+      survivor_path.write_text(original_survivor, encoding="utf-8")
+
+      result_root = ET.parse(result).getroot()
+      result_root.set("version", "changed")
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+      args.output_dir = str(root / "wrong-version")
+      with phase_b_pins(fixture), self.assertRaisesRegex(RuntimeError, "metadata"):
+        dataset.command_merge_survivors(args)
+      result.write_text(original_result, encoding="utf-8")
+      fixture.result_hashes[role] = original_result_pin
+
+      result_root = ET.parse(result).getroot()
+      result_root.set("error", "incomplete")
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+      args.output_dir = str(root / "incomplete-result")
+      with phase_b_pins(fixture), self.assertRaisesRegex(RuntimeError, "metadata"):
+        dataset.command_merge_survivors(args)
+      result.write_text(original_result, encoding="utf-8")
+      fixture.result_hashes[role] = original_result_pin
+
+      result_root = ET.parse(result).getroot()
+      del result_root.attrib["endtime"]
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+      args.output_dir = str(root / "missing-endtime")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "end time"
+      ):
+        dataset.command_merge_survivors(args)
+      result.write_text(original_result, encoding="utf-8")
+      fixture.result_hashes[role] = original_result_pin
+
+      result_root = ET.parse(result).getroot()
+      result_root.find("run").set("properties", "termination")
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+      args.output_dir = str(root / "wrong-property")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "property is not unreach-call"
+      ):
+        dataset.command_merge_survivors(args)
+      result.write_text(original_result, encoding="utf-8")
+      fixture.result_hashes[role] = original_result_pin
+
+      result_root = ET.parse(result).getroot()
+      result_root.find("run").set(
+          "propertyFile",
+          "../../evil/../../../../sv-benchmarks/c/properties/unreach-call.prp",
+      )
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+      args.output_dir = str(root / "wrong-property-file")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "property file is not exact"
+      ):
+        dataset.command_merge_survivors(args)
+      result.write_text(original_result, encoding="utf-8")
+      fixture.result_hashes[role] = original_result_pin
+
+      result_root = ET.parse(result).getroot()
+      result_root.find("run").set(
+          "files", "[../../evil/../../../../sv-benchmarks/s0.c]"
+      )
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+      args.output_dir = str(root / "wrong-source-files")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "source files do not match"
+      ):
+        dataset.command_merge_survivors(args)
+      result.write_text(original_result, encoding="utf-8")
+      fixture.result_hashes[role] = original_result_pin
+
+      result_root = ET.parse(result).getroot()
+      result_root.find("run").set(
+          "name", "../../evil/../../../../sv-benchmarks/t0.yml"
+      )
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+      args.output_dir = str(root / "wrong-task-path")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "task path is not exact"
+      ):
+        dataset.command_merge_survivors(args)
+      result.write_text(original_result, encoding="utf-8")
+      fixture.result_hashes[role] = original_result_pin
+
+      result_root = ET.parse(result).getroot()
+      result_root.find("run").set("unexpected", "attribute")
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+      args.output_dir = str(root / "wrong-run-topology")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "run topology is not exact"
+      ):
+        dataset.command_merge_survivors(args)
+      result.write_text(original_result, encoding="utf-8")
+      fixture.result_hashes[role] = original_result_pin
+
+      result_root = ET.parse(result).getroot()
+      result_root.find("systeminfo").set("hostname", "athena")
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+      args.output_dir = str(root / "wrong-host")
+      with phase_b_pins(fixture), self.assertRaisesRegex(RuntimeError, "hostname"):
+        dataset.command_merge_survivors(args)
+      result.write_text(original_result, encoding="utf-8")
+      fixture.result_hashes[role] = original_result_pin
+
+      result_root = ET.parse(result).getroot()
+      result_root.find("run/column[@title='status']").set("value", "true")
+      result_root.find("run/column[@title='category']").set("value", "correct")
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      fixture.result_hashes[role] = dataset.baseline.sha256_file(result)
+      survivor = json.loads(survivor_path.read_text())
+      survivor["derivation"]["result_sha256"] = dataset.baseline.sha256_file(result)
+      survivor_path.write_text(json.dumps(survivor), encoding="utf-8")
+      fixture.survivor_hashes[role] = dataset.baseline.sha256_file(
+          survivor_path
+      )
+      args.output_dir = str(root / "rejected")
+      with phase_b_pins(fixture), self.assertRaisesRegex(RuntimeError, "recomputed"):
+        dataset.command_merge_survivors(args)
+      fixture.result_hashes[role] = original_result_pin
+      fixture.survivor_hashes[role] = original_survivor_pin
+
+  def test_phase_b_formal_summary_is_fixed_distinct_and_same_host(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root)
+      inputs = phase_b_inputs(fixture)
+      merged = root / "merged"
+      with phase_b_pins(fixture):
+        dataset.command_merge_survivors(
+            SimpleNamespace(**inputs, output_dir=str(merged))
+        )
+      manifest = merged / "candidate-manifest-valkyrie-formal.json"
+      generated = root / "generated"
+      with phase_b_pins(fixture):
+        dataset.command_render_formal(
+            SimpleNamespace(
+                **inputs,
+                manifest=str(manifest),
+                property_file=str(root / "c/properties/unreach-call.prp"),
+              output_dir=str(generated),
+            )
+        )
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "output directory must be absent or empty"
+      ):
+        dataset.command_render_formal(
+            SimpleNamespace(
+                **inputs,
+                manifest=str(manifest),
+                property_file=str(root / "c/properties/unreach-call.prp"),
+                output_dir=str(generated),
+            )
+        )
+      definition = generated / "hard-case-candidates.xml"
+      tasks = json.loads(manifest.read_text())["tasks"]
+      first, second = root / "formal-1.xml", root / "formal-2.xml"
+      write_stock_result(first, tasks, "valkyrie", formal=True, marker="1")
+      write_stock_result(second, tasks, "valkyrie", formal=True, marker="2")
+
+      def summarize(name, results, benchmark=definition):
+        with phase_b_pins(fixture):
+          dataset.command_summarize(
+              SimpleNamespace(
+                  **inputs,
+                  manifest=str(manifest),
+                  benchmark_definition=str(benchmark),
+                  result=[str(path) for path in results],
+                  output_dir=str(root / name),
+                  hard_threshold=200,
+              )
+          )
+
+      summarize("accepted", [first, second])
+      with self.assertRaisesRegex(
+          RuntimeError, "output directory must be absent or empty"
+      ):
+        summarize("accepted", [first, second])
+      with self.assertRaisesRegex(RuntimeError, "fixed at 200"):
+        with phase_b_pins(fixture):
+          dataset.command_summarize(
+              SimpleNamespace(
+                  **inputs,
+                  manifest=str(manifest),
+                  benchmark_definition=str(definition),
+                  result=[str(first), str(second)],
+                  output_dir=str(root / "wrong-threshold"),
+                  hard_threshold=201,
+              )
+          )
+      invalid = root / "invalid.xml"
+      write_stock_result(invalid, tasks, "athena", formal=True)
+      with self.assertRaisesRegex(RuntimeError, "merged manifest host"):
+        summarize("cross-host", [first, invalid])
+      write_stock_result(invalid, tasks, "valkyrie")
+      with self.assertRaisesRegex(RuntimeError, "metadata"):
+        summarize("wrong-limit", [first, invalid])
+      write_stock_result(
+          invalid, tasks, "valkyrie", formal=True, omit="walltime"
+      )
+      with self.assertRaisesRegex(RuntimeError, "CPU or wall"):
+        summarize("missing-metric", [first, invalid])
+      invalid_root = ET.parse(second).getroot()
+      invalid_root.find("run").set(
+          "propertyFile",
+          "../../evil/../../../../sv-benchmarks/c/properties/unreach-call.prp",
+      )
+      ET.ElementTree(invalid_root).write(invalid, encoding="unicode")
+      with self.assertRaisesRegex(RuntimeError, "property file is not exact"):
+        summarize("formal-wrong-property", [first, invalid])
+      invalid_root = ET.parse(second).getroot()
+      invalid_root.find("run").set(
+          "files", "[../../evil/../../../../sv-benchmarks/s0.c]"
+      )
+      ET.ElementTree(invalid_root).write(invalid, encoding="unicode")
+      with self.assertRaisesRegex(RuntimeError, "source files do not match"):
+        summarize("formal-wrong-source", [first, invalid])
+      invalid_root = ET.parse(second).getroot()
+      invalid_root.find("run").set(
+          "name", "../../evil/../../../../sv-benchmarks/t0.yml"
+      )
+      ET.ElementTree(invalid_root).write(invalid, encoding="unicode")
+      with self.assertRaisesRegex(RuntimeError, "task path is not exact"):
+        summarize("formal-wrong-task-path", [first, invalid])
+      with self.assertRaisesRegex(RuntimeError, "distinct"):
+        summarize("duplicate", [first, first])
+      invalid_root = ET.parse(second).getroot()
+      invalid_root.set("starttime", ET.parse(first).getroot().get("starttime"))
+      ET.ElementTree(invalid_root).write(invalid, encoding="unicode")
+      with self.assertRaisesRegex(RuntimeError, "distinct starttime"):
+        summarize("duplicate-starttime", [first, invalid])
+      invalid_root = ET.parse(second).getroot()
+      invalid_root.set(
+          "benchmarkname", ET.parse(first).getroot().get("benchmarkname")
+      )
+      ET.ElementTree(invalid_root).write(invalid, encoding="unicode")
+      with self.assertRaisesRegex(RuntimeError, "distinct benchmarkname"):
+        summarize("duplicate-benchmarkname", [first, invalid])
+      changed = root / "changed-definition.xml"
+      definition_root = ET.parse(definition).getroot()
+      definition_root.set("hardtimelimit", "120 s")
+      ET.ElementTree(definition_root).write(changed, encoding="unicode")
+      with self.assertRaisesRegex(RuntimeError, "900/910/920"):
+        summarize("wrong-definition", [first, second], changed)
+      extra = root / "extra-definition.xml"
+      definition_root = ET.parse(definition).getroot()
+      ET.SubElement(definition_root, "option", {"name": "--extra"})
+      ET.ElementTree(definition_root).write(extra, encoding="unicode")
+      with self.assertRaisesRegex(RuntimeError, "topology"):
+        summarize("extra-definition", [first, second], extra)
+
+  def test_phase_b_zero_survivors_are_preserved_and_skip_formal(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root)
+      zero_phase_a_survivors(fixture)
+      inputs = phase_b_inputs(fixture)
+      merged = root / "merged"
+      with phase_b_pins(fixture):
+        dataset.command_merge_survivors(
+            SimpleNamespace(**inputs, output_dir=str(merged))
+        )
+      manifest = merged / "candidate-manifest-valkyrie-formal.json"
+      self.assertEqual(json.loads(manifest.read_text())["task_count"], 0)
+      formal_args = SimpleNamespace(
+          **inputs,
+          manifest=str(manifest),
+          property_file=str(root / "c/properties/unreach-call.prp"),
+          output_dir=str(root / "formal-valkyrie"),
+      )
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "skipped.*no tasks"
+      ):
+        dataset.command_render_formal(formal_args)
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "skipped.*no tasks"
+      ):
+        dataset.command_summarize(
+            SimpleNamespace(
+                **inputs,
+                manifest=str(manifest),
+                benchmark_definition=str(root / "absent.xml"),
+                result=[str(root / "absent-1.xml"), str(root / "absent-2.xml")],
+                output_dir=str(root / "summary-valkyrie"),
+                hard_threshold=200,
+            )
+          )
 
   def test_phase_a_host_requires_one_matching_systeminfo_and_supports_bz2(self):
     with tempfile.TemporaryDirectory() as temp:
