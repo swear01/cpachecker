@@ -29,13 +29,14 @@ P_CORES=0,2,4,6,8,10,12,14
 HOST=$(hostname -s)
 case "$HOST" in
   athena)
-    EXPECTED_MANIFEST=5b0224af541b371fd8f882cf71099b774fdd33dc3187cf6dca31cc3c8ca55cef
+    EXPECTED_MANIFEST=477374a2bbab9fd8559e1945e6781b5484e26afec7808266332423c1db9cddd6
     ;;
   cthulhu)
-    EXPECTED_MANIFEST=40bda9c755c88d9b617269aaa6e1c66ceea07fb818e0741f8a1f960536bd6d4b
+    echo "Cthulhu is not an r4 reroute host; use the r3 runner for its original shard" >&2
+    exit 1
     ;;
   valkyrie)
-    EXPECTED_MANIFEST=64f25378a401f1936fc836b5901c96d304f9c654f5c9d4cf17327e086463930d
+    EXPECTED_MANIFEST=6c5e9d46d83f9cb644cc37d9651511102cc27ce539bed7024e8b14f1698aae29
     ;;
   *)
     echo "unsupported discovery host: $HOST" >&2
@@ -121,7 +122,7 @@ run_benchexec() {
       HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
       JAVA="$JAVA_HOME/bin/java" PYTHONPATH="$BENCHEXEC_DIR" \
       /usr/bin/python3 -m benchexec.benchexec \
-      --name "hard-case-dataset-v2-discovery-$HOST-screen" \
+      --name "hard-case-dataset-v2-discovery-cthulhu-reroute-$HOST-screen" \
       --tool-directory "$CPACHECKER_DIR" \
       --outputpath "$output/" \
       --allowedCores "$P_CORES" \
@@ -139,7 +140,9 @@ single_result() {
   local directory=$1
   find "$directory" -maxdepth 1 -type f \
     \( -name '*.results.hard-case-candidates.xml' \
-    -o -name '*.results.hard-case-candidates.xml.bz2' \) -print
+    -o -name '*.results.hard-case-candidates.xml.bz2' \
+    -o -name '*.results.hard-case-candidates.official.xml' \
+    -o -name '*.results.hard-case-candidates.official.xml.bz2' \) -print
 }
 
 run_benchexec
@@ -159,6 +162,7 @@ fi
   --manifest "$MANIFEST" \
   --result "${results[0]}" \
   --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+  --phase-a-host "$HOST" \
   --output-dir "$OUTPUT_DIR/summary"
 "$SCRIPT_DIR/baseline.py" artifact-manifest \
   --root "$OUTPUT_DIR" \

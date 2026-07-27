@@ -8,8 +8,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import copy
+import bz2
 import collections
+import copy
 import csv
 import importlib.util
 import json
@@ -20,6 +21,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 
 SPEC = importlib.util.spec_from_file_location("dataset", Path(__file__).with_name("dataset.py"))
@@ -238,6 +240,29 @@ class DatasetTest(unittest.TestCase):
       shard_tasks = [row["task"] for shard in shards for row in shard["tasks"]]
       self.assertCountEqual(shard_tasks, [row["task"] for row in rows[1:]])
       self.assertEqual(len(shard_tasks), len(set(shard_tasks)))
+      self.assertEqual(
+          dataset.baseline.sha256_file(output / "candidate-manifest.json"),
+          "62d29eee73ac252fef708af4526d651f31d0e090257ba18126adae95b1ec753d",
+      )
+      self.assertEqual(
+          {
+              host: dataset.baseline.sha256_file(
+                  output / f"candidate-manifest-{host}.json"
+              )
+              for host in dataset.DISCOVERY_HOSTS
+          },
+          {
+              "athena": (
+                  "d5f769e729ecc43ae8511b6408117cef884deb1e82d6492db3abeaa5329712b0"
+              ),
+              "cthulhu": (
+                  "dba6d5a33824c78cbef1098efe0b6878b741ffd09dcc74a7e4277fe1be203d7f"
+              ),
+              "valkyrie": (
+                  "5f741982bb88353e2a92045833a57abc0a03cb5bb6b894d1fb8b7bfcf113c024"
+              ),
+          },
+      )
       shuffled = rows[1:]
       random.Random(20260727).shuffle(shuffled)
       self.assertEqual(
@@ -306,6 +331,198 @@ class DatasetTest(unittest.TestCase):
           dataset.command_validate_shards(validation_args)
       athena_path.write_text(json.dumps(original), encoding="utf-8")
 
+  def test_cthulhu_reroute_is_fixed_complete_and_fail_closed(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      corpus = root / "corpus/properties"
+      corpus.mkdir(parents=True)
+      property_file = corpus / "unreach-call.prp"
+      property_file.write_text("CHECK\n", encoding="utf-8")
+      tasks = []
+      for index in range(8):
+        task = root / f"task-{index}.yml"
+        source = root / f"source-{index}.c"
+        task.write_text(f"task {index}\n", encoding="utf-8")
+        source.write_text(f"source {index}\n", encoding="utf-8")
+        tasks.append(
+            {
+                "task": task.name,
+                "source": "sv-benchmarks",
+                "task_path": task.name,
+                "task_sha256": dataset.baseline.sha256_file(task),
+                "source_paths": [source.name],
+                "source_sha256": [dataset.baseline.sha256_file(source)],
+                "family": f"family-{index % 3}",
+                "seed_class": (
+                    "hard_solved_seed" if index % 2 else "unsolved_seed"
+                ),
+                "expected_verdict": "true" if index % 2 else "false",
+            }
+        )
+      parent = root / "candidate-manifest-cthulhu.json"
+      parent.write_text(
+          json.dumps(
+              {
+                  "schema_version": "hard-case-candidate-v2-derived",
+                  "task_count": len(tasks),
+                  "corpus_files": [
+                      {
+                          "path": "corpus/properties/unreach-call.prp",
+                          "sha256": dataset.baseline.sha256_file(property_file),
+                      }
+                  ],
+                  "derivation": {
+                      "operation": "deterministic_stratified_shard",
+                      "hosts": list(dataset.DISCOVERY_HOSTS),
+                      "host": "cthulhu",
+                      "selection_independent_of_verifier_outcomes": True,
+                  },
+                  "tasks": tasks,
+              },
+              indent=2,
+          )
+          + "\n",
+          encoding="utf-8",
+      )
+      parent_sha256 = dataset.baseline.sha256_file(parent)
+      output = root / "rerouted"
+      paths = [
+          output / f"candidate-manifest-{host}.json"
+          for host in dataset.REROUTE_HOSTS
+      ]
+      args = SimpleNamespace(
+          manifest=str(parent),
+          reroute_manifest=[str(path) for path in paths],
+          sv_benchmarks=str(root),
+      )
+      with mock.patch.object(
+          dataset, "FROZEN_CTHULHU_MANIFEST_SHA256", parent_sha256
+      ):
+        dataset.command_reroute_cthulhu(
+            SimpleNamespace(
+                manifest=str(parent),
+                sv_benchmarks=str(root),
+                output_dir=str(output),
+            )
+        )
+        dataset.command_validate_reroute(args)
+        originals = {
+            path: json.loads(path.read_text(encoding="utf-8"))
+            for path in paths
+        }
+
+        tampered = copy.deepcopy(originals[paths[0]])
+        tampered["derivation"]["operation"] = "other"
+        paths[0].write_text(json.dumps(tampered), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "provenance"):
+          dataset.command_validate_reroute(args)
+        paths[0].write_text(json.dumps(originals[paths[0]]), encoding="utf-8")
+
+        tampered = copy.deepcopy(originals[paths[0]])
+        tampered["tasks"][0]["family"] = "changed"
+        paths[0].write_text(json.dumps(tampered), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "changed provenance or rows"):
+          dataset.command_validate_reroute(args)
+        paths[0].write_text(json.dumps(originals[paths[0]]), encoding="utf-8")
+
+        tampered = copy.deepcopy(originals[paths[0]])
+        tampered["tasks"].pop()
+        tampered["task_count"] -= 1
+        paths[0].write_text(json.dumps(tampered), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "missing"):
+          dataset.command_validate_reroute(args)
+        paths[0].write_text(json.dumps(originals[paths[0]]), encoding="utf-8")
+
+        parent_manifest = json.loads(parent.read_text(encoding="utf-8"))
+        first = dataset.manifest_subset(
+            parent_manifest,
+            [
+                *(row["task"] for row in originals[paths[0]]["tasks"]),
+                originals[paths[1]]["tasks"][0]["task"],
+            ],
+            originals[paths[0]]["derivation"],
+        )
+        paths[0].write_text(json.dumps(first), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "overlapping"):
+          dataset.command_validate_reroute(args)
+        paths[0].write_text(json.dumps(originals[paths[0]]), encoding="utf-8")
+
+        first_tasks = [row["task"] for row in originals[paths[0]]["tasks"]]
+        second_tasks = [row["task"] for row in originals[paths[1]]["tasks"]]
+        first_tasks[0], second_tasks[0] = second_tasks[0], first_tasks[0]
+        first = dataset.manifest_subset(
+            parent_manifest,
+            first_tasks,
+            originals[paths[0]]["derivation"],
+        )
+        second = dataset.manifest_subset(
+            parent_manifest,
+            second_tasks,
+            originals[paths[1]]["derivation"],
+        )
+        paths[0].write_text(json.dumps(first), encoding="utf-8")
+        paths[1].write_text(json.dumps(second), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "recomputed assignment"):
+          dataset.command_validate_reroute(args)
+
+  def test_r4_runner_accepts_only_reroutes_and_carries_host(self):
+    runner = Path(__file__).with_name("run-stock-dataset.sh").read_text(
+        encoding="utf-8"
+    )
+    self.assertIn(
+        "477374a2bbab9fd8559e1945e6781b5484e26afec7808266332423c1db9cddd6",
+        runner,
+    )
+    self.assertIn(
+        "6c5e9d46d83f9cb644cc37d9651511102cc27ce539bed7024e8b14f1698aae29",
+        runner,
+    )
+    self.assertNotIn(
+        "5b0224af541b371fd8f882cf71099b774fdd33dc3187cf6dca31cc3c8ca55cef",
+        runner,
+    )
+    self.assertNotIn(
+        "64f25378a401f1936fc836b5901c96d304f9c654f5c9d4cf17327e086463930d",
+        runner,
+    )
+    self.assertIn("Cthulhu is not an r4 reroute host", runner)
+    self.assertIn('--phase-a-host "$HOST"', runner)
+    self.assertIn(
+        '--name "hard-case-dataset-v2-discovery-cthulhu-reroute-$HOST-screen"',
+        runner,
+    )
+
+  def test_dataset_runner_finds_only_exact_screen_result_forms(self):
+    runner = Path(__file__).with_name("run-stock-dataset.sh").read_text(
+        encoding="utf-8"
+    )
+    start = runner.index("single_result() {")
+    end = runner.index("\n}\n\nrun_benchexec", start) + 3
+    function = runner[start:end]
+    expected_names = (
+        "run.results.hard-case-candidates.xml",
+        "run.results.hard-case-candidates.xml.bz2",
+        "run.results.hard-case-candidates.official.xml",
+        "run.results.hard-case-candidates.official.xml.bz2",
+    )
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      for index, name in enumerate(expected_names):
+        directory = root / str(index)
+        directory.mkdir()
+        expected = directory / name
+        expected.touch()
+        (directory / "run.results.hard-case-candidates.external.xml.bz2").touch()
+        (directory / f"{name}.txt").touch()
+        nested = directory / "nested"
+        nested.mkdir()
+        (nested / name).touch()
+        found = subprocess.check_output(
+            ["bash", "-c", f'{function}\nsingle_result "$1"', "bash", directory],
+            text=True,
+        ).splitlines()
+        self.assertEqual(found, [str(expected)])
+
   def test_discovery_render_uses_fixed_120_130_140_second_limits(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
@@ -346,6 +563,43 @@ class DatasetTest(unittest.TestCase):
               for option in benchmark.findall("option")
           ],
       )
+
+  def test_phase_a_host_requires_one_matching_systeminfo_and_supports_bz2(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+
+      def write_result(path, hostnames):
+        result = ET.Element("result")
+        for hostname in hostnames:
+          ET.SubElement(result, "systeminfo", {"hostname": hostname})
+        content = ET.tostring(result, encoding="utf-8")
+        path.write_bytes(
+            bz2.compress(content) if path.suffix == ".bz2" else content
+        )
+
+      valid = root / "valid.xml.bz2"
+      write_result(valid, ["athena"])
+      self.assertEqual(
+          dataset.validate_phase_a_host(valid, "athena", "athena"), "athena"
+      )
+      for name, hostnames, requested, manifest, message in (
+          ("missing.xml", [], "athena", "athena", "exactly one"),
+          ("empty.xml", [""], "athena", "athena", "exactly one"),
+          (
+              "multiple.xml",
+              ["athena", "athena"],
+              "athena",
+              "athena",
+              "exactly one",
+          ),
+          ("wrong.xml", ["valkyrie"], "athena", "athena", "Phase-A host"),
+          ("manifest.xml", ["athena"], "athena", "valkyrie", "Phase-A host"),
+      ):
+        with self.subTest(name=name):
+          path = root / name
+          write_result(path, hostnames)
+          with self.assertRaisesRegex(RuntimeError, message):
+            dataset.validate_phase_a_host(path, requested, manifest)
 
   def test_screen_summary_separates_outcomes_and_writes_survivor_manifest(self):
     with tempfile.TemporaryDirectory() as temp:
@@ -388,6 +642,7 @@ class DatasetTest(unittest.TestCase):
           json.dumps(
               {
                   "task_count": len(tasks),
+                  "derivation": {"host": "athena"},
                   "corpus_files": [
                       {
                           "path": "corpus/properties/unreach-call.prp",
@@ -401,6 +656,7 @@ class DatasetTest(unittest.TestCase):
       )
       result = root / "result.xml"
       result_root = ET.Element("result")
+      ET.SubElement(result_root, "systeminfo", {"hostname": "athena"})
       for name, status, category in outcomes:
         run = ET.SubElement(
             result_root, "run", {"name": name, "expectedVerdict": "true"}
@@ -421,6 +677,7 @@ class DatasetTest(unittest.TestCase):
               manifest=str(manifest),
               result=str(result),
               sv_benchmarks=str(root),
+              phase_a_host="athena",
               output_dir=str(output),
           )
       )
@@ -436,9 +693,17 @@ class DatasetTest(unittest.TestCase):
               "wrong_quarantine": 1,
           },
       )
+      self.assertEqual(summary["phase_a_host"], "athena")
+      with (output / "classification.csv").open(
+          newline="", encoding="utf-8"
+      ) as source:
+        self.assertEqual(
+            {row["phase_a_host"] for row in csv.DictReader(source)}, {"athena"}
+        )
       survivor = dataset.validate_manifest(
           output / "candidate-manifest-analysis-survivors.json", root
       )
+      self.assertEqual(survivor["derivation"]["phase_a_host"], "athena")
       self.assertEqual(
           [row["task"] for row in survivor["tasks"]],
           ["timeout.yml", "unknown.yml"],
@@ -458,7 +723,18 @@ class DatasetTest(unittest.TestCase):
                 manifest=str(manifest),
                 result=str(result),
                 sv_benchmarks=str(root),
+                phase_a_host="athena",
                 output_dir=str(root / "invalid-summary"),
+            )
+        )
+      with self.assertRaisesRegex(RuntimeError, "Phase-A host"):
+        dataset.command_screen_summary(
+            SimpleNamespace(
+                manifest=str(manifest),
+                result=str(result),
+                sv_benchmarks=str(root),
+                phase_a_host="valkyrie",
+                output_dir=str(root / "wrong-host-summary"),
             )
         )
 

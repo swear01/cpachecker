@@ -81,11 +81,22 @@ Athena, Cthulhu, and Valkyrie. `validate-shards` independently recomputes the
 assignment and rejects overlap, omission, changed records, or a different
 assignment.
 
-The current runner accepts only the pinned manifest for its host and performs
-one Phase-A screen with fixed 120 s CPU, 130 s hard-CPU, and 140 s wall
-limits. `screen-summary` separates correct-fast, wrong, analysis-survivor,
-verifier-failure, and infrastructure outcomes. Its hashed survivor manifest
-is the input for two subsequent 900-second measurements on the same host. A
+The r4 runner accepts only the fixed Cthulhu reroute manifest for Athena
+(`477374a2bbab9fd8559e1945e6781b5484e26afec7808266332423c1db9cddd6`)
+or Valkyrie
+(`6c5e9d46d83f9cb644cc37d9651511102cc27ce539bed7024e8b14f1698aae29`)
+and rejects Cthulhu. Use the r3 runner at commit
+`99bc3800cce4da16ec0cbf108af6197595a54ff3` for the original three shards.
+Both protocols perform one Phase-A screen with fixed 120 s CPU, 130 s
+hard-CPU, and 140 s wall limits. `screen-summary` requires exactly one
+BenchExec `systeminfo` hostname, verifies it against the requested host and
+manifest provenance, and carries `phase_a_host` into its CSV, summary, and
+survivor manifest. It separates correct-fast, wrong,
+analysis-survivor, verifier-failure, and infrastructure outcomes. Its hashed
+survivor manifest is the input for two subsequent 900-second measurements on
+the same host. Postprocessing accepts only the exact combined or official-only
+`hard-case-candidates` result XML filename, compressed or uncompressed, and
+still requires exactly one match. A
 ten-second preflight and the complete screen record package thermal-throttle
 and kernel swap-I/O counter deltas as provenance. Nonzero deltas are warnings,
 not acceptance failures. Missing, non-integer, decreasing, or cross-host
@@ -94,6 +105,25 @@ The summary fails on missing CPU/wall metrics; UNKNOWN is eligible only when
 BenchExec explicitly reports it as the status or category.
 After output initialization, a failed run still records machine state and an
 artifact manifest while preserving the original exit status.
+
+The r4 reroute is a fixed, outcome-independent repartition of the frozen r3
+Cthulhu shard
+`40bda9c755c88d9b617269aaa6e1c66ceea07fb818e0741f8a1f960536bd6d4b`.
+It assigns all 107 task records to Athena and Valkyrie with the same
+stratified algorithm as the original three-host partition:
+
+```bash
+scripts/vguide/dataset.py reroute-cthulhu \
+  --manifest /path/to/r3/candidate-manifest-cthulhu.json \
+  --sv-benchmarks /path/to/sv-benchmarks \
+  --output-dir /path/to/r4-reroute
+
+scripts/vguide/dataset.py validate-reroute \
+  --manifest /path/to/r3/candidate-manifest-cthulhu.json \
+  --reroute-manifest /path/to/r4-reroute/candidate-manifest-athena.json \
+  --reroute-manifest /path/to/r4-reroute/candidate-manifest-valkyrie.json \
+  --sv-benchmarks /path/to/sv-benchmarks
+```
 
 ```bash
 env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \

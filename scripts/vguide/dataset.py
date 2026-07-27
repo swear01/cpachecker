@@ -48,6 +48,10 @@ SOURCE_URLS = {
 }
 ANALYSIS_UNSOLVED = {"timeout", "out_of_memory", "unknown"}
 DISCOVERY_HOSTS = ("athena", "cthulhu", "valkyrie")
+REROUTE_HOSTS = ("athena", "valkyrie")
+FROZEN_CTHULHU_MANIFEST_SHA256 = (
+    "40bda9c755c88d9b617269aaa6e1c66ceea07fb818e0741f8a1f960536bd6d4b"
+)
 
 
 def sha256_text(value):
@@ -651,15 +655,18 @@ def manifest_subset(manifest, tasks, derivation):
   return result
 
 
-def stratified_shards(rows):
+def stratified_shards(rows, hosts=DISCOVERY_HOSTS):
+  hosts = tuple(hosts)
+  if not hosts or len(hosts) != len(set(hosts)):
+    raise RuntimeError("shard hosts must be nonempty and unique")
   groups = collections.defaultdict(list)
   for row in rows:
     groups[
         (row["family"], row["seed_class"], row["expected_verdict"])
     ].append(row)
-  counts = {host: collections.Counter() for host in DISCOVERY_HOSTS}
-  shards = {host: [] for host in DISCOVERY_HOSTS}
-  host_order = {host: index for index, host in enumerate(DISCOVERY_HOSTS)}
+  counts = {host: collections.Counter() for host in hosts}
+  shards = {host: [] for host in hosts}
+  host_order = {host: index for index, host in enumerate(hosts)}
   for stratum, tasks in sorted(
       groups.items(), key=lambda item: (-len(item[1]), item[0])
   ):
@@ -668,7 +675,7 @@ def stratified_shards(rows):
         tasks, key=lambda item: (sha256_text(item["task"]), item["task"])
     ):
       host = min(
-          DISCOVERY_HOSTS,
+          hosts,
           key=lambda candidate: (
               counts[candidate][("stratum", stratum)],
               counts[candidate][("family", family)],
@@ -687,17 +694,18 @@ def stratified_shards(rows):
   return shards
 
 
-def validate_shard_partition(rows, shards):
-  expected = stratified_shards(rows)
+def validate_shard_partition(rows, shards, hosts=DISCOVERY_HOSTS):
+  hosts = tuple(hosts)
+  expected = stratified_shards(rows, hosts)
   input_rows = {row["task"]: row for row in rows}
   actual_tasks = [
-      row["task"] for host in DISCOVERY_HOSTS for row in shards.get(host, [])
+      row["task"] for host in hosts for row in shards.get(host, [])
   ]
   if len(actual_tasks) != len(set(actual_tasks)):
     raise RuntimeError("shard partition contains overlapping tasks")
   if set(actual_tasks) != set(input_rows):
     raise RuntimeError("shard partition contains missing or unexpected tasks")
-  for host in DISCOVERY_HOSTS:
+  for host in hosts:
     actual = {row["task"]: row for row in shards.get(host, [])}
     if any(input_rows[task] != row for task, row in actual.items()):
       raise RuntimeError(f"shard partition contains changed task records: {host}")
@@ -801,6 +809,101 @@ def command_validate_shards(args):
     shards[host] = shard["tasks"]
   validate_shard_partition(manifest["tasks"], shards)
   print(json.dumps({"task_count": manifest["task_count"], "valid": True}))
+
+
+def validate_cthulhu_parent(manifest_path, sv_benchmarks):
+  manifest_path = Path(manifest_path).resolve()
+  if baseline.sha256_file(manifest_path) != FROZEN_CTHULHU_MANIFEST_SHA256:
+    raise RuntimeError("Cthulhu parent manifest hash is not frozen r3 input")
+  manifest = validate_manifest(manifest_path, sv_benchmarks)
+  derivation = manifest.get("derivation", {})
+  required = {
+      "operation": "deterministic_stratified_shard",
+      "hosts": list(DISCOVERY_HOSTS),
+      "host": "cthulhu",
+      "selection_independent_of_verifier_outcomes": True,
+  }
+  for field, expected in required.items():
+    if derivation.get(field) != expected:
+      raise RuntimeError(f"invalid Cthulhu parent provenance: {field}")
+  return manifest
+
+
+def reroute_derivation(parent):
+  return {
+      "operation": "deterministic_stratified_reroute",
+      "parent_manifest_sha256": FROZEN_CTHULHU_MANIFEST_SHA256,
+      "source_host": "cthulhu",
+      "source_derivation": parent["derivation"],
+      "hosts": list(REROUTE_HOSTS),
+      "algorithm": (
+          "strata (family,seed_class,expected_verdict) by (-size,key); "
+          "tasks by SHA-256(task); lexicographic least host counts for "
+          "stratum,family,seed,verdict,total,host-order"
+      ),
+      "selection_independent_of_verifier_outcomes": True,
+  }
+
+
+def command_reroute_cthulhu(args):
+  parent_path = Path(args.manifest).resolve()
+  parent = validate_cthulhu_parent(parent_path, args.sv_benchmarks)
+  output = Path(args.output_dir).resolve()
+  if output.exists() and any(output.iterdir()):
+    raise RuntimeError(f"output directory must be absent or empty: {output}")
+  output.mkdir(parents=True, exist_ok=True)
+  shutil.copytree(parent_path.parent / "corpus", output / "corpus")
+  assigned = stratified_shards(parent["tasks"], REROUTE_HOSTS)
+  manifests = {}
+  report = {}
+  for host in REROUTE_HOSTS:
+    derivation = {**reroute_derivation(parent), "host": host}
+    manifest = manifest_subset(
+        parent, [row["task"] for row in assigned[host]], derivation
+    )
+    path = output / f"candidate-manifest-{host}.json"
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    manifests[host] = manifest
+    report[host] = {
+        "task_count": manifest["task_count"],
+        "sha256": baseline.sha256_file(path),
+    }
+  validate_shard_partition(
+      parent["tasks"],
+      {host: manifest["tasks"] for host, manifest in manifests.items()},
+      REROUTE_HOSTS,
+  )
+  print(
+      json.dumps(
+          {"parent_task_count": parent["task_count"], "reroutes": report},
+          sort_keys=True,
+      )
+  )
+
+
+def command_validate_reroute(args):
+  parent = validate_cthulhu_parent(args.manifest, args.sv_benchmarks)
+  reroutes = {}
+  base_derivation = reroute_derivation(parent)
+  for path in args.reroute_manifest:
+    reroute = validate_manifest(path, args.sv_benchmarks)
+    derivation = reroute.get("derivation", {})
+    host = derivation.get("host")
+    if host not in REROUTE_HOSTS or host in reroutes:
+      raise RuntimeError(f"invalid or duplicate reroute host: {host}")
+    expected_derivation = {**base_derivation, "host": host}
+    if derivation != expected_derivation:
+      raise RuntimeError(f"invalid reroute provenance: {host}")
+    expected_manifest = manifest_subset(
+        parent, [row["task"] for row in reroute["tasks"]], expected_derivation
+    )
+    if reroute != expected_manifest:
+      raise RuntimeError(f"reroute contains changed provenance or rows: {host}")
+    reroutes[host] = reroute["tasks"]
+  if set(reroutes) != set(REROUTE_HOSTS):
+    raise RuntimeError("reroute manifests do not contain both fixed hosts")
+  validate_shard_partition(parent["tasks"], reroutes, REROUTE_HOSTS)
+  print(json.dumps({"task_count": parent["task_count"], "valid": True}))
 
 
 def validate_manifest(manifest_path, sv_benchmarks):
@@ -1103,9 +1206,30 @@ def classify_screen_result(row):
   return "verifier_failure_quarantine"
 
 
+def validate_phase_a_host(result_path, requested_host, manifest_host):
+  with baseline.open_result(Path(result_path)) as source:
+    root = ET.parse(source).getroot()
+  systeminfo = root.findall("systeminfo")
+  if len(systeminfo) != 1 or not systeminfo[0].get("hostname"):
+    raise RuntimeError("screen result must contain exactly one systeminfo hostname")
+  result_host = systeminfo[0].get("hostname")
+  if (
+      requested_host not in DISCOVERY_HOSTS
+      or manifest_host != requested_host
+      or result_host != requested_host
+  ):
+    raise RuntimeError("Phase-A host does not match result and manifest provenance")
+  return requested_host
+
+
 def command_screen_summary(args):
   manifest_path = Path(args.manifest).resolve()
   manifest = validate_manifest(manifest_path, args.sv_benchmarks)
+  phase_a_host = validate_phase_a_host(
+      args.result,
+      args.phase_a_host,
+      manifest.get("derivation", {}).get("host"),
+  )
   parsed_manifest = baseline.load_task_manifest(manifest_path)
   runs = baseline.parse_result_rows(args.result, parsed_manifest, hard_threshold=200)
   missing_metrics = [
@@ -1121,6 +1245,7 @@ def command_screen_summary(args):
   rows = [
       {
           "task": run["task"],
+          "phase_a_host": phase_a_host,
           "source": details[run["task"]]["source"],
           "family": details[run["task"]]["family"],
           "expected_verdict": run["expected_verdict"],
@@ -1168,6 +1293,7 @@ def command_screen_summary(args):
           "parent_manifest_sha256": baseline.sha256_file(manifest_path),
           "result_sha256": baseline.sha256_file(Path(args.result)),
           "allowed_results": sorted(ANALYSIS_UNSOLVED),
+          "phase_a_host": phase_a_host,
           "selection_independent_of_augmented_outcomes": True,
       },
   )
@@ -1179,6 +1305,7 @@ def command_screen_summary(args):
   counts = collections.Counter(row["classification"] for row in rows)
   summary = {
       "task_count": len(rows),
+      "phase_a_host": phase_a_host,
       "classifications": dict(sorted(counts.items())),
       "result_sha256": baseline.sha256_file(Path(args.result)),
       "survivor_manifest_sha256": baseline.sha256_file(survivor_path),
@@ -1300,6 +1427,18 @@ def main():
   validate_shards.add_argument("--shard-manifest", action="append", required=True)
   validate_shards.add_argument("--sv-benchmarks", required=True)
   validate_shards.set_defaults(function=command_validate_shards)
+  reroute = commands.add_parser("reroute-cthulhu")
+  reroute.add_argument("--manifest", required=True)
+  reroute.add_argument("--sv-benchmarks", required=True)
+  reroute.add_argument("--output-dir", required=True)
+  reroute.set_defaults(function=command_reroute_cthulhu)
+  validate_reroute = commands.add_parser("validate-reroute")
+  validate_reroute.add_argument("--manifest", required=True)
+  validate_reroute.add_argument(
+      "--reroute-manifest", action="append", required=True
+  )
+  validate_reroute.add_argument("--sv-benchmarks", required=True)
+  validate_reroute.set_defaults(function=command_validate_reroute)
   render = commands.add_parser("render")
   render.add_argument("--manifest", required=True)
   render.add_argument("--sv-benchmarks", required=True)
@@ -1339,6 +1478,7 @@ def main():
   screen_summary.add_argument("--manifest", required=True)
   screen_summary.add_argument("--result", required=True)
   screen_summary.add_argument("--sv-benchmarks", required=True)
+  screen_summary.add_argument("--phase-a-host", required=True)
   screen_summary.add_argument("--output-dir", required=True)
   screen_summary.set_defaults(function=command_screen_summary)
   args = parser.parse_args()
