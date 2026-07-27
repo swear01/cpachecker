@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -986,6 +987,844 @@ class DatasetTest(unittest.TestCase):
         '--name "hard-case-dataset-v2-discovery-athena-recovery-valkyrie-screen"',
         runner,
     )
+
+  def test_formal_runner_is_pinned_sequential_and_fail_closed(self):
+    path = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    runner = path.read_text(encoding="utf-8")
+    subprocess.run(["bash", "-n", path], check=True)
+    for value in (
+        "1848f9eb597ca99a170fd98af8aad716743a2bfe",
+        "9cf9198156e4c8a6c517e474770158e1bb0b566d",
+        "edb95ed3a8478366b8bb89f8cdd1d9a6c5fa8c84",
+        "867ff62e01a0936fc0a90ceae27338be1973559767ef0717896f8d64f780ece6",
+        "eea0df062de5c8e3febe0d96b583741c140e79d3ae41a87a56d7be365b876f9d",
+        "52772e241e78a875fa00dea891eac2023d4f2be639a5f28a17dca81580f75e5b",
+        "7d51cd6b48b521277f5caa4610a82126e315fa2be4df069823a8b1eeb5bd4a86",
+        "eef7994f6b57cb0bbdb803ef6aadc0c1afbe61d444932eeef5dc5c114b6cf27b",
+        "0970024a48206a1937b5bfbf889335525b769b89a27ca7df25d793d7727b909c",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737c143ba018bc",
+        "49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3",
+        dataset.FROZEN_FORMAL_MANIFEST_SHA256,
+        "a20797345df1bef6d5be5356906ee106b75b374b0d6cd2adfbc56cc5c3e65fef",
+    ):
+      self.assertIn(value, runner)
+    self.assertIn('$(hostname -s) != "valkyrie"', runner)
+    self.assertIn("LLM/VGuide environment is forbidden", runner)
+    self.assertIn("output directory must be absent or empty", runner)
+    self.assertIn("flock -n 9", runner)
+    self.assertNotIn("foreign-workload-gate", runner)
+    self.assertIn('require_clean_repo "$RESEARCH_ROOT" "research"', runner)
+    self.assertIn('require_clean_repo "$BENCHEXEC_DIR" "BenchExec"', runner)
+    self.assertIn("assume-unchanged index entries", runner)
+    self.assertIn("changed materialized skip-worktree file", runner)
+    self.assertIn("validate_formal_package_topology", runner)
+    self.assertIn("reject_output_overlap", runner)
+    self.assertIn('"$JAVA_HOME" "$ANT_INSTALL" "$PYTHON_BIN" "$PYTHON_STDLIB"', runner)
+    self.assertIn(
+        '"$PYTHON_DIST_PACKAGES" "$PYTHON_LOCAL_DIST_PACKAGES"', runner
+    )
+    self.assertIn('"$ANT_BIN" -Divy.disable=true clean jar', runner)
+    self.assertIn("EXPECTED_PYTHON_REAL=/usr/bin/python3.10", runner)
+    self.assertIn("EXPECTED_PYYAML_VERSION=5.4.1", runner)
+    self.assertIn(
+        "EXPECTED_PYYAML_FILE=/usr/lib/python3/dist-packages/yaml/__init__.py",
+        runner,
+    )
+    self.assertIn('EXPECTED_ANT_VERSION="Apache Ant(TM) version 1.10.12', runner)
+    self.assertIn("jar_content_digest_value", runner)
+    self.assertIn("remove_compiled_classes", runner)
+    self.assertGreaterEqual(runner.count("assert_no_compiled_classes"), 3)
+    build = runner.index('"$ANT_BIN" -Divy.disable=true clean jar')
+    remove_classes = runner.index("remove_compiled_classes", build)
+    self.assertLess(
+        runner.index('"$EXPECTED_CPACHECKER_JAR_CONTENT" ]]', build),
+        remove_classes,
+    )
+    self.assertLess(remove_classes, runner.index("machine-preflight-start.json", build))
+    self.assertGreaterEqual(runner.count("verify_runtime_closure"), 5)
+    self.assertIn("sleep 10", runner)
+    self.assertIn('"$DATASET_PY" render-formal', runner)
+    self.assertIn("--container", runner)
+    self.assertIn("--read-only-dir /", runner)
+    self.assertIn("--hidden-dir /home", runner)
+    self.assertIn("--overlay-dir", runner)
+    self.assertIn("-N 2 -c 4", runner)
+    self.assertIn("machine-after-failure.json", runner)
+    self.assertIn("failure-capture-status.txt", runner)
+    self.assertIn("trap capture_failure EXIT", runner)
+    self.assertIn('exit "$status"', runner)
+    self.assertGreaterEqual(runner.count("artifact-manifest"), 3)
+    self.assertIn(
+        'cp -a "$FORMAL_PACKAGE/." "$OUTPUT_DIR/input/formal/"', runner
+    )
+    self.assertIn('copy_phase_evidence "$OUTPUT_DIR/input/evidence"', runner)
+    self.assertIn(
+        'capture_research_provenance "$OUTPUT_DIR/input/research"', runner
+    )
+    self.assertIn('activate_saved_scripts "$OUTPUT_DIR/input/research"', runner)
+    self.assertIn('record_process_snapshot "$OUTPUT_DIR/provenance"', runner)
+    self.assertIn('start_process_monitor "$OUTPUT_DIR/provenance"', runner)
+    self.assertIn(
+        'stop_process_monitor_for_teardown "$OUTPUT_DIR/provenance"', runner
+    )
+    self.assertIn('stop_process_monitor "$OUTPUT_DIR/provenance"', runner)
+    captured = runner.index(
+        'capture_research_provenance "$OUTPUT_DIR/input/research"'
+    )
+    self.assertNotIn('"$SCRIPT_DIR/dataset.py"', runner[captured:])
+    self.assertNotIn('"$SCRIPT_DIR/baseline.py"', runner[captured:])
+    self.assertLess(
+        runner.index('JAVA_HOME=$(realpath "${JAVA_HOME:'),
+        runner.index('mkdir -p "$OUTPUT_DIR/input/formal"'),
+    )
+    self.assertLess(
+        runner.index('directory_digest_value "$JAVA_HOME"'),
+        runner.index('mkdir -p "$OUTPUT_DIR/input/formal"'),
+    )
+    self.assertNotIn('if [[ "$TASK_COUNT" -eq 0 ]]', runner)
+    self.assertIn('if [[ "$TASK_COUNT" -ne 270 ]]', runner)
+    self.assertIn("--hard-threshold 200", runner)
+    self.assertNotIn("44ec679a56d3", runner)
+    first = runner.index(
+        "run_repetition 1 hard-case-dataset-v2-formal-valkyrie-repetition-1"
+    )
+    first_result = runner.index(
+        'single_formal_result "$OUTPUT_DIR/results/repetition-1"', first
+    )
+    second = runner.index(
+        "run_repetition 2 hard-case-dataset-v2-formal-valkyrie-repetition-2"
+    )
+    second_result = runner.index(
+        'single_formal_result "$OUTPUT_DIR/results/repetition-2"', second
+    )
+    summarize = runner.index('"$DATASET_PY" summarize', second)
+    self.assertLess(first, first_result)
+    self.assertLess(first_result, second)
+    self.assertLess(second, second_result)
+    self.assertLess(second_result, summarize)
+
+  def test_formal_runner_result_lookup_is_exact_and_fail_closed(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      expected = (
+          root
+          / "run.results.hard-case-candidates.official.xml.bz2"
+      )
+      expected.touch()
+      (root / "run.results.hard-case-candidates.external.xml.bz2").touch()
+      (root / f"{expected.name}.txt").touch()
+      nested = root / "nested"
+      nested.mkdir()
+      (nested / expected.name).touch()
+      command = 'source "$1"; single_formal_result "$2"'
+      found = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(root)],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      self.assertEqual(found.stdout.splitlines(), [str(expected)])
+
+      extra = root / "other.results.hard-case-candidates.xml"
+      extra.touch()
+      multiple = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(root)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(multiple.returncode, 0)
+      self.assertIn("expected exactly one formal result", multiple.stderr)
+
+      expected.unlink()
+      extra.unlink()
+      missing = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(root)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(missing.returncode, 0)
+      self.assertIn("found 0", missing.stderr)
+
+  def test_formal_runner_rejects_dirty_benchexec_checkout(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temp:
+      repository = Path(temp) / "benchexec"
+      repository.mkdir()
+      subprocess.run(["git", "init", "-q", repository], check=True)
+      subprocess.run(
+          ["git", "-C", repository, "config", "user.email", "test@example.com"],
+          check=True,
+      )
+      subprocess.run(
+          ["git", "-C", repository, "config", "user.name", "Test"], check=True
+      )
+      tracked = repository / "tracked"
+      tracked.write_text("clean\n", encoding="utf-8")
+      subprocess.run(["git", "-C", repository, "add", "tracked"], check=True)
+      subprocess.run(
+          ["git", "-C", repository, "commit", "-qm", "fixture"], check=True
+      )
+      command = 'source "$1"; require_clean_repo "$2" BenchExec'
+      subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(repository)],
+          check=True,
+      )
+      tracked.write_text("dirty\n", encoding="utf-8")
+      rejected = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(repository)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("BenchExec checkout is not clean", rejected.stderr)
+
+  def test_formal_runner_rejects_assume_unchanged_and_changed_sparse_file(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temp:
+      repository = Path(temp) / "sparse"
+      repository.mkdir()
+      subprocess.run(["git", "init", "-q", repository], check=True)
+      subprocess.run(
+          ["git", "-C", repository, "config", "user.email", "test@example.com"],
+          check=True,
+      )
+      subprocess.run(
+          ["git", "-C", repository, "config", "user.name", "Test"], check=True
+      )
+      tracked = repository / "tracked"
+      tracked.write_text("HEAD\n", encoding="utf-8")
+      link = repository / "link"
+      link.symlink_to("tracked")
+      subprocess.run(["git", "-C", repository, "add", "tracked", "link"], check=True)
+      subprocess.run(
+          ["git", "-C", repository, "commit", "-qm", "fixture"], check=True
+      )
+      command = 'source "$1"; require_clean_repo "$2" sparse true'
+
+      subprocess.run(
+          ["git", "-C", repository, "update-index", "--assume-unchanged", "tracked"],
+          check=True,
+      )
+      rejected = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(repository)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("assume-unchanged index entries", rejected.stderr)
+      subprocess.run(
+          ["git", "-C", repository, "update-index", "--no-assume-unchanged", "tracked"],
+          check=True,
+      )
+
+      subprocess.run(
+          ["git", "-C", repository, "update-index", "--skip-worktree", "tracked"],
+          check=True,
+      )
+      subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(repository)],
+          check=True,
+      )
+      tracked.unlink()
+      subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(repository)],
+          check=True,
+      )
+      missing_rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              'source "$1"; require_clean_repo "$2" stock',
+              "bash",
+              str(runner),
+              str(repository),
+          ],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(missing_rejected.returncode, 0)
+      self.assertIn("missing skip-worktree entry", missing_rejected.stderr)
+      tracked.write_text("hidden change\n", encoding="utf-8")
+      rejected = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(repository)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("changed materialized skip-worktree file", rejected.stderr)
+
+      tracked.write_text("HEAD\n", encoding="utf-8")
+      tracked.chmod(0o755)
+      rejected = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(repository)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("changed skip-worktree mode", rejected.stderr)
+      tracked.chmod(0o644)
+
+      tracked.chmod(0o744)
+      rejected = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(repository)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("changed skip-worktree mode", rejected.stderr)
+      tracked.chmod(0o644)
+
+      subprocess.run(
+          ["git", "-C", repository, "update-index", "--skip-worktree", "link"],
+          check=True,
+      )
+      subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(repository)],
+          check=True,
+      )
+      link.unlink()
+      link.write_text("tracked", encoding="utf-8")
+      rejected = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(repository)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("changed skip-worktree node type", rejected.stderr)
+
+  def test_formal_runner_rejects_symlinked_package_node(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temp:
+      package = Path(temp) / "package"
+      properties = package / "corpus/properties"
+      properties.mkdir(parents=True)
+      (package / "artifact-manifest.json").write_text("{}\n", encoding="utf-8")
+      (package / "candidate-manifest-valkyrie-formal.json").write_text(
+          "{}\n", encoding="utf-8"
+      )
+      prop = properties / "unreach-call.prp"
+      prop.write_text("CHECK\n", encoding="utf-8")
+      command = 'source "$1"; validate_formal_package_topology "$2"'
+      subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(package)],
+          check=True,
+      )
+      prop.unlink()
+      prop.symlink_to("/dev/null")
+      rejected = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(package)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("node topology is not frozen", rejected.stderr)
+      prop.unlink()
+      prop.write_text("CHECK\n", encoding="utf-8")
+      package_link = Path(temp) / "package-link"
+      package_link.symlink_to(package, target_is_directory=True)
+      rejected = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(package_link)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("node topology is not frozen", rejected.stderr)
+
+  def test_formal_runner_rejects_output_overlap_in_both_directions(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    command = 'source "$1"; reject_output_overlap "$2" "$3"'
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      input_tree = root / "inputs"
+      input_tree.mkdir()
+      source = input_tree / "manifest.json"
+      source.write_text("{}\n", encoding="utf-8")
+      safe_output = root / "separate/output"
+      subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(safe_output), str(source)],
+          check=True,
+      )
+      nested_output = input_tree / "results"
+      rejected = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(nested_output), str(source)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("output overlaps input tree", rejected.stderr)
+
+      outer_output = root / "outer"
+      nested_input = outer_output / "package"
+      nested_input.mkdir(parents=True)
+      rejected = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(outer_output), str(nested_input)],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("input overlaps output tree", rejected.stderr)
+
+  def test_formal_runner_rejects_java_output_overlap_before_initialization(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    command = 'source "$1"; reject_output_overlap "$2" "$3"'
+    with tempfile.TemporaryDirectory() as temp:
+      java_home = Path(temp) / "jdk"
+      java_home.mkdir()
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              command,
+              "bash",
+              str(runner),
+              str(java_home / "formal-output"),
+              str(java_home),
+          ],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("output overlaps input tree", rejected.stderr)
+      self.assertFalse((java_home / "formal-output").exists())
+
+  def test_formal_runner_executes_saved_script_and_cleans_monitor(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      research = root / "research"
+      script_dir = research / "scripts/vguide"
+      script_dir.mkdir(parents=True)
+      for name, content in (
+          ("run-stock-formal-dataset.sh", "#!/usr/bin/env bash\n"),
+          ("dataset.py", "#!/usr/bin/env python3\n"),
+          (
+              "baseline.py",
+              (
+                  "#!/usr/bin/env python3\n"
+                  "import pathlib,sys\n"
+                  'pathlib.Path(sys.argv[1]).write_text("saved\\n")\n'
+              ),
+          ),
+      ):
+        path = script_dir / name
+        path.write_text(content, encoding="utf-8")
+        path.chmod(0o755)
+      subprocess.run(["git", "init", "-q", research], check=True)
+      subprocess.run(
+          ["git", "-C", research, "config", "user.email", "test@example.com"],
+          check=True,
+      )
+      subprocess.run(
+          ["git", "-C", research, "config", "user.name", "Test"], check=True
+      )
+      subprocess.run(["git", "-C", research, "add", "."], check=True)
+      subprocess.run(
+          ["git", "-C", research, "commit", "-qm", "fixture"], check=True
+      )
+      saved = root / "saved"
+      marker = root / "marker"
+      command = """
+source "$1"
+SCRIPT_DIR=$2
+RESEARCH_ROOT=$3
+capture_research_provenance "$4"
+activate_saved_scripts "$4"
+run_python_script "$BASELINE_PY" "$5"
+verify_research_provenance "$4"
+"""
+      subprocess.run(
+          [
+              "bash",
+              "-c",
+              command,
+              "bash",
+              str(runner),
+              str(script_dir),
+              str(research),
+              str(saved),
+              str(marker),
+          ],
+          check=True,
+      )
+      self.assertEqual(marker.read_text(encoding="utf-8"), "saved\n")
+
+      provenance = root / "monitor"
+      provenance.mkdir()
+      command = """
+source "$1"
+record_process_snapshot "$2"
+start_process_monitor "$2" 0.1
+pid=$MONITOR_PID
+taskset -pc "$pid" | grep -q '16-23'
+sleep 0.25
+stop_process_monitor "$2"
+! kill -0 "$pid" 2>/dev/null
+"""
+      subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(provenance)],
+          check=True,
+      )
+      self.assertIn("PID", (provenance / "process-start.txt").read_text())
+      self.assertIn("PSR", (provenance / "process-start.txt").read_text())
+      self.assertIn("timestamp=", (provenance / "process-monitor.log").read_text())
+      stopped = (provenance / "process-monitor-stopped.txt").read_text()
+      self.assertIn("exit=0", stopped)
+      self.assertIn("samples=", stopped)
+      self.assertIn("last_timestamp=", stopped)
+      command = """
+source "$1"
+MONITOR_ACTIVE=false
+MONITOR_PID=
+stop_process_monitor_for_teardown "$2"
+"""
+      subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(provenance)],
+          check=True,
+      )
+
+      killed = root / "killed-monitor"
+      killed.mkdir()
+      command = """
+source "$1"
+start_process_monitor "$2" 60
+pid=$MONITOR_PID
+sleep 0.1
+kill -9 "$pid"
+wait "$pid" 2>/dev/null || :
+if stop_process_monitor "$2"; then
+  exit 1
+fi
+"""
+      subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(killed)],
+          check=True,
+      )
+      self.assertFalse((killed / "process-monitor-stopped.txt").exists())
+
+  def test_formal_runner_reverifies_runtime_closure(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    baseline_path = Path(__file__).with_name("baseline.py")
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+
+      def repository(name):
+        path = root / name
+        path.mkdir()
+        subprocess.run(["git", "init", "-q", path], check=True)
+        subprocess.run(
+            ["git", "-C", path, "config", "user.email", "test@example.com"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", path, "config", "user.name", "Test"], check=True
+        )
+        return path
+
+      stock, sv_benchmarks, benchexec = (
+          repository("stock"),
+          repository("sv-benchmarks"),
+          repository("benchexec"),
+      )
+      (stock / "lib/java").mkdir(parents=True)
+      (stock / "lib/java/runtime.jar").write_bytes(b"runtime")
+      (stock / ".gitignore").write_text(
+          "cpachecker.jar\nclasses/\nlib/java/*.jar\n", encoding="utf-8"
+      )
+      (sv_benchmarks / "task").write_text("task\n", encoding="utf-8")
+      (benchexec / "module.py").write_text("VERSION = 1\n", encoding="utf-8")
+      for repository_path in (stock, sv_benchmarks, benchexec):
+        subprocess.run(["git", "-C", repository_path, "add", "."], check=True)
+        subprocess.run(
+            ["git", "-C", repository_path, "commit", "-qm", "fixture"],
+            check=True,
+        )
+      with zipfile.ZipFile(stock / "cpachecker.jar", "w") as jar:
+        jar.writestr("entry", b"first")
+      java_home = root / "jdk"
+      java_home.mkdir()
+      (java_home / "release").write_text("JAVA_VERSION=21\n", encoding="utf-8")
+      ant_install = root / "ant/usr"
+      ant_home = ant_install / "share/ant"
+      (ant_home / "bin").mkdir(parents=True)
+      ant = ant_home / "bin/ant"
+      ant.write_text('#!/bin/sh\nprintf "test-ant\\n"\n', encoding="utf-8")
+      ant.chmod(0o755)
+      python_stdlib = root / "python-stdlib"
+      python_dist_packages = root / "python-dist-packages"
+      python_local_dist_packages = root / "python-local-dist-packages"
+      for path, content in (
+          (python_stdlib, b"stdlib"),
+          (python_dist_packages, b"dist-packages"),
+          (python_local_dist_packages, b"local-dist-packages"),
+      ):
+        path.mkdir()
+        (path / "closure").write_bytes(content)
+
+      setup = """
+source "$1"
+SCRIPT_DIR=$(dirname "$2")
+BASELINE_PY=$2
+CPACHECKER_DIR=$3
+SV_BENCHMARKS_DIR=$4
+BENCHEXEC_DIR=$5
+JAVA_HOME=$6
+ANT_HOME=$7
+ANT_INSTALL=$8
+ANT_BIN=$ANT_HOME/bin/ant
+PYTHON_STDLIB=$9
+PYTHON_DIST_PACKAGES=${10}
+PYTHON_LOCAL_DIST_PACKAGES=${11}
+EXPECTED_CPACHECKER=$(git -C "$CPACHECKER_DIR" rev-parse HEAD)
+EXPECTED_SV_BENCHMARKS=$(git -C "$SV_BENCHMARKS_DIR" rev-parse HEAD)
+EXPECTED_BENCHEXEC=$(git -C "$BENCHEXEC_DIR" rev-parse HEAD)
+EXPECTED_STOCK_LIB_JAVA=$(directory_digest_value "$CPACHECKER_DIR/lib/java")
+EXPECTED_JDK=$(directory_digest_value "$JAVA_HOME")
+EXPECTED_ANT_INSTALL=$(directory_digest_value "$ANT_INSTALL")
+EXPECTED_ANT_VERSION=test-ant
+EXPECTED_PYTHON_REAL=$PYTHON_BIN
+EXPECTED_PYTHON_SHA256=$(sha256sum "$PYTHON_BIN" | cut -d' ' -f1)
+EXPECTED_PYTHON_VERSION=$("$PYTHON_BIN" --version)
+EXPECTED_PYTHON_STDLIB=$PYTHON_STDLIB
+EXPECTED_PYTHON_STDLIB_DIGEST=$(directory_digest_value "$PYTHON_STDLIB")
+EXPECTED_PYTHON_DIST_PACKAGES=$PYTHON_DIST_PACKAGES
+EXPECTED_PYTHON_DIST_PACKAGES_DIGEST=$(directory_digest_value "$PYTHON_DIST_PACKAGES")
+EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=$PYTHON_LOCAL_DIST_PACKAGES
+EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=$(directory_digest_value "$PYTHON_LOCAL_DIST_PACKAGES")
+EXPECTED_PYTHON_SYSTEM_PATH=$("$PYTHON_BIN" -I -c 'import sys; print(":".join(sys.path))')
+EXPECTED_PYYAML_FILE=$("$PYTHON_BIN" -I -c 'import yaml; print(yaml.__file__)')
+EXPECTED_PYYAML_VERSION=$("$PYTHON_BIN" -I -c 'import yaml; print(yaml.__version__)')
+EXPECTED_BENCHEXEC_ARCHIVE=$(benchexec_archive_digest)
+EXPECTED_BENCHEXEC_VERSION=test-benchexec
+EXPECTED_CPACHECKER_JAR_CONTENT=$(jar_content_digest_value "$CPACHECKER_DIR/cpachecker.jar")
+benchexec_version() { printf 'test-benchexec\\n'; }
+"""
+      arguments = [
+          str(runner),
+          str(baseline_path),
+          str(stock),
+          str(sv_benchmarks),
+          str(benchexec),
+          str(java_home),
+          str(ant_home),
+          str(ant_install),
+          str(python_stdlib),
+          str(python_dist_packages),
+          str(python_local_dist_packages),
+      ]
+      subprocess.run(
+          ["bash", "-c", setup + "\nverify_runtime_closure true", "bash", *arguments],
+          check=True,
+      )
+
+      original_runtime = (stock / "lib/java/runtime.jar").read_bytes()
+      stock_lib_digest = dataset.baseline.directory_digest(stock / "lib/java")["sha256"]
+      (stock / "lib/java/runtime.jar").write_bytes(b"changed runtime")
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + f"\nEXPECTED_STOCK_LIB_JAVA={stock_lib_digest}\n"
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      (stock / "lib/java/runtime.jar").write_bytes(original_runtime)
+
+      for closure_dir, expected_variable, original in (
+          (python_stdlib, "EXPECTED_PYTHON_STDLIB_DIGEST", b"stdlib"),
+          (
+              python_dist_packages,
+              "EXPECTED_PYTHON_DIST_PACKAGES_DIGEST",
+              b"dist-packages",
+          ),
+          (
+              python_local_dist_packages,
+              "EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST",
+              b"local-dist-packages",
+          ),
+      ):
+        original_digest = dataset.baseline.directory_digest(closure_dir)["sha256"]
+        (closure_dir / "closure").write_bytes(b"changed")
+        rejected = subprocess.run(
+            [
+                "bash",
+                "-c",
+                setup
+                + f"\n{expected_variable}={original_digest}\n"
+                + "verify_runtime_closure true",
+                "bash",
+                *arguments,
+            ],
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        (closure_dir / "closure").write_bytes(original)
+
+      original_ant = ant.read_text(encoding="utf-8")
+      ant_digest = dataset.baseline.directory_digest(ant_install)["sha256"]
+      ant.write_text(original_ant + "# drift\n", encoding="utf-8")
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + f"\nEXPECTED_ANT_INSTALL={ant_digest}\n"
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      ant.write_text(original_ant, encoding="utf-8")
+
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + "\nEXPECTED_PYTHON_SHA256=wrong\n"
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+
+      for variable in (
+          "EXPECTED_PYTHON_SYSTEM_PATH",
+          "EXPECTED_PYYAML_FILE",
+          "EXPECTED_PYYAML_VERSION",
+      ):
+        rejected = subprocess.run(
+            [
+                "bash",
+                "-c",
+                setup
+                + f"\n{variable}=wrong\n"
+                + "verify_runtime_closure true",
+                "bash",
+                *arguments,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("unexpected", rejected.stderr)
+
+      classes = stock / "classes"
+      classes.mkdir()
+      (classes / "Injected.class").write_bytes(b"injected")
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup + "\nverify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("could shadow the pinned JAR", rejected.stderr)
+      subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup + "\nremove_compiled_classes\nassert_no_compiled_classes",
+              "bash",
+              *arguments,
+          ],
+          check=True,
+      )
+      self.assertFalse(classes.exists())
+
+      with zipfile.ZipFile(stock / "cpachecker.jar", "w") as jar:
+        jar.writestr("entry", b"changed")
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + "\nEXPECTED_CPACHECKER_JAR_CONTENT=wrong\n"
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+
+  def test_formal_runner_copies_relative_evidence_for_reauthentication(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root / "fixture")
+      evidence = root / "output/evidence"
+      arguments = [
+          str(runner),
+          str(evidence),
+          fixture.parent_manifest,
+          *fixture.phase_a_manifest,
+          *fixture.phase_a_result,
+          *fixture.survivor_manifest,
+      ]
+      command = """
+source "$1"
+PARENT_MANIFEST=$3
+PHASE_MANIFESTS=("$4" "$5" "$6")
+PHASE_RESULTS=("$7" "$8" "$9")
+PHASE_SURVIVORS=("${10}" "${11}" "${12}")
+copy_phase_evidence "$2"
+"""
+      subprocess.run(["bash", "-c", command, "bash", *arguments], check=True)
+      expected = {
+          "parent-manifest.json",
+          "original-manifest.json",
+          "original-result.xml",
+          "original-survivor.json",
+          "reroute-manifest.json",
+          "reroute-result.xml",
+          "reroute-survivor.json",
+          "recovery-manifest.json",
+          "recovery-result.xml",
+          "recovery-survivor.json",
+          "corpus/properties/unreach-call.prp",
+          "inventory.sha256",
+      }
+      self.assertEqual(
+          {
+              path.relative_to(evidence).as_posix()
+              for path in evidence.rglob("*")
+              if path.is_file()
+          },
+          expected,
+      )
+      inventory = (evidence / "inventory.sha256").read_text(encoding="utf-8")
+      self.assertNotIn(str(root), inventory)
+      self.assertNotIn("inventory.sha256", inventory)
+      copied = SimpleNamespace(
+          parent_manifest=str(evidence / "parent-manifest.json"),
+          phase_a_manifest=[
+              str(evidence / f"{role}-manifest.json")
+              for role in ("original", "reroute", "recovery")
+          ],
+          phase_a_result=[
+              str(evidence / f"{role}-result.xml")
+              for role in ("original", "reroute", "recovery")
+          ],
+          survivor_manifest=[
+              str(evidence / f"{role}-survivor.json")
+              for role in ("original", "reroute", "recovery")
+          ],
+          sv_benchmarks=fixture.sv_benchmarks,
+      )
+      with phase_b_pins(fixture):
+        _, _, authenticated = dataset.authenticate_phase_b_inputs(copied)
+      self.assertEqual(len(authenticated["tasks"]), 6)
 
   def test_dataset_runner_finds_only_exact_screen_result_forms(self):
     runner = Path(__file__).with_name("run-stock-dataset.sh").read_text(

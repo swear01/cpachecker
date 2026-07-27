@@ -11,6 +11,9 @@
 import importlib.util
 import io
 import json
+import os
+import socket
+import zipfile
 from contextlib import redirect_stdout
 from types import SimpleNamespace
 import tempfile
@@ -347,6 +350,59 @@ specification = specification/property.spc
       manifest = json.loads(output.read_text(encoding="utf-8"))
       self.assertEqual(manifest["file_count"], 1)
       self.assertEqual(manifest["files"][0]["path"], "data/result.txt")
+
+  def test_artifact_manifest_rejects_nonregular_nodes(self):
+    for kind in ("symlink", "directory-symlink", "fifo", "socket"):
+      with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        node = root / kind
+        opened_socket = None
+        if kind == "symlink":
+          target = root / "target"
+          target.write_text("data\n", encoding="utf-8")
+          node.symlink_to(target)
+        elif kind == "directory-symlink":
+          target = root / "target"
+          target.mkdir()
+          node.symlink_to(target, target_is_directory=True)
+        elif kind == "fifo":
+          os.mkfifo(node)
+        else:
+          opened_socket = socket.socket(socket.AF_UNIX)
+          opened_socket.bind(str(node))
+        try:
+          with self.assertRaisesRegex(RuntimeError, "Unsupported artifact node"):
+            baseline.command_artifact_manifest(
+                SimpleNamespace(root=str(root), output=str(root / "manifest.json"))
+            )
+        finally:
+          if opened_socket is not None:
+            opened_socket.close()
+
+  def test_jar_content_digest_ignores_zip_order_and_timestamps(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      jars = (root / "first.jar", root / "second.jar")
+      entries = (("a.txt", b"a"), ("b.txt", b"b"))
+      for jar, ordered, year in (
+          (jars[0], entries, 2025),
+          (jars[1], tuple(reversed(entries)), 2026),
+      ):
+        with zipfile.ZipFile(jar, "w") as output:
+          for name, content in ordered:
+            info = zipfile.ZipInfo(name, (year, 1, 1, 0, 0, 0))
+            info.external_attr = 0o100644 << 16
+            output.writestr(info, content)
+      self.assertNotEqual(
+          baseline.sha256_file(jars[0]), baseline.sha256_file(jars[1])
+      )
+      digests = []
+      for jar in jars:
+        output = io.StringIO()
+        with redirect_stdout(output):
+          baseline.command_jar_content_digest(SimpleNamespace(jar=str(jar)))
+        digests.append(json.loads(output.getvalue()))
+      self.assertEqual(digests[0], digests[1])
 
   def test_directory_digest_covers_file_content_and_symlink_target(self):
     with tempfile.TemporaryDirectory() as temp:

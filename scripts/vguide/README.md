@@ -208,9 +208,130 @@ stock definition at 900 s CPU, 910 s hard-CPU, and 920 s wall time. Formal
 distinct, complete Valkyrie results from that merged manifest. Both commands
 reject a nonempty output directory.
 
-Phase B is not executable yet. The formal input is pinned, but an executable
-runner intentionally remains unimplemented pending review. The existing
-Phase-A runner must not be used as a substitute.
+`run-stock-formal-dataset.sh` is the separate executable Phase-B runner. It
+does not replace `run-stock-dataset.sh`. It runs only on Valkyrie, rejects
+LLM-related environment variables, revision/runtime drift, a nonempty or
+overlapping output, or a formal package other than the exact frozen node
+topology. Symlinks, devices, sockets, and extra nodes in that package are
+rejected. The research checkout, stock CPAchecker, SV-Benchmarks, and
+BenchExec must all be clean. Assume-unchanged entries are forbidden; a
+materialized skip-worktree node is checked against its index and HEAD type,
+executable bit, and blob. Missing skip-worktree entries are accepted only for
+the sparse SV-Benchmarks checkout. The runner pins the stock tool,
+SV-Benchmarks, BenchExec, JDK, stock `lib/java`, Ant installation, system
+Python binary, built JAR semantic content, and formal artifact; it
+deliberately does not pin its own research-code commit because that would be
+self-referential. The publication release or tag must externally pin the
+final research commit.
+
+Arguments six through fourteen are grouped as manifest, raw result, and
+survivor for the original Valkyrie shard, r4 reroute, and r5 recovery:
+
+```bash
+env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
+  JAVA_HOME=/path/to/pinned-jdk-21 \
+  ANT_HOME=/path/to/pinned-ant/share/ant \
+  scripts/vguide/run-stock-formal-dataset.sh \
+  /path/to/cpachecker-stock \
+  /path/to/sv-benchmarks \
+  /path/to/benchexec \
+  /path/to/phase-b-merged-survivors-r6-final-20260727 \
+  /path/to/320-task-parent/candidate-manifest.json \
+  /path/to/original-valkyrie/candidate-manifest-valkyrie.json \
+  /path/to/original-valkyrie-result.xml.bz2 \
+  /path/to/original-valkyrie-survivor.json \
+  /path/to/r4-reroute/candidate-manifest-valkyrie.json \
+  /path/to/r4-reroute-result.xml.bz2 \
+  /path/to/r4-reroute-survivor.json \
+  /path/to/r5-recovery/candidate-manifest-valkyrie.json \
+  /path/to/r5-recovery-result.xml.bz2 \
+  /path/to/r5-recovery-survivor.json \
+  /path/to/formal-output
+```
+
+Before creating output, the runner rejects output paths inside any tool,
+research, JDK, Ant, Python, package, or Phase-A evidence tree, and rejects
+inputs inside the output tree. Runtime closure is checked before output
+initialization and again during success and failure teardown. It fixes stock
+`lib/java` digest
+`eea0df062de5c8e3febe0d96b583741c140e79d3ae41a87a56d7be365b876f9d`,
+Ant-installation digest
+`52772e241e78a875fa00dea891eac2023d4f2be639a5f28a17dca81580f75e5b`
+and Ant 1.10.12, `/usr/bin/python3.10` digest
+`7d51cd6b48b521277f5caa4610a82126e315fa2be4df069823a8b1eeb5bd4a86`
+and Python 3.10.12, and BenchExec archive digest
+`75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737c143ba018bc`
+and version 3.35-dev. The Valkyrie P-core lock is cooperative and prevents
+only another compliant runner from overlapping. A non-root runner cannot
+reserve the P-cores against unrelated users or processes, so a dedicated host
+with no foreign load is an operational prerequisite, not a property enforced
+by this script.
+
+The exact isolated Python environment used to start BenchExec is also part of
+the runtime closure. The runner pins `/usr/lib/python3.10` at
+`eef7994f6b57cb0bbdb803ef6aadc0c1afbe61d444932eeef5dc5c114b6cf27b`,
+`/usr/lib/python3/dist-packages` at
+`0970024a48206a1937b5bfbf889335525b769b89a27ca7df25d793d7727b909c`,
+and the empty `/usr/local/lib/python3.10/dist-packages` at
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+Under the actual `env -i HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8
+PATH=/usr/bin:/bin JAVA=<pinned-jdk>/bin/java` invocation, it requires the
+BenchExec checkout followed by `/usr/lib/python310.zip`, `/usr/lib/python3.10`,
+`/usr/lib/python3.10/lib-dynload`,
+`/usr/local/lib/python3.10/dist-packages`, and
+`/usr/lib/python3/dist-packages` as the exact `sys.path`. PyYAML must resolve
+to `/usr/lib/python3/dist-packages/yaml/__init__.py` at version 5.4.1. These
+paths, versions, module location, and directory hashes are recorded before
+measurement and reverified during both success and failure teardown. The
+saved `dataset.py` and `baseline.py` commands use this same pinned interpreter
+and are therefore covered by the same binary, standard-library, and installed
+package closure.
+
+The runner records a startup process/load snapshot and appends the top
+CPU-consuming threads' PID, TID, PSR, CPU percentage, command, load, and
+timestamp every 60 seconds. The record-only monitor itself is restricted to
+E-core logical CPUs 16–23. Teardown fails if the monitor died, its termination
+is not clean, or it produced no timestamped sample. These process records and
+the machine counters can reveal interference after the fact; they contain no
+claimed process affinity and neither guarantee nor certify exclusive CPU use.
+
+The runner builds stock CPAchecker, performs the ten-second machine preflight,
+generates the fixed 900/910/920 definition with `render-formal`, and executes
+two sequential `-N 2 -c 4` BenchExec repetitions with distinct fixed names.
+Raw JAR bytes are not reproducible because ZIP metadata changes: two clean
+rebuilds produced raw hashes
+`424710996a6b93a6a23e73c35f55a33cb13f058f1dab3342598a30a0021e7b9c`
+and
+`a4c555548792fb7301dc5c0a6e860018f21da197f07f046108cac762f3207f30`.
+Their 5,809 sorted entry names, Unix modes, and content hashes were identical
+at semantic digest
+`49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3`,
+which is the post-build pin; each run also records its raw JAR hash.
+Because `bin/cpachecker` places `classes/` before `cpachecker.jar` on its
+classpath, the runner removes the build-created `classes/` tree only after
+the JAR semantic digest passes. It then requires `classes/` to remain absent
+before measurement and throughout success or failure teardown. Consequently,
+an injected loose class cannot shadow the pinned JAR.
+Each repetition has independent machine snapshots and a counter check.
+Exactly one result is accepted from each result directory before
+`summarize --hard-threshold 200`. The output retains the formal package; the
+parent manifest; all three Phase-A manifests, raw results, and survivor
+manifests; and the one declared corpus property under relative
+`input/evidence/` paths with a relative hash inventory. Thus the copied
+evidence can be reauthenticated without its original directories, using the
+pinned SV-Benchmarks checkout. It also copies the exact runner, `dataset.py`,
+and `baseline.py`, plus research HEAD, empty status/diff evidence, and their
+relative hashes under `input/research/`. After that capture, every Python
+dataset and provenance command runs from those saved copies. Success and
+failure teardown stop the monitor and recheck the live research, stock,
+SV-Benchmarks, and BenchExec checkouts, every runtime digest/version, the
+BenchExec closure, the saved scripts, and the built JAR when present; drift
+fails closed. Generated definitions, build and runner logs, both complete
+BenchExec result trees, machine/process evidence, summary, and an artifact
+manifest are retained. Artifact inventory rejects symlinks and every other
+non-regular, non-directory node instead of following it. Post-initialization
+failure attempts an after-state and artifact manifest without masking the
+original exit status.
 
 Development, validation, and held-out assignments are deterministic hashes of the source and program family, so a family cannot cross splits.
 

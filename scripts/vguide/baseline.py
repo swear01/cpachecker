@@ -17,10 +17,12 @@ import json
 import os
 import platform
 import re
+import stat
 import statistics
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 
@@ -996,11 +998,15 @@ def command_validation_summary(args):
 def command_artifact_manifest(args):
   root = Path(args.root).resolve()
   output = Path(args.output).resolve()
-  files = [
-      path
-      for path in root.rglob("*")
-      if path.is_file() and path.resolve() != output and ".git" not in path.parts
-  ]
+  files = []
+  for path in root.rglob("*"):
+    mode = path.lstat().st_mode
+    if stat.S_ISDIR(mode):
+      continue
+    if not stat.S_ISREG(mode):
+      raise RuntimeError(f"Unsupported artifact node: {path}")
+    if path != output:
+      files.append(path)
   entries = []
   aggregate = hashlib.sha256()
   for path in sorted(files):
@@ -1022,6 +1028,22 @@ def command_artifact_manifest(args):
 
 def command_directory_digest(args):
   print(json.dumps(directory_digest(args.root), sort_keys=True))
+
+
+def command_jar_content_digest(args):
+  digest = hashlib.sha256()
+  with zipfile.ZipFile(args.jar) as jar:
+    names = jar.namelist()
+    if len(names) != len(set(names)):
+      raise RuntimeError(f"JAR contains duplicate entries: {args.jar}")
+    for name in sorted(names):
+      info = jar.getinfo(name)
+      digest.update(name.encode("utf-8"))
+      digest.update(b"\0")
+      digest.update(str(info.external_attr >> 16).encode("ascii"))
+      digest.update(b"\0")
+      digest.update(bytes.fromhex(hashlib.sha256(jar.read(name)).hexdigest()))
+  print(json.dumps({"entry_count": len(names), "sha256": digest.hexdigest()}))
 
 
 def add_render_arguments(parser):
@@ -1089,6 +1111,9 @@ def main():
   directory = subparsers.add_parser("directory-digest")
   directory.add_argument("--root", required=True)
   directory.set_defaults(function=command_directory_digest)
+  jar_content = subparsers.add_parser("jar-content-digest")
+  jar_content.add_argument("--jar", required=True)
+  jar_content.set_defaults(function=command_jar_content_digest)
   artifacts = subparsers.add_parser("artifact-manifest")
   artifacts.add_argument("--root", required=True)
   artifacts.add_argument("--output", required=True)
