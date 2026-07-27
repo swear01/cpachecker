@@ -24,9 +24,24 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 EXPECTED_CPACHECKER=1848f9eb597ca99a170fd98af8aad716743a2bfe
 EXPECTED_SV_BENCHMARKS=9cf9198156e4c8a6c517e474770158e1bb0b566d
 EXPECTED_BENCHEXEC=edb95ed3a8478366b8bb89f8cdd1d9a6c5fa8c84
-EXPECTED_MANIFEST=c6d914c113c1e7e5f66f1b76b3f3fab4d111b936b12c24a8a1a83bdff926803b
 EXPECTED_JDK=867ff62e01a0936fc0a90ceae27338be1973559767ef0717896f8d64f780ece6
 P_CORES=0,2,4,6,8,10,12,14
+HOST=$(hostname -s)
+case "$HOST" in
+  athena)
+    EXPECTED_MANIFEST=5b0224af541b371fd8f882cf71099b774fdd33dc3187cf6dca31cc3c8ca55cef
+    ;;
+  cthulhu)
+    EXPECTED_MANIFEST=40bda9c755c88d9b617269aaa6e1c66ceea07fb818e0741f8a1f960536bd6d4b
+    ;;
+  valkyrie)
+    EXPECTED_MANIFEST=64f25378a401f1936fc836b5901c96d304f9c654f5c9d4cf17327e086463930d
+    ;;
+  *)
+    echo "unsupported discovery host: $HOST" >&2
+    exit 1
+    ;;
+esac
 
 [[ $(git -C "$CPACHECKER_DIR" rev-parse HEAD) == "$EXPECTED_CPACHECKER" ]]
 [[ $(git -C "$SV_BENCHMARKS_DIR" rev-parse HEAD) == "$EXPECTED_SV_BENCHMARKS" ]]
@@ -54,13 +69,41 @@ systemd-run --user --quiet --scope --slice=benchexec -p Delegate=yes \
 
 mkdir -p "$OUTPUT_DIR/generated" "$OUTPUT_DIR/results" "$OUTPUT_DIR/provenance"
 cp "$MANIFEST" "$OUTPUT_DIR/provenance/candidate-manifest.json"
+capture_failure() {
+  local status=$?
+  trap - EXIT
+  if ((status != 0)); then
+    set +e
+    env JAVA_HOME="$JAVA_HOME" "$SCRIPT_DIR/baseline.py" machine \
+      --output "$OUTPUT_DIR/provenance/machine-after-failure.json"
+    local machine_status=$?
+    printf 'original_exit=%d\nmachine_capture_exit=%d\n' \
+      "$status" "$machine_status" \
+      >"$OUTPUT_DIR/provenance/failure-capture-status.txt"
+    "$SCRIPT_DIR/baseline.py" artifact-manifest \
+      --root "$OUTPUT_DIR" \
+      --output "$OUTPUT_DIR/provenance/artifact-manifest.json"
+    local artifact_status=$?
+    if ((machine_status != 0 || artifact_status != 0)); then
+      echo "failure capture incomplete: machine=$machine_status artifact=$artifact_status" >&2
+    fi
+  fi
+  exit "$status"
+}
+trap capture_failure EXIT
 (
   cd "$CPACHECKER_DIR"
   taskset -c "$P_CORES" env JAVA_HOME="$JAVA_HOME" PATH="$JAVA_HOME/bin:$PATH" \
     ant -Divy.disable=true clean jar
 ) 2>&1 | tee "$OUTPUT_DIR/provenance/build.log"
 env JAVA_HOME="$JAVA_HOME" "$SCRIPT_DIR/baseline.py" machine \
+  --output "$OUTPUT_DIR/provenance/machine-preflight-start.json"
+sleep 10
+env JAVA_HOME="$JAVA_HOME" "$SCRIPT_DIR/baseline.py" machine \
   --output "$OUTPUT_DIR/provenance/machine-before.json"
+"$SCRIPT_DIR/baseline.py" machine-check \
+  --before "$OUTPUT_DIR/provenance/machine-preflight-start.json" \
+  --after "$OUTPUT_DIR/provenance/machine-before.json"
 "$SCRIPT_DIR/dataset.py" render \
   --manifest "$MANIFEST" \
   --sv-benchmarks "$SV_BENCHMARKS_DIR" \
@@ -68,8 +111,7 @@ env JAVA_HOME="$JAVA_HOME" "$SCRIPT_DIR/baseline.py" machine \
   --output-dir "$OUTPUT_DIR/generated"
 
 run_benchexec() {
-  local repetition=$1
-  local output="$OUTPUT_DIR/results/repetition-$repetition"
+  local output="$OUTPUT_DIR/results/screen"
   mkdir -p "$output"
   (
     cd "$CPACHECKER_DIR"
@@ -78,7 +120,7 @@ run_benchexec() {
       HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
       JAVA="$JAVA_HOME/bin/java" PYTHONPATH="$BENCHEXEC_DIR" \
       /usr/bin/python3 -m benchexec.benchexec \
-      --name "hard-case-dataset-v1-r$repetition" \
+      --name "hard-case-dataset-v2-discovery-$HOST-screen" \
       --tool-directory "$CPACHECKER_DIR" \
       --outputpath "$output/" \
       --allowedCores "$P_CORES" \
@@ -99,25 +141,22 @@ single_result() {
     -o -name '*.results.hard-case-candidates.xml.bz2' \) -print
 }
 
-run_benchexec 1
+run_benchexec
 env JAVA_HOME="$JAVA_HOME" "$SCRIPT_DIR/baseline.py" machine \
-  --output "$OUTPUT_DIR/provenance/machine-after-repetition-1.json"
-run_benchexec 2
-env JAVA_HOME="$JAVA_HOME" "$SCRIPT_DIR/baseline.py" machine \
-  --output "$OUTPUT_DIR/provenance/machine-after-repetition-2.json"
+  --output "$OUTPUT_DIR/provenance/machine-after-screen.json"
+"$SCRIPT_DIR/baseline.py" machine-check \
+  --before "$OUTPUT_DIR/provenance/machine-before.json" \
+  --after "$OUTPUT_DIR/provenance/machine-after-screen.json"
 
-mapfile -t results < <(
-  single_result "$OUTPUT_DIR/results/repetition-1"
-  single_result "$OUTPUT_DIR/results/repetition-2"
-)
-if [[ ${#results[@]} -ne 2 ]]; then
-  echo "expected two result files, found ${#results[@]}" >&2
+mapfile -t results < <(single_result "$OUTPUT_DIR/results/screen")
+if [[ ${#results[@]} -ne 1 ]]; then
+  echo "expected one screen result file, found ${#results[@]}" >&2
   exit 1
 fi
-"$SCRIPT_DIR/dataset.py" summarize \
+"$SCRIPT_DIR/dataset.py" screen-summary \
   --manifest "$MANIFEST" \
   --result "${results[0]}" \
-  --result "${results[1]}" \
+  --sv-benchmarks "$SV_BENCHMARKS_DIR" \
   --output-dir "$OUTPUT_DIR/summary"
 "$SCRIPT_DIR/baseline.py" artifact-manifest \
   --root "$OUTPUT_DIR" \

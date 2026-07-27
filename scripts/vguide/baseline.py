@@ -339,6 +339,32 @@ def read_optional(path):
     return f"unavailable: errno={error.errno} {error.strerror}"
 
 
+def key_value_file(path):
+  values = {}
+  for line in Path(path).read_text().splitlines():
+    parts = line.split()
+    if len(parts) >= 2:
+      values[parts[0].rstrip(":")] = parts[1]
+  return values
+
+
+def machine_counters():
+  meminfo = key_value_file("/proc/meminfo")
+  vmstat = key_value_file("/proc/vmstat")
+  return {
+      "package_throttle_count": read_optional(
+          "/sys/devices/system/cpu/cpu0/thermal_throttle/package_throttle_count"
+      ),
+      "package_throttle_total_time_ms": read_optional(
+          "/sys/devices/system/cpu/cpu0/thermal_throttle/package_throttle_total_time_ms"
+      ),
+      "swap_total_kib": meminfo.get("SwapTotal"),
+      "swap_free_kib": meminfo.get("SwapFree"),
+      "pswpin_pages": vmstat.get("pswpin"),
+      "pswpout_pages": vmstat.get("pswpout"),
+  }
+
+
 def command_machine(args):
   online = Path("/sys/devices/system/cpu/online").read_text().strip()
   cores = []
@@ -379,6 +405,7 @@ def command_machine(args):
           path.parent.name: read_optional(path)
           for path in sorted(Path("/sys/class/thermal").glob("thermal_zone*/temp"))
       },
+      "measurement_counters": machine_counters(),
       "memory_bytes": os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"),
       "java_version": subprocess.check_output(
           [str(Path(os.environ["JAVA_HOME"]) / "bin/java"), "-version"],
@@ -387,6 +414,32 @@ def command_machine(args):
       ).splitlines()[0],
   }
   Path(args.output).write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
+
+
+def command_machine_check(args):
+  before = json.loads(Path(args.before).read_text(encoding="utf-8"))
+  after = json.loads(Path(args.after).read_text(encoding="utf-8"))
+  if before.get("hostname") != after.get("hostname"):
+    raise RuntimeError("machine snapshots have different hosts")
+  changes = {}
+  for name in (
+      "package_throttle_count",
+      "package_throttle_total_time_ms",
+      "pswpin_pages",
+      "pswpout_pages",
+  ):
+    try:
+      start = int(before["measurement_counters"][name])
+      end = int(after["measurement_counters"][name])
+    except (KeyError, TypeError, ValueError) as error:
+      raise RuntimeError(f"machine counter is unavailable: {name}") from error
+    if end < start:
+      raise RuntimeError(f"machine counter decreased: {name}")
+    if end != start:
+      changes[name] = end - start
+  if changes:
+    raise RuntimeError(f"thermal throttling or swap activity detected: {changes}")
+  print(json.dumps({"hostname": before["hostname"], "stable": True}))
 
 
 def stable_score(task):
@@ -552,7 +605,11 @@ def classify_result(status, category):
     return "wrong"
   if "timeout" in normalized:
     return "timeout"
-  if "out of memory" in normalized or "outofmemory" in normalized:
+  if (
+      "out of memory" in normalized
+      or "out of java memory" in normalized
+      or "outofmemory" in normalized
+  ):
     return "out_of_memory"
   if category == "missing":
     return "infrastructure_or_manifest_failure"
@@ -977,6 +1034,10 @@ def main():
   machine = subparsers.add_parser("machine")
   machine.add_argument("--output", required=True)
   machine.set_defaults(function=command_machine)
+  machine_check = subparsers.add_parser("machine-check")
+  machine_check.add_argument("--before", required=True)
+  machine_check.add_argument("--after", required=True)
+  machine_check.set_defaults(function=command_machine_check)
   provenance = subparsers.add_parser("provenance")
   provenance.add_argument("--cpachecker", required=True)
   provenance.add_argument("--sv-benchmarks", required=True)

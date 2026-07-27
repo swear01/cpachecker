@@ -41,11 +41,11 @@ scripts/vguide/baseline.py summarize \
   --output-dir /path/to/summary
 ```
 
-## Frozen hard-case dataset v1
+## Hard-case datasets
 
 `dataset.py inventory` combines the prior 764-task screen, family-balanced stock-only seeds from the verified SV-COMP 2026 result table, and licensed CBMC, ESBMC, and SeaHorn tasks that have property-compatible binary ground truth, a lexical loop, exactly one C source, and an explicit reachability-error call. Generic CBMC/ESBMC failing results are excluded because the failure may belong to another checked property; SeaHorn assertion results and successful CBMC/ESBMC results are retained. Selection never reads an augmented-arm result. Sources without a distributable license or compatible task semantics remain inventory exclusions.
 
-The frozen runner validates every task and source hash, executes the stock `svcomp27` full portfolio twice with two four-core slots on physical P-cores `0,2,4,6,8,10,12,14`, and classifies:
+Dataset v1 executed the stock `svcomp27` full portfolio twice with two four-core slots on physical P-cores `0,2,4,6,8,10,12,14`, and classified:
 
 - `stable_hard_solved`: both runs correct and median CPU time greater than 200 seconds;
 - `stable_unsolved`: both runs are neither correct nor wrong;
@@ -54,6 +54,45 @@ The frozen runner validates every task and source hash, executes the stock `svco
 - `infrastructure_failure`: a missing harness or manifest result, excluded from both research strata.
 
 BenchExec emits both combined and per-source-group result XML files; only the combined XML is an input to repeated classification.
+
+Dataset v2 tightens `stable_unsolved` to repetitions classified as timeout,
+out-of-memory, or UNKNOWN. Verifier errors, exceptions, segmentation faults,
+and other non-analysis failures are written to
+`verifier-failure-quarantine.csv`; infrastructure, mixed, and wrong results
+remain separate. The frozen v1 release retains its original classification.
+
+The frozen v2 cap-8 universe has 729 tasks. Its license audit retains 700;
+subtracting the 380-task audited v1 manifest yields 320 outcome-independent
+discovery tasks. Derive them and their deterministic per-host manifests:
+
+```bash
+scripts/vguide/dataset.py difference \
+  --manifest /path/to/cap8/candidate-manifest-license-audited.json \
+  --exclude-manifest /path/to/v1/candidate-manifest-license-audited.json \
+  --sv-benchmarks /path/to/sv-benchmarks \
+  --output-dir /path/to/incremental-screen-manifests
+```
+
+The command validates both input manifests and every task/source hash,
+requires every excluded record to be identical to its full-manifest record,
+and copies corpus provenance. It balances
+`(family, seed_class, expected_verdict)` strata deterministically across
+Athena, Cthulhu, and Valkyrie. `validate-shards` independently recomputes the
+assignment and rejects overlap, omission, changed records, or a different
+assignment.
+
+The current runner accepts only the pinned manifest for its host and performs
+one Phase-A screen with fixed 120 s CPU, 130 s hard-CPU, and 140 s wall
+limits. `screen-summary` separates correct-fast, wrong, analysis-survivor,
+verifier-failure, and infrastructure outcomes. Its hashed survivor manifest
+is the input for two subsequent 900-second measurements on the same host. A
+ten-second preflight and the complete screen must leave the package thermal
+throttle and kernel swap-I/O counters unchanged; otherwise the runner fails
+and retains failure evidence instead of accepting the shard.
+The summary fails on missing CPU/wall metrics; UNKNOWN is eligible only when
+BenchExec explicitly reports it as the status or category.
+After output initialization, a failed run still records machine state and an
+artifact manifest while preserving the original exit status.
 
 ```bash
 env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \

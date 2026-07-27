@@ -115,8 +115,45 @@ specification = specification/property.spc
     self.assertEqual(baseline.classify_result("true", "correct"), "correct_true")
     self.assertEqual(baseline.classify_result("TIMEOUT", "error"), "timeout")
     self.assertEqual(
+        baseline.classify_result("OUT OF JAVA MEMORY", "error"), "out_of_memory"
+    )
+    self.assertEqual(
         baseline.classify_result("", "missing"), "infrastructure_or_manifest_failure"
     )
+
+  def test_machine_check_rejects_throttling_or_swap_activity(self):
+    with tempfile.TemporaryDirectory() as temp:
+      before = Path(temp) / "before.json"
+      after = Path(temp) / "after.json"
+      counters = {
+          "package_throttle_count": "10",
+          "package_throttle_total_time_ms": "20",
+          "pswpin_pages": "30",
+          "pswpout_pages": "40",
+      }
+      before.write_text(
+          json.dumps({"hostname": "host", "measurement_counters": counters}),
+          encoding="utf-8",
+      )
+      after.write_text(
+          json.dumps({"hostname": "host", "measurement_counters": counters}),
+          encoding="utf-8",
+      )
+      baseline.command_machine_check(SimpleNamespace(before=before, after=after))
+      after.write_text(
+          json.dumps(
+              {
+                  "hostname": "host",
+                  "measurement_counters": {
+                      **counters,
+                      "package_throttle_count": "11",
+                  },
+              }
+          ),
+          encoding="utf-8",
+      )
+      with self.assertRaisesRegex(RuntimeError, "thermal throttling or swap activity"):
+        baseline.command_machine_check(SimpleNamespace(before=before, after=after))
 
   def test_summary_rejects_incomplete_result(self):
     with tempfile.TemporaryDirectory() as temp:

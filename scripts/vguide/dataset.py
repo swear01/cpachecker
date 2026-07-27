@@ -46,6 +46,8 @@ SOURCE_URLS = {
     "seahorn": "https://github.com/seahorn/seahorn",
     "sv-benchmarks": "https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks",
 }
+ANALYSIS_UNSOLVED = {"timeout", "out_of_memory", "unknown"}
+DISCOVERY_HOSTS = ("athena", "cthulhu", "valkyrie")
 
 
 def sha256_text(value):
@@ -90,9 +92,21 @@ def classify_repetitions(rows, hard_threshold):
         if statistics.median(cpu_times) > hard_threshold
         else "stable_solved_fast"
     )
-  if all(row["category"] not in {"correct", "wrong"} for row in rows):
+  if all(is_analysis_unsolved(row) for row in rows):
     return "stable_unsolved"
+  if all(row["category"] not in {"correct", "wrong"} for row in rows):
+    return "verifier_failure_quarantine"
   return "mixed"
+
+
+def is_analysis_unsolved(row):
+  classification = row.get("classification")
+  if classification in {"timeout", "out_of_memory"}:
+    return True
+  return classification == "unknown" and "unknown" in {
+      row.get("category", "").strip().lower(),
+      row.get("status", "").strip().lower(),
+  }
 
 
 def desc_inventory(source, root, desc_name):
@@ -475,13 +489,15 @@ def command_render(args):
   task_sets = write_task_sets(
       manifest["tasks"], Path(args.manifest), args.sv_benchmarks, output
   )
-  root = benchmark_root("CPAchecker frozen stock hard-case screen")
+  root = benchmark_root(
+      "CPAchecker frozen stock hard-case discovery screen", "120 s", "130 s", "140 s"
+  )
   ET.SubElement(root, "resultfiles").text = "**/witness.*"
   for name, value in (
       ("--svcomp27", None),
       ("--heap", "10000M"),
       ("--benchmark", None),
-      ("--timelimit", "900 s"),
+      ("--timelimit", "120 s"),
   ):
     option = ET.SubElement(root, "option", {"name": name})
     if value:
@@ -526,15 +542,15 @@ def write_task_sets(rows, manifest_path, sv_benchmarks, output):
   return task_sets
 
 
-def benchmark_root(display_name):
+def benchmark_root(display_name, time_limit, hard_time_limit, wall_time_limit):
   return ET.Element(
       "benchmark",
       {
           "tool": "cpachecker",
           "displayName": display_name,
-          "timelimit": "900 s",
-          "hardtimelimit": "910 s",
-          "walltimelimit": "920 s",
+          "timelimit": time_limit,
+          "hardtimelimit": hard_time_limit,
+          "walltimelimit": wall_time_limit,
           "memlimit": "15 GB",
           "cpuCores": "4",
       },
@@ -574,7 +590,9 @@ def command_render_probe(args):
   task_sets = write_task_sets(
       selected, Path(args.manifest), args.sv_benchmarks, output
   )
-  root = benchmark_root("VGuide no-candidate CEGAR eligibility probe")
+  root = benchmark_root(
+      "VGuide no-candidate CEGAR eligibility probe", "900 s", "910 s", "920 s"
+  )
   root.set("cpuCores", "1")
   ET.SubElement(root, "resultfiles").text = "**/vguide-telemetry.json"
   for name, value in (
@@ -604,11 +622,195 @@ def split_for_family(family):
   return "development" if bucket < 6 else "validation" if bucket < 8 else "heldout"
 
 
+def manifest_subset(manifest, tasks, derivation):
+  selected = set(tasks)
+  rows = [row for row in manifest["tasks"] if row["task"] in selected]
+  if len(rows) != len(selected):
+    raise RuntimeError("subset contains tasks absent from the input manifest")
+  result = {
+      **{key: value for key, value in manifest.items() if key != "license_audit"},
+      "schema_version": "hard-case-candidate-v2-derived",
+      "task_count": len(rows),
+      "derivation": derivation,
+      "tasks": rows,
+  }
+  if "license_audit" in manifest:
+    source_sha256 = derivation.get("source_manifest_sha256")
+    if not source_sha256:
+      raise RuntimeError("derived audited manifest lacks its source manifest hash")
+    audit = manifest["license_audit"]
+    result["parent_license_audit"] = {
+        "manifest_sha256": source_sha256,
+        "included_task_count": audit["included_task_count"],
+        "excluded_task_count": audit["excluded_task_count"],
+        "selection_independent_of_verifier_outcomes": audit[
+            "selection_independent_of_verifier_outcomes"
+        ],
+        "task_license_evidence_preserved": True,
+    }
+  return result
+
+
+def stratified_shards(rows):
+  groups = collections.defaultdict(list)
+  for row in rows:
+    groups[
+        (row["family"], row["seed_class"], row["expected_verdict"])
+    ].append(row)
+  counts = {host: collections.Counter() for host in DISCOVERY_HOSTS}
+  shards = {host: [] for host in DISCOVERY_HOSTS}
+  host_order = {host: index for index, host in enumerate(DISCOVERY_HOSTS)}
+  for stratum, tasks in sorted(
+      groups.items(), key=lambda item: (-len(item[1]), item[0])
+  ):
+    family, seed, verdict = stratum
+    for row in sorted(
+        tasks, key=lambda item: (sha256_text(item["task"]), item["task"])
+    ):
+      host = min(
+          DISCOVERY_HOSTS,
+          key=lambda candidate: (
+              counts[candidate][("stratum", stratum)],
+              counts[candidate][("family", family)],
+              counts[candidate][("seed", seed)],
+              counts[candidate][("verdict", verdict)],
+              counts[candidate][("total",)],
+              host_order[candidate],
+          ),
+      )
+      shards[host].append(row)
+      counts[host][("stratum", stratum)] += 1
+      counts[host][("family", family)] += 1
+      counts[host][("seed", seed)] += 1
+      counts[host][("verdict", verdict)] += 1
+      counts[host][("total",)] += 1
+  return shards
+
+
+def validate_shard_partition(rows, shards):
+  expected = stratified_shards(rows)
+  input_rows = {row["task"]: row for row in rows}
+  actual_tasks = [
+      row["task"] for host in DISCOVERY_HOSTS for row in shards.get(host, [])
+  ]
+  if len(actual_tasks) != len(set(actual_tasks)):
+    raise RuntimeError("shard partition contains overlapping tasks")
+  if set(actual_tasks) != set(input_rows):
+    raise RuntimeError("shard partition contains missing or unexpected tasks")
+  for host in DISCOVERY_HOSTS:
+    actual = {row["task"]: row for row in shards.get(host, [])}
+    if any(input_rows[task] != row for task, row in actual.items()):
+      raise RuntimeError(f"shard partition contains changed task records: {host}")
+    if set(actual) != {row["task"] for row in expected[host]}:
+      raise RuntimeError(f"shard partition differs from recomputed assignment: {host}")
+
+
+def command_difference(args):
+  full_path = Path(args.manifest).resolve()
+  excluded_path = Path(args.exclude_manifest).resolve()
+  full = validate_manifest(full_path, args.sv_benchmarks)
+  excluded = validate_manifest(excluded_path, args.sv_benchmarks)
+  full_rows = {row["task"]: row for row in full["tasks"]}
+  for row in excluded["tasks"]:
+    if full_rows.get(row["task"]) != row:
+      raise RuntimeError(
+          f"excluded task is absent or differs from full manifest: {row['task']}"
+      )
+  excluded_tasks = {row["task"] for row in excluded["tasks"]}
+  tasks = sorted(set(full_rows) - excluded_tasks)
+  full_sha256 = baseline.sha256_file(full_path)
+  output = Path(args.output_dir).resolve()
+  if output.exists() and any(output.iterdir()):
+    raise RuntimeError(f"output directory must be absent or empty: {output}")
+  output.mkdir(parents=True, exist_ok=True)
+  shutil.copytree(full_path.parent / "corpus", output / "corpus")
+  derivation = {
+      "operation": "difference",
+      "source_manifest_sha256": full_sha256,
+      "excluded_manifest_sha256": baseline.sha256_file(excluded_path),
+      "selection_independent_of_verifier_outcomes": True,
+  }
+  difference = manifest_subset(full, tasks, derivation)
+  difference_path = output / "candidate-manifest.json"
+  difference_path.write_text(
+      json.dumps(difference, indent=2) + "\n", encoding="utf-8"
+  )
+  difference_sha256 = baseline.sha256_file(difference_path)
+  assigned = stratified_shards(difference["tasks"])
+  shards = {}
+  shard_manifests = {}
+  for host in DISCOVERY_HOSTS:
+    host_tasks = [row["task"] for row in assigned[host]]
+    shard = manifest_subset(
+        full,
+        host_tasks,
+        {
+            "operation": "deterministic_stratified_shard",
+            "source_manifest_sha256": full_sha256,
+            "parent_manifest_sha256": difference_sha256,
+            "hosts": list(DISCOVERY_HOSTS),
+            "host": host,
+            "algorithm": (
+                "strata (family,seed_class,expected_verdict) by (-size,key); "
+                "tasks by SHA-256(task); lexicographic least host counts for "
+                "stratum,family,seed,verdict,total,host-order"
+            ),
+            "selection_independent_of_verifier_outcomes": True,
+        },
+    )
+    shard_manifests[host] = shard
+    path = output / f"candidate-manifest-{host}.json"
+    path.write_text(json.dumps(shard, indent=2) + "\n", encoding="utf-8")
+    shards[host] = {
+        "task_count": len(host_tasks),
+        "sha256": baseline.sha256_file(path),
+    }
+  validate_shard_partition(
+      difference["tasks"],
+      {host: shard["tasks"] for host, shard in shard_manifests.items()},
+  )
+  print(
+      json.dumps(
+          {
+              "task_count": len(tasks),
+              "sha256": difference_sha256,
+              "shards": shards,
+          },
+          sort_keys=True,
+      )
+  )
+
+
+def command_validate_shards(args):
+  manifest_path = Path(args.manifest).resolve()
+  manifest = validate_manifest(manifest_path, args.sv_benchmarks)
+  parent_sha256 = baseline.sha256_file(manifest_path)
+  shards = {}
+  for path in args.shard_manifest:
+    shard = validate_manifest(path, args.sv_benchmarks)
+    derivation = shard.get("derivation", {})
+    host = derivation.get("host")
+    if host not in DISCOVERY_HOSTS or host in shards:
+      raise RuntimeError(f"invalid or duplicate shard host: {host}")
+    if derivation.get("operation") != "deterministic_stratified_shard":
+      raise RuntimeError(f"invalid shard operation: {host}")
+    if derivation.get("hosts") != list(DISCOVERY_HOSTS):
+      raise RuntimeError(f"invalid shard host list: {host}")
+    if derivation.get("parent_manifest_sha256") != parent_sha256:
+      raise RuntimeError(f"invalid shard parent manifest hash: {host}")
+    shards[host] = shard["tasks"]
+  validate_shard_partition(manifest["tasks"], shards)
+  print(json.dumps({"task_count": manifest["task_count"], "valid": True}))
+
+
 def validate_manifest(manifest_path, sv_benchmarks):
   manifest_path = Path(manifest_path).resolve()
   manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
   if manifest.get("task_count") != len(manifest.get("tasks", [])):
     raise RuntimeError("candidate manifest task count is invalid")
+  tasks = [row["task"] for row in manifest["tasks"]]
+  if len(tasks) != len(set(tasks)):
+    raise RuntimeError("candidate manifest contains duplicate tasks")
   for row in manifest.get("corpus_files", []):
     path = manifest_path.parent / row["path"]
     if not path.is_file() or baseline.sha256_file(path) != row["sha256"]:
@@ -883,6 +1085,110 @@ def command_probe_summary(args):
   )
 
 
+def classify_screen_result(row):
+  if row["category"] == "wrong":
+    return "wrong_quarantine"
+  if (
+      row["classification"] == "infrastructure_or_manifest_failure"
+      or (
+          row["category"] == "correct"
+          and row["cpu_time_seconds"] is None
+      )
+  ):
+    return "infrastructure_failure"
+  if row["category"] == "correct":
+    return "correct_fast"
+  if is_analysis_unsolved(row):
+    return "analysis_survivor"
+  return "verifier_failure_quarantine"
+
+
+def command_screen_summary(args):
+  manifest_path = Path(args.manifest).resolve()
+  manifest = validate_manifest(manifest_path, args.sv_benchmarks)
+  parsed_manifest = baseline.load_task_manifest(manifest_path)
+  runs = baseline.parse_result_rows(args.result, parsed_manifest, hard_threshold=200)
+  missing_metrics = [
+      run["task"]
+      for run in runs
+      if run["cpu_time_seconds"] is None or run["wall_time_seconds"] is None
+  ]
+  if missing_metrics:
+    raise RuntimeError(
+        f"screen result lacks parseable CPU or wall metrics: {missing_metrics}"
+    )
+  details = {row["task"]: row for row in manifest["tasks"]}
+  rows = [
+      {
+          "task": run["task"],
+          "source": details[run["task"]]["source"],
+          "family": details[run["task"]]["family"],
+          "expected_verdict": run["expected_verdict"],
+          "classification": classify_screen_result(run),
+          "cpu_seconds": run["cpu_time_seconds"],
+          "wall_seconds": run["wall_time_seconds"],
+          "status": run["status"],
+      }
+      for run in runs
+  ]
+  output = Path(args.output_dir).resolve()
+  if output.exists() and any(output.iterdir()):
+    raise RuntimeError(f"output directory must be absent or empty: {output}")
+  output.mkdir(parents=True, exist_ok=True)
+  shutil.copytree(manifest_path.parent / "corpus", output / "corpus")
+  fieldnames = list(rows[0])
+  filenames = {
+      "correct_fast": "correct-fast.csv",
+      "analysis_survivor": "analysis-survivors.csv",
+      "wrong_quarantine": "wrong-quarantine.csv",
+      "verifier_failure_quarantine": "verifier-failure-quarantine.csv",
+      "infrastructure_failure": "infrastructure-failure.csv",
+  }
+  for classification, filename in filenames.items():
+    with (output / filename).open("w", newline="", encoding="utf-8") as target:
+      writer = csv.DictWriter(target, fieldnames=fieldnames)
+      writer.writeheader()
+      writer.writerows(
+          row for row in rows if row["classification"] == classification
+      )
+  with (output / "classification.csv").open(
+      "w", newline="", encoding="utf-8"
+  ) as target:
+    writer = csv.DictWriter(target, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+  survivor_tasks = [
+      row["task"] for row in rows if row["classification"] == "analysis_survivor"
+  ]
+  survivor_manifest = manifest_subset(
+      manifest,
+      survivor_tasks,
+      {
+          "operation": "phase_a_analysis_survivors",
+          "parent_manifest_sha256": baseline.sha256_file(manifest_path),
+          "result_sha256": baseline.sha256_file(Path(args.result)),
+          "allowed_results": sorted(ANALYSIS_UNSOLVED),
+          "selection_independent_of_augmented_outcomes": True,
+      },
+  )
+  survivor_path = output / "candidate-manifest-analysis-survivors.json"
+  survivor_path.write_text(
+      json.dumps(survivor_manifest, indent=2) + "\n", encoding="utf-8"
+  )
+  validate_manifest(survivor_path, args.sv_benchmarks)
+  counts = collections.Counter(row["classification"] for row in rows)
+  summary = {
+      "task_count": len(rows),
+      "classifications": dict(sorted(counts.items())),
+      "result_sha256": baseline.sha256_file(Path(args.result)),
+      "survivor_manifest_sha256": baseline.sha256_file(survivor_path),
+  }
+  (output / "summary.json").write_text(
+      json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+  )
+  print(json.dumps(summary, sort_keys=True))
+
+
 def command_summarize(args):
   manifest = baseline.load_task_manifest(args.manifest)
   repetitions = [
@@ -893,7 +1199,7 @@ def command_summarize(args):
       for result in args.result
   ]
   if len(repetitions) != 2:
-    raise RuntimeError("Dataset v1 requires exactly two frozen repetitions")
+    raise RuntimeError("Dataset classification requires exactly two frozen repetitions")
   output = Path(args.output_dir)
   output.mkdir(parents=True, exist_ok=True)
   full_manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
@@ -929,6 +1235,14 @@ def command_summarize(args):
       (
           "wrong-quarantine.csv",
           [row for row in rows if row["classification"] == "wrong_quarantine"],
+      ),
+      (
+          "verifier-failure-quarantine.csv",
+          [
+              row
+              for row in rows
+              if row["classification"] == "verifier_failure_quarantine"
+          ],
       ),
       ("mixed.csv", [row for row in rows if row["classification"] == "mixed"]),
   ):
@@ -975,6 +1289,17 @@ def main():
   inventory.add_argument("--official-family-cap", type=int, default=1)
   inventory.add_argument("--external-family-cap", type=int, default=2)
   inventory.set_defaults(function=command_inventory)
+  difference = commands.add_parser("difference")
+  difference.add_argument("--manifest", required=True)
+  difference.add_argument("--exclude-manifest", required=True)
+  difference.add_argument("--sv-benchmarks", required=True)
+  difference.add_argument("--output-dir", required=True)
+  difference.set_defaults(function=command_difference)
+  validate_shards = commands.add_parser("validate-shards")
+  validate_shards.add_argument("--manifest", required=True)
+  validate_shards.add_argument("--shard-manifest", action="append", required=True)
+  validate_shards.add_argument("--sv-benchmarks", required=True)
+  validate_shards.set_defaults(function=command_validate_shards)
   render = commands.add_parser("render")
   render.add_argument("--manifest", required=True)
   render.add_argument("--sv-benchmarks", required=True)
@@ -1010,6 +1335,12 @@ def main():
   summarize.add_argument("--output-dir", required=True)
   summarize.add_argument("--hard-threshold", type=float, default=200)
   summarize.set_defaults(function=command_summarize)
+  screen_summary = commands.add_parser("screen-summary")
+  screen_summary.add_argument("--manifest", required=True)
+  screen_summary.add_argument("--result", required=True)
+  screen_summary.add_argument("--sv-benchmarks", required=True)
+  screen_summary.add_argument("--output-dir", required=True)
+  screen_summary.set_defaults(function=command_screen_summary)
   args = parser.parse_args()
   args.function(args)
 
