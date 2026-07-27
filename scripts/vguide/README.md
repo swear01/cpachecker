@@ -81,13 +81,15 @@ Athena, Cthulhu, and Valkyrie. `validate-shards` independently recomputes the
 assignment and rejects overlap, omission, changed records, or a different
 assignment.
 
-The r4 runner accepts only the fixed Cthulhu reroute manifest for Athena
-(`477374a2bbab9fd8559e1945e6781b5484e26afec7808266332423c1db9cddd6`)
-or Valkyrie
-(`6c5e9d46d83f9cb644cc37d9651511102cc27ce539bed7024e8b14f1698aae29`)
-and rejects Cthulhu. Use the r3 runner at commit
+The r5 runner accepts only the fixed 160-task Athena recovery manifest on
+Valkyrie
+(`59681ac7dbbf177ae6a4ce3cfd3bd5e5b45d57658c1d6ed467c74e1cd4f60f04`)
+and rejects every other host. Start it only when no other BenchExec process or
+workload is using the same machine's pinned P-cores. Use the r3 runner at commit
 `99bc3800cce4da16ec0cbf108af6197595a54ff3` for the original three shards.
-Both protocols perform one Phase-A screen with fixed 120 s CPU, 130 s
+The r4 reroute runner is frozen at commit
+`9701fce2b28672ba6da91ea2b1b10df3f715d6ba`.
+r3, r4, and r5 perform one Phase-A screen with fixed 120 s CPU, 130 s
 hard-CPU, and 140 s wall limits. `screen-summary` requires exactly one
 BenchExec `systeminfo` hostname, verifies it against the requested host and
 manifest provenance, and carries `phase_a_host` into its CSV, summary, and
@@ -122,6 +124,26 @@ scripts/vguide/dataset.py validate-reroute \
   --manifest /path/to/r3/candidate-manifest-cthulhu.json \
   --reroute-manifest /path/to/r4-reroute/candidate-manifest-athena.json \
   --reroute-manifest /path/to/r4-reroute/candidate-manifest-valkyrie.json \
+  --sv-benchmarks /path/to/sv-benchmarks
+```
+
+Two Athena reboots interrupted its original 107-task shard and its 53-task r4
+reroute before either measurement completed or was accepted. The r5 fallback
+does not read those partial results. It concatenates the two frozen Athena
+manifests in parent order, preserves every row and both derivation lineages,
+and assigns the complete union to Valkyrie:
+
+```bash
+scripts/vguide/dataset.py athena-recovery \
+  --athena-manifest /path/to/r3/candidate-manifest-athena.json \
+  --athena-reroute-manifest /path/to/r4/candidate-manifest-athena.json \
+  --sv-benchmarks /path/to/sv-benchmarks \
+  --output-dir /path/to/r5-athena-recovery
+
+scripts/vguide/dataset.py validate-athena-recovery \
+  --athena-manifest /path/to/r3/candidate-manifest-athena.json \
+  --athena-reroute-manifest /path/to/r4/candidate-manifest-athena.json \
+  --manifest /path/to/r5-athena-recovery/candidate-manifest-valkyrie.json \
   --sv-benchmarks /path/to/sv-benchmarks
 ```
 

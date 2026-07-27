@@ -14,6 +14,7 @@ import copy
 import csv
 import importlib.util
 import json
+import os
 import random
 import subprocess
 import tempfile
@@ -465,30 +466,192 @@ class DatasetTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "recomputed assignment"):
           dataset.command_validate_reroute(args)
 
-  def test_r4_runner_accepts_only_reroutes_and_carries_host(self):
+  def test_athena_recovery_merge_preserves_both_frozen_parents(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      corpus = root / "corpus/properties"
+      corpus.mkdir(parents=True)
+      property_file = corpus / "unreach-call.prp"
+      property_file.write_text("CHECK\n", encoding="utf-8")
+      tasks = []
+      for index in range(4):
+        task = root / f"task-{index}.yml"
+        source = root / f"source-{index}.c"
+        task.write_text(f"task {index}\n", encoding="utf-8")
+        source.write_text(f"source {index}\n", encoding="utf-8")
+        tasks.append(
+            {
+                "task": task.name,
+                "source": "sv-benchmarks",
+                "task_path": task.name,
+                "task_sha256": dataset.baseline.sha256_file(task),
+                "source_paths": [source.name],
+                "source_sha256": [dataset.baseline.sha256_file(source)],
+            }
+        )
+
+      def write_parent(path, rows, derivation):
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "hard-case-candidate-v2-derived",
+                    "task_count": len(rows),
+                    "corpus_files": [
+                        {
+                            "path": "corpus/properties/unreach-call.prp",
+                            "sha256": dataset.baseline.sha256_file(property_file),
+                        }
+                    ],
+                    "tasks": rows,
+                    "derivation": derivation,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+      original = root / "candidate-manifest-athena.json"
+      reroute = root / "candidate-manifest-reroute-athena.json"
+      original_derivation = {"operation": "original", "host": "athena"}
+      reroute_derivation = {"operation": "reroute", "host": "athena"}
+      write_parent(original, tasks[:2], original_derivation)
+      write_parent(reroute, tasks[2:], reroute_derivation)
+      output = root / "recovery"
+      original_sha256 = dataset.baseline.sha256_file(original)
+      reroute_sha256 = dataset.baseline.sha256_file(reroute)
+      with (
+          mock.patch.object(
+              dataset, "FROZEN_ATHENA_MANIFEST_SHA256", original_sha256
+          ),
+          mock.patch.object(
+              dataset,
+              "FROZEN_ATHENA_REROUTE_MANIFEST_SHA256",
+              reroute_sha256,
+          ),
+      ):
+        expected = dataset.expected_athena_recovery_manifest(
+            original, reroute, root
+        )
+        expected_sha256 = dataset.sha256_text(
+            json.dumps(expected, indent=2) + "\n"
+        )
+        with mock.patch.object(
+            dataset,
+            "FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256",
+            expected_sha256,
+        ):
+          dataset.command_athena_recovery(
+              SimpleNamespace(
+                  athena_manifest=str(original),
+                  athena_reroute_manifest=str(reroute),
+                  sv_benchmarks=str(root),
+                  output_dir=str(output),
+              )
+          )
+          manifest_path = output / "candidate-manifest-valkyrie.json"
+          dataset.command_validate_athena_recovery(
+              SimpleNamespace(
+                  athena_manifest=str(original),
+                  athena_reroute_manifest=str(reroute),
+                  manifest=str(manifest_path),
+                  sv_benchmarks=str(root),
+              )
+          )
+          merged = json.loads(manifest_path.read_text(encoding="utf-8"))
+          self.assertEqual(merged["tasks"], tasks)
+          self.assertEqual(merged["derivation"]["host"], "valkyrie")
+          self.assertEqual(
+              [
+                  parent["derivation"]
+                  for parent in merged["derivation"]["parents"]
+              ],
+              [original_derivation, reroute_derivation],
+          )
+          merged["tasks"].reverse()
+          manifest_path.write_text(json.dumps(merged), encoding="utf-8")
+          with self.assertRaisesRegex(
+              RuntimeError, "hash is not frozen r5 output"
+          ):
+            dataset.command_validate_athena_recovery(
+                SimpleNamespace(
+                    athena_manifest=str(original),
+                    athena_reroute_manifest=str(reroute),
+                    manifest=str(manifest_path),
+                    sv_benchmarks=str(root),
+                )
+            )
+
+      with self.assertRaisesRegex(RuntimeError, "overlapping"):
+        dataset.athena_recovery_manifest(
+            json.loads(original.read_text(encoding="utf-8")),
+            {
+                **json.loads(reroute.read_text(encoding="utf-8")),
+                "tasks": [tasks[0], tasks[2]],
+            },
+        )
+
+  def test_r5_production_closure(self):
+    runner = Path(__file__).with_name("run-stock-dataset.sh").read_text(
+        encoding="utf-8"
+    )
+    self.assertEqual(
+        dataset.FROZEN_ATHENA_MANIFEST_SHA256,
+        "5b0224af541b371fd8f882cf71099b774fdd33dc3187cf6dca31cc3c8ca55cef",
+    )
+    self.assertEqual(
+        dataset.FROZEN_ATHENA_REROUTE_MANIFEST_SHA256,
+        "477374a2bbab9fd8559e1945e6781b5484e26afec7808266332423c1db9cddd6",
+    )
+    self.assertEqual(
+        dataset.FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256,
+        "59681ac7dbbf177ae6a4ce3cfd3bd5e5b45d57658c1d6ed467c74e1cd4f60f04",
+    )
+    self.assertIn(
+        f"EXPECTED_MANIFEST={dataset.FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256}",
+        runner,
+    )
+    names = (
+        "VGUIDE_R5_ATHENA_MANIFEST",
+        "VGUIDE_R5_ATHENA_REROUTE_MANIFEST",
+        "VGUIDE_R5_RECOVERY_MANIFEST",
+        "VGUIDE_SV_BENCHMARKS",
+    )
+    paths = [os.environ.get(name) for name in names]
+    if not any(paths):
+      self.skipTest("production manifest paths are not configured")
+    self.assertTrue(all(paths), f"set all production paths: {names}")
+    expected = dataset.expected_athena_recovery_manifest(
+        paths[0], paths[1], paths[3]
+    )
+    actual = dataset.validate_manifest(paths[2], paths[3])
+    self.assertEqual(actual, expected)
+    self.assertEqual(
+        dataset.baseline.sha256_file(Path(paths[2])),
+        dataset.FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256,
+    )
+
+  def test_r5_runner_accepts_only_athena_recovery_on_valkyrie(self):
     runner = Path(__file__).with_name("run-stock-dataset.sh").read_text(
         encoding="utf-8"
     )
     self.assertIn(
-        "477374a2bbab9fd8559e1945e6781b5484e26afec7808266332423c1db9cddd6",
-        runner,
-    )
-    self.assertIn(
-        "6c5e9d46d83f9cb644cc37d9651511102cc27ce539bed7024e8b14f1698aae29",
+        dataset.FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256,
         runner,
     )
     self.assertNotIn(
-        "5b0224af541b371fd8f882cf71099b774fdd33dc3187cf6dca31cc3c8ca55cef",
+        dataset.FROZEN_ATHENA_MANIFEST_SHA256,
         runner,
     )
     self.assertNotIn(
-        "64f25378a401f1936fc836b5901c96d304f9c654f5c9d4cf17327e086463930d",
+        dataset.FROZEN_ATHENA_REROUTE_MANIFEST_SHA256,
         runner,
     )
-    self.assertIn("Cthulhu is not an r4 reroute host", runner)
+    self.assertIn('if [[ $HOST != "valkyrie" ]]', runner)
+    self.assertIn("r5 Athena recovery is Valkyrie-only", runner)
     self.assertIn('--phase-a-host "$HOST"', runner)
     self.assertIn(
-        '--name "hard-case-dataset-v2-discovery-cthulhu-reroute-$HOST-screen"',
+        '--name "hard-case-dataset-v2-discovery-athena-recovery-valkyrie-screen"',
         runner,
     )
 

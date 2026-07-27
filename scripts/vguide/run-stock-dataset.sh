@@ -27,22 +27,11 @@ EXPECTED_BENCHEXEC=edb95ed3a8478366b8bb89f8cdd1d9a6c5fa8c84
 EXPECTED_JDK=867ff62e01a0936fc0a90ceae27338be1973559767ef0717896f8d64f780ece6
 P_CORES=0,2,4,6,8,10,12,14
 HOST=$(hostname -s)
-case "$HOST" in
-  athena)
-    EXPECTED_MANIFEST=477374a2bbab9fd8559e1945e6781b5484e26afec7808266332423c1db9cddd6
-    ;;
-  cthulhu)
-    echo "Cthulhu is not an r4 reroute host; use the r3 runner for its original shard" >&2
-    exit 1
-    ;;
-  valkyrie)
-    EXPECTED_MANIFEST=6c5e9d46d83f9cb644cc37d9651511102cc27ce539bed7024e8b14f1698aae29
-    ;;
-  *)
-    echo "unsupported discovery host: $HOST" >&2
-    exit 1
-    ;;
-esac
+if [[ $HOST != "valkyrie" ]]; then
+  echo "r5 Athena recovery is Valkyrie-only; refusing host: $HOST" >&2
+  exit 1
+fi
+EXPECTED_MANIFEST=59681ac7dbbf177ae6a4ce3cfd3bd5e5b45d57658c1d6ed467c74e1cd4f60f04
 
 [[ $(git -C "$CPACHECKER_DIR" rev-parse HEAD) == "$EXPECTED_CPACHECKER" ]]
 [[ $(git -C "$SV_BENCHMARKS_DIR" rev-parse HEAD) == "$EXPECTED_SV_BENCHMARKS" ]]
@@ -122,7 +111,7 @@ run_benchexec() {
       HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
       JAVA="$JAVA_HOME/bin/java" PYTHONPATH="$BENCHEXEC_DIR" \
       /usr/bin/python3 -m benchexec.benchexec \
-      --name "hard-case-dataset-v2-discovery-cthulhu-reroute-$HOST-screen" \
+      --name "hard-case-dataset-v2-discovery-athena-recovery-valkyrie-screen" \
       --tool-directory "$CPACHECKER_DIR" \
       --outputpath "$output/" \
       --allowedCores "$P_CORES" \

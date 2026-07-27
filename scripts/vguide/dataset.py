@@ -52,6 +52,15 @@ REROUTE_HOSTS = ("athena", "valkyrie")
 FROZEN_CTHULHU_MANIFEST_SHA256 = (
     "40bda9c755c88d9b617269aaa6e1c66ceea07fb818e0741f8a1f960536bd6d4b"
 )
+FROZEN_ATHENA_MANIFEST_SHA256 = (
+    "5b0224af541b371fd8f882cf71099b774fdd33dc3187cf6dca31cc3c8ca55cef"
+)
+FROZEN_ATHENA_REROUTE_MANIFEST_SHA256 = (
+    "477374a2bbab9fd8559e1945e6781b5484e26afec7808266332423c1db9cddd6"
+)
+FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256 = (
+    "59681ac7dbbf177ae6a4ce3cfd3bd5e5b45d57658c1d6ed467c74e1cd4f60f04"
+)
 
 
 def sha256_text(value):
@@ -906,6 +915,128 @@ def command_validate_reroute(args):
   print(json.dumps({"task_count": parent["task_count"], "valid": True}))
 
 
+def athena_recovery_manifest(original, reroute):
+  excluded = {"task_count", "tasks", "derivation"}
+  if (
+      {key: value for key, value in original.items() if key not in excluded}
+      != {key: value for key, value in reroute.items() if key not in excluded}
+  ):
+    raise RuntimeError("Athena recovery parents have different corpus metadata")
+  tasks = [*original["tasks"], *reroute["tasks"]]
+  names = [row["task"] for row in tasks]
+  if len(names) != len(set(names)):
+    raise RuntimeError("Athena recovery parents contain overlapping tasks")
+  return {
+      **original,
+      "task_count": len(tasks),
+      "tasks": tasks,
+      "derivation": {
+          "operation": "ordered_athena_recovery_merge",
+          "host": "valkyrie",
+          "hosts": ["valkyrie"],
+          "parents": [
+              {
+                  "manifest_sha256": FROZEN_ATHENA_MANIFEST_SHA256,
+                  "task_count": original["task_count"],
+                  "derivation": original["derivation"],
+              },
+              {
+                  "manifest_sha256": FROZEN_ATHENA_REROUTE_MANIFEST_SHA256,
+                  "task_count": reroute["task_count"],
+                  "derivation": reroute["derivation"],
+              },
+          ],
+          "algorithm": (
+              "original Athena rows followed by r4 Athena reroute rows; "
+              "each frozen parent order is preserved"
+          ),
+          "selection_independent_of_verifier_outcomes": True,
+      },
+  }
+
+
+def expected_athena_recovery_manifest(
+    original_path, reroute_path, sv_benchmarks
+):
+  inputs = (
+      (
+          Path(original_path).resolve(),
+          FROZEN_ATHENA_MANIFEST_SHA256,
+          "original Athena",
+      ),
+      (
+          Path(reroute_path).resolve(),
+          FROZEN_ATHENA_REROUTE_MANIFEST_SHA256,
+          "r4 Athena reroute",
+      ),
+  )
+  manifests = []
+  for path, expected, name in inputs:
+    if baseline.sha256_file(path) != expected:
+      raise RuntimeError(f"{name} manifest hash is not frozen input")
+    manifests.append(validate_manifest(path, sv_benchmarks))
+  return athena_recovery_manifest(*manifests)
+
+
+def command_athena_recovery(args):
+  original_path = Path(args.athena_manifest).resolve()
+  manifest = expected_athena_recovery_manifest(
+      original_path, args.athena_reroute_manifest, args.sv_benchmarks
+  )
+  output = Path(args.output_dir).resolve()
+  if output.exists() and any(output.iterdir()):
+    raise RuntimeError(f"output directory must be absent or empty: {output}")
+  output.mkdir(parents=True, exist_ok=True)
+  for row in manifest.get("corpus_files", []):
+    target = output / row["path"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(original_path.parent / row["path"], target)
+  manifest_path = output / "candidate-manifest-valkyrie.json"
+  manifest_path.write_text(
+      json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+  )
+  manifest_sha256 = baseline.sha256_file(manifest_path)
+  if manifest_sha256 != FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256:
+    raise RuntimeError("Athena recovery manifest differs from frozen r5 output")
+  print(
+      json.dumps(
+          {
+              "manifest": manifest_path.name,
+              "sha256": manifest_sha256,
+              "task_count": manifest["task_count"],
+          },
+          sort_keys=True,
+      )
+  )
+
+
+def command_validate_athena_recovery(args):
+  expected = expected_athena_recovery_manifest(
+      args.athena_manifest,
+      args.athena_reroute_manifest,
+      args.sv_benchmarks,
+  )
+  manifest_path = Path(args.manifest).resolve()
+  actual = validate_manifest(manifest_path, args.sv_benchmarks)
+  manifest_sha256 = baseline.sha256_file(manifest_path)
+  if manifest_sha256 != FROZEN_ATHENA_RECOVERY_MANIFEST_SHA256:
+    raise RuntimeError("Athena recovery manifest hash is not frozen r5 output")
+  if actual != expected:
+    raise RuntimeError(
+        "Athena recovery manifest contains changed provenance, order, or rows"
+    )
+  print(
+      json.dumps(
+          {
+              "sha256": manifest_sha256,
+              "task_count": actual["task_count"],
+              "valid": True,
+          },
+          sort_keys=True,
+      )
+  )
+
+
 def validate_manifest(manifest_path, sv_benchmarks):
   manifest_path = Path(manifest_path).resolve()
   manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1439,6 +1570,24 @@ def main():
   )
   validate_reroute.add_argument("--sv-benchmarks", required=True)
   validate_reroute.set_defaults(function=command_validate_reroute)
+  athena_recovery = commands.add_parser("athena-recovery")
+  athena_recovery.add_argument("--athena-manifest", required=True)
+  athena_recovery.add_argument("--athena-reroute-manifest", required=True)
+  athena_recovery.add_argument("--sv-benchmarks", required=True)
+  athena_recovery.add_argument("--output-dir", required=True)
+  athena_recovery.set_defaults(function=command_athena_recovery)
+  validate_athena_recovery = commands.add_parser(
+      "validate-athena-recovery"
+  )
+  validate_athena_recovery.add_argument("--athena-manifest", required=True)
+  validate_athena_recovery.add_argument(
+      "--athena-reroute-manifest", required=True
+  )
+  validate_athena_recovery.add_argument("--manifest", required=True)
+  validate_athena_recovery.add_argument("--sv-benchmarks", required=True)
+  validate_athena_recovery.set_defaults(
+      function=command_validate_athena_recovery
+  )
   render = commands.add_parser("render")
   render.add_argument("--manifest", required=True)
   render.add_argument("--sv-benchmarks", required=True)
