@@ -1012,6 +1012,8 @@ class DatasetTest(unittest.TestCase):
     self.assertIn('$(hostname -s) != "valkyrie"', runner)
     self.assertIn("LLM/VGuide environment is forbidden", runner)
     self.assertIn("output directory must be absent or empty", runner)
+    self.assertIn('OUTPUT_DIR=$(realpath -m "${15}")', runner)
+    self.assertNotRegex(runner, r"\$1[0-9]")
     self.assertIn("flock -n 9", runner)
     self.assertNotIn("foreign-workload-gate", runner)
     self.assertIn('require_clean_repo "$RESEARCH_ROOT" "research"', runner)

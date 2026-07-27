@@ -534,19 +534,19 @@ main() {
   PHASE_MANIFESTS=(
     "$(realpath "$6")"
     "$(realpath "$9")"
-    "$(realpath "$12")"
+    "$(realpath "${12}")"
   )
   PHASE_RESULTS=(
     "$(realpath "$7")"
-    "$(realpath "$10")"
-    "$(realpath "$13")"
+    "$(realpath "${10}")"
+    "$(realpath "${13}")"
   )
   PHASE_SURVIVORS=(
     "$(realpath "$8")"
-    "$(realpath "$11")"
-    "$(realpath "$14")"
+    "$(realpath "${11}")"
+    "$(realpath "${14}")"
   )
-  OUTPUT_DIR=$(realpath -m "$15")
+  OUTPUT_DIR=$(realpath -m "${15}")
   SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
   RESEARCH_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 
