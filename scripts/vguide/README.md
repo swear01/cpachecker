@@ -143,7 +143,8 @@ index, skip-worktree, and runtime-closure checks as the formal runner. Rebuilds
 are compared by the deterministic JAR-content digest rather than the
 timestamp-sensitive JAR byte hash. A summary becomes complete only after its
 post-screen machine check, final runtime verification, and atomic artifact
-manifest have all succeeded.
+manifest have all succeeded. Reentry recomputes the summary and compares the
+exact `complete\n` sentinel bytes before accepting an already-complete output.
 
 ```bash
 env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \

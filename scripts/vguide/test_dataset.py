@@ -3863,6 +3863,10 @@ copy_phase_evidence "$2"
     self.assertIn("screen-taint", runner)
     self.assertIn("render-screen-replacement", runner)
     self.assertIn("screen-summary-plan", runner)
+    self.assertIn(
+        "printf 'complete\\n' >\"$COMPLETE_CHECK/.complete\"", runner
+    )
+    self.assertNotIn('touch "$COMPLETE_CHECK/.complete"', runner)
     self.assertIn('source "$SCRIPT_DIR/run-stock-formal-dataset.sh"', runner)
     package_start = runner.index("CAP16_PACKAGE_SCRIPT_FILES=(")
     package_end = runner.index("\n)", package_start)

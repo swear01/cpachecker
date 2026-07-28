@@ -149,7 +149,7 @@ if [[ -f "$OUTPUT_DIR/summary/.complete" ]]; then
     --sv-benchmarks "$SV_BENCHMARKS_DIR" \
     --phase-a-host "$HOST" \
     --output-dir "$COMPLETE_CHECK"
-  touch "$COMPLETE_CHECK/.complete"
+  printf 'complete\n' >"$COMPLETE_CHECK/.complete"
   diff -r "$OUTPUT_DIR/summary" "$COMPLETE_CHECK"
   rm -r "$COMPLETE_CHECK"
   echo "cap-16 Phase A output is already complete: $OUTPUT_DIR"
