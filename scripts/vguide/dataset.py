@@ -9,6 +9,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import bz2
 import collections
 import csv
 import datetime
@@ -19,6 +20,7 @@ import os
 import re
 import signal
 import shutil
+import stat
 import statistics
 import subprocess
 import time
@@ -106,6 +108,16 @@ FROZEN_PHASE_A_SURVIVOR_TASK_COUNT = {
 FROZEN_FORMAL_MANIFEST_SHA256 = (
     "e8aed1d26a0920bfef4964d495d86b69bbad666efb8d72e87462f297ca243855"
 )
+FROZEN_CAP16_ATHENA_MANIFEST_SHA256 = (
+    "16e5f9ff04ed08ef9c29d8674021c11de3eed87b9da6a8c1e2ef68c6847ec0bb"
+)
+FROZEN_CAP16_PARENT_MANIFEST_SHA256 = (
+    "490f2337d68fba626f34eed05abb64c772c752289bab31689b354240d2146876"
+)
+FROZEN_CAP16_PHASE_A_TASK_COUNT = 254
+FROZEN_CAP16_PHASE_A_PACKAGE_AGGREGATE_SHA256 = (
+    "PENDING_AFTER_ATHENA_ATTEMPT3"
+)
 PHASE_A_OPERATION = {
     "original_valkyrie": "deterministic_stratified_shard",
     "reroute_valkyrie": "deterministic_stratified_reroute",
@@ -117,6 +129,9 @@ FROZEN_TOOLMODULE = "benchexec.tools.cpachecker"
 DISCOVERY_DISPLAY = "CPAchecker frozen stock hard-case discovery screen"
 FORMAL_DISPLAY = "CPAchecker frozen stock hard-case formal measurement"
 FORMAL_REPETITION_PLAN_SCHEMA = "hard-case-formal-repetition-plan-v1"
+CAP16_FORMAL_REPETITION_PLAN_SCHEMA = (
+    "hard-case-cap16-formal-repetition-plan-v1"
+)
 FORMAL_TAINT_SCHEMA = "hard-case-formal-taint-v1"
 SCREEN_REPETITION_PLAN_SCHEMA = "hard-case-screen-repetition-plan-v1"
 SCREEN_TAINT_SCHEMA = "hard-case-screen-taint-v1"
@@ -129,6 +144,15 @@ FORMAL_FOREIGN_CPU_PERCENT = 50.0
 FORMAL_FOREIGN_CPU_SECONDS = 10.0
 FORMAL_LOAD_SAMPLE_SECONDS = 1.0
 FORMAL_LOAD_MONITOR_SCHEMA = "formal-p-core-load-monitor-v1"
+FORMAL_ATTEMPT_SCHEMA = "hard-case-formal-attempt-complete-v3"
+FORMAL_PROCESS_DESCRIPTOR_SCHEMA = "hard-case-formal-process-descriptor-v1"
+FORMAL_P_CORE_LIST = "0,2,4,6,8,10,12,14"
+BENCHEXEC_MODULE_COMMAND = (
+    'import runpy,sys; sys.dont_write_bytecode=True; '
+    'sys.pycache_prefix="/dev/null"; sys.path.insert(0,sys.argv.pop(1)); '
+    'sys.argv[0]="benchexec"; '
+    'runpy.run_module("benchexec.benchexec",run_name="__main__")'
+)
 
 
 def sha256_text(value):
@@ -174,7 +198,7 @@ def classify_repetitions(rows, hard_threshold):
         else "stable_solved_fast"
     )
   if all(is_analysis_unsolved(row) for row in rows):
-    return "stable_unsolved"
+    return "stable_analysis_unsolved"
   if all(row["category"] not in {"correct", "wrong"} for row in rows):
     return "verifier_failure_quarantine"
   return "mixed"
@@ -866,6 +890,10 @@ def benchexec_path_representations(
   expected = Path(expected_path).resolve()
   sv_benchmarks = Path(sv_benchmarks).resolve()
   representations = {expected.as_posix()}
+  try:
+    representations.add(expected.relative_to(sv_benchmarks).as_posix())
+  except ValueError:
+    pass
   if benchmark_definition:
     relative = os.path.relpath(
         expected, Path(benchmark_definition).resolve().parent
@@ -987,6 +1015,16 @@ def validate_stock_definition(
       for group, rows in groups.items()
       if rows
   }
+  include_values = [
+      node.text for node in root.findall(".//includesfile")
+  ]
+  portable = bool(include_values) and all(
+      value == Path(value).name for value in include_values
+  )
+  definition_task_sets = {
+      group: path.name if portable else path
+      for group, path in task_sets.items()
+  }
   expected = benchmark_root(display, *limits)
   ET.SubElement(expected, "resultfiles").text = "**/witness.*"
   for name, value in (
@@ -1001,24 +1039,31 @@ def validate_stock_definition(
   write_run_definition(
       expected,
       "hard-case-candidates",
-      task_sets,
-      Path(sv_benchmarks).resolve() / "c/properties/unreach-call.prp",
+      definition_task_sets,
+      (
+          "c/properties/unreach-call.prp"
+          if portable
+          else Path(sv_benchmarks).resolve()
+          / "c/properties/unreach-call.prp"
+      ),
       Path(manifest_path).resolve().parent / "corpus/properties/unreach-call.prp",
   )
   if xml_shape(root) != xml_shape(expected):
     raise RuntimeError("stock benchmark definition topology is not frozen")
   for group, task_set in task_sets.items():
-    expected_tasks = [
-        str(
+    expected_tasks = []
+    for row in groups[group]:
+      if portable and row["source"] == "sv-benchmarks":
+        expected_tasks.append(row["task_path"])
+      else:
+        expected_tasks.append(str(
             (
                 Path(sv_benchmarks).resolve()
                 if row["source"] == "sv-benchmarks"
                 else Path(manifest_path).resolve().parent
             )
             / row["task_path"]
-        )
-        for row in groups[group]
-    ]
+        ))
     if task_set.read_text(encoding="utf-8").splitlines() != expected_tasks:
       raise RuntimeError("stock benchmark task set does not match the host manifest")
 
@@ -1683,6 +1728,25 @@ def authenticate_phase_b_inputs(args):
 
 
 def authenticate_formal_manifest(args):
+  if hasattr(args, "phase_a_output"):
+    phase_a_manifest, host = authenticate_cap16_phase_a_output(
+        args.phase_a_output, args.sv_benchmarks
+    )
+    manifest_path = Path(args.manifest).resolve()
+    expected_path = (
+        Path(args.phase_a_output).resolve()
+        / "summary/candidate-manifest-analysis-survivors.json"
+    )
+    if manifest_path != expected_path:
+      raise RuntimeError(
+          "cap-16 formal manifest must be the authenticated Phase-A survivor"
+      )
+    manifest = validate_manifest(manifest_path, args.sv_benchmarks)
+    if manifest != phase_a_manifest:
+      raise RuntimeError(
+          "cap-16 formal manifest differs from authenticated Phase-A survivors"
+      )
+    return manifest, host
   _, _, merged = authenticate_phase_b_inputs(args)
   manifest_path = Path(args.manifest).resolve()
   if baseline.sha256_file(manifest_path) != FROZEN_FORMAL_MANIFEST_SHA256:
@@ -1691,6 +1755,339 @@ def authenticate_formal_manifest(args):
   if manifest != merged:
     raise RuntimeError("formal manifest does not match authenticated Valkyrie merge")
   return manifest, "valkyrie"
+
+
+def validate_artifact_manifest(
+    root, artifact_path, ignored, expected_root=None
+):
+  root = Path(root).resolve()
+  artifact_path = Path(artifact_path).resolve()
+  artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+  if (
+      not isinstance(artifact, dict)
+      or set(artifact)
+      != {"root", "file_count", "aggregate_sha256", "files"}
+      or artifact["root"] != (
+          str(root) if expected_root is None else expected_root
+      )
+      or not isinstance(artifact["files"], list)
+  ):
+    raise RuntimeError("artifact manifest topology is invalid")
+  ignored = {Path(path).as_posix() for path in ignored}
+  entries = []
+  aggregate = hashlib.sha256()
+  for entry in artifact["files"]:
+    if (
+        not isinstance(entry, dict)
+        or set(entry) != {"path", "size_bytes", "sha256"}
+        or not isinstance(entry["path"], str)
+        or Path(entry["path"]).is_absolute()
+        or ".." in Path(entry["path"]).parts
+        or not isinstance(entry["size_bytes"], int)
+        or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
+    ):
+      raise RuntimeError("artifact manifest entry is invalid")
+    path = root / entry["path"]
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.stat().st_size != entry["size_bytes"]
+        or baseline.sha256_file(path) != entry["sha256"]
+    ):
+      raise RuntimeError(f"artifact manifest mismatch: {entry['path']}")
+    entries.append(entry["path"])
+    aggregate.update(entry["path"].encode("utf-8"))
+    aggregate.update(b"\0")
+    aggregate.update(bytes.fromhex(entry["sha256"]))
+  if entries != sorted(entries) or len(entries) != len(set(entries)):
+    raise RuntimeError("artifact manifest paths are not unique and sorted")
+  actual = []
+  for path in root.rglob("*"):
+    mode = path.lstat().st_mode
+    if stat.S_ISDIR(mode):
+      continue
+    relative = path.relative_to(root).as_posix()
+    if path == artifact_path or relative in ignored:
+      continue
+    if not stat.S_ISREG(mode):
+      raise RuntimeError(f"unsupported artifact node: {path}")
+    actual.append(relative)
+  if entries != sorted(actual):
+    raise RuntimeError("artifact manifest file set is incomplete")
+  if (
+      artifact["file_count"] != len(entries)
+      or artifact["aggregate_sha256"] != aggregate.hexdigest()
+  ):
+    raise RuntimeError("artifact manifest aggregate is invalid")
+  return artifact
+
+
+def validate_cap16_phase_a_structure(
+    phase_a_output, sv_benchmarks, portable
+):
+  declared = Path(phase_a_output)
+  root = declared.resolve()
+  if (
+      declared.is_symlink()
+      or Path(os.path.abspath(declared)) != root
+      or not root.is_dir()
+  ):
+    raise RuntimeError("cap-16 Phase-A output must be a regular directory")
+  complete = root / "summary/.complete"
+  if (
+      complete.is_symlink()
+      or not complete.is_file()
+      or complete.read_text(encoding="utf-8") != "complete\n"
+  ):
+    raise RuntimeError("cap-16 Phase-A output is not complete")
+  manifest_path = root / "input/candidate-manifest-athena.json"
+  if baseline.sha256_file(manifest_path) != FROZEN_CAP16_ATHENA_MANIFEST_SHA256:
+    raise RuntimeError("cap-16 Phase-A manifest hash is not frozen")
+  manifest = validate_manifest(manifest_path, sv_benchmarks)
+  derivation = manifest.get("derivation", {})
+  if (
+      manifest["task_count"] != FROZEN_CAP16_PHASE_A_TASK_COUNT
+      or derivation.get("operation") != "deterministic_stratified_shard"
+      or derivation.get("parent_manifest_sha256")
+      != FROZEN_CAP16_PARENT_MANIFEST_SHA256
+      or derivation.get("hosts") != ["athena"]
+      or derivation.get("host") != "athena"
+      or derivation.get("selection_independent_of_verifier_outcomes") is not True
+  ):
+    raise RuntimeError("cap-16 Phase-A manifest provenance is invalid")
+  definition = root / "generated/hard-case-candidates.xml"
+  validate_screen_definition(
+      definition, manifest_path, manifest, sv_benchmarks
+  )
+  rows = baseline.load_task_manifest(manifest_path)
+  plan = load_screen_plan(
+      root / "screen-plan.json",
+      rows,
+      manifest_path,
+      "athena",
+      sv_benchmarks,
+      definition,
+  )
+  row_provenance_content = json.dumps({
+      "schema_version": "hard-case-screen-row-provenance-v1",
+      "screen_plan_sha256": plan["plan_sha256"],
+      "primary_result_sha256": plan["primary_sha256"],
+      "replacement_result_sha256": plan["replacement_sha256"],
+      "rows": plan["row_sources"],
+  }, indent=2) + "\n"
+  row_provenance_path = root / "summary/row-provenance.json"
+  if row_provenance_path.read_text(encoding="utf-8") != row_provenance_content:
+    raise RuntimeError("cap-16 Phase-A row provenance is invalid")
+  accepted = [plan["rows"][task] for task in rows]
+  if any(
+      run["cpu_time_seconds"] is None or run["wall_time_seconds"] is None
+      for run in accepted
+  ):
+    raise RuntimeError("cap-16 Phase-A result lacks CPU or wall metrics")
+  survivor_tasks = [
+      run["task"]
+      for run in accepted
+      if classify_screen_result(run) == "analysis_survivor"
+  ]
+  provenance = {
+      "screen_plan_sha256": plan["plan_sha256"],
+      "result_sha256": [
+          plan["primary_sha256"],
+          *plan["replacement_sha256"],
+      ],
+      "row_provenance_sha256": hashlib.sha256(
+          row_provenance_content.encode("utf-8")
+      ).hexdigest(),
+  }
+  expected = manifest_subset(
+      manifest,
+      survivor_tasks,
+      {
+          "operation": "phase_a_analysis_survivors",
+          "parent_manifest_sha256": FROZEN_CAP16_ATHENA_MANIFEST_SHA256,
+          **provenance,
+          "allowed_results": sorted(ANALYSIS_UNSOLVED),
+          "phase_a_host": "athena",
+          "selection_independent_of_augmented_outcomes": True,
+      },
+  )
+  survivor_path = (
+      root / "summary/candidate-manifest-analysis-survivors.json"
+  )
+  survivor = validate_manifest(survivor_path, sv_benchmarks)
+  if survivor != expected:
+    raise RuntimeError(
+        "cap-16 Phase-A survivor differs from recomputed screen plan"
+    )
+  counts = collections.Counter(
+      classify_screen_result(run) for run in accepted
+  )
+  expected_summary = {
+      "task_count": len(accepted),
+      "phase_a_host": "athena",
+      "classifications": dict(sorted(counts.items())),
+      **provenance,
+      "survivor_manifest_sha256": baseline.sha256_file(survivor_path),
+  }
+  summary = json.loads(
+      (root / "summary/summary.json").read_text(encoding="utf-8")
+  )
+  if summary != expected_summary:
+    raise RuntimeError("cap-16 Phase-A summary is invalid")
+  artifact = validate_artifact_manifest(
+      root,
+      root / "provenance/artifact-manifest.json",
+      {"summary/.complete"},
+      expected_root="." if portable else None,
+  )
+  return survivor, "athena", artifact
+
+
+def authenticate_cap16_phase_a_output(phase_a_output, sv_benchmarks):
+  survivor, host, artifact = validate_cap16_phase_a_structure(
+      phase_a_output, sv_benchmarks, portable=True
+  )
+  frozen = FROZEN_CAP16_PHASE_A_PACKAGE_AGGREGATE_SHA256
+  if not re.fullmatch(r"[0-9a-f]{64}", frozen):
+    raise RuntimeError(
+        "cap-16 Phase-A package aggregate is pending and formal execution "
+        "is disabled"
+    )
+  if artifact["aggregate_sha256"] != frozen:
+    raise RuntimeError("cap-16 Phase-A package aggregate is not frozen")
+  return survivor, host
+
+
+def command_package_cap16_phase_a(args):
+  source = Path(args.phase_a_output)
+  validate_cap16_phase_a_structure(
+      source, args.sv_benchmarks, portable=False
+  )
+  source = source.resolve()
+  output = Path(args.output_dir).resolve()
+  if output == source or source in output.parents or output in source.parents:
+    raise RuntimeError("cap-16 package output overlaps its Phase-A source")
+  require_absent_or_empty_output(output)
+  shutil.copytree(source, output, dirs_exist_ok=True)
+  (output / "summary/.complete").unlink()
+  (output / "provenance/artifact-manifest.json").unlink()
+  manifest_path = output / "input/candidate-manifest-athena.json"
+  manifest_rows = baseline.load_task_manifest(manifest_path)
+  sv_benchmarks = Path(args.sv_benchmarks).resolve()
+  for definition in sorted(output.glob("generated/**/hard-case-candidates.xml")):
+    root = ET.parse(definition).getroot()
+    for node in root.findall(".//includesfile"):
+      value = Path(node.text)
+      if not value.name.startswith("hard-case-candidates-"):
+        raise RuntimeError("cap-16 package contains an unknown task set")
+      task_set = definition.parent / value.name
+      portable_tasks = []
+      for task in task_set.read_text(encoding="utf-8").splitlines():
+        path = Path(task).resolve()
+        try:
+          portable_tasks.append(path.relative_to(sv_benchmarks).as_posix())
+        except ValueError as error:
+          raise RuntimeError(
+              "cap-16 package contains a non-SV-Benchmarks task"
+          ) from error
+      task_set.write_text(
+          "\n".join(portable_tasks) + "\n", encoding="utf-8"
+      )
+      node.text = value.name
+    for node in root.findall(".//propertyfile"):
+      node.text = "c/properties/unreach-call.prp"
+    write_xml(root, definition)
+
+  plan_path = output / "screen-plan.json"
+  plan = json.loads(plan_path.read_text(encoding="utf-8"))
+  result_entries = [plan["primary"], *plan["replacements"]]
+  for entry in result_entries:
+    result_path = output / entry["path"]
+    with baseline.open_result(result_path) as source_file:
+      result = ET.parse(source_file)
+    for run in result.getroot().findall("run"):
+      task = baseline.match_result_task(run.get("name", ""), manifest_rows)
+      row = manifest_rows[task]
+      if row["source"] != "sv-benchmarks":
+        raise RuntimeError(
+            "cap-16 package contains a non-SV-Benchmarks result row"
+        )
+      run.set("name", row["task_path"])
+      run.set("files", f"[{', '.join(row['source_paths'])}]")
+      run.set("propertyFile", "c/properties/unreach-call.prp")
+    if result_path.suffix == ".bz2":
+      content = ET.tostring(result.getroot(), encoding="unicode")
+      result_path.write_bytes(bz2.compress(content.encode("utf-8")))
+    else:
+      result.write(result_path, encoding="unicode")
+
+  plan["primary"]["sha256"] = baseline.sha256_file(
+      output / plan["primary"]["path"]
+  )
+  if plan["taint"] is not None:
+    taint_path = output / plan["taint"]["path"]
+    taint = json.loads(taint_path.read_text(encoding="utf-8"))
+    taint["primary_result_sha256"] = plan["primary"]["sha256"]
+    taint_path.write_text(
+        json.dumps(taint, indent=2) + "\n", encoding="utf-8"
+    )
+    plan["taint"]["sha256"] = baseline.sha256_file(taint_path)
+  for entry in plan["replacements"]:
+    result_path = output / entry["path"]
+    definition = plan_path.parent / entry["definition_path"]
+    taint_path = output / entry["taint_path"]
+    entry["sha256"] = baseline.sha256_file(result_path)
+    entry["definition_sha256"] = baseline.sha256_file(definition)
+    taint = json.loads(taint_path.read_text(encoding="utf-8"))
+    taint["primary_result_sha256"] = entry["sha256"]
+    taint_path.write_text(
+        json.dumps(taint, indent=2) + "\n", encoding="utf-8"
+    )
+    entry["taint_sha256"] = baseline.sha256_file(taint_path)
+  plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+  summary = output / "summary"
+  shutil.rmtree(summary)
+  command_screen_summary_plan(argparse.Namespace(
+      manifest=str(output / "input/candidate-manifest-athena.json"),
+      benchmark_definition=str(output / "generated/hard-case-candidates.xml"),
+      screen_plan=str(plan_path),
+      sv_benchmarks=args.sv_benchmarks,
+      phase_a_host="athena",
+      output_dir=str(summary),
+  ))
+  artifact = baseline.write_artifact_manifest(
+      output,
+      output / "provenance/artifact-manifest.json",
+      root_label=".",
+  )
+  (summary / ".complete").write_text("complete\n", encoding="utf-8")
+  validate_cap16_phase_a_structure(
+      output, args.sv_benchmarks, portable=True
+  )
+  print(json.dumps({
+      "aggregate_sha256": artifact["aggregate_sha256"],
+      "output": str(output),
+      "task_count": json.loads(
+          (output / "input/candidate-manifest-athena.json").read_text(
+              encoding="utf-8"
+          )
+      )["task_count"],
+  }, sort_keys=True))
+
+
+def command_validate_cap16_phase_a(args):
+  manifest, host = authenticate_cap16_phase_a_output(
+      args.phase_a_output, args.sv_benchmarks
+  )
+  print(json.dumps({
+      "host": host,
+      "manifest_sha256": baseline.sha256_file(
+          Path(args.phase_a_output)
+          / "summary/candidate-manifest-analysis-survivors.json"
+      ),
+      "task_count": manifest["task_count"],
+      "valid": True,
+  }, sort_keys=True))
 
 
 def copy_declared_corpus_files(manifest_path, manifest, output):
@@ -1719,33 +2116,7 @@ def copy_declared_corpus_files(manifest_path, manifest, output):
 
 def write_phase_b_artifact_manifest(output):
   path = output / "artifact-manifest.json"
-  files = [
-      candidate
-      for candidate in output.rglob("*")
-      if candidate.is_file() and candidate != path
-  ]
-  entries = []
-  aggregate = hashlib.sha256()
-  for candidate in sorted(files, key=lambda item: item.relative_to(output).as_posix()):
-    relative = candidate.relative_to(output).as_posix()
-    digest = baseline.sha256_file(candidate)
-    entries.append(
-        {
-            "path": relative,
-            "size_bytes": candidate.stat().st_size,
-            "sha256": digest,
-        }
-    )
-    aggregate.update(relative.encode("utf-8"))
-    aggregate.update(b"\0")
-    aggregate.update(bytes.fromhex(digest))
-  artifact = {
-      "root": ".",
-      "file_count": len(entries),
-      "aggregate_sha256": aggregate.hexdigest(),
-      "files": entries,
-  }
-  path.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
+  artifact = baseline.write_artifact_manifest(output, path, root_label=".")
   return artifact, baseline.sha256_file(path)
 
 
@@ -2360,6 +2731,332 @@ def read_proc_thread_stat(path):
   )
 
 
+def formal_systemd_unit(output_root, mode, label):
+  root = Path(output_root).resolve()
+  digest = sha256_text(f"{root}\0{mode}\0{label}")[:12]
+  return f"vguide-{mode}-{label}-{digest}.scope"
+
+
+def formal_process_descriptor(args):
+  root = Path(args.output_root).resolve()
+  definition = Path(args.definition).resolve()
+  result_output = Path(args.result_output).resolve()
+  monitor_output = Path(args.monitor_output).resolve()
+  dataset_py = Path(args.dataset_py).resolve()
+  cpachecker_dir = Path(args.cpachecker_dir).resolve()
+  benchexec_dir = Path(args.benchexec_dir).resolve()
+  python_bin = Path(args.python_bin).resolve()
+  java_home = Path(args.java_home).resolve()
+  for path, name in (
+      (definition, "definition"),
+      (result_output, "result output"),
+      (monitor_output, "monitor output"),
+      (dataset_py, "dataset script"),
+  ):
+    try:
+      path.relative_to(root)
+    except ValueError as error:
+      raise RuntimeError(
+          f"formal process {name} escapes output root"
+      ) from error
+  if (
+      args.mode not in {"cap8", "cap16"}
+      or args.p_cores != FORMAL_P_CORE_LIST
+      or not isinstance(args.monitor_exclude_root, int)
+      or args.monitor_exclude_root <= 0
+  ):
+    raise RuntimeError("formal process descriptor inputs are invalid")
+  expected_host = "athena" if args.mode == "cap16" else "valkyrie"
+  expected_python = (
+      Path("/usr/bin/python3.12")
+      if args.mode == "cap16"
+      else Path("/usr/bin/python3.10")
+  )
+  if (
+      args.host != expected_host
+      or python_bin != expected_python
+      or dataset_py != root / "input/research/scripts/dataset.py"
+  ):
+    raise RuntimeError("formal process descriptor runtime is not pinned")
+  expected_name = (
+      f"hard-case-dataset-v2"
+      f"{'-cap16' if args.mode == 'cap16' else ''}"
+      f"-formal-{args.host}-{args.label}"
+  )
+  if args.name != expected_name:
+    raise RuntimeError("formal BenchExec run name is not canonical")
+  unit = formal_systemd_unit(root, args.mode, args.label)
+  monitor_argv = [
+      str(python_bin),
+      "-I",
+      "-B",
+      str(dataset_py),
+      "monitor-formal-load",
+      "--output",
+      str(monitor_output),
+      "--exclude-root",
+      str(args.monitor_exclude_root),
+  ]
+  benchexec_argv = [
+      "systemd-run",
+      "--user",
+      "--quiet",
+      "--scope",
+      f"--unit={unit}",
+      "--slice=benchexec",
+      "-p",
+      "Delegate=yes",
+      "taskset",
+      "-c",
+      args.p_cores,
+      "env",
+      "-i",
+      "HOME=/home/benchexec",
+      "LANG=C.UTF-8",
+      "LC_ALL=C.UTF-8",
+      "PATH=/usr/bin:/bin",
+      f"JAVA={java_home}/bin/java",
+      str(python_bin),
+      "-I",
+      "-c",
+      BENCHEXEC_MODULE_COMMAND,
+      str(benchexec_dir),
+      "--name",
+      args.name,
+      "--tool-directory",
+      str(cpachecker_dir),
+      "--outputpath",
+      f"{result_output}/",
+      "--allowedCores",
+      args.p_cores,
+      "--no-hyperthreading",
+      "--container",
+      "--read-only-dir",
+      "/",
+      "--hidden-dir",
+      "/home",
+      "--overlay-dir",
+      str(cpachecker_dir),
+      "-N",
+      "2",
+      "-c",
+      "4",
+      str(definition),
+  ]
+  return {
+      "schema_version": FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
+      "output_root": str(root),
+      "mode": args.mode,
+      "label": args.label,
+      "host": args.host,
+      "inputs": {
+          "name": args.name,
+          "definition": str(definition),
+          "result_output": str(result_output),
+          "monitor_output": str(monitor_output),
+          "monitor_exclude_root": args.monitor_exclude_root,
+          "dataset_py": str(dataset_py),
+          "cpachecker_dir": str(cpachecker_dir),
+          "benchexec_dir": str(benchexec_dir),
+          "python_bin": str(python_bin),
+          "java_home": str(java_home),
+          "p_cores": args.p_cores,
+      },
+      "systemd_unit": unit,
+      "identities": {
+          "benchexec-launcher": {
+              "argv": benchexec_argv,
+              "systemd_unit": unit,
+          },
+          "load-monitor": {
+              "argv": monitor_argv,
+              "systemd_unit": None,
+          },
+      },
+  }
+
+
+def load_formal_process_descriptor(path, output_root, mode, label, host):
+  declared = Path(path)
+  resolved = declared.resolve()
+  if (
+      declared.is_symlink()
+      or Path(os.path.abspath(declared)) != resolved
+      or not resolved.is_file()
+  ):
+    raise RuntimeError("formal process descriptor is not a regular file")
+  descriptor = json.loads(resolved.read_text(encoding="utf-8"))
+  if (
+      not isinstance(descriptor, dict)
+      or set(descriptor) != {
+          "schema_version",
+          "output_root",
+          "mode",
+          "label",
+          "host",
+          "inputs",
+          "systemd_unit",
+          "identities",
+      }
+      or descriptor["schema_version"] != FORMAL_PROCESS_DESCRIPTOR_SCHEMA
+      or descriptor["output_root"] != str(Path(output_root).resolve())
+      or descriptor["mode"] != mode
+      or descriptor["label"] != label
+      or descriptor["host"] != host
+      or not isinstance(descriptor["inputs"], dict)
+  ):
+    raise RuntimeError("formal process descriptor identity is invalid")
+  expected = formal_process_descriptor(argparse.Namespace(
+      output_root=descriptor["output_root"],
+      mode=descriptor["mode"],
+      label=descriptor["label"],
+      host=descriptor["host"],
+      **descriptor["inputs"],
+  ))
+  if descriptor != expected:
+    raise RuntimeError("formal process descriptor content is invalid")
+  return descriptor
+
+
+def command_write_formal_process_descriptor(args):
+  declared = Path(args.output)
+  if declared.is_symlink():
+    raise RuntimeError("formal process descriptor output is a symlink")
+  output = declared.resolve()
+  record = formal_process_descriptor(args)
+  content = json.dumps(record, indent=2) + "\n"
+  if output.exists():
+    if output.read_text(encoding="utf-8") != content:
+      raise RuntimeError("formal process descriptor already differs")
+    return
+  output.parent.mkdir(parents=True, exist_ok=True)
+  temporary = output.with_name(f".{output.name}.tmp-{os.getpid()}")
+  temporary.write_text(content, encoding="utf-8")
+  os.replace(temporary, output)
+
+
+def command_formal_systemd_unit(args):
+  print(formal_systemd_unit(args.output_root, args.mode, args.label))
+
+
+def read_process_identity(pid, role):
+  proc = Path("/proc") / str(pid)
+  status = proc.joinpath("status").read_text(encoding="utf-8")
+  uid = int(re.search(r"^Uid:\s+(\d+)", status, re.MULTILINE).group(1))
+  stat_fields = proc.joinpath("stat").read_text(encoding="utf-8")
+  starttime = int(stat_fields[stat_fields.rfind(")") + 2 :].split()[19])
+  argv = [
+      value.decode("utf-8", "surrogateescape")
+      for value in proc.joinpath("cmdline").read_bytes().split(b"\0")
+      if value
+  ]
+  return {
+      "schema_version": "formal-owned-process-identity-v1",
+      "role": role,
+      "uid": uid,
+      "pid": pid,
+      "proc_starttime": starttime,
+      "argv": argv,
+      "systemd_unit": None,
+  }
+
+
+def command_capture_process_identity(args):
+  identity = read_process_identity(args.pid, args.role)
+  output = Path(args.output)
+  output.write_text(json.dumps(identity, indent=2) + "\n", encoding="utf-8")
+
+
+def load_owned_process_identity(path):
+  identity = json.loads(Path(path).read_text(encoding="utf-8"))
+  if (
+      not isinstance(identity, dict)
+      or set(identity) != {
+          "schema_version",
+          "role",
+          "uid",
+          "pid",
+          "proc_starttime",
+          "argv",
+          "systemd_unit",
+      }
+      or identity["schema_version"] != "formal-owned-process-identity-v1"
+  ):
+    raise RuntimeError("owned process identity is invalid")
+  return identity
+
+
+def require_process_gone(identity, systemd_unit=None):
+  try:
+    current = read_process_identity(identity["pid"], identity["role"])
+  except (FileNotFoundError, ProcessLookupError):
+    current = None
+  if current is not None:
+    current["systemd_unit"] = identity["systemd_unit"]
+  if current == identity:
+    raise RuntimeError("owned formal process is still alive; refusing resume")
+  unit = identity["systemd_unit"] if systemd_unit is None else systemd_unit
+  if unit is not None:
+    result = subprocess.run(
+        [
+            "systemctl",
+            "--user",
+            "show",
+            unit,
+            "--property=LoadState",
+            "--property=ActiveState",
+            "--property=MainPID",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+      raise RuntimeError("cannot prove transient BenchExec unit is gone")
+    state = dict(
+        line.split("=", 1)
+        for line in result.stdout.splitlines()
+        if "=" in line
+    )
+    if (
+        state.get("LoadState") != "not-found"
+        and (
+            state.get("ActiveState") not in {"inactive", "failed"}
+            or state.get("MainPID") not in {"0", ""}
+        )
+    ):
+      raise RuntimeError("transient BenchExec unit is still active")
+
+
+def validate_formal_process_identity(identity, expected, require_unit=True):
+  if (
+      identity["role"] != expected["role"]
+      or identity["uid"] != os.getuid()
+      or identity["argv"] != expected["argv"]
+      or (
+          require_unit
+          and identity["systemd_unit"] != expected["systemd_unit"]
+      )
+  ):
+    raise RuntimeError("owned process identity does not match its descriptor")
+
+
+def command_require_formal_process_gone(args):
+  descriptor = load_formal_process_descriptor(
+      args.descriptor, args.output_root, args.mode, args.label, args.host
+  )
+  identity = load_owned_process_identity(args.identity)
+  expected = {
+      "role": args.role,
+      **descriptor["identities"][args.role],
+  }
+  validate_formal_process_identity(identity, expected, require_unit=False)
+  require_process_gone(identity, descriptor["systemd_unit"] if (
+      args.role == "benchexec-launcher"
+  ) else None)
+  validate_formal_process_identity(identity, expected)
+
+
 def command_monitor_formal_load(args):
   output = Path(args.output).resolve()
   if output.exists():
@@ -2463,6 +3160,487 @@ def command_monitor_formal_load(args):
       }, sort_keys=True) + "\n")
       previous = current
       previous_monotonic = now_monotonic
+
+
+def formal_attempt_path(root, value, label):
+  declared = Path(value)
+  path = declared.resolve()
+  try:
+    relative = path.relative_to(root)
+  except ValueError as error:
+    raise RuntimeError(f"{label} escapes formal output") from error
+  if (
+      declared.is_symlink()
+      or Path(os.path.abspath(declared)) != path
+      or not path.is_file()
+  ):
+    raise RuntimeError(f"{label} is not a regular file")
+  return path, relative.as_posix()
+
+
+def machine_check_record(before, after):
+  before_data = json.loads(before.read_text(encoding="utf-8"))
+  after_data = json.loads(after.read_text(encoding="utf-8"))
+  if before_data.get("hostname") != after_data.get("hostname"):
+    raise RuntimeError("attempt machine snapshots have different hosts")
+  deltas = {}
+  for name in (
+      "package_throttle_count",
+      "package_throttle_total_time_ms",
+      "pswpin_pages",
+      "pswpout_pages",
+  ):
+    start = int(before_data["measurement_counters"][name])
+    end = int(after_data["measurement_counters"][name])
+    if end < start:
+      raise RuntimeError(f"attempt machine counter decreased: {name}")
+    deltas[name] = end - start
+  changed = any(deltas.values())
+  return {
+      "hostname": before_data["hostname"],
+      "accepted": True,
+      "stable": not changed,
+      "counter_deltas": deltas,
+      "warnings": (
+          ["thermal throttling or swap activity observed"] if changed else []
+      ),
+  }
+
+
+def formal_attempt_record(args):
+  root = Path(args.output_root).resolve()
+  manifest_path = Path(args.manifest).resolve()
+  manifest = baseline.load_task_manifest(manifest_path)
+  paths = {}
+  for name in (
+      "definition",
+      "result",
+      "benchexec_log",
+      "benchexec_process",
+      "process_descriptor",
+      "load_monitor",
+      "monitor_pid",
+      "monitor_process",
+      "monitor_stopped",
+      "machine_before",
+      "machine_after",
+      "machine_check",
+  ):
+    path, relative = formal_attempt_path(
+        root, getattr(args, name), name.replace("_", " ")
+    )
+    paths[name] = (path, relative)
+  if args.benchexec_exit not in {0, 130}:
+    raise RuntimeError("formal attempt BenchExec exit is not accepted")
+  result_tasks = result_task_names(paths["result"][0], manifest)
+  subset = {task: manifest[task] for task in result_tasks}
+  subset_manifest = {
+      "task_count": len(result_tasks),
+      "tasks": [manifest[task] for task in result_tasks],
+  }
+  validate_formal_definition(
+      paths["definition"][0],
+      manifest_path,
+      subset_manifest,
+      args.sv_benchmarks,
+  )
+  metadata = result_metadata(
+      paths["result"][0], FORMAL_DISPLAY, "900 s", allow_incomplete=True
+  )
+  if metadata["host"] != args.host:
+    raise RuntimeError("formal attempt host is invalid")
+  validate_result_run_topology(
+      paths["result"][0],
+      subset,
+      args.sv_benchmarks,
+      paths["definition"][0],
+  )
+  if not paths["benchexec_log"][0].read_text(
+      encoding="utf-8", errors="replace"
+  ):
+    raise RuntimeError("formal attempt BenchExec log is empty")
+  benchexec_identity = load_owned_process_identity(
+      paths["benchexec_process"][0]
+  )
+  process_descriptor = load_formal_process_descriptor(
+      paths["process_descriptor"][0],
+      root,
+      args.mode,
+      args.label,
+      args.host,
+  )
+  load_formal_contention_intervals(paths["load_monitor"][0])
+  monitor_header = json.loads(
+      paths["load_monitor"][0].read_text(encoding="utf-8").splitlines()[0]
+  )
+  descriptor_inputs = process_descriptor["inputs"]
+  if (
+      descriptor_inputs["definition"] != str(paths["definition"][0])
+      or descriptor_inputs["result_output"] != str(paths["result"][0].parent)
+      or descriptor_inputs["monitor_output"] != str(paths["load_monitor"][0])
+      or descriptor_inputs["monitor_exclude_root"]
+      != monitor_header["excluded_process_root"]
+  ):
+    raise RuntimeError(
+        "formal process descriptor does not match attempt evidence"
+    )
+  if (
+      benchexec_identity.get("role") != "benchexec-launcher"
+      or benchexec_identity.get("uid") != os.getuid()
+  ):
+    raise RuntimeError("formal BenchExec process identity is invalid")
+  validate_formal_process_identity(benchexec_identity, {
+      "role": "benchexec-launcher",
+      **process_descriptor["identities"]["benchexec-launcher"],
+  })
+  require_process_gone(
+      benchexec_identity, process_descriptor["systemd_unit"]
+  )
+  pid = int(paths["monitor_pid"][0].read_text(encoding="utf-8"))
+  process_identity = load_owned_process_identity(
+      paths["monitor_process"][0]
+  )
+  if (
+      process_identity.get("pid") != pid
+      or process_identity.get("uid") != os.getuid()
+      or process_identity.get("role") != "load-monitor"
+  ):
+    raise RuntimeError("formal attempt monitor process identity is invalid")
+  validate_formal_process_identity(process_identity, {
+      "role": "load-monitor",
+      **process_descriptor["identities"]["load-monitor"],
+  })
+  require_process_gone(process_identity)
+  stopped = {}
+  for line in paths["monitor_stopped"][0].read_text(
+      encoding="utf-8"
+  ).splitlines():
+    key, value = line.split("=", 1)
+    stopped[key] = int(value)
+  if (
+      stopped != {
+          "pid": pid,
+          "exit": 0,
+          "samples": stopped.get("samples"),
+      }
+      or stopped["samples"] <= 0
+  ):
+    raise RuntimeError("formal attempt monitor stop evidence is invalid")
+  expected_check = machine_check_record(
+      paths["machine_before"][0], paths["machine_after"][0]
+  )
+  if expected_check["hostname"] != args.host:
+    raise RuntimeError("formal attempt machine host is invalid")
+  actual_check = json.loads(
+      paths["machine_check"][0].read_text(encoding="utf-8")
+  )
+  if actual_check != expected_check:
+    raise RuntimeError("formal attempt machine check is invalid")
+  return {
+      "schema_version": FORMAL_ATTEMPT_SCHEMA,
+      "mode": args.mode,
+      "host": args.host,
+      "manifest_sha256": baseline.sha256_file(manifest_path),
+      "label": args.label,
+      "role": args.role,
+      "repetition": args.repetition,
+      "benchexec_exit": args.benchexec_exit,
+      "result_tasks": sorted(result_tasks),
+      "result_incomplete": metadata["incomplete"],
+      "files": {
+          name: {
+              "path": relative,
+              "sha256": baseline.sha256_file(path),
+          }
+          for name, (path, relative) in sorted(paths.items())
+      },
+  }
+
+
+def validate_formal_attempt_marker(
+    marker_path, root, manifest_path, sv_benchmarks, host, mode
+):
+  marker = Path(marker_path).resolve()
+  record = json.loads(marker.read_text(encoding="utf-8"))
+  if (
+      not isinstance(record, dict)
+      or set(record) != {
+          "schema_version",
+          "mode",
+          "host",
+          "manifest_sha256",
+          "label",
+          "role",
+          "repetition",
+          "benchexec_exit",
+          "result_tasks",
+          "result_incomplete",
+          "files",
+      }
+      or record["schema_version"] != FORMAL_ATTEMPT_SCHEMA
+      or record["mode"] != mode
+      or record["host"] != host
+      or record["manifest_sha256"] != baseline.sha256_file(manifest_path)
+      or record["role"] not in {"primary", "replacement"}
+      or marker.stem != record["label"]
+      or not isinstance(record["files"], dict)
+      or set(record["files"]) != {
+          "definition",
+          "result",
+          "benchexec_log",
+          "benchexec_process",
+          "process_descriptor",
+          "load_monitor",
+          "monitor_pid",
+          "monitor_process",
+          "monitor_stopped",
+          "machine_before",
+          "machine_after",
+          "machine_check",
+      }
+  ):
+    raise RuntimeError("formal attempt marker schema or identity is invalid")
+  canonical_label = (
+      f"repetition-{record['repetition']}"
+      if record["role"] == "primary"
+      else rf"repetition-{record['repetition']}-replacement-attempt-[1-9]\d*"
+  )
+  if (
+      record["label"] != canonical_label
+      if record["role"] == "primary"
+      else re.fullmatch(canonical_label, record["label"]) is None
+  ):
+    raise RuntimeError("formal attempt marker label is not canonical")
+  args = argparse.Namespace(
+      output_root=str(root),
+      manifest=str(manifest_path),
+      sv_benchmarks=str(sv_benchmarks),
+      host=host,
+      mode=mode,
+      label=record["label"],
+      role=record["role"],
+      repetition=record["repetition"],
+      benchexec_exit=record["benchexec_exit"],
+      **{
+          name: str(Path(root) / entry["path"])
+          for name, entry in record["files"].items()
+      },
+  )
+  expected = formal_attempt_record(args)
+  if expected != record:
+    raise RuntimeError("formal attempt marker content is invalid")
+  return record
+
+
+def command_formal_attempt_complete(args):
+  output = Path(args.output).resolve()
+  record = formal_attempt_record(args)
+  content = json.dumps(record, indent=2) + "\n"
+  if output.exists():
+    if output.read_text(encoding="utf-8") != content:
+      raise RuntimeError("formal attempt completion marker is invalid")
+  else:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.tmp-{os.getpid()}")
+    temporary.write_text(content, encoding="utf-8")
+    os.replace(temporary, output)
+  validate_formal_attempt_marker(
+      output,
+      Path(args.output_root).resolve(),
+      Path(args.manifest).resolve(),
+      args.sv_benchmarks,
+      args.host,
+      args.mode,
+  )
+  print(output)
+
+
+def command_validate_formal_closure(args):
+  root = Path(args.output_root).resolve()
+  manifest_path = Path(args.manifest).resolve()
+  validate_manifest(manifest_path, args.sv_benchmarks)
+  manifest = baseline.load_task_manifest(manifest_path)
+  if len(args.repetition_plan) != 2:
+    raise RuntimeError("formal closure requires exactly two repetition plans")
+  complete = root / "summary/.complete"
+  if args.require_complete:
+    if (
+        complete.is_symlink()
+        or not complete.is_file()
+        or complete.read_text(encoding="utf-8") != "complete\n"
+    ):
+      raise RuntimeError("formal output completion sentinel is invalid")
+  elif complete.exists():
+    raise RuntimeError("formal output completed before closure validation")
+  expected_summary = {
+      "classification.csv",
+      "hard-portfolio.csv",
+      "mixed.csv",
+      "row-provenance.json",
+      "summary.json",
+      "verifier-failure-quarantine.csv",
+      "wrong-quarantine.csv",
+  }
+  actual_summary = {
+      path.name
+      for path in (root / "summary").iterdir()
+      if path.name != ".complete"
+  }
+  if actual_summary != expected_summary:
+    raise RuntimeError("formal summary topology is incomplete")
+  artifact = root / "provenance/artifact-manifest.json"
+  validate_artifact_manifest(
+      root, artifact, {"summary/.complete"}
+  )
+  mandatory = [
+      "input/research/inventory.sha256",
+      "provenance/build.log",
+      "provenance/cgroup-check.log",
+      "provenance/machine-preflight-start.json",
+      "provenance/machine-preflight-end.json",
+      "provenance/machine-preflight-check.json",
+      "provenance/research-verification-final.log",
+      "provenance/runtime-verification-final.log",
+      "provenance/runtime-closure.txt",
+  ]
+  for relative in mandatory:
+    if not (root / relative).is_file():
+      raise RuntimeError(f"formal closure lacks mandatory file: {relative}")
+  marker_records = {}
+  marker_dir = root / "provenance/attempts"
+  markers = sorted(marker_dir.glob("*.json"))
+  if not markers:
+    raise RuntimeError("formal closure has no attempt markers")
+  for marker in markers:
+    record = validate_formal_attempt_marker(
+        marker,
+        root,
+        Path(args.manifest).resolve(),
+        args.sv_benchmarks,
+        args.host,
+        args.mode,
+    )
+    marker_records[record["label"]] = record
+  expected_attempts = {}
+  repetitions = []
+  authenticated_plans = []
+  for repetition, plan_value in enumerate(args.repetition_plan, start=1):
+    plan_path = Path(plan_value).resolve()
+    try:
+      plan_path.relative_to(root)
+    except ValueError as error:
+      raise RuntimeError("formal closure repetition plan escapes output") from error
+    if not plan_path.is_file() or plan_path.is_symlink():
+      raise RuntimeError("formal closure repetition plan is not regular")
+    if args.mode == "cap16":
+      authenticated = load_screen_plan(
+          plan_path,
+          manifest,
+          manifest_path,
+          args.host,
+          args.sv_benchmarks,
+          args.benchmark_definition,
+          plan_schema=CAP16_FORMAL_REPETITION_PLAN_SCHEMA,
+          repetition=repetition,
+          display=FORMAL_DISPLAY,
+          time_limit="900 s",
+          taint_schema=FORMAL_TAINT_SCHEMA,
+          definition_validator=validate_formal_definition,
+          hard_threshold=200,
+      )
+    else:
+      authenticated = load_repetition_plan(
+          plan_path,
+          manifest,
+          manifest_path,
+          args.host,
+          args.sv_benchmarks,
+          args.benchmark_definition,
+          200,
+      )
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    authenticated_plans.append(authenticated)
+    repetitions.append(plan["repetition"])
+    primary_label = f"repetition-{plan['repetition']}"
+    expected_attempts[primary_label] = {
+        "repetition": plan["repetition"],
+        "role": "primary",
+        "result_sha256": plan["primary"]["sha256"],
+        "definition_sha256": baseline.sha256_file(
+            Path(args.benchmark_definition)
+        ),
+        "tasks": sorted(manifest),
+    }
+    for entry in plan["replacements"]:
+      label = Path(entry["path"]).parent.name
+      expected_attempts[label] = {
+          "repetition": plan["repetition"],
+          "role": "replacement",
+          "result_sha256": entry["sha256"],
+          "definition_sha256": entry["definition_sha256"],
+          "tasks": entry.get("result_tasks", entry.get("tasks")),
+      }
+  if repetitions != [1, 2]:
+    raise RuntimeError("formal closure plans must be ordered 1 then 2")
+  if len({plan["plan_sha256"] for plan in authenticated_plans}) != 2:
+    raise RuntimeError("formal closure repetition plans are not distinct")
+  authenticated_results = [
+      digest
+      for plan in authenticated_plans
+      for digest in [
+          plan["primary_sha256"],
+          *plan["replacement_sha256"],
+      ]
+  ]
+  if len(authenticated_results) != len(set(authenticated_results)):
+    raise RuntimeError("formal closure result artifacts are reused")
+  if {marker.stem for marker in markers} != set(expected_attempts):
+    raise RuntimeError(
+        "formal attempt markers do not match exactly the planned attempts"
+    )
+  for label, expected in expected_attempts.items():
+    record = marker_records[label]
+    actual = {
+        "repetition": record["repetition"],
+        "role": record["role"],
+        "result_sha256": record["files"]["result"]["sha256"],
+        "definition_sha256": record["files"]["definition"]["sha256"],
+        "tasks": record["result_tasks"],
+    }
+    if actual != expected:
+      raise RuntimeError(
+          f"formal attempt marker does not match its planned attempt: {label}"
+      )
+  print(json.dumps({
+      "artifact_aggregate_sha256": json.loads(
+          artifact.read_text(encoding="utf-8")
+      )["aggregate_sha256"],
+      "attempt_count": len(markers),
+      "complete": args.require_complete,
+      "valid": True,
+  }, sort_keys=True))
+
+
+def command_write_complete_sentinel(args):
+  output = Path(args.output)
+  if output.exists() or output.is_symlink():
+    raise RuntimeError("formal completion sentinel already exists")
+  output.parent.mkdir(parents=True, exist_ok=True)
+  temporary = output.with_name(f".{output.name}.tmp-{os.getpid()}")
+  descriptor = os.open(
+      temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644
+  )
+  try:
+    os.write(descriptor, b"complete\n")
+    os.fsync(descriptor)
+  finally:
+    os.close(descriptor)
+  os.replace(temporary, output)
+  directory = os.open(output.parent, os.O_RDONLY)
+  try:
+    os.fsync(directory)
+  finally:
+    os.close(directory)
 
 
 def load_formal_contention_intervals(path):
@@ -2943,7 +4121,7 @@ def command_repetition_plan(args):
   write_repetition_plan(args)
 
 
-def command_screen_plan(args):
+def write_iterative_repetition_plan(args, plan_schema, taint_schema):
   output = Path(args.output).resolve()
   if output.exists():
     raise RuntimeError(f"screen plan output already exists: {output}")
@@ -2956,10 +4134,10 @@ def command_screen_plan(args):
         json.loads(
             (output.parent / taint["path"]).read_text(encoding="utf-8")
         ),
-        1,
+        args.repetition,
         primary["sha256"],
         manifest,
-        SCREEN_TAINT_SCHEMA,
+        taint_schema,
     )
   else:
     taint = None
@@ -2989,10 +4167,10 @@ def command_screen_plan(args):
                 encoding="utf-8"
             )
         ),
-        1,
+        args.repetition,
         result["sha256"],
         manifest,
-        SCREEN_TAINT_SCHEMA,
+        taint_schema,
     )
     if not set(next_remaining) <= set(remaining):
       raise RuntimeError("screen replacement taint expands the pending task set")
@@ -3010,14 +4188,26 @@ def command_screen_plan(args):
   if remaining:
     raise RuntimeError("screen replacements do not resolve every tainted task")
   plan = {
-      "schema_version": SCREEN_REPETITION_PLAN_SCHEMA,
-      "repetition": 1,
+      "schema_version": plan_schema,
+      "repetition": args.repetition,
       "primary": primary,
       "taint": taint,
       "replacements": replacements,
   }
   output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
   print(output)
+
+
+def command_screen_plan(args):
+  write_iterative_repetition_plan(
+      args, SCREEN_REPETITION_PLAN_SCHEMA, SCREEN_TAINT_SCHEMA
+  )
+
+
+def command_cap16_repetition_plan(args):
+  write_iterative_repetition_plan(
+      args, CAP16_FORMAL_REPETITION_PLAN_SCHEMA, FORMAL_TAINT_SCHEMA
+  )
 
 
 def load_screen_plan(
@@ -3027,6 +4217,13 @@ def load_screen_plan(
     host,
     sv_benchmarks,
     benchmark_definition,
+    plan_schema=SCREEN_REPETITION_PLAN_SCHEMA,
+    repetition=1,
+    display=DISCOVERY_DISPLAY,
+    time_limit="120 s",
+    taint_schema=SCREEN_TAINT_SCHEMA,
+    definition_validator=validate_screen_definition,
+    hard_threshold=200,
 ):
   declared_path = Path(path)
   path = declared_path.resolve()
@@ -3044,8 +4241,8 @@ def load_screen_plan(
       "taint",
       "replacements",
   } or (
-      plan["schema_version"] != SCREEN_REPETITION_PLAN_SCHEMA
-      or plan["repetition"] != 1
+      plan["schema_version"] != plan_schema
+      or plan["repetition"] != repetition
       or not isinstance(plan["replacements"], list)
   ):
     raise RuntimeError("screen plan topology or identity is invalid")
@@ -3053,7 +4250,7 @@ def load_screen_plan(
   primary = declared_plan_file(root, plan["primary"], "screen primary result")
   primary_hash = plan["primary"]["sha256"]
   primary_metadata = result_metadata(
-      primary, DISCOVERY_DISPLAY, "120 s", allow_incomplete=True
+      primary, display, time_limit, allow_incomplete=True
   )
   if primary_metadata["host"] != host:
     raise RuntimeError("screen primary result does not match its manifest host")
@@ -3062,7 +4259,9 @@ def load_screen_plan(
   )
   primary_rows = {
       row["task"]: row
-      for row in baseline.parse_result_rows(primary, manifest, 200)
+      for row in baseline.parse_result_rows(
+          primary, manifest, hard_threshold
+      )
   }
   if plan["taint"] is None:
     tainted = {}
@@ -3074,10 +4273,10 @@ def load_screen_plan(
     taint_hash = plan["taint"]["sha256"]
     tainted = validate_taint_manifest(
         json.loads(taint_path.read_text(encoding="utf-8")),
-        1,
+        repetition,
         primary_hash,
         manifest,
-        SCREEN_TAINT_SCHEMA,
+        taint_schema,
     )
   missing = {
       task for task, row in primary_rows.items() if not row_is_complete(row)
@@ -3156,14 +4355,14 @@ def load_screen_plan(
         "task_count": len(entry["result_tasks"]),
         "tasks": [manifest[task] for task in entry["result_tasks"]],
     }
-    validate_screen_definition(
+    definition_validator(
         definition,
         manifest_path,
         replacement_manifest,
         sv_benchmarks,
     )
     replacement_metadata = result_metadata(
-        replacement, DISCOVERY_DISPLAY, "120 s", allow_incomplete=True
+        replacement, display, time_limit, allow_incomplete=True
     )
     if replacement_metadata["host"] != host:
       raise RuntimeError("screen replacement does not match its manifest host")
@@ -3172,14 +4371,16 @@ def load_screen_plan(
     )
     rows = {
         row["task"]: row
-        for row in baseline.parse_result_rows(replacement, subset, 200)
+        for row in baseline.parse_result_rows(
+            replacement, subset, hard_threshold
+        )
     }
     next_tainted = validate_taint_manifest(
         json.loads(replacement_taint.read_text(encoding="utf-8")),
-        1,
+        repetition,
         entry["sha256"],
         manifest,
-        SCREEN_TAINT_SCHEMA,
+        taint_schema,
     )
     if not set(next_tainted) <= remaining:
       raise RuntimeError("screen replacement taint expands the pending task set")
@@ -3213,10 +4414,13 @@ def load_screen_plan(
     if len({item[field] for item in metadata}) != len(metadata):
       raise RuntimeError(f"screen attempts must have distinct {field} values")
   return {
+      "repetition": repetition,
       "plan_sha256": baseline.sha256_file(path),
       "primary_sha256": primary_hash,
       "taint_sha256": taint_hash,
       "replacement_sha256": result_hashes[1:],
+      "metadata": primary_metadata,
+      "replacement_metadata": metadata[1:],
       "rows": accepted,
       "row_sources": [row_sources[task] for task in sorted(row_sources)],
   }
@@ -3239,18 +4443,38 @@ def command_summarize(args):
       args.sv_benchmarks,
   )
   manifest = baseline.load_task_manifest(manifest_path)
-  plans = [
-      load_repetition_plan(
-        plan,
-        manifest,
-        manifest_path,
-        host,
-        args.sv_benchmarks,
-        args.benchmark_definition,
-        args.hard_threshold,
-      )
-      for plan in args.repetition_plan
-  ]
+  if hasattr(args, "phase_a_output"):
+    plans = [
+        load_screen_plan(
+            plan,
+            manifest,
+            manifest_path,
+            host,
+            args.sv_benchmarks,
+            args.benchmark_definition,
+            plan_schema=CAP16_FORMAL_REPETITION_PLAN_SCHEMA,
+            repetition=index,
+            display=FORMAL_DISPLAY,
+            time_limit="900 s",
+            taint_schema=FORMAL_TAINT_SCHEMA,
+            definition_validator=validate_formal_definition,
+            hard_threshold=args.hard_threshold,
+        )
+        for index, plan in enumerate(args.repetition_plan, start=1)
+    ]
+  else:
+    plans = [
+        load_repetition_plan(
+          plan,
+          manifest,
+          manifest_path,
+          host,
+          args.sv_benchmarks,
+          args.benchmark_definition,
+          args.hard_threshold,
+        )
+        for plan in args.repetition_plan
+    ]
   if [plan["repetition"] for plan in plans] != [1, 2]:
     raise RuntimeError("formal repetition plans must be ordered 1 then 2")
   if len({plan["plan_sha256"] for plan in plans}) != 2:
@@ -3336,7 +4560,8 @@ def command_summarize(args):
           [
               row
               for row in rows
-              if row["classification"] in {"stable_hard_solved", "stable_unsolved"}
+              if row["classification"]
+              in {"stable_hard_solved", "stable_analysis_unsolved"}
           ],
       ),
       (
@@ -3364,7 +4589,8 @@ def command_summarize(args):
       "hard_threshold_cpu_seconds": args.hard_threshold,
       "classifications": dict(sorted(counts.items())),
       "hard_portfolio": sum(
-          row["classification"] in {"stable_hard_solved", "stable_unsolved"}
+          row["classification"]
+          in {"stable_hard_solved", "stable_analysis_unsolved"}
           for row in rows
       ),
       "by_source": {
@@ -3399,6 +4625,11 @@ def add_phase_b_inputs(parser):
   parser.add_argument("--phase-a-manifest", action="append", required=True)
   parser.add_argument("--survivor-manifest", action="append", required=True)
   parser.add_argument("--phase-a-result", action="append", required=True)
+  parser.add_argument("--sv-benchmarks", required=True)
+
+
+def add_cap16_phase_b_input(parser):
+  parser.add_argument("--phase-a-output", required=True)
   parser.add_argument("--sv-benchmarks", required=True)
 
 
@@ -3477,6 +4708,12 @@ def main():
   render_formal.add_argument("--property-file", required=True)
   render_formal.add_argument("--output-dir", required=True)
   render_formal.set_defaults(function=command_render_formal)
+  render_cap16_formal = commands.add_parser("render-cap16-formal")
+  add_cap16_phase_b_input(render_cap16_formal)
+  render_cap16_formal.add_argument("--manifest", required=True)
+  render_cap16_formal.add_argument("--property-file", required=True)
+  render_cap16_formal.add_argument("--output-dir", required=True)
+  render_cap16_formal.set_defaults(function=command_render_formal)
   render_replacement = commands.add_parser("render-formal-replacement")
   add_phase_b_inputs(render_replacement)
   render_replacement.add_argument("--manifest", required=True)
@@ -3485,6 +4722,18 @@ def main():
   render_replacement.add_argument("--property-file", required=True)
   render_replacement.add_argument("--output-dir", required=True)
   render_replacement.set_defaults(function=command_render_formal_replacement)
+  render_cap16_replacement = commands.add_parser(
+      "render-cap16-formal-replacement"
+  )
+  add_cap16_phase_b_input(render_cap16_replacement)
+  render_cap16_replacement.add_argument("--manifest", required=True)
+  render_cap16_replacement.add_argument("--primary-result", required=True)
+  render_cap16_replacement.add_argument("--taint-manifest", required=True)
+  render_cap16_replacement.add_argument("--property-file", required=True)
+  render_cap16_replacement.add_argument("--output-dir", required=True)
+  render_cap16_replacement.set_defaults(
+      function=command_render_formal_replacement
+  )
   render_screen_replacement = commands.add_parser(
       "render-screen-replacement"
   )
@@ -3508,6 +4757,13 @@ def main():
   validate.add_argument("--manifest", required=True)
   validate.add_argument("--sv-benchmarks", required=True)
   validate.set_defaults(function=command_validate)
+  validate_cap16 = commands.add_parser("validate-cap16-phase-a")
+  add_cap16_phase_b_input(validate_cap16)
+  validate_cap16.set_defaults(function=command_validate_cap16_phase_a)
+  package_cap16 = commands.add_parser("package-cap16-phase-a")
+  add_cap16_phase_b_input(package_cap16)
+  package_cap16.add_argument("--output-dir", required=True)
+  package_cap16.set_defaults(function=command_package_cap16_phase_a)
   license_audit = commands.add_parser("license-audit")
   license_audit.add_argument("--manifest", required=True)
   license_audit.add_argument("--sv-benchmarks", required=True)
@@ -3529,6 +4785,26 @@ def main():
   repetition_plan.add_argument("--replacement-definition", action="append")
   repetition_plan.add_argument("--output", required=True)
   repetition_plan.set_defaults(function=command_repetition_plan)
+  cap16_repetition_plan = commands.add_parser("cap16-repetition-plan")
+  cap16_repetition_plan.add_argument("--manifest", required=True)
+  cap16_repetition_plan.add_argument(
+      "--repetition", type=int, choices=(1, 2), required=True
+  )
+  cap16_repetition_plan.add_argument("--primary-result", required=True)
+  cap16_repetition_plan.add_argument("--taint-manifest")
+  cap16_repetition_plan.add_argument(
+      "--replacement-result", action="append"
+  )
+  cap16_repetition_plan.add_argument(
+      "--replacement-definition", action="append"
+  )
+  cap16_repetition_plan.add_argument(
+      "--replacement-taint-manifest", action="append"
+  )
+  cap16_repetition_plan.add_argument("--output", required=True)
+  cap16_repetition_plan.set_defaults(
+      function=command_cap16_repetition_plan
+  )
   screen_plan = commands.add_parser("screen-plan")
   screen_plan.add_argument("--manifest", required=True)
   screen_plan.add_argument("--primary-result", required=True)
@@ -3542,6 +4818,110 @@ def main():
   monitor_formal_load.add_argument("--output", required=True)
   monitor_formal_load.add_argument("--exclude-root", type=int, required=True)
   monitor_formal_load.set_defaults(function=command_monitor_formal_load)
+  capture_process = commands.add_parser("capture-process-identity")
+  capture_process.add_argument("--pid", type=int, required=True)
+  capture_process.add_argument("--role", required=True)
+  capture_process.add_argument("--output", required=True)
+  capture_process.set_defaults(function=command_capture_process_identity)
+  process_unit = commands.add_parser("formal-systemd-unit")
+  process_unit.add_argument("--output-root", required=True)
+  process_unit.add_argument("--mode", choices=("cap8", "cap16"), required=True)
+  process_unit.add_argument("--label", required=True)
+  process_unit.set_defaults(function=command_formal_systemd_unit)
+  process_descriptor = commands.add_parser(
+      "write-formal-process-descriptor"
+  )
+  for name in (
+      "output-root",
+      "mode",
+      "label",
+      "host",
+      "name",
+      "definition",
+      "result-output",
+      "monitor-output",
+      "dataset-py",
+      "cpachecker-dir",
+      "benchexec-dir",
+      "python-bin",
+      "java-home",
+      "p-cores",
+      "output",
+  ):
+    process_descriptor.add_argument(f"--{name}", required=True)
+  process_descriptor.add_argument(
+      "--monitor-exclude-root", type=int, required=True
+  )
+  process_descriptor.set_defaults(
+      function=command_write_formal_process_descriptor
+  )
+  require_formal_gone = commands.add_parser(
+      "require-formal-process-gone"
+  )
+  require_formal_gone.add_argument("--descriptor", required=True)
+  require_formal_gone.add_argument("--identity", required=True)
+  require_formal_gone.add_argument("--output-root", required=True)
+  require_formal_gone.add_argument(
+      "--mode", choices=("cap8", "cap16"), required=True
+  )
+  require_formal_gone.add_argument("--label", required=True)
+  require_formal_gone.add_argument("--host", required=True)
+  require_formal_gone.add_argument(
+      "--role",
+      choices=("benchexec-launcher", "load-monitor"),
+      required=True,
+  )
+  require_formal_gone.set_defaults(
+      function=command_require_formal_process_gone
+  )
+  attempt_complete = commands.add_parser("formal-attempt-complete")
+  attempt_complete.add_argument("--output-root", required=True)
+  attempt_complete.add_argument("--manifest", required=True)
+  attempt_complete.add_argument("--sv-benchmarks", required=True)
+  attempt_complete.add_argument("--host", required=True)
+  attempt_complete.add_argument("--mode", choices=("cap8", "cap16"), required=True)
+  attempt_complete.add_argument("--label", required=True)
+  attempt_complete.add_argument(
+      "--role", choices=("primary", "replacement"), required=True
+  )
+  attempt_complete.add_argument(
+      "--repetition", type=int, choices=(1, 2), required=True
+  )
+  attempt_complete.add_argument(
+      "--benchexec-exit", type=int, required=True
+  )
+  for name in (
+      "definition",
+      "result",
+      "benchexec-log",
+      "benchexec-process",
+      "process-descriptor",
+      "load-monitor",
+      "monitor-pid",
+      "monitor-process",
+      "monitor-stopped",
+      "machine-before",
+      "machine-after",
+      "machine-check",
+  ):
+    attempt_complete.add_argument(f"--{name}", required=True)
+  attempt_complete.add_argument("--output", required=True)
+  attempt_complete.set_defaults(function=command_formal_attempt_complete)
+  formal_closure = commands.add_parser("validate-formal-closure")
+  formal_closure.add_argument("--output-root", required=True)
+  formal_closure.add_argument("--manifest", required=True)
+  formal_closure.add_argument("--benchmark-definition", required=True)
+  formal_closure.add_argument("--sv-benchmarks", required=True)
+  formal_closure.add_argument("--host", required=True)
+  formal_closure.add_argument("--mode", choices=("cap8", "cap16"), required=True)
+  formal_closure.add_argument(
+      "--repetition-plan", action="append", required=True
+  )
+  formal_closure.add_argument("--require-complete", action="store_true")
+  formal_closure.set_defaults(function=command_validate_formal_closure)
+  complete_sentinel = commands.add_parser("write-complete-sentinel")
+  complete_sentinel.add_argument("--output", required=True)
+  complete_sentinel.set_defaults(function=command_write_complete_sentinel)
   formal_taint = commands.add_parser("formal-taint")
   formal_taint.add_argument("--manifest", required=True)
   formal_taint.add_argument("--repetition", type=int, choices=(1, 2), required=True)
@@ -3565,6 +4945,16 @@ def main():
   summarize.add_argument("--output-dir", required=True)
   summarize.add_argument("--hard-threshold", type=float, default=200)
   summarize.set_defaults(function=command_summarize)
+  summarize_cap16 = commands.add_parser("summarize-cap16-formal")
+  add_cap16_phase_b_input(summarize_cap16)
+  summarize_cap16.add_argument("--manifest", required=True)
+  summarize_cap16.add_argument("--benchmark-definition", required=True)
+  summarize_cap16.add_argument(
+      "--repetition-plan", action="append", required=True
+  )
+  summarize_cap16.add_argument("--output-dir", required=True)
+  summarize_cap16.add_argument("--hard-threshold", type=float, default=200)
+  summarize_cap16.set_defaults(function=command_summarize)
   screen_summary = commands.add_parser("screen-summary")
   screen_summary.add_argument("--manifest", required=True)
   screen_summary.add_argument("--result", required=True)

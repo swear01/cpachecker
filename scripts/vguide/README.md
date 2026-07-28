@@ -55,9 +55,10 @@ Dataset v1 executed the stock `svcomp27` full portfolio twice with two four-core
 
 BenchExec emits both combined and per-source-group result XML files; only the combined XML is an input to repeated classification.
 
-Dataset v2 tightens `stable_unsolved` to repetitions classified as timeout,
-out-of-memory, or UNKNOWN. Verifier errors, exceptions, segmentation faults,
-and other non-analysis failures are written to
+Dataset v2 names the strict stratum `stable_analysis_unsolved` and limits it
+to repetitions classified as timeout, out-of-memory, or UNKNOWN. Verifier
+errors, exceptions, segmentation faults, and other non-analysis failures are
+written to
 `verifier-failure-quarantine.csv`; infrastructure, mixed, and wrong results
 remain separate. The frozen v1 release retains its original classification.
 
@@ -145,6 +146,98 @@ env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
   /path/to/cap16-minus-cap8/candidate-manifest-athena.json \
   /path/to/phase-a-output
 ```
+
+After that Phase-A output has its atomic `summary/.complete`, first materialize
+its portable formal-input package:
+
+```bash
+python3 scripts/vguide/dataset.py package-cap16-phase-a \
+  --phase-a-output /path/to/completed-cap16-phase-a-output \
+  --sv-benchmarks /path/to/sv-benchmarks \
+  --output-dir /path/to/cap16-phase-a-package
+```
+
+Packaging reauthenticates the complete source, rewrites benchmark, task-set and
+result paths to corpus-relative forms, rebuilds the screen plan, row
+provenance, survivor manifest and summary, and writes an artifact manifest
+whose root is `.`. The package can therefore be moved without retaining the
+source Phase-A output. Its exact aggregate hash is the formal identity gate.
+Until the Athena attempt-3 aggregate replaces
+`PENDING_AFTER_ATHENA_ATTEMPT3` in `dataset.py`, production authentication
+fails closed and the formal runner cannot launch.
+
+The cap-16 formal runner authenticates that frozen package's 254-task Athena
+manifest, fixed screen definition, complete iterative screen plan and every
+primary/replacement result, row-provenance bytes, recomputed survivor manifest,
+summary counts and portable artifact aggregate. It selects no task from an
+augmented result and does not accept a separately supplied survivor file. The
+authenticated Phase-A survivor manifest is the only formal input.
+
+The formal execution remains on Athena and reuses the existing two-repetition
+recovery implementation: 900 s CPU, 910 s hard-CPU and 920 s wall time,
+physical P-cores `0,2,4,6,8,10,12,14`, two four-core slots, the same sustained
+foreign-load monitor, and hashed per-case taint/replacement plans. A nonzero
+BenchExec interruption that leaves an incomplete XML is preserved. Reinvoking
+the same output authenticates its saved inputs, retains every completed
+untainted row, and continues only the current tainted subset. Each replacement
+round gets a newly rendered definition for the remaining subset; a clean
+primary is never rerun. An attempt is reusable only after an atomic completion
+record binds its result and definition, accepted BenchExec exit, nonempty log,
+load monitor PID and stopped/sample record, and before/after machine check.
+An attempt without that record, with or without XML, is checked against its
+recorded process identity (UID, PID, `/proc` start time and exact argv). The
+BenchExec launcher additionally uses a deterministic unique transient systemd
+scope derived from the canonical output root, mode and attempt label. A hashed
+process descriptor binds the exact launcher unit and full pinned
+systemd-run/taskset/environment/Python/BenchExec argv, plus the exact load
+monitor script, output and excluded root argv. Resume authenticates an
+unfinished identity against that descriptor before checking it and queries the
+descriptor's expected unit rather than trusting the identity's recorded unit.
+It requires both the launcher identity
+to be gone and that expected unit to be definitively inactive/not found. If either the
+exact owned process or unit is still alive, resume fails closed and never signals it.
+Only a gone or PID-reused/mismatched process allows the evidence to be moved to
+the abandoned archive and rerun; XML existence alone never authorizes reuse.
+Its runtime
+closure is the cap-16 Athena Python 3.12/PyYAML 6.0.1 closure, not the older
+Valkyrie Python 3.10 closure. Before any rendering or measurement it copies
+the portable package under `input/evidence/`, reauthenticates that saved copy,
+and uses only saved-copy paths for all later render, validate and summarize
+operations.
+
+Summary generation uses a separate staging directory. A crash cannot expose a
+partial final summary; on resume a staged summary is recomputed and either
+byte-compared with the promoted summary or atomically replaces incomplete
+evidence. The final closure validator semantically authenticates both repetition
+plans and requires an exact label-to-repetition, role, result hash, definition
+hash and task-subset match for every attempt record, with no extra, missing,
+reused or swapped attempts. It also checks the exact summary file set,
+research/runtime and machine evidence, and the artifact manifest. `summary/.complete` is written
+only after that validation and is the sole explicitly unmanifested
+post-manifest sentinel; completed-output resume revalidates the same closure.
+The sentinel must be a regular non-symlink containing exactly `complete\n` and
+is created with fsync plus atomic rename. A partial, symlink or nonregular
+sentinel is never treated as a legitimate crash artifact: resume fails closed
+and preserves it in place without automatic repair or removal.
+Before an incomplete invocation resumes, its mutable build, preflight,
+failure, summary and final-verification evidence is moved into a numbered
+`provenance/invocations/` directory instead of being overwritten.
+
+```bash
+env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
+  JAVA_HOME=/path/to/pinned-jdk-21 ANT_HOME=/path/to/pinned-ant \
+  scripts/vguide/run-stock-cap16-formal-dataset.sh \
+  /path/to/cpachecker-stock /path/to/sv-benchmarks /path/to/benchexec \
+  /path/to/cap16-phase-a-package \
+  /path/to/cap16-formal-output
+```
+
+The research checkout containing this runner must be frozen and published
+before launching formal measurements. `summarize-cap16-formal` classifies the
+two authenticated repetitions as `stable_hard_solved`,
+`stable_analysis_unsolved`, `stable_solved_fast`, wrong, verifier failure,
+infrastructure failure or mixed; only the first two enter
+`hard-portfolio.csv`.
 
 The r4 runner at commit
 `9701fce2b28672ba6da91ea2b1b10df3f715d6ba` accepts only the fixed Cthulhu

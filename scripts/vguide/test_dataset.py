@@ -17,6 +17,7 @@ import importlib.util
 import json
 import os
 import random
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -273,6 +274,106 @@ def zero_phase_a_survivors(fixture):
   fixture.formal_hash = fixture_formal_hash(fixture)
 
 
+def cap16_phase_a_fixture(root):
+  phase_a = root / "phase-a"
+  phase_a.mkdir()
+  source = phase_b_fixture(phase_a)
+  manifest = json.loads(Path(source.parent_manifest).read_text(encoding="utf-8"))
+  parent_sha256 = "f" * 64
+  manifest["derivation"] = {
+      "operation": "deterministic_stratified_shard",
+      "parent_manifest_sha256": parent_sha256,
+      "hosts": ["athena"],
+      "host": "athena",
+      "selection_independent_of_verifier_outcomes": True,
+  }
+  input_dir = phase_a / "input"
+  input_dir.mkdir()
+  shutil.copytree(phase_a / "corpus", input_dir / "corpus")
+  manifest_path = input_dir / "candidate-manifest-athena.json"
+  manifest_path.write_text(
+      json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+  )
+  generated = phase_a / "generated"
+  dataset.command_render(
+      SimpleNamespace(
+          manifest=str(manifest_path),
+          sv_benchmarks=str(phase_a),
+          property_file=str(phase_a / "c/properties/unreach-call.prp"),
+          output_dir=str(generated),
+      )
+  )
+  primary = phase_a / "primary.xml"
+  write_stock_result(primary, manifest["tasks"], "athena")
+  plan = phase_a / "screen-plan.json"
+  dataset.command_screen_plan(
+      SimpleNamespace(
+          manifest=str(manifest_path),
+          primary_result=str(primary),
+          taint_manifest=None,
+          replacement_result=None,
+          replacement_definition=None,
+          replacement_taint_manifest=None,
+          output=str(plan),
+          repetition=1,
+      )
+  )
+  summary = phase_a / "summary"
+  dataset.command_screen_summary_plan(
+      SimpleNamespace(
+          manifest=str(manifest_path),
+          benchmark_definition=str(generated / "hard-case-candidates.xml"),
+          screen_plan=str(plan),
+          sv_benchmarks=str(phase_a),
+          phase_a_host="athena",
+          output_dir=str(summary),
+      )
+  )
+  artifact = phase_a / "provenance/artifact-manifest.json"
+  dataset.baseline.command_artifact_manifest(
+      SimpleNamespace(root=str(phase_a), output=str(artifact))
+  )
+  (summary / ".complete").write_text("complete\n", encoding="utf-8")
+  return SimpleNamespace(
+      root=phase_a,
+      manifest=manifest_path,
+      manifest_sha256=dataset.baseline.sha256_file(manifest_path),
+      parent_sha256=parent_sha256,
+      survivor=summary / "candidate-manifest-analysis-survivors.json",
+      sv_benchmarks=phase_a,
+  )
+
+
+def package_cap16_fixture(fixture, output):
+  with mock.patch.multiple(
+      dataset,
+      FROZEN_CAP16_ATHENA_MANIFEST_SHA256=fixture.manifest_sha256,
+      FROZEN_CAP16_PARENT_MANIFEST_SHA256=fixture.parent_sha256,
+      FROZEN_CAP16_PHASE_A_TASK_COUNT=6,
+  ):
+    dataset.command_package_cap16_phase_a(
+        SimpleNamespace(
+            phase_a_output=str(fixture.root),
+            sv_benchmarks=str(fixture.sv_benchmarks),
+            output_dir=str(output),
+        )
+      )
+  artifact = json.loads(
+      (output / "provenance/artifact-manifest.json").read_text(
+          encoding="utf-8"
+      )
+  )
+  return SimpleNamespace(
+      root=output,
+      manifest=output / "input/candidate-manifest-athena.json",
+      manifest_sha256=fixture.manifest_sha256,
+      parent_sha256=fixture.parent_sha256,
+      survivor=output / "summary/candidate-manifest-analysis-survivors.json",
+      sv_benchmarks=fixture.sv_benchmarks,
+      aggregate_sha256=artifact["aggregate_sha256"],
+  )
+
+
 class DatasetTest(unittest.TestCase):
 
   def test_family_cap_is_deterministic_and_stratified(self):
@@ -312,7 +413,10 @@ class DatasetTest(unittest.TestCase):
         },
     ]
     self.assertEqual(dataset.classify_repetitions(hard, 200), "stable_hard_solved")
-    self.assertEqual(dataset.classify_repetitions(unsolved, 200), "stable_unsolved")
+    self.assertEqual(
+        dataset.classify_repetitions(unsolved, 200),
+        "stable_analysis_unsolved",
+    )
     for status in ("ERROR", "EXCEPTION", "segmentation fault"):
       with self.subTest(status=status):
         verifier_failure = [
@@ -1045,7 +1149,8 @@ class DatasetTest(unittest.TestCase):
         "a20797345df1bef6d5be5356906ee106b75b374b0d6cd2adfbc56cc5c3e65fef",
     ):
       self.assertIn(value, runner)
-    self.assertIn('$(hostname -s) != "valkyrie"', runner)
+    self.assertIn("FORMAL_HOST=valkyrie", runner)
+    self.assertIn('$(hostname -s) != "$FORMAL_HOST"', runner)
     self.assertIn("LLM/VGuide environment is forbidden", runner)
     self.assertIn("output directory must be absent or empty", runner)
     self.assertIn('OUTPUT_DIR=$(realpath -m "${15}")', runner)
@@ -1082,7 +1187,8 @@ class DatasetTest(unittest.TestCase):
     self.assertLess(remove_classes, runner.index("machine-preflight-start.json", build))
     self.assertGreaterEqual(runner.count("verify_runtime_closure"), 5)
     self.assertIn("sleep 10", runner)
-    self.assertIn('"$DATASET_PY" render-formal', runner)
+    self.assertIn("RENDER_FORMAL_COMMAND=render-formal", runner)
+    self.assertIn('"$DATASET_PY" "$RENDER_FORMAL_COMMAND"', runner)
     self.assertIn("--container", runner)
     self.assertIn("--read-only-dir /", runner)
     self.assertIn("--hidden-dir /home", runner)
@@ -1114,14 +1220,16 @@ class DatasetTest(unittest.TestCase):
     self.assertNotIn('"$SCRIPT_DIR/baseline.py"', runner[captured:])
     self.assertLess(
         runner.index('JAVA_HOME=$(realpath "${JAVA_HOME:'),
-        runner.index('mkdir -p "$OUTPUT_DIR/input/formal"'),
+        runner.index('mkdir -p "$OUTPUT_DIR/input/evidence"'),
     )
     self.assertLess(
         runner.index('directory_digest_value "$JAVA_HOME"'),
-        runner.index('mkdir -p "$OUTPUT_DIR/input/formal"'),
+        runner.index('mkdir -p "$OUTPUT_DIR/input/evidence"'),
     )
-    self.assertNotIn('if [[ "$TASK_COUNT" -eq 0 ]]', runner)
-    self.assertIn('if [[ "$TASK_COUNT" -ne 270 ]]', runner)
+    self.assertIn(
+        'if [[ "$FORMAL_MODE" == cap8 && "$TASK_COUNT" -ne 270 ]]',
+        runner,
+    )
     self.assertIn("--hard-threshold 200", runner)
     self.assertNotIn("44ec679a56d3", runner)
     first = runner.index(
@@ -1142,7 +1250,7 @@ class DatasetTest(unittest.TestCase):
     second_plan = runner.index(
         'build_repetition_plan 2 "${RESULTS[1]}"', second_result
     )
-    summarize = runner.index('"$DATASET_PY" summarize', second)
+    summarize = runner.index('"$DATASET_PY" "$SUMMARIZE_COMMAND"', second)
     self.assertLess(first, first_result)
     self.assertLess(first_result, first_plan)
     self.assertLess(first_plan, second)
@@ -2976,6 +3084,740 @@ copy_phase_evidence "$2"
           ],
           {"analysis_survivor": len(manifest["tasks"])},
       )
+
+  def test_cap16_phase_b_authenticates_completed_phase_a(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      source = cap16_phase_a_fixture(root)
+      fixture = package_cap16_fixture(source, root / "package")
+      with mock.patch.multiple(
+          dataset,
+          FROZEN_CAP16_ATHENA_MANIFEST_SHA256=fixture.manifest_sha256,
+          FROZEN_CAP16_PARENT_MANIFEST_SHA256=fixture.parent_sha256,
+          FROZEN_CAP16_PHASE_A_TASK_COUNT=6,
+          FROZEN_CAP16_PHASE_A_PACKAGE_AGGREGATE_SHA256=(
+              fixture.aggregate_sha256
+          ),
+      ):
+        manifest, host = dataset.authenticate_cap16_phase_a_output(
+            fixture.root, fixture.sv_benchmarks
+        )
+        self.assertEqual(host, "athena")
+        self.assertEqual(manifest["task_count"], 6)
+        generated = root / "formal"
+        dataset.command_render_formal(
+            SimpleNamespace(
+                phase_a_output=str(fixture.root),
+                manifest=str(
+                    fixture.root
+                    / "summary/candidate-manifest-analysis-survivors.json"
+                ),
+                sv_benchmarks=str(fixture.sv_benchmarks),
+                property_file=str(
+                    fixture.sv_benchmarks / "c/properties/unreach-call.prp"
+                ),
+                output_dir=str(generated),
+            )
+        )
+        definition = ET.parse(
+            generated / "hard-case-candidates.xml"
+        ).getroot()
+        self.assertEqual(definition.get("timelimit"), "900 s")
+        (fixture.root / "summary/.complete").unlink()
+        with self.assertRaisesRegex(RuntimeError, "not complete"):
+          dataset.authenticate_cap16_phase_a_output(
+              fixture.root, fixture.sv_benchmarks
+          )
+
+  def test_cap16_phase_b_rejects_tampered_phase_a_artifact(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      source = cap16_phase_a_fixture(root)
+      fixture = package_cap16_fixture(source, root / "package")
+      (fixture.root / "primary.xml").write_text(
+          "tampered\n", encoding="utf-8"
+      )
+      with mock.patch.multiple(
+          dataset,
+          FROZEN_CAP16_ATHENA_MANIFEST_SHA256=fixture.manifest_sha256,
+          FROZEN_CAP16_PARENT_MANIFEST_SHA256=fixture.parent_sha256,
+          FROZEN_CAP16_PHASE_A_TASK_COUNT=6,
+          FROZEN_CAP16_PHASE_A_PACKAGE_AGGREGATE_SHA256=(
+              fixture.aggregate_sha256
+          ),
+      ):
+        with self.assertRaises(RuntimeError):
+          dataset.authenticate_cap16_phase_a_output(
+              fixture.root, fixture.sv_benchmarks
+          )
+
+  def test_cap16_formal_gate_stays_closed_until_package_hash_is_frozen(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      source = cap16_phase_a_fixture(root)
+      fixture = package_cap16_fixture(source, root / "package")
+      with mock.patch.multiple(
+          dataset,
+          FROZEN_CAP16_ATHENA_MANIFEST_SHA256=fixture.manifest_sha256,
+          FROZEN_CAP16_PARENT_MANIFEST_SHA256=fixture.parent_sha256,
+          FROZEN_CAP16_PHASE_A_TASK_COUNT=6,
+      ):
+        with self.assertRaisesRegex(RuntimeError, "pending"):
+          dataset.authenticate_cap16_phase_a_output(
+              fixture.root, fixture.sv_benchmarks
+          )
+
+  def test_cap16_phase_a_package_is_relocatable_and_frozen(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      source = cap16_phase_a_fixture(root)
+      package = package_cap16_fixture(source, root / "package")
+      relocated = root / "relocated"
+      shutil.copytree(package.root, relocated)
+      shutil.rmtree(package.root)
+      pins = {
+          "FROZEN_CAP16_ATHENA_MANIFEST_SHA256": package.manifest_sha256,
+          "FROZEN_CAP16_PARENT_MANIFEST_SHA256": package.parent_sha256,
+          "FROZEN_CAP16_PHASE_A_TASK_COUNT": 6,
+          "FROZEN_CAP16_PHASE_A_PACKAGE_AGGREGATE_SHA256": (
+              package.aggregate_sha256
+          ),
+      }
+      with mock.patch.multiple(dataset, **pins):
+        manifest, host = dataset.authenticate_cap16_phase_a_output(
+            relocated, source.sv_benchmarks
+        )
+      self.assertEqual((manifest["task_count"], host), (6, "athena"))
+
+      complete = relocated / "summary/.complete"
+      artifact_path = relocated / "provenance/artifact-manifest.json"
+      complete.unlink()
+      artifact_path.unlink()
+      primary = relocated / "primary.xml"
+      result = ET.parse(primary)
+      for run in result.getroot().findall("run"):
+        run.find("column[@title='status']").set("value", "true")
+        run.find("column[@title='category']").set("value", "correct")
+      result.write(primary, encoding="unicode")
+      plan_path = relocated / "screen-plan.json"
+      plan = json.loads(plan_path.read_text(encoding="utf-8"))
+      plan["primary"]["sha256"] = dataset.baseline.sha256_file(primary)
+      plan_path.write_text(
+          json.dumps(plan, indent=2) + "\n", encoding="utf-8"
+      )
+      shutil.rmtree(relocated / "summary")
+      dataset.command_screen_summary_plan(
+          SimpleNamespace(
+              manifest=str(
+                  relocated / "input/candidate-manifest-athena.json"
+              ),
+              benchmark_definition=str(
+                  relocated / "generated/hard-case-candidates.xml"
+              ),
+              screen_plan=str(plan_path),
+              sv_benchmarks=str(source.sv_benchmarks),
+              phase_a_host="athena",
+              output_dir=str(relocated / "summary"),
+          )
+      )
+      dataset.baseline.write_artifact_manifest(
+          relocated, artifact_path, root_label="."
+      )
+      complete.write_text("complete\n", encoding="utf-8")
+      with mock.patch.multiple(dataset, **pins):
+        dataset.validate_cap16_phase_a_structure(
+            relocated, source.sv_benchmarks, portable=True
+        )
+        with self.assertRaisesRegex(RuntimeError, "aggregate is not frozen"):
+          dataset.authenticate_cap16_phase_a_output(
+              relocated, source.sv_benchmarks
+          )
+
+  def test_cap16_formal_plan_shrinks_interrupted_replacement_subset(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root)
+      manifest_path = Path(fixture.parent_manifest)
+      manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+      manifest["derivation"] = {"host": "athena"}
+      manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+      primary_definition = root / "formal-primary"
+      dataset.render_stock(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              sv_benchmarks=str(root),
+              property_file=str(root / "c/properties/unreach-call.prp"),
+              output_dir=str(primary_definition),
+          ),
+          dataset.FORMAL_DISPLAY,
+          ("900 s", "910 s", "920 s"),
+      )
+      primary = root / "primary-formal.xml"
+      write_stock_result(
+          primary, manifest["tasks"], "athena", formal=True, marker="10"
+      )
+      pending = [row["task"] for row in manifest["tasks"][-2:]]
+
+      def write_taint(path, result, tasks):
+        path.write_text(json.dumps({
+            "schema_version": dataset.FORMAL_TAINT_SCHEMA,
+            "repetition": 1,
+            "primary_result_sha256": dataset.baseline.sha256_file(result),
+            "tasks": [
+                {"task": task, "reason": "interrupted_incomplete"}
+                for task in sorted(tasks)
+            ],
+        }), encoding="utf-8")
+
+      first_taint = root / "primary-taint.json"
+      write_taint(first_taint, primary, pending)
+      replacement_definition = root / "replacement-1"
+      dataset.render_stock(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              sv_benchmarks=str(root),
+              property_file=str(root / "c/properties/unreach-call.prp"),
+              output_dir=str(replacement_definition),
+          ),
+          dataset.FORMAL_DISPLAY,
+          ("900 s", "910 s", "920 s"),
+          rows=[
+              row for row in manifest["tasks"] if row["task"] in pending
+          ],
+      )
+      replacement = root / "replacement-1.xml"
+      write_stock_result(
+          replacement,
+          [row for row in manifest["tasks"] if row["task"] in pending],
+          "athena",
+          formal=True,
+          marker="11",
+      )
+      second_taint = root / "replacement-1-taint.json"
+      write_taint(second_taint, replacement, pending[-1:])
+      second_definition = root / "replacement-2"
+      dataset.render_stock(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              sv_benchmarks=str(root),
+              property_file=str(root / "c/properties/unreach-call.prp"),
+              output_dir=str(second_definition),
+          ),
+          dataset.FORMAL_DISPLAY,
+          ("900 s", "910 s", "920 s"),
+          rows=[
+              row
+              for row in manifest["tasks"]
+              if row["task"] == pending[-1]
+          ],
+      )
+      second = root / "replacement-2.xml"
+      write_stock_result(
+          second,
+          [row for row in manifest["tasks"] if row["task"] == pending[-1]],
+          "athena",
+          formal=True,
+          marker="12",
+      )
+      final_taint = root / "replacement-2-taint.json"
+      write_taint(final_taint, second, [])
+      plan_path = root / "cap16-plan.json"
+      dataset.command_cap16_repetition_plan(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              repetition=1,
+              primary_result=str(primary),
+              taint_manifest=str(first_taint),
+              replacement_result=[str(replacement), str(second)],
+              replacement_definition=[
+                  str(replacement_definition / "hard-case-candidates.xml"),
+                  str(second_definition / "hard-case-candidates.xml"),
+              ],
+              replacement_taint_manifest=[
+                  str(second_taint),
+                  str(final_taint),
+              ],
+              output=str(plan_path),
+          )
+      )
+      loaded = dataset.load_screen_plan(
+          plan_path,
+          dataset.baseline.load_task_manifest(manifest_path),
+          manifest_path,
+          "athena",
+          root,
+          primary_definition / "hard-case-candidates.xml",
+          plan_schema=dataset.CAP16_FORMAL_REPETITION_PLAN_SCHEMA,
+          repetition=1,
+          display=dataset.FORMAL_DISPLAY,
+          time_limit="900 s",
+          taint_schema=dataset.FORMAL_TAINT_SCHEMA,
+          definition_validator=dataset.validate_formal_definition,
+      )
+      sources = {row["task"]: row for row in loaded["row_sources"]}
+      self.assertNotEqual(
+          sources[pending[0]]["result_sha256"],
+          sources[pending[1]]["result_sha256"],
+      )
+
+  def test_formal_attempt_marker_requires_atomic_teardown_closure(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root)
+      manifest_path = Path(fixture.parent_manifest)
+      definition_dir = root / "definition"
+      dataset.render_stock(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              sv_benchmarks=str(root),
+              property_file=str(root / "c/properties/unreach-call.prp"),
+              output_dir=str(definition_dir),
+          ),
+          dataset.FORMAL_DISPLAY,
+          ("900 s", "910 s", "920 s"),
+      )
+      result = root / "result.xml"
+      write_stock_result(
+          result, fixture.rows, "athena", formal=True, marker="20"
+      )
+      second_result = root / "result-2.xml"
+      write_stock_result(
+          second_result, fixture.rows, "athena", formal=True, marker="21"
+      )
+      log = root / "benchexec.log"
+      log.write_text("complete log\n", encoding="utf-8")
+      monitor = root / "monitor.jsonl"
+      monitor.write_text(
+          json.dumps({
+              "schema_version": dataset.FORMAL_LOAD_MONITOR_SCHEMA,
+              "p_core_cpus": list(dataset.FORMAL_P_CORE_CPUS),
+              "foreign_process_cpu_percent": (
+                  dataset.FORMAL_FOREIGN_CPU_PERCENT
+              ),
+              "minimum_consecutive_seconds": (
+                  dataset.FORMAL_FOREIGN_CPU_SECONDS
+              ),
+              "sample_interval_seconds": dataset.FORMAL_LOAD_SAMPLE_SECONDS,
+              "excluded_process_root": 123,
+          })
+          + "\n"
+          + json.dumps({
+              "timestamp": "2026-07-27T00:00:01+08:00",
+              "elapsed_seconds": 1,
+              "offenders": [],
+          })
+          + "\n",
+          encoding="utf-8",
+      )
+      pid = root / "monitor.pid"
+      owned = subprocess.Popen(["sleep", "0.01"])
+      identity = dataset.read_process_identity(owned.pid, "load-monitor")
+      owned.wait()
+      pid.write_text(f"{owned.pid}\n", encoding="utf-8")
+      saved_dataset = root / "input/research/scripts/dataset.py"
+      saved_dataset.parent.mkdir(parents=True)
+      saved_dataset.write_text("saved\n", encoding="utf-8")
+
+      def write_process_descriptor(
+          label,
+          path,
+          definition=None,
+          result_output=None,
+          monitor_output=None,
+          monitor_exclude_root=123,
+      ):
+        descriptor_args = SimpleNamespace(
+            output_root=str(root),
+            mode="cap16",
+            label=label,
+            host="athena",
+            name=(
+                "hard-case-dataset-v2-cap16-formal-athena-"
+                f"{label}"
+            ),
+            definition=str(
+                definition
+                or definition_dir / "hard-case-candidates.xml"
+            ),
+            result_output=str(result_output or root),
+            monitor_output=str(monitor_output or monitor),
+            monitor_exclude_root=monitor_exclude_root,
+            dataset_py=str(saved_dataset),
+            cpachecker_dir=str(root / "cpachecker"),
+            benchexec_dir=str(root / "benchexec"),
+            python_bin="/usr/bin/python3.12",
+            java_home=str(root / "jdk"),
+            p_cores=dataset.FORMAL_P_CORE_LIST,
+            output=str(path),
+        )
+        dataset.command_write_formal_process_descriptor(descriptor_args)
+        return dataset.load_formal_process_descriptor(
+            path, root, "cap16", label, "athena"
+        )
+
+      process_descriptor = root / "repetition-1-process-descriptor.json"
+      descriptor = write_process_descriptor(
+          "repetition-1", process_descriptor
+      )
+      process_identity = root / "monitor.process.json"
+      identity["argv"] = descriptor["identities"]["load-monitor"]["argv"]
+      process_identity.write_text(
+          json.dumps(identity), encoding="utf-8"
+      )
+      benchexec_identity = root / "benchexec.process.json"
+      launcher_identity = {
+          **identity,
+          "role": "benchexec-launcher",
+          **descriptor["identities"]["benchexec-launcher"],
+      }
+      benchexec_identity.write_text(
+          json.dumps(launcher_identity), encoding="utf-8"
+      )
+      systemctl = mock.patch.object(
+          dataset.subprocess,
+          "run",
+          return_value=SimpleNamespace(
+              returncode=0,
+              stdout=(
+                  "LoadState=not-found\n"
+                  "ActiveState=inactive\nMainPID=0\n"
+              ),
+          ),
+      )
+      systemctl_mock = systemctl.start()
+      self.addCleanup(systemctl.stop)
+      stopped = root / "monitor.stopped"
+      stopped.write_text(
+          f"pid={owned.pid}\nexit=0\nsamples=1\n", encoding="utf-8"
+      )
+      before = root / "before.json"
+      after = root / "after.json"
+      counters = {
+          "package_throttle_count": "1",
+          "package_throttle_total_time_ms": "2",
+          "pswpin_pages": "3",
+          "pswpout_pages": "4",
+      }
+      before.write_text(json.dumps({
+          "hostname": "athena", "measurement_counters": counters
+      }), encoding="utf-8")
+      after.write_text(json.dumps({
+          "hostname": "athena", "measurement_counters": counters
+      }), encoding="utf-8")
+      check = root / "check.json"
+      check.write_text(json.dumps({
+          "hostname": "athena",
+          "accepted": True,
+          "stable": True,
+          "counter_deltas": {
+              "package_throttle_count": 0,
+              "package_throttle_total_time_ms": 0,
+              "pswpin_pages": 0,
+              "pswpout_pages": 0,
+          },
+          "warnings": [],
+      }), encoding="utf-8")
+      marker = root / "provenance/attempts/repetition-1.json"
+      args = SimpleNamespace(
+          output_root=str(root),
+          manifest=str(manifest_path),
+          sv_benchmarks=str(root),
+          host="athena",
+          mode="cap16",
+          label="repetition-1",
+          role="primary",
+          repetition=1,
+          benchexec_exit=130,
+          definition=str(definition_dir / "hard-case-candidates.xml"),
+          result=str(result),
+          benchexec_log=str(log),
+          benchexec_process=str(benchexec_identity),
+          process_descriptor=str(process_descriptor),
+          load_monitor=str(monitor),
+          monitor_pid=str(pid),
+          monitor_process=str(process_identity),
+          monitor_stopped=str(stopped),
+          machine_before=str(before),
+          machine_after=str(after),
+          machine_check=str(check),
+          output=str(marker),
+      )
+      decoy_definition = root / "decoy-definition.xml"
+      decoy_definition.write_text("decoy\n", encoding="utf-8")
+      decoy_process_descriptor = root / "decoy-process-descriptor.json"
+      write_process_descriptor(
+          "repetition-1",
+          decoy_process_descriptor,
+          definition=decoy_definition,
+      )
+      args.process_descriptor = str(decoy_process_descriptor)
+      with self.assertRaisesRegex(
+          RuntimeError, "descriptor does not match attempt evidence"
+      ):
+        dataset.command_formal_attempt_complete(args)
+      args.process_descriptor = str(process_descriptor)
+      stopped.rename(root / "monitor.stopped.missing")
+      with self.assertRaisesRegex(RuntimeError, "monitor stopped"):
+        dataset.command_formal_attempt_complete(args)
+      (root / "monitor.stopped.missing").rename(stopped)
+      dataset.command_formal_attempt_complete(args)
+      dataset.command_formal_attempt_complete(args)
+      args.label = "repetition-2"
+      args.repetition = 2
+      args.result = str(second_result)
+      args.output = str(
+          root / "provenance/attempts/repetition-2.json"
+      )
+      second_process_descriptor = (
+          root / "repetition-2-process-descriptor.json"
+      )
+      second_descriptor = write_process_descriptor(
+          "repetition-2", second_process_descriptor
+      )
+      second_launcher = {
+          **launcher_identity,
+          **second_descriptor["identities"]["benchexec-launcher"],
+      }
+      second_benchexec_identity = root / "benchexec-2.process.json"
+      second_benchexec_identity.write_text(
+          json.dumps(second_launcher), encoding="utf-8"
+      )
+      args.benchexec_process = str(second_benchexec_identity)
+      args.process_descriptor = str(second_process_descriptor)
+      dataset.command_formal_attempt_complete(args)
+      args.label = "repetition-1"
+      args.repetition = 1
+      args.result = str(result)
+      args.output = str(marker)
+      args.benchexec_process = str(benchexec_identity)
+      args.process_descriptor = str(process_descriptor)
+      forged = json.loads(marker.read_text(encoding="utf-8"))
+      forged["host"] = "valkyrie"
+      marker.write_text(json.dumps(forged), encoding="utf-8")
+      with self.assertRaisesRegex(RuntimeError, "identity"):
+        dataset.validate_formal_attempt_marker(
+            marker, root, manifest_path, root, "athena", "cap16"
+        )
+      forged["host"] = "athena"
+      marker.write_text(
+          json.dumps(forged, indent=2) + "\n", encoding="utf-8"
+      )
+      live = subprocess.Popen(["sleep", "10"])
+      live_identity = root / "live-process.json"
+      live_identity.write_text(
+          json.dumps(dataset.read_process_identity(live.pid, "load-monitor")),
+          encoding="utf-8",
+      )
+      try:
+        with self.assertRaisesRegex(RuntimeError, "still alive"):
+          dataset.require_process_gone(
+              dataset.load_owned_process_identity(live_identity)
+          )
+      finally:
+        live.terminate()
+        live.wait()
+      different_unit_identity = root / "different-unit.process.json"
+      different_unit = (
+          "vguide-cap16-repetition-1-deaddeaddead.scope"
+      )
+      different_unit_identity.write_text(
+          json.dumps({
+              **launcher_identity,
+              "systemd_unit": different_unit,
+          }),
+          encoding="utf-8",
+      )
+
+      def systemd_state(command, **_):
+        unit = command[3]
+        if unit == descriptor["systemd_unit"]:
+          return SimpleNamespace(
+              returncode=0,
+              stdout=(
+                  "LoadState=loaded\n"
+                  "ActiveState=active\nMainPID=999\n"
+              ),
+          )
+        self.assertEqual(unit, different_unit)
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "LoadState=not-found\n"
+                "ActiveState=inactive\nMainPID=0\n"
+            ),
+        )
+
+      systemctl_mock.side_effect = systemd_state
+      with self.assertRaisesRegex(RuntimeError, "unit is still active"):
+        dataset.command_require_formal_process_gone(
+            SimpleNamespace(
+                descriptor=str(process_descriptor),
+                identity=str(different_unit_identity),
+                output_root=str(root),
+                mode="cap16",
+                label="repetition-1",
+                host="athena",
+                role="benchexec-launcher",
+            )
+        )
+      self.assertIn(
+          descriptor["systemd_unit"],
+          systemctl_mock.call_args.args[0],
+      )
+      systemctl_mock.side_effect = None
+      systemctl_mock.return_value = SimpleNamespace(
+          returncode=0,
+          stdout=(
+              "LoadState=not-found\nActiveState=inactive\nMainPID=0\n"
+          ),
+      )
+      summary = root / "summary"
+      summary.mkdir()
+      for name in (
+          "classification.csv",
+          "hard-portfolio.csv",
+          "mixed.csv",
+          "row-provenance.json",
+          "summary.json",
+          "verifier-failure-quarantine.csv",
+          "wrong-quarantine.csv",
+      ):
+        (summary / name).write_text("{}\n", encoding="utf-8")
+      for relative in (
+          "input/research/inventory.sha256",
+          "provenance/build.log",
+          "provenance/cgroup-check.log",
+          "provenance/machine-preflight-start.json",
+          "provenance/machine-preflight-end.json",
+          "provenance/machine-preflight-check.json",
+          "provenance/research-verification-final.log",
+          "provenance/runtime-verification-final.log",
+          "provenance/runtime-closure.txt",
+      ):
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("evidence\n", encoding="utf-8")
+      plans = []
+      for repetition in (1, 2):
+        plan = root / f"repetition-{repetition}-plan.json"
+        plan_result = result if repetition == 1 else second_result
+        plan.write_text(json.dumps({
+            "schema_version": (
+                dataset.CAP16_FORMAL_REPETITION_PLAN_SCHEMA
+            ),
+            "repetition": repetition,
+            "primary": {
+                "path": plan_result.relative_to(root).as_posix(),
+                "sha256": dataset.baseline.sha256_file(plan_result),
+            },
+            "taint": None,
+            "replacements": [],
+        }), encoding="utf-8")
+        plans.append(str(plan))
+      artifact = root / "provenance/artifact-manifest.json"
+      closure = SimpleNamespace(
+          output_root=str(root),
+          manifest=str(manifest_path),
+          benchmark_definition=str(
+              definition_dir / "hard-case-candidates.xml"
+          ),
+          sv_benchmarks=str(root),
+          host="athena",
+          mode="cap16",
+          repetition_plan=plans,
+          require_complete=False,
+      )
+      with self.assertRaises(FileNotFoundError):
+        dataset.command_validate_formal_closure(closure)
+      partial = summary / "wrong-quarantine.csv"
+      partial.unlink()
+      with self.assertRaisesRegex(RuntimeError, "summary topology"):
+        dataset.command_validate_formal_closure(closure)
+      partial.write_text("{}\n", encoding="utf-8")
+      dataset.baseline.write_artifact_manifest(root, artifact)
+      dataset.command_validate_formal_closure(closure)
+      sentinel = summary / ".complete"
+      closure.require_complete = True
+      sentinel.symlink_to(summary / "summary.json")
+      with self.assertRaisesRegex(RuntimeError, "sentinel"):
+        dataset.command_validate_formal_closure(closure)
+      sentinel.unlink()
+      sentinel.write_text("comp", encoding="utf-8")
+      with self.assertRaisesRegex(RuntimeError, "sentinel"):
+        dataset.command_validate_formal_closure(closure)
+      sentinel.unlink()
+      dataset.command_write_complete_sentinel(
+          SimpleNamespace(output=str(sentinel))
+      )
+      dataset.command_validate_formal_closure(closure)
+      stopped.write_text(
+          f"pid={owned.pid}\nexit=0\nsamples=0\n", encoding="utf-8"
+      )
+      with self.assertRaisesRegex(RuntimeError, "monitor stop"):
+        dataset.command_formal_attempt_complete(args)
+      stopped.write_text(
+          f"pid={owned.pid}\nexit=0\nsamples=1\n", encoding="utf-8"
+      )
+      check.write_text("{}\n", encoding="utf-8")
+      with self.assertRaisesRegex(RuntimeError, "machine check"):
+        dataset.command_formal_attempt_complete(args)
+
+  def test_cap16_formal_runner_reuses_recovery_on_athena(self):
+    wrapper_path = Path(__file__).with_name(
+        "run-stock-cap16-formal-dataset.sh"
+    )
+    wrapper = wrapper_path.read_text(encoding="utf-8")
+    runner = Path(__file__).with_name(
+        "run-stock-formal-dataset.sh"
+    ).read_text(encoding="utf-8")
+
+    self.assertIn('main cap16 "$@"', wrapper)
+    self.assertIn('source "$SCRIPT_DIR/run-stock-formal-dataset.sh"', wrapper)
+    self.assertIn("CAP16_PHASE_A_OUTPUT", runner)
+    self.assertIn("FORMAL_HOST=athena", runner)
+    self.assertIn("EXPECTED_PYTHON_REAL=/usr/bin/python3.12", runner)
+    self.assertIn("validate-cap16-phase-a", runner)
+    self.assertIn("render-cap16-formal", runner)
+    self.assertIn("render-cap16-formal-replacement", runner)
+    self.assertIn("summarize-cap16-formal", runner)
+    self.assertIn("-N 2 -c 4", runner)
+    self.assertIn("formal-taint", runner)
+    self.assertIn("cap16-repetition-plan", runner)
+    self.assertIn('CAP16_PHASE_A_OUTPUT="$OUTPUT_DIR/input/evidence"', runner)
+    self.assertIn('if [[ -f "$plan" ]]', runner)
+    self.assertIn('if [[ -f "$marker" ]]', runner)
+    self.assertIn('benchexec_status" -ne 130', runner)
+    self.assertIn("RESUMING=true", runner)
+    self.assertIn('current_result=$replacement', runner)
+    self.assertIn('current_taint=$replacement_taint', runner)
+    self.assertIn("FORMAL_BENCHMARK_SCOPE=-cap16", runner)
+    self.assertIn("formal-attempt-complete", runner)
+    self.assertIn("local -a attempt_descriptor=", runner)
+    self.assertEqual(runner.count("--monitor-stopped"), 1)
+    self.assertIn("summary.staging", runner)
+    self.assertIn("validate-formal-closure", runner)
+    self.assertIn("missing-atomic-attempt-completion", runner)
+    self.assertIn("require-formal-process-gone", runner)
+    self.assertNotIn('"$DATASET_PY" require-process-gone', runner)
+    self.assertNotIn("pgrep", runner)
+    self.assertIn('--unit="$unit"', runner)
+    self.assertIn("invalid completion sentinel; refusing", runner)
+    self.assertIn(
+        '"hard-case-dataset-v2${FORMAL_BENCHMARK_SCOPE}-formal-$FORMAL_HOST-repetition-1"',
+        runner,
+    )
+    self.assertIn(
+        '"hard-case-dataset-v2${FORMAL_BENCHMARK_SCOPE}-formal-$FORMAL_HOST-repetition-2"',
+        runner,
+    )
+    result = subprocess.run(
+        [str(wrapper_path)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    self.assertEqual(result.returncode, 2)
+    self.assertIn("CAP16_PHASE_A_PACKAGE", result.stderr)
 
   def test_cap16_runner_is_athena_only_and_uses_case_recovery_plan(self):
     runner = Path(__file__).with_name(

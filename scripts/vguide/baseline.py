@@ -172,6 +172,8 @@ def tree_digest(paths, root):
 
 def directory_digest(root):
   root = Path(root).resolve()
+  if not root.is_dir():
+    raise RuntimeError(f"Directory digest root is not a directory: {root}")
   digest = hashlib.sha256()
   entries = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
   for path in entries:
@@ -995,9 +997,9 @@ def command_validation_summary(args):
     raise RuntimeError(f"Witness validation failed for {len(failures)} tasks")
 
 
-def command_artifact_manifest(args):
-  root = Path(args.root).resolve()
-  output = Path(args.output).resolve()
+def write_artifact_manifest(root, output, root_label=None):
+  root = Path(root).resolve()
+  output = Path(output).resolve()
   files = []
   for path in root.rglob("*"):
     mode = path.lstat().st_mode
@@ -1017,13 +1019,18 @@ def command_artifact_manifest(args):
     aggregate.update(b"\0")
     aggregate.update(bytes.fromhex(digest))
   manifest = {
-      "root": str(root),
+      "root": str(root) if root_label is None else root_label,
       "file_count": len(entries),
       "aggregate_sha256": aggregate.hexdigest(),
       "files": entries,
   }
   output.parent.mkdir(parents=True, exist_ok=True)
   output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+  return manifest
+
+
+def command_artifact_manifest(args):
+  write_artifact_manifest(args.root, args.output)
 
 
 def command_directory_digest(args):

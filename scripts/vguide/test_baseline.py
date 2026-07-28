@@ -417,6 +417,16 @@ specification = specification/property.spc
       self.assertEqual(first["entry_count"], 2)
       self.assertNotEqual(first["sha256"], second["sha256"])
 
+  def test_directory_digest_rejects_missing_or_non_directory_root(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      file_path = root / "file"
+      file_path.write_text("content\n", encoding="utf-8")
+      for invalid in (root / "missing", file_path):
+        with self.subTest(path=invalid):
+          with self.assertRaisesRegex(RuntimeError, "not a directory"):
+            baseline.directory_digest(invalid)
+
   def test_calibration_summary_quantifies_repeated_noise(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
