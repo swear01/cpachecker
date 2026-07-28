@@ -113,6 +113,12 @@ FROZEN_BENCHEXEC_GENERATOR = "BenchExec 3.35-dev"
 FROZEN_TOOLMODULE = "benchexec.tools.cpachecker"
 DISCOVERY_DISPLAY = "CPAchecker frozen stock hard-case discovery screen"
 FORMAL_DISPLAY = "CPAchecker frozen stock hard-case formal measurement"
+FORMAL_REPETITION_PLAN_SCHEMA = "hard-case-formal-repetition-plan-v1"
+FORMAL_TAINT_SCHEMA = "hard-case-formal-taint-v1"
+FORMAL_TAINT_REASONS = {
+    "foreign_p_core_contention",
+    "interrupted_incomplete",
+}
 
 
 def sha256_text(value):
@@ -547,12 +553,15 @@ def command_inventory(args):
   print(manifest_path)
 
 
-def render_stock(args, display, limits):
+def render_stock(args, display, limits, rows=None):
   manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
   output = Path(args.output_dir).resolve()
   output.mkdir(parents=True, exist_ok=True)
   task_sets = write_task_sets(
-      manifest["tasks"], Path(args.manifest), args.sv_benchmarks, output
+      manifest["tasks"] if rows is None else rows,
+      Path(args.manifest),
+      args.sv_benchmarks,
+      output,
   )
   root = benchmark_root(display, *limits)
   ET.SubElement(root, "resultfiles").text = "**/witness.*"
@@ -603,6 +612,64 @@ def command_render_formal(args):
   benchmark = render_stock(args, FORMAL_DISPLAY, ("900 s", "910 s", "920 s"))
   validate_formal_definition(
       benchmark, args.manifest, manifest, args.sv_benchmarks
+  )
+
+
+def command_render_formal_replacement(args):
+  require_absent_or_empty_output(args.output_dir)
+  manifest, host = authenticate_formal_manifest(args)
+  manifest_rows = baseline.load_task_manifest(args.manifest)
+  primary = Path(args.primary_result).resolve()
+  primary_hash = baseline.sha256_file(primary)
+  primary_metadata = result_metadata(
+      primary, FORMAL_DISPLAY, "900 s", allow_incomplete=True
+  )
+  if primary_metadata["host"] != host:
+    raise RuntimeError("formal primary result must run on the merged manifest host")
+  validate_result_run_topology(
+      primary,
+      manifest_rows,
+      args.sv_benchmarks,
+  )
+  taint_path = Path(args.taint_manifest).resolve()
+  taint_data = json.loads(taint_path.read_text(encoding="utf-8"))
+  tainted = validate_taint_manifest(
+      taint_data,
+      taint_data.get("repetition"),
+      primary_hash,
+      manifest_rows,
+  )
+  if not tainted:
+    raise RuntimeError("formal replacement requires at least one tainted task")
+  primary_rows = baseline.parse_result_rows(primary, manifest_rows, 200)
+  missing = {
+      row["task"] for row in primary_rows if not row_is_complete(row)
+  }
+  if missing - set(tainted):
+    raise RuntimeError(
+        f"incomplete primary rows are not tainted: {sorted(missing - set(tainted))}"
+    )
+  selected = sorted(
+      (row for row in manifest["tasks"] if row["task"] in tainted),
+      key=lambda row: row["task"],
+  )
+  property_file = (
+      Path(args.sv_benchmarks).resolve() / "c/properties/unreach-call.prp"
+  )
+  if args.property_file != str(property_file) or not property_file.is_file():
+    raise RuntimeError("formal property file must be the frozen official property")
+  benchmark = render_stock(
+      args,
+      FORMAL_DISPLAY,
+      ("900 s", "910 s", "920 s"),
+      rows=selected,
+  )
+  replacement_manifest = {**manifest, "task_count": len(selected), "tasks": selected}
+  validate_formal_definition(
+      benchmark,
+      args.manifest,
+      replacement_manifest,
+      args.sv_benchmarks,
   )
 
 
@@ -671,7 +738,7 @@ def write_xml(root, path):
     target.write("\n")
 
 
-def result_metadata(path, display, time_limit):
+def result_metadata(path, display, time_limit, allow_incomplete=False):
   with baseline.open_result(Path(path)) as source:
     root = ET.parse(source).getroot()
   expected = {
@@ -689,9 +756,10 @@ def result_metadata(path, display, time_limit):
           f"--svcomp27 --heap 10000M --benchmark --timelimit {time_limit}"
       ),
   }
+  error = root.get("error")
   if (
       root.tag != "result"
-      or "error" in root.attrib
+      or (error is not None and (not allow_incomplete or error != "incomplete"))
       or any(root.get(name) != value for name, value in expected.items())
   ):
     raise RuntimeError("result metadata does not match the frozen stock protocol")
@@ -706,10 +774,11 @@ def result_metadata(path, display, time_limit):
   }
   if (
       not metadata["starttime"]
-      or not metadata["endtime"]
+      or (not metadata["endtime"] and error != "incomplete")
       or not metadata["benchmarkname"]
   ):
     raise RuntimeError("result lacks a start time, end time, or benchmark name")
+  metadata["incomplete"] = error == "incomplete"
   return metadata
 
 
@@ -1989,9 +2058,364 @@ def command_screen_summary(args):
   print(json.dumps(summary, sort_keys=True))
 
 
+def declared_plan_file(root, entry, label):
+  if (
+      not isinstance(entry, dict)
+      or set(entry) != {"path", "sha256"}
+      or not isinstance(entry["path"], str)
+      or not isinstance(entry["sha256"], str)
+      or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
+  ):
+    raise RuntimeError(f"{label} must declare only path and sha256")
+  relative = Path(entry["path"])
+  if relative.is_absolute() or ".." in relative.parts:
+    raise RuntimeError(f"{label} path must stay inside the repetition-plan directory")
+  path = root / relative
+  absolute = Path(os.path.abspath(path))
+  if path.is_symlink() or not path.is_file() or path.resolve() != absolute:
+    raise RuntimeError(f"{label} must be a regular non-symlink file")
+  if baseline.sha256_file(path) != entry["sha256"]:
+    raise RuntimeError(f"{label} hash does not match")
+  return absolute
+
+
+def plan_file_entry(path, root):
+  declared = Path(path)
+  path = declared.resolve()
+  try:
+    relative = path.relative_to(root)
+  except ValueError as error:
+    raise RuntimeError("repetition-plan inputs must stay inside its directory") from error
+  if (
+      declared.is_symlink()
+      or Path(os.path.abspath(declared)) != path
+      or not path.is_file()
+  ):
+    raise RuntimeError(f"repetition-plan input must be a regular file: {path}")
+  return {
+      "path": relative.as_posix(),
+      "sha256": baseline.sha256_file(path),
+  }
+
+
+def result_task_names(path, manifest):
+  with baseline.open_result(Path(path)) as source:
+    root = ET.parse(source).getroot()
+  tasks = [
+      baseline.match_result_task(run.get("name", ""), manifest)
+      for run in root.findall("run")
+  ]
+  if len(tasks) != len(set(tasks)):
+    raise RuntimeError("result contains duplicate task names")
+  return tasks
+
+
+def validate_taint_manifest(data, repetition, primary_hash, manifest):
+  if not isinstance(data, dict) or set(data) != {
+      "schema_version",
+      "repetition",
+      "primary_result_sha256",
+      "tasks",
+  }:
+    raise RuntimeError("formal taint manifest topology is not exact")
+  if (
+      data["schema_version"] != FORMAL_TAINT_SCHEMA
+      or not isinstance(data["repetition"], int)
+      or data["repetition"] not in {1, 2}
+      or data["repetition"] != repetition
+      or data["primary_result_sha256"] != primary_hash
+      or not isinstance(data["tasks"], list)
+  ):
+    raise RuntimeError("formal taint manifest identity does not match")
+  tasks = {}
+  for row in data["tasks"]:
+    if (
+        not isinstance(row, dict)
+        or set(row) != {"task", "reason"}
+        or not isinstance(row["task"], str)
+        or not isinstance(row["reason"], str)
+        or row["task"] not in manifest
+        or row["reason"] not in FORMAL_TAINT_REASONS
+        or row["task"] in tasks
+    ):
+      raise RuntimeError("formal taint task is invalid or duplicated")
+    tasks[row["task"]] = row["reason"]
+  if list(tasks) != sorted(tasks):
+    raise RuntimeError("formal taint tasks must be sorted")
+  return tasks
+
+
+def row_is_complete(row):
+  return (
+      bool(row["status"])
+      and bool(row["category"])
+      and row["cpu_time_seconds"] is not None
+      and row["wall_time_seconds"] is not None
+  )
+
+
+def load_repetition_plan(
+    path,
+    manifest,
+    manifest_path,
+    host,
+    sv_benchmarks,
+    benchmark_definition,
+    hard_threshold,
+):
+  declared_path = Path(path)
+  path = declared_path.resolve()
+  if (
+      declared_path.is_symlink()
+      or Path(os.path.abspath(declared_path)) != path
+      or not path.is_file()
+  ):
+    raise RuntimeError("repetition plan must be a regular non-symlink file")
+  plan = json.loads(path.read_text(encoding="utf-8"))
+  if not isinstance(plan, dict) or set(plan) != {
+      "schema_version",
+      "repetition",
+      "primary",
+      "taint",
+      "replacements",
+  }:
+    raise RuntimeError("formal repetition-plan topology is not exact")
+  if (
+      plan["schema_version"] != FORMAL_REPETITION_PLAN_SCHEMA
+      or not isinstance(plan["repetition"], int)
+      or plan["repetition"] not in {1, 2}
+      or not isinstance(plan["replacements"], list)
+  ):
+    raise RuntimeError("formal repetition-plan identity is invalid")
+  root = path.parent
+  primary = declared_plan_file(root, plan["primary"], "primary result")
+  primary_hash = plan["primary"]["sha256"]
+  primary_metadata = result_metadata(
+      primary, FORMAL_DISPLAY, "900 s", allow_incomplete=True
+  )
+  if primary_metadata["host"] != host:
+    raise RuntimeError("formal primary result must run on the merged manifest host")
+  validate_result_run_topology(
+      primary,
+      manifest,
+      sv_benchmarks,
+      benchmark_definition,
+  )
+  primary_rows = {
+      row["task"]: row
+      for row in baseline.parse_result_rows(
+          primary, manifest, hard_threshold
+      )
+  }
+
+  taint_entry = plan["taint"]
+  if taint_entry is None:
+    tainted = {}
+    taint_hash = None
+  else:
+    taint_path = declared_plan_file(root, taint_entry, "taint manifest")
+    taint_hash = taint_entry["sha256"]
+    tainted = validate_taint_manifest(
+        json.loads(taint_path.read_text(encoding="utf-8")),
+        plan["repetition"],
+        primary_hash,
+        manifest,
+    )
+  missing = {
+      task for task, row in primary_rows.items() if not row_is_complete(row)
+  }
+  if missing - set(tainted):
+    raise RuntimeError(
+        f"incomplete primary rows are not tainted: {sorted(missing - set(tainted))}"
+    )
+
+  accepted = dict(primary_rows)
+  row_sources = {
+      task: {
+          "task": task,
+          "source": "primary",
+          "result_path": plan["primary"]["path"],
+          "result_sha256": primary_hash,
+      }
+      for task in manifest
+  }
+  replacement_tasks = set()
+  replacement_hashes = []
+  replacement_metadata = []
+  previous_path = ""
+  for entry in plan["replacements"]:
+    if (
+        not isinstance(entry, dict)
+        or set(entry) != {
+            "path",
+            "sha256",
+            "definition_path",
+            "definition_sha256",
+            "tasks",
+        }
+        or not isinstance(entry["path"], str)
+        or not isinstance(entry["sha256"], str)
+        or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
+        or not isinstance(entry["definition_path"], str)
+        or not isinstance(entry["definition_sha256"], str)
+        or not re.fullmatch(r"[0-9a-f]{64}", entry["definition_sha256"])
+        or not isinstance(entry["tasks"], list)
+        or not entry["tasks"]
+        or any(not isinstance(task, str) for task in entry["tasks"])
+        or entry["tasks"] != sorted(entry["tasks"])
+        or len(entry["tasks"]) != len(set(entry["tasks"]))
+        or entry["path"] <= previous_path
+    ):
+      raise RuntimeError("formal replacement entry is invalid or not sorted")
+    previous_path = entry["path"]
+    tasks = set(entry["tasks"])
+    if not tasks <= set(tainted) or tasks & replacement_tasks:
+      raise RuntimeError("formal replacement tasks are untainted or duplicated")
+    replacement = declared_plan_file(root, {
+        "path": entry["path"],
+        "sha256": entry["sha256"],
+    }, "replacement result")
+    if sorted(result_task_names(replacement, manifest)) != entry["tasks"]:
+      raise RuntimeError("replacement result tasks do not match its plan entry")
+    subset = {task: manifest[task] for task in entry["tasks"]}
+    definition = declared_plan_file(
+        root,
+        {
+            "path": entry["definition_path"],
+            "sha256": entry["definition_sha256"],
+        },
+        "replacement definition",
+    )
+    full_manifest = {
+        "task_count": len(entry["tasks"]),
+        "tasks": [manifest[task] for task in entry["tasks"]],
+    }
+    validate_formal_definition(
+        definition,
+        manifest_path,
+        full_manifest,
+        sv_benchmarks,
+    )
+    metadata = result_metadata(replacement, FORMAL_DISPLAY, "900 s")
+    if metadata["host"] != host:
+      raise RuntimeError("formal replacement must run on the merged manifest host")
+    validate_result_run_topology(
+        replacement,
+        subset,
+        sv_benchmarks,
+        definition,
+    )
+    rows = baseline.parse_result_rows(replacement, subset, hard_threshold)
+    if any(not row_is_complete(row) for row in rows):
+      raise RuntimeError("formal replacement result has incomplete rows")
+    for row in rows:
+      accepted[row["task"]] = row
+      row_sources[row["task"]] = {
+          "task": row["task"],
+          "source": "replacement",
+          "result_path": entry["path"],
+          "result_sha256": entry["sha256"],
+          "definition_path": entry["definition_path"],
+          "definition_sha256": entry["definition_sha256"],
+          "reason": tainted[row["task"]],
+      }
+    replacement_tasks.update(tasks)
+    replacement_hashes.append(entry["sha256"])
+    replacement_metadata.append(metadata)
+  if replacement_tasks != set(tainted):
+    raise RuntimeError(
+        "formal replacements do not cover exactly the tainted task set"
+    )
+  if any(
+      not row_is_complete(row)
+      for task, row in accepted.items()
+      if task not in replacement_tasks
+  ):
+    raise RuntimeError("accepted primary rows are incomplete")
+  result_hashes = [primary_hash, *replacement_hashes]
+  if len(result_hashes) != len(set(result_hashes)):
+    raise RuntimeError("formal primary and replacement result hashes must be distinct")
+  all_metadata = [primary_metadata, *replacement_metadata]
+  for field in ("starttime", "benchmarkname"):
+    if len({result[field] for result in all_metadata}) != len(all_metadata):
+      raise RuntimeError(
+          f"formal primary and replacements must have distinct {field} values"
+      )
+  return {
+      "repetition": plan["repetition"],
+      "plan_sha256": baseline.sha256_file(path),
+      "primary_sha256": primary_hash,
+      "taint_sha256": taint_hash,
+      "replacement_sha256": replacement_hashes,
+      "metadata": primary_metadata,
+      "replacement_metadata": replacement_metadata,
+      "rows": accepted,
+      "row_sources": [row_sources[task] for task in sorted(row_sources)],
+  }
+
+
+def command_repetition_plan(args):
+  output = Path(args.output).resolve()
+  if output.exists():
+    raise RuntimeError(f"repetition plan output already exists: {output}")
+  output.parent.mkdir(parents=True, exist_ok=True)
+  manifest = baseline.load_task_manifest(args.manifest)
+  primary = plan_file_entry(args.primary_result, output.parent)
+  if args.taint_manifest:
+    taint = plan_file_entry(args.taint_manifest, output.parent)
+    tainted = validate_taint_manifest(
+        json.loads(
+            (output.parent / taint["path"]).read_text(encoding="utf-8")
+        ),
+        args.repetition,
+        primary["sha256"],
+        manifest,
+    )
+  else:
+    taint = None
+    tainted = {}
+  replacements = []
+  covered = set()
+  replacement_results = args.replacement_result or []
+  replacement_definitions = args.replacement_definition or []
+  if len(replacement_results) != len(replacement_definitions):
+    raise RuntimeError(
+        "replacement results and definitions must have the same count"
+    )
+  for replacement_path, definition_path in zip(
+      replacement_results, replacement_definitions, strict=True
+  ):
+    entry = plan_file_entry(replacement_path, output.parent)
+    definition = plan_file_entry(definition_path, output.parent)
+    tasks = sorted(result_task_names(replacement_path, manifest))
+    if not tasks or set(tasks) & covered:
+      raise RuntimeError("replacement result tasks must be nonempty and disjoint")
+    covered.update(tasks)
+    replacements.append(
+        {
+            **entry,
+            "definition_path": definition["path"],
+            "definition_sha256": definition["sha256"],
+            "tasks": tasks,
+        }
+    )
+  replacements.sort(key=lambda entry: entry["path"])
+  if covered != set(tainted):
+    raise RuntimeError("replacement results do not cover exactly the taint manifest")
+  plan = {
+      "schema_version": FORMAL_REPETITION_PLAN_SCHEMA,
+      "repetition": args.repetition,
+      "primary": primary,
+      "taint": taint,
+      "replacements": replacements,
+  }
+  output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+  print(output)
+
+
 def command_summarize(args):
   require_absent_or_empty_output(args.output_dir)
-  if len(args.result) != 2:
+  if len(args.repetition_plan) != 2:
     raise RuntimeError("Dataset classification requires exactly two frozen repetitions")
   if args.hard_threshold != 200:
     raise RuntimeError("formal hard threshold is fixed at 200 CPU seconds")
@@ -2005,46 +2429,60 @@ def command_summarize(args):
       full_manifest,
       args.sv_benchmarks,
   )
-  result_hashes = [baseline.sha256_file(Path(result)) for result in args.result]
-  if len(set(result_hashes)) != 2:
-    raise RuntimeError("formal repetitions must have distinct result hashes")
   manifest = baseline.load_task_manifest(manifest_path)
-  repetitions = []
-  metadata = []
-  for result in args.result:
-    result_info = result_metadata(result, FORMAL_DISPLAY, "900 s")
-    if result_info["host"] != host:
-      raise RuntimeError("formal repetitions must run on the merged manifest host")
-    validate_result_run_topology(
-        result,
+  plans = [
+      load_repetition_plan(
+        plan,
         manifest,
+        manifest_path,
+        host,
         args.sv_benchmarks,
         args.benchmark_definition,
-    )
-    metadata.append(result_info)
-    repetitions.append(
-        {
-            row["task"]: row
-            for row in baseline.parse_result_rows(
-                result, manifest, args.hard_threshold
-            )
-        }
-    )
+        args.hard_threshold,
+      )
+      for plan in args.repetition_plan
+  ]
+  if [plan["repetition"] for plan in plans] != [1, 2]:
+    raise RuntimeError("formal repetition plans must be ordered 1 then 2")
+  if len({plan["plan_sha256"] for plan in plans}) != 2:
+    raise RuntimeError("formal repetition plans must have distinct hashes")
+  if len({plan["primary_sha256"] for plan in plans}) != 2:
+    raise RuntimeError("formal repetitions must have distinct primary results")
+  all_result_hashes = [
+      digest
+      for plan in plans
+      for digest in [plan["primary_sha256"], *plan["replacement_sha256"]]
+  ]
+  if len(all_result_hashes) != len(set(all_result_hashes)):
+    raise RuntimeError("formal result artifacts cannot be reused across repetitions")
+  metadata = [plan["metadata"] for plan in plans]
   for field in ("starttime", "benchmarkname"):
     if len({result[field] for result in metadata}) != 2:
       raise RuntimeError(f"formal repetitions must have distinct {field} values")
-  if any(
-      row["cpu_time_seconds"] is None or row["wall_time_seconds"] is None
-      for repetition in repetitions
-      for row in repetition.values()
-  ):
-    raise RuntimeError("formal result lacks parseable CPU or wall metrics")
   output = Path(args.output_dir)
   output.mkdir(parents=True, exist_ok=True)
+  provenance = {
+      "schema_version": "hard-case-formal-row-provenance-v1",
+      "repetitions": [
+          {
+              "repetition": plan["repetition"],
+              "plan_sha256": plan["plan_sha256"],
+              "primary_result_sha256": plan["primary_sha256"],
+              "taint_manifest_sha256": plan["taint_sha256"],
+              "replacement_result_sha256": plan["replacement_sha256"],
+              "rows": plan["row_sources"],
+          }
+          for plan in plans
+      ],
+  }
+  provenance_path = output / "row-provenance.json"
+  provenance_path.write_text(
+      json.dumps(provenance, indent=2) + "\n", encoding="utf-8"
+  )
   details = {row["task"]: row for row in full_manifest["tasks"]}
   rows = []
   for task in sorted(manifest):
-    runs = [repetition[task] for repetition in repetitions]
+    runs = [plan["rows"][task] for plan in plans]
     classification = classify_repetitions(runs, args.hard_threshold)
     family = details[task]["family"]
     rows.append(
@@ -2057,6 +2495,14 @@ def command_summarize(args):
             "split": split_for_family(f"{details[task]['source']}:{family}"),
             "cpu_seconds": ";".join(str(run["cpu_time_seconds"]) for run in runs),
             "statuses": ";".join(run["status"] for run in runs),
+            "result_sources": ";".join(
+                next(
+                    row["source"]
+                    for row in plan["row_sources"]
+                    if row["task"] == task
+                )
+                for plan in plans
+            ),
         }
     )
   fieldnames = (
@@ -2071,6 +2517,7 @@ def command_summarize(args):
           "split",
           "cpu_seconds",
           "statuses",
+          "result_sources",
       ]
   )
   for filename, subset in (
@@ -2121,7 +2568,12 @@ def command_summarize(args):
           )
           for source in sorted({row["source"] for row in rows})
       },
-      "result_sha256": result_hashes,
+      "repetition_plan_sha256": [plan["plan_sha256"] for plan in plans],
+      "primary_result_sha256": [plan["primary_sha256"] for plan in plans],
+      "replacement_result_sha256": [
+          plan["replacement_sha256"] for plan in plans
+      ],
+      "row_provenance_sha256": baseline.sha256_file(provenance_path),
       "host": host,
       "manifest_sha256": baseline.sha256_file(manifest_path),
       "benchmark_definition_sha256": baseline.sha256_file(
@@ -2210,6 +2662,14 @@ def main():
   render_formal.add_argument("--property-file", required=True)
   render_formal.add_argument("--output-dir", required=True)
   render_formal.set_defaults(function=command_render_formal)
+  render_replacement = commands.add_parser("render-formal-replacement")
+  add_phase_b_inputs(render_replacement)
+  render_replacement.add_argument("--manifest", required=True)
+  render_replacement.add_argument("--primary-result", required=True)
+  render_replacement.add_argument("--taint-manifest", required=True)
+  render_replacement.add_argument("--property-file", required=True)
+  render_replacement.add_argument("--output-dir", required=True)
+  render_replacement.set_defaults(function=command_render_formal_replacement)
   probe = commands.add_parser("render-probe")
   probe.add_argument("--manifest", required=True)
   probe.add_argument("--hard-portfolio", required=True)
@@ -2233,11 +2693,20 @@ def main():
   probe_summary.add_argument("--result-files", required=True)
   probe_summary.add_argument("--output-dir", required=True)
   probe_summary.set_defaults(function=command_probe_summary)
+  repetition_plan = commands.add_parser("repetition-plan")
+  repetition_plan.add_argument("--manifest", required=True)
+  repetition_plan.add_argument("--repetition", type=int, choices=(1, 2), required=True)
+  repetition_plan.add_argument("--primary-result", required=True)
+  repetition_plan.add_argument("--taint-manifest")
+  repetition_plan.add_argument("--replacement-result", action="append")
+  repetition_plan.add_argument("--replacement-definition", action="append")
+  repetition_plan.add_argument("--output", required=True)
+  repetition_plan.set_defaults(function=command_repetition_plan)
   summarize = commands.add_parser("summarize")
   add_phase_b_inputs(summarize)
   summarize.add_argument("--manifest", required=True)
   summarize.add_argument("--benchmark-definition", required=True)
-  summarize.add_argument("--result", action="append", required=True)
+  summarize.add_argument("--repetition-plan", action="append", required=True)
   summarize.add_argument("--output-dir", required=True)
   summarize.add_argument("--hard-threshold", type=float, default=200)
   summarize.set_defaults(function=command_summarize)

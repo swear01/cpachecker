@@ -807,17 +807,30 @@ main() {
   }
 
   RESULTS=()
+  PLANS=()
   run_repetition 1 hard-case-dataset-v2-formal-valkyrie-repetition-1
   RESULTS+=("$(single_formal_result "$OUTPUT_DIR/results/repetition-1")")
+  run_python_script "$DATASET_PY" repetition-plan \
+    --manifest "$FORMAL_MANIFEST" \
+    --repetition 1 \
+    --primary-result "${RESULTS[0]}" \
+    --output "$OUTPUT_DIR/repetition-1-plan.json"
+  PLANS+=("$OUTPUT_DIR/repetition-1-plan.json")
   run_repetition 2 hard-case-dataset-v2-formal-valkyrie-repetition-2
   RESULTS+=("$(single_formal_result "$OUTPUT_DIR/results/repetition-2")")
+  run_python_script "$DATASET_PY" repetition-plan \
+    --manifest "$FORMAL_MANIFEST" \
+    --repetition 2 \
+    --primary-result "${RESULTS[1]}" \
+    --output "$OUTPUT_DIR/repetition-2-plan.json"
+  PLANS+=("$OUTPUT_DIR/repetition-2-plan.json")
 
   run_python_script "$DATASET_PY" summarize \
     "${PHASE_ARGS[@]}" \
     --manifest "$FORMAL_MANIFEST" \
     --benchmark-definition "$OUTPUT_DIR/generated/hard-case-candidates.xml" \
-    --result "${RESULTS[0]}" \
-    --result "${RESULTS[1]}" \
+    --repetition-plan "${PLANS[0]}" \
+    --repetition-plan "${PLANS[1]}" \
     --output-dir "$OUTPUT_DIR/summary" \
     --hard-threshold 200 \
     2>&1 | tee "$OUTPUT_DIR/provenance/summarize.log"

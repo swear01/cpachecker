@@ -313,8 +313,40 @@ the JAR semantic digest passes. It then requires `classes/` to remain absent
 before measurement and throughout success or failure teardown. Consequently,
 an injected loose class cannot shadow the pinned JAR.
 Each repetition has independent machine snapshots and a counter check.
-Exactly one result is accepted from each result directory before
-`summarize --hard-threshold 200`. The output retains the formal package; the
+The runner writes a hashed repetition plan for each clean primary result before
+`summarize --hard-threshold 200`. A recovery plan may instead bind an
+`error="incomplete"` primary result, a sorted taint manifest, and one or more
+complete subset replacement results. Every missing primary row must be
+tainted, only tainted rows may be replaced, replacement definitions must
+contain exactly their declared tasks, and no result artifact may be reused
+across repetitions. Completed untainted primary rows remain accepted.
+`summarize` emits `row-provenance.json`, which binds every accepted row to its
+primary or replacement result hash and records the replacement reason.
+
+`render-formal-replacement` authenticates the full Phase-B inputs, incomplete
+primary and taint manifest, then renders the unchanged 900/910/920 protocol for
+only the tainted tasks. `repetition-plan` binds that definition and its complete
+result to the primary:
+
+```bash
+python3 scripts/vguide/dataset.py render-formal-replacement \
+  <the same Phase-B inputs as render-formal> \
+  --manifest /path/to/formal-manifest.json \
+  --primary-result /path/to/incomplete-primary.xml \
+  --taint-manifest /path/to/taint.json \
+  --property-file /path/to/sv-benchmarks/c/properties/unreach-call.prp \
+  --output-dir /path/to/replacement-definition
+
+python3 scripts/vguide/dataset.py repetition-plan \
+  --manifest /path/to/formal-manifest.json --repetition 1 \
+  --primary-result /path/to/incomplete-primary.xml \
+  --taint-manifest /path/to/taint.json \
+  --replacement-result /path/to/replacement-result.xml.bz2 \
+  --replacement-definition /path/to/replacement-definition/hard-case-candidates.xml \
+  --output /path/to/repetition-1-plan.json
+```
+
+The output retains the formal package; the
 parent manifest; all three Phase-A manifests, raw results, and survivor
 manifests; and the one declared corpus property under relative
 `input/evidence/` paths with a relative hash inventory. Thus the copied

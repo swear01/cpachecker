@@ -1094,17 +1094,28 @@ class DatasetTest(unittest.TestCase):
     first_result = runner.index(
         'single_formal_result "$OUTPUT_DIR/results/repetition-1"', first
     )
+    first_plan = runner.index(
+        '--output "$OUTPUT_DIR/repetition-1-plan.json"', first_result
+    )
     second = runner.index(
         "run_repetition 2 hard-case-dataset-v2-formal-valkyrie-repetition-2"
     )
     second_result = runner.index(
         'single_formal_result "$OUTPUT_DIR/results/repetition-2"', second
     )
+    second_plan = runner.index(
+        '--output "$OUTPUT_DIR/repetition-2-plan.json"', second_result
+    )
     summarize = runner.index('"$DATASET_PY" summarize', second)
     self.assertLess(first, first_result)
-    self.assertLess(first_result, second)
+    self.assertLess(first_result, first_plan)
+    self.assertLess(first_plan, second)
     self.assertLess(second, second_result)
-    self.assertLess(second_result, summarize)
+    self.assertLess(second_result, second_plan)
+    self.assertLess(second_plan, summarize)
+    self.assertIn('--repetition-plan "${PLANS[0]}"', runner)
+    self.assertIn('--repetition-plan "${PLANS[1]}"', runner)
+    self.assertNotIn('--result "${RESULTS[0]}"', runner)
 
   def test_formal_runner_result_lookup_is_exact_and_fail_closed(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
@@ -2176,15 +2187,33 @@ copy_phase_evidence "$2"
       first, second = root / "formal-1.xml", root / "formal-2.xml"
       write_stock_result(first, tasks, "valkyrie", formal=True, marker="1")
       write_stock_result(second, tasks, "valkyrie", formal=True, marker="2")
+      plan_counter = 0
 
       def summarize(name, results, benchmark=definition):
+        nonlocal plan_counter
+        plan_counter += 1
+        plans = []
+        for repetition, result in enumerate(results, 1):
+          plan = root / f"plan-{plan_counter}-{repetition}.json"
+          dataset.command_repetition_plan(
+              SimpleNamespace(
+                  manifest=str(manifest),
+                  repetition=repetition,
+                  primary_result=str(result),
+                  taint_manifest=None,
+                  replacement_result=None,
+                  replacement_definition=None,
+                  output=str(plan),
+              )
+          )
+          plans.append(plan)
         with phase_b_pins(fixture):
           dataset.command_summarize(
               SimpleNamespace(
                   **inputs,
                   manifest=str(manifest),
                   benchmark_definition=str(benchmark),
-                  result=[str(path) for path in results],
+                  repetition_plan=[str(path) for path in plans],
                   output_dir=str(root / name),
                   hard_threshold=200,
               )
@@ -2202,7 +2231,10 @@ copy_phase_evidence "$2"
                   **inputs,
                   manifest=str(manifest),
                   benchmark_definition=str(definition),
-                  result=[str(first), str(second)],
+                  repetition_plan=[
+                      str(root / "plan-1-1.json"),
+                      str(root / "plan-1-2.json"),
+                  ],
                   output_dir=str(root / "wrong-threshold"),
                   hard_threshold=201,
               )
@@ -2217,7 +2249,7 @@ copy_phase_evidence "$2"
       write_stock_result(
           invalid, tasks, "valkyrie", formal=True, omit="walltime"
       )
-      with self.assertRaisesRegex(RuntimeError, "CPU or wall"):
+      with self.assertRaisesRegex(RuntimeError, "incomplete primary rows"):
         summarize("missing-metric", [first, invalid])
       invalid_root = ET.parse(second).getroot()
       invalid_root.find("run").set(
@@ -2268,6 +2300,171 @@ copy_phase_evidence "$2"
       with self.assertRaisesRegex(RuntimeError, "topology"):
         summarize("extra-definition", [first, second], extra)
 
+  def test_formal_summary_replaces_only_explicitly_tainted_cases(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root)
+      inputs = phase_b_inputs(fixture)
+      merged = root / "merged"
+      with phase_b_pins(fixture):
+        dataset.command_merge_survivors(
+            SimpleNamespace(**inputs, output_dir=str(merged))
+        )
+      manifest = merged / "candidate-manifest-valkyrie-formal.json"
+      generated = root / "generated"
+      with phase_b_pins(fixture):
+        dataset.command_render_formal(
+            SimpleNamespace(
+                **inputs,
+                manifest=str(manifest),
+                property_file=str(root / "c/properties/unreach-call.prp"),
+                output_dir=str(generated),
+            )
+        )
+      definition = generated / "hard-case-candidates.xml"
+      tasks = json.loads(manifest.read_text())["tasks"]
+      primary, second = root / "primary.xml", root / "second.xml"
+      replacement = root / "replacement.xml"
+      write_stock_result(primary, tasks, "valkyrie", formal=True, marker="1")
+      write_stock_result(second, tasks, "valkyrie", formal=True, marker="2")
+      write_stock_result(
+          replacement, tasks[:2], "valkyrie", formal=True, marker="3"
+      )
+      primary_root = ET.parse(primary).getroot()
+      primary_root.set("error", "incomplete")
+      del primary_root.attrib["endtime"]
+      for column in list(primary_root.findall("run")[0]):
+        primary_root.findall("run")[0].remove(column)
+      ET.ElementTree(primary_root).write(primary, encoding="unicode")
+      taint = root / "taint.json"
+      taint.write_text(
+          json.dumps(
+              {
+                  "schema_version": dataset.FORMAL_TAINT_SCHEMA,
+                  "repetition": 1,
+                  "primary_result_sha256": dataset.baseline.sha256_file(primary),
+                  "tasks": [
+                      {
+                          "task": tasks[0]["task"],
+                          "reason": "interrupted_incomplete",
+                      },
+                      {
+                          "task": tasks[1]["task"],
+                          "reason": "foreign_p_core_contention",
+                      },
+                  ],
+              }
+          ),
+          encoding="utf-8",
+      )
+      replacement_definition = root / "replacement-definition"
+      with phase_b_pins(fixture):
+        dataset.command_render_formal_replacement(
+            SimpleNamespace(
+                **inputs,
+                manifest=str(manifest),
+                primary_result=str(primary),
+                taint_manifest=str(taint),
+                property_file=str(root / "c/properties/unreach-call.prp"),
+                output_dir=str(replacement_definition),
+            )
+        )
+      first_plan, second_plan = root / "plan-1.json", root / "plan-2.json"
+      dataset.command_repetition_plan(
+          SimpleNamespace(
+              manifest=str(manifest),
+              repetition=1,
+              primary_result=str(primary),
+              taint_manifest=str(taint),
+              replacement_result=[str(replacement)],
+              replacement_definition=[
+                  str(replacement_definition / "hard-case-candidates.xml")
+              ],
+              output=str(first_plan),
+          )
+      )
+      dataset.command_repetition_plan(
+          SimpleNamespace(
+              manifest=str(manifest),
+              repetition=2,
+              primary_result=str(second),
+              taint_manifest=None,
+              replacement_result=None,
+              replacement_definition=None,
+              output=str(second_plan),
+          )
+      )
+      output = root / "summary"
+      with phase_b_pins(fixture):
+        dataset.command_summarize(
+            SimpleNamespace(
+                **inputs,
+                manifest=str(manifest),
+                benchmark_definition=str(definition),
+                repetition_plan=[str(first_plan), str(second_plan)],
+                output_dir=str(output),
+                hard_threshold=200,
+            )
+        )
+      with (output / "classification.csv").open(
+          newline="", encoding="utf-8"
+      ) as source:
+        rows = {row["task"]: row for row in csv.DictReader(source)}
+      self.assertEqual(rows[tasks[0]["task"]]["result_sources"], "replacement;primary")
+      self.assertEqual(rows[tasks[1]["task"]]["result_sources"], "replacement;primary")
+      self.assertEqual(rows[tasks[2]["task"]]["result_sources"], "primary;primary")
+      provenance = json.loads(
+          (output / "row-provenance.json").read_text(encoding="utf-8")
+      )
+      first_sources = {
+          row["task"]: row for row in provenance["repetitions"][0]["rows"]
+      }
+      self.assertEqual(first_sources[tasks[0]["task"]]["source"], "replacement")
+      self.assertEqual(
+          first_sources[tasks[0]["task"]]["reason"], "interrupted_incomplete"
+      )
+      self.assertEqual(
+          first_sources[tasks[1]["task"]]["reason"],
+          "foreign_p_core_contention",
+      )
+
+      original_primary = primary.read_bytes()
+      primary.write_bytes(original_primary + b"\n")
+      with phase_b_pins(fixture), self.assertRaisesRegex(
+          RuntimeError, "primary result hash"
+      ):
+        dataset.command_summarize(
+            SimpleNamespace(
+                **inputs,
+                manifest=str(manifest),
+                benchmark_definition=str(definition),
+                repetition_plan=[str(first_plan), str(second_plan)],
+                output_dir=str(root / "tampered-summary"),
+                hard_threshold=200,
+            )
+        )
+      primary.write_bytes(original_primary)
+
+      taint_data = json.loads(taint.read_text(encoding="utf-8"))
+      taint_data["tasks"] = taint_data["tasks"][1:]
+      missing_taint = root / "missing-taint.json"
+      missing_taint.write_text(json.dumps(taint_data), encoding="utf-8")
+      invalid_plan = root / "invalid-plan.json"
+      with self.assertRaisesRegex(RuntimeError, "cover exactly"):
+        dataset.command_repetition_plan(
+            SimpleNamespace(
+                manifest=str(manifest),
+                repetition=1,
+                primary_result=str(primary),
+                taint_manifest=str(missing_taint),
+                replacement_result=[str(replacement)],
+                replacement_definition=[
+                    str(replacement_definition / "hard-case-candidates.xml")
+                ],
+                output=str(invalid_plan),
+            )
+        )
+
   def test_phase_b_zero_survivors_are_preserved_and_skip_formal(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
@@ -2299,7 +2496,10 @@ copy_phase_evidence "$2"
                 **inputs,
                 manifest=str(manifest),
                 benchmark_definition=str(root / "absent.xml"),
-                result=[str(root / "absent-1.xml"), str(root / "absent-2.xml")],
+                repetition_plan=[
+                    str(root / "absent-1.json"),
+                    str(root / "absent-2.json"),
+                ],
                 output_dir=str(root / "summary-valkyrie"),
                 hard_threshold=200,
             )
