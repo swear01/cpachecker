@@ -119,6 +119,12 @@ FROZEN_CAP16_PHASE_A_TASK_COUNT = 254
 FROZEN_CAP16_PHASE_A_PACKAGE_AGGREGATE_SHA256 = (
     "b0ce4f33ad505df816d559a4260d8cc75f96a9914b9396e214fe9c2e3ecf5dee"
 )
+FROZEN_CAP16_PHASE_A_SURVIVOR_SHA256 = (
+    "7ad21cb5ca4360689f00dca6f3a5eb7ec2385b9793315cfe5828892ded0ab49f"
+)
+FROZEN_CAP16_FORMAL_ARTIFACT_AGGREGATE_SHA256 = (
+    "PENDING_AFTER_CAP16_FORMAL_COMPLETION"
+)
 PHASE_A_OPERATION = {
     "original_valkyrie": "deterministic_stratified_shard",
     "reroute_valkyrie": "deterministic_stratified_reroute",
@@ -1943,23 +1949,15 @@ def authenticate_formal_manifest(args):
   return manifest, "valkyrie"
 
 
-def validate_artifact_manifest(
-    root, artifact_path, ignored, expected_root=None
-):
-  root = Path(root).resolve()
-  artifact_path = Path(artifact_path).resolve()
-  artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+def validate_artifact_manifest_index(artifact):
   if (
       not isinstance(artifact, dict)
       or set(artifact)
       != {"root", "file_count", "aggregate_sha256", "files"}
-      or artifact["root"] != (
-          str(root) if expected_root is None else expected_root
-      )
+      or not isinstance(artifact["root"], str)
       or not isinstance(artifact["files"], list)
   ):
     raise RuntimeError("artifact manifest topology is invalid")
-  ignored = {Path(path).as_posix() for path in ignored}
   entries = []
   aggregate = hashlib.sha256()
   for entry in artifact["files"]:
@@ -1973,20 +1971,41 @@ def validate_artifact_manifest(
         or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
     ):
       raise RuntimeError("artifact manifest entry is invalid")
-    path = root / entry["path"]
-    if (
-        path.is_symlink()
-        or not path.is_file()
-        or path.stat().st_size != entry["size_bytes"]
-        or baseline.sha256_file(path) != entry["sha256"]
-    ):
-      raise RuntimeError(f"artifact manifest mismatch: {entry['path']}")
     entries.append(entry["path"])
     aggregate.update(entry["path"].encode("utf-8"))
     aggregate.update(b"\0")
     aggregate.update(bytes.fromhex(entry["sha256"]))
   if entries != sorted(entries) or len(entries) != len(set(entries)):
     raise RuntimeError("artifact manifest paths are not unique and sorted")
+  if (
+      artifact["file_count"] != len(entries)
+      or artifact["aggregate_sha256"] != aggregate.hexdigest()
+  ):
+    raise RuntimeError("artifact manifest aggregate is invalid")
+  return {entry["path"]: entry for entry in artifact["files"]}
+
+
+def validate_artifact_manifest(
+    root, artifact_path, ignored, expected_root=None
+):
+  root = Path(root).resolve()
+  artifact_path = Path(artifact_path).resolve()
+  artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+  entries = validate_artifact_manifest_index(artifact)
+  if artifact["root"] != (
+      str(root) if expected_root is None else expected_root
+  ):
+    raise RuntimeError("artifact manifest root is invalid")
+  for relative, entry in entries.items():
+    path = root / relative
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.stat().st_size != entry["size_bytes"]
+        or baseline.sha256_file(path) != entry["sha256"]
+    ):
+      raise RuntimeError(f"artifact manifest mismatch: {relative}")
+  ignored = {Path(path).as_posix() for path in ignored}
   actual = []
   for path in root.rglob("*"):
     mode = path.lstat().st_mode
@@ -1998,13 +2017,8 @@ def validate_artifact_manifest(
     if not stat.S_ISREG(mode):
       raise RuntimeError(f"unsupported artifact node: {path}")
     actual.append(relative)
-  if entries != sorted(actual):
+  if list(entries) != sorted(actual):
     raise RuntimeError("artifact manifest file set is incomplete")
-  if (
-      artifact["file_count"] != len(entries)
-      or artifact["aggregate_sha256"] != aggregate.hexdigest()
-  ):
-    raise RuntimeError("artifact manifest aggregate is invalid")
   return artifact
 
 
@@ -2740,22 +2754,31 @@ def cap16_probe_summary_rows(args):
       telemetry_by_result[result] = probe_result_telemetry(result, manifest)
     telemetry = telemetry_by_result[result][task]
     result_row = row_by_task[task]
+    explicit_failure = result_row["classification"] in {
+        "out_of_memory",
+        "verifier_or_resource_error",
+        "infrastructure_or_manifest_failure",
+    }
     if telemetry is not None and telemetry.is_symlink():
       raise RuntimeError(f"probe telemetry is a symlink for {task}")
     if telemetry is not None and telemetry.exists() and not telemetry.is_file():
       raise RuntimeError(f"probe telemetry is not a regular file for {task}")
     if telemetry is not None and telemetry.is_file():
       events = json.loads(telemetry.read_text(encoding="utf-8"))
-      classification = validate_probe_events(events)
+      event_classification = validate_probe_events(events)
       rounds = len(events)
       telemetry_sha256 = baseline.sha256_file(telemetry)
-      infrastructure_reason = ""
+      if explicit_failure:
+        classification = "infrastructure_failure"
+        infrastructure_reason = (
+            f"result failure; status={result_row['status']}; "
+            f"category={result_row['category']}"
+        )
+      else:
+        classification = event_classification
+        infrastructure_reason = ""
     else:
-      if result_row["classification"] not in {
-          "out_of_memory",
-          "verifier_or_resource_error",
-          "infrastructure_or_manifest_failure",
-      }:
+      if not explicit_failure:
         raise RuntimeError(f"probe telemetry is unexpectedly missing for {task}")
       classification = "infrastructure_failure"
       rounds = ""
@@ -3630,6 +3653,40 @@ def machine_check_record(before, after):
   }
 
 
+def validate_monitor_stop_evidence(path, pid, mode, benchexec_exit):
+  stopped = {}
+  for line in Path(path).read_text(encoding="utf-8").splitlines():
+    key, value = line.split("=", 1)
+    stopped[key] = value
+  normal_stop = stopped == {
+      "pid": str(pid),
+      "exit": "0",
+      "samples": stopped.get("samples"),
+  }
+  recovered_stop = stopped == {
+      "pid": str(pid),
+      "exit": "unobserved",
+      "samples": stopped.get("samples"),
+      "recovery": "authenticated-process-gone",
+  }
+  if (
+      (not normal_stop and not recovered_stop)
+      or not stopped["samples"].isdigit()
+      or int(stopped["samples"]) <= 0
+      or (
+          normal_stop
+          and benchexec_exit not in {0, 130}
+          and (mode != "cap16-probe" or benchexec_exit != 125)
+      )
+      or (
+          recovered_stop
+          and (mode != "cap16-probe" or benchexec_exit != 125)
+      )
+  ):
+    raise RuntimeError("formal attempt monitor stop evidence is invalid")
+  return recovered_stop
+
+
 def formal_attempt_record(args):
   root = Path(args.output_root).resolve()
   manifest_path = Path(args.manifest).resolve()
@@ -3653,8 +3710,6 @@ def formal_attempt_record(args):
         root, getattr(args, name), name.replace("_", " ")
     )
     paths[name] = (path, relative)
-  if args.benchexec_exit not in {0, 130}:
-    raise RuntimeError("formal attempt BenchExec exit is not accepted")
   result_tasks = result_task_names(paths["result"][0], manifest)
   subset = {task: manifest[task] for task in result_tasks}
   subset_manifest = {
@@ -3745,21 +3800,12 @@ def formal_attempt_record(args):
       **process_descriptor["identities"]["load-monitor"],
   })
   require_process_gone(process_identity)
-  stopped = {}
-  for line in paths["monitor_stopped"][0].read_text(
-      encoding="utf-8"
-  ).splitlines():
-    key, value = line.split("=", 1)
-    stopped[key] = int(value)
-  if (
-      stopped != {
-          "pid": pid,
-          "exit": 0,
-          "samples": stopped.get("samples"),
-      }
-      or stopped["samples"] <= 0
-  ):
-    raise RuntimeError("formal attempt monitor stop evidence is invalid")
+  validate_monitor_stop_evidence(
+      paths["monitor_stopped"][0],
+      pid,
+      args.mode,
+      args.benchexec_exit,
+  )
   expected_check = machine_check_record(
       paths["machine_before"][0], paths["machine_after"][0]
   )
@@ -4077,6 +4123,15 @@ def cap16_formal_probe_paths(formal_output):
   }
 
 
+def frozen_cap16_formal_artifact_aggregate():
+  frozen = FROZEN_CAP16_FORMAL_ARTIFACT_AGGREGATE_SHA256
+  if re.fullmatch(r"[0-9a-f]{64}", frozen) is None:
+    raise RuntimeError(
+        "cap-16 formal artifact aggregate pin is pending"
+    )
+  return frozen
+
+
 def authenticate_cap16_formal_for_probe(formal_output, sv_benchmarks):
   paths = cap16_formal_probe_paths(formal_output)
   declared = Path(formal_output)
@@ -4098,6 +4153,11 @@ def authenticate_cap16_formal_for_probe(formal_output, sv_benchmarks):
           require_complete=True,
       )
   )
+  if (
+      closure["artifact_aggregate_sha256"]
+      != frozen_cap16_formal_artifact_aggregate()
+  ):
+    raise RuntimeError("cap-16 formal artifact aggregate is not frozen")
   manifest = validate_manifest(paths["manifest"], sv_benchmarks)
   with paths["classification"].open(newline="", encoding="utf-8") as source:
     classification = list(csv.DictReader(source))
@@ -4156,6 +4216,13 @@ def command_package_cap16_probe_input(args):
       json.dumps(derived, indent=2) + "\n", encoding="utf-8"
   )
   shutil.copyfile(paths["hard"], output / "hard-portfolio.csv")
+  for source, target in (
+      (paths["manifest"], "source-formal-manifest.json"),
+      (paths["classification"], "source-formal-classification.csv"),
+      (paths["summary"], "source-formal-summary.json"),
+      (paths["artifact"], "source-formal-artifact-manifest.json"),
+  ):
+    shutil.copyfile(source, output / target)
   identity = {
       "schema_version": CAP16_PROBE_INPUT_SCHEMA,
       "host": "athena",
@@ -4168,6 +4235,9 @@ def command_package_cap16_probe_input(args):
       ),
       "formal_manifest_sha256": source_manifest_sha256,
       "formal_hard_portfolio_sha256": hard_sha256,
+      "formal_classification_sha256": baseline.sha256_file(
+          paths["classification"]
+      ),
       "formal_summary_sha256": baseline.sha256_file(paths["summary"]),
       "probe_manifest_sha256": baseline.sha256_file(manifest_path),
       "selection_independent_of_augmented_outcomes": True,
@@ -4196,6 +4266,7 @@ def validate_cap16_probe_input(probe_input, sv_benchmarks):
           "formal_artifact_manifest_sha256",
           "formal_manifest_sha256",
           "formal_hard_portfolio_sha256",
+          "formal_classification_sha256",
           "formal_summary_sha256",
           "probe_manifest_sha256",
           "selection_independent_of_augmented_outcomes",
@@ -4203,17 +4274,76 @@ def validate_cap16_probe_input(probe_input, sv_benchmarks):
       or identity["schema_version"] != CAP16_PROBE_INPUT_SCHEMA
       or identity["host"] != "athena"
       or identity["selection_independent_of_augmented_outcomes"] is not True
+      or any(
+          re.fullmatch(r"[0-9a-f]{64}", identity[name]) is None
+          for name in identity
+          if name.startswith("formal_") or name == "probe_manifest_sha256"
+      )
       or identity["probe_manifest_sha256"]
       != baseline.sha256_file(manifest_path)
   ):
     raise RuntimeError("cap-16 probe input identity is invalid")
   manifest = validate_manifest(manifest_path, sv_benchmarks)
+  source_manifest_path = root / "source-formal-manifest.json"
+  source_classification_path = root / "source-formal-classification.csv"
+  source_summary_path = root / "source-formal-summary.json"
+  source_artifact_path = root / "source-formal-artifact-manifest.json"
+  source_manifest = validate_manifest(
+      source_manifest_path, sv_benchmarks
+  )
+  artifact = json.loads(
+      source_artifact_path.read_text(encoding="utf-8")
+  )
+  artifact_index = validate_artifact_manifest_index(artifact)
+  if not Path(artifact["root"]).is_absolute():
+    raise RuntimeError("cap-16 probe formal artifact root is not absolute")
+  formal_paths = cap16_formal_probe_paths(Path(artifact["root"]))
+  expected_artifacts = {
+      formal_paths["manifest"].relative_to(formal_paths["root"]).as_posix():
+          identity["formal_manifest_sha256"],
+      formal_paths["classification"].relative_to(
+          formal_paths["root"]
+      ).as_posix(): identity["formal_classification_sha256"],
+      formal_paths["hard"].relative_to(formal_paths["root"]).as_posix():
+          identity["formal_hard_portfolio_sha256"],
+      formal_paths["summary"].relative_to(formal_paths["root"]).as_posix():
+          identity["formal_summary_sha256"],
+  }
+  if (
+      identity["formal_artifact_manifest_sha256"]
+      != baseline.sha256_file(source_artifact_path)
+      or identity["formal_manifest_sha256"]
+      != FROZEN_CAP16_PHASE_A_SURVIVOR_SHA256
+      or identity["formal_artifact_aggregate_sha256"]
+      != artifact["aggregate_sha256"]
+      or identity["formal_artifact_aggregate_sha256"]
+      != frozen_cap16_formal_artifact_aggregate()
+      or any(
+          relative not in artifact_index
+          or artifact_index[relative]["sha256"] != digest
+          for relative, digest in expected_artifacts.items()
+      )
+      or identity["formal_manifest_sha256"]
+      != baseline.sha256_file(source_manifest_path)
+      or identity["formal_classification_sha256"]
+      != baseline.sha256_file(source_classification_path)
+      or identity["formal_summary_sha256"]
+      != baseline.sha256_file(source_summary_path)
+  ):
+    raise RuntimeError("cap-16 probe formal-closure backlink is invalid")
   with hard_path.open(newline="", encoding="utf-8") as source:
     hard = list(csv.DictReader(source))
+  with source_classification_path.open(
+      newline="", encoding="utf-8"
+  ) as source:
+    classification = list(csv.DictReader(source))
   tasks = [row.get("task") for row in hard]
   task_basenames = [
       Path(row["task_path"]).name for row in manifest["tasks"]
   ]
+  source_by_task = {
+      row["task"]: row for row in source_manifest["tasks"]
+  }
   if (
       not hard
       or tasks != sorted(tasks)
@@ -4223,6 +4353,30 @@ def validate_cap16_probe_input(probe_input, sv_benchmarks):
       or identity["task_count"] != len(tasks)
       or identity["formal_hard_portfolio_sha256"]
       != baseline.sha256_file(hard_path)
+      or hard
+      != [
+          row for row in classification
+          if row.get("classification")
+          in {"stable_hard_solved", "stable_analysis_unsolved"}
+      ]
+      or manifest["derivation"].get("source_formal_manifest_sha256")
+      != identity["formal_manifest_sha256"]
+      or manifest["derivation"].get(
+          "source_formal_hard_portfolio_sha256"
+      )
+      != identity["formal_hard_portfolio_sha256"]
+      or manifest["derivation"].get(
+          "source_formal_artifact_aggregate_sha256"
+      )
+      != identity["formal_artifact_aggregate_sha256"]
+      or manifest["derivation"].get(
+          "selection_independent_of_augmented_outcomes"
+      )
+      is not True
+      or any(
+          source_by_task.get(row["task"]) != row
+          for row in manifest["tasks"]
+      )
   ):
     raise RuntimeError("cap-16 probe input hard portfolio is invalid")
   return root, manifest_path, manifest, hard, identity
@@ -4535,6 +4689,12 @@ def run_taints(
     target[task] = timestamp
   if set(ends) - set(starts):
     raise RuntimeError("BenchExec log completes a task that it never started")
+  if monitor_end is None or any(
+      ended > monitor_end for ended in ends.values()
+  ):
+    raise RuntimeError(
+        "load monitor ended before a completed task was fully observed"
+    )
   complete = {task for task, row in rows.items() if row_is_complete(row)}
   if complete != set(ends):
     raise RuntimeError("BenchExec log and complete result rows do not match")

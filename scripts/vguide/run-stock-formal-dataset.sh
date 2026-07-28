@@ -480,23 +480,52 @@ start_process_monitor() {
 stop_process_monitor() {
   local monitor_exit
   local samples
+  local stopped
+  local stopped_tmp
   if [[ -z ${MONITOR_PID:-} ]] || ! kill -0 "$MONITOR_PID" 2>/dev/null; then
     echo "process monitor is not alive at teardown" >&2
     return 1
   fi
-  kill "$MONITOR_PID"
+  if ! kill "$MONITOR_PID"; then
+    echo "process monitor could not be stopped" >&2
+    return 1
+  fi
   if wait "$MONITOR_PID"; then
     monitor_exit=0
   else
     monitor_exit=$?
   fi
-  [[ "$monitor_exit" -eq 0 ]]
-  [[ -s "$MONITOR_OUTPUT" ]]
+  if [[ "$monitor_exit" -ne 0 ]]; then
+    echo "process monitor exited unsuccessfully" >&2
+    return 1
+  fi
+  if [[ ! -s "$MONITOR_OUTPUT" ]]; then
+    echo "process monitor output is empty" >&2
+    return 1
+  fi
   samples=$(($(wc -l <"$MONITOR_OUTPUT") - 1))
-  [[ "$samples" -gt 0 ]]
-  printf 'pid=%s\nexit=%s\nsamples=%s\n' \
+  if [[ "$samples" -le 0 ]]; then
+    echo "process monitor has no samples" >&2
+    return 1
+  fi
+  stopped="$MONITOR_OUTPUT.stopped"
+  if [[ -e "$stopped" || -L "$stopped" ]]; then
+    echo "process monitor stop evidence already exists" >&2
+    return 1
+  fi
+  if ! stopped_tmp=$(mktemp "$stopped.tmp.XXXXXX"); then
+    return 1
+  fi
+  if ! printf 'pid=%s\nexit=%s\nsamples=%s\n' \
     "$MONITOR_PID" "$monitor_exit" "$samples" \
-    >"$MONITOR_OUTPUT.stopped"
+    >"$stopped_tmp"; then
+    rm -f -- "$stopped_tmp"
+    return 1
+  fi
+  if ! mv -- "$stopped_tmp" "$stopped"; then
+    rm -f -- "$stopped_tmp"
+    return 1
+  fi
   MONITOR_ACTIVE=false
   MONITOR_PID=
   MONITOR_OUTPUT=
