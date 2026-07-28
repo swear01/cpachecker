@@ -107,6 +107,16 @@ and
 `16e5f9ff04ed08ef9c29d8674021c11de3eed87b9da6a8c1e2ef68c6847ec0bb`.
 Omitting `--host` retains the frozen three-host cap-8 derivation.
 
+The r1 preregistration was rejected by its packaging/runtime preflight audit
+before any task started: its archive omitted
+`run-stock-formal-dataset.sh`, which the cap-16 runner sources, and it pinned
+Valkyrie's Python 3.10 runtime instead of Athena's Python 3.12 runtime. The r2
+preregistration supersedes r1. Its script package must contain exactly
+`baseline.py`, `dataset.py`, `run-stock-formal-dataset.sh`, and
+`run-stock-cap16-dataset.sh`. The r2 runner also pins Athena's independently
+reproduced JAR-content digest
+`49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3`.
+
 `run-stock-cap16-dataset.sh` accepts only the frozen Athena manifest. It uses
 two four-core slots on physical P-cores `0,2,4,6,8,10,12,14`, records the
 r8 sustained-contention monitor, and derives an authenticated screen plan.

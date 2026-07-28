@@ -22,6 +22,12 @@ MANIFEST=$(realpath "$4")
 OUTPUT_DIR=$(realpath -m "$5")
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/run-stock-formal-dataset.sh"
+CAP16_PACKAGE_SCRIPT_FILES=(
+  baseline.py
+  dataset.py
+  run-stock-formal-dataset.sh
+  run-stock-cap16-dataset.sh
+)
 EXPECTED_CPACHECKER=1848f9eb597ca99a170fd98af8aad716743a2bfe
 EXPECTED_SV_BENCHMARKS=9cf9198156e4c8a6c517e474770158e1bb0b566d
 EXPECTED_BENCHEXEC=edb95ed3a8478366b8bb89f8cdd1d9a6c5fa8c84
@@ -29,18 +35,18 @@ EXPECTED_JDK=867ff62e01a0936fc0a90ceae27338be1973559767ef0717896f8d64f780ece6
 EXPECTED_STOCK_LIB_JAVA=eea0df062de5c8e3febe0d96b583741c140e79d3ae41a87a56d7be365b876f9d
 EXPECTED_ANT_INSTALL=52772e241e78a875fa00dea891eac2023d4f2be639a5f28a17dca81580f75e5b
 EXPECTED_ANT_VERSION="Apache Ant(TM) version 1.10.12 compiled on January 17 1970"
-EXPECTED_PYTHON_REAL=/usr/bin/python3.10
-EXPECTED_PYTHON_SHA256=7d51cd6b48b521277f5caa4610a82126e315fa2be4df069823a8b1eeb5bd4a86
-EXPECTED_PYTHON_VERSION="Python 3.10.12"
-EXPECTED_PYTHON_STDLIB=/usr/lib/python3.10
-EXPECTED_PYTHON_STDLIB_DIGEST=eef7994f6b57cb0bbdb803ef6aadc0c1afbe61d444932eeef5dc5c114b6cf27b
+EXPECTED_PYTHON_REAL=/usr/bin/python3.12
+EXPECTED_PYTHON_SHA256=1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118
+EXPECTED_PYTHON_VERSION="Python 3.12.3"
+EXPECTED_PYTHON_STDLIB=/usr/lib/python3.12
+EXPECTED_PYTHON_STDLIB_DIGEST=a3940bab942bcff9bf32ed7b81f7f71e0cd506166aec5c156c5058bf4f337d16
 EXPECTED_PYTHON_DIST_PACKAGES=/usr/lib/python3/dist-packages
-EXPECTED_PYTHON_DIST_PACKAGES_DIGEST=0970024a48206a1937b5bfbf889335525b769b89a27ca7df25d793d7727b909c
-EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=/usr/local/lib/python3.10/dist-packages
+EXPECTED_PYTHON_DIST_PACKAGES_DIGEST=c7831aae147cc850f67958d070d122bf9e3c72c31a090fd497ff50177b84d189
+EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=/usr/local/lib/python3.12/dist-packages
 EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python310.zip:/usr/lib/python3.10:/usr/lib/python3.10/lib-dynload:/usr/local/lib/python3.10/dist-packages:/usr/lib/python3/dist-packages
+EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python312.zip:/usr/lib/python3.12:/usr/lib/python3.12/lib-dynload:/usr/local/lib/python3.12/dist-packages:/usr/lib/python3/dist-packages
 EXPECTED_PYYAML_FILE=/usr/lib/python3/dist-packages/yaml/__init__.py
-EXPECTED_PYYAML_VERSION=5.4.1
+EXPECTED_PYYAML_VERSION=6.0.1
 EXPECTED_BENCHEXEC_ARCHIVE=75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737c143ba018bc
 EXPECTED_BENCHEXEC_VERSION="benchexec 3.35-dev"
 EXPECTED_CPACHECKER_JAR_CONTENT=49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3
@@ -115,19 +121,17 @@ if [[ ! -e "$OUTPUT_DIR" ]] || {
   mkdir -p "$SAVED_INPUT/scripts" "$OUTPUT_DIR/generated" \
     "$OUTPUT_DIR/attempts" "$OUTPUT_DIR/provenance"
   copy_manifest_package "$MANIFEST" "$SAVED_INPUT" || exit
-  cp "$SCRIPT_DIR/dataset.py" "$SCRIPT_DIR/baseline.py" \
-    "$SCRIPT_DIR/run-stock-formal-dataset.sh" \
-    "$SCRIPT_DIR/run-stock-cap16-dataset.sh" "$SAVED_INPUT/scripts/"
+  for package_script in "${CAP16_PACKAGE_SCRIPT_FILES[@]}"; do
+    cp "$SCRIPT_DIR/$package_script" "$SAVED_INPUT/scripts/"
+  done
 else
   [[ -d "$OUTPUT_DIR" ]]
   [[ $(sha256sum "$SAVED_INPUT/candidate-manifest-athena.json" |
     cut -d' ' -f1) == "$EXPECTED_MANIFEST" ]]
-  cmp "$SCRIPT_DIR/dataset.py" "$SAVED_INPUT/scripts/dataset.py" || exit
-  cmp "$SCRIPT_DIR/baseline.py" "$SAVED_INPUT/scripts/baseline.py" || exit
-  cmp "$SCRIPT_DIR/run-stock-formal-dataset.sh" \
-    "$SAVED_INPUT/scripts/run-stock-formal-dataset.sh" || exit
-  cmp "$SCRIPT_DIR/run-stock-cap16-dataset.sh" \
-    "$SAVED_INPUT/scripts/run-stock-cap16-dataset.sh" || exit
+  for package_script in "${CAP16_PACKAGE_SCRIPT_FILES[@]}"; do
+    cmp "$SCRIPT_DIR/$package_script" "$SAVED_INPUT/scripts/$package_script" ||
+      exit
+  done
   [[ -d "$OUTPUT_DIR/generated" && -d "$OUTPUT_DIR/attempts" &&
     -d "$OUTPUT_DIR/provenance" ]]
 fi

@@ -2993,6 +2993,50 @@ copy_phase_evidence "$2"
     self.assertIn("render-screen-replacement", runner)
     self.assertIn("screen-summary-plan", runner)
     self.assertIn('source "$SCRIPT_DIR/run-stock-formal-dataset.sh"', runner)
+    package_start = runner.index("CAP16_PACKAGE_SCRIPT_FILES=(")
+    package_end = runner.index("\n)", package_start)
+    self.assertEqual(
+        [
+            line.strip()
+            for line in runner[package_start:package_end].splitlines()[1:]
+        ],
+        [
+            "baseline.py",
+            "dataset.py",
+            "run-stock-formal-dataset.sh",
+            "run-stock-cap16-dataset.sh",
+        ],
+    )
+    for assignment in (
+        "EXPECTED_PYTHON_REAL=/usr/bin/python3.12",
+        "EXPECTED_PYTHON_SHA256="
+        "1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118",
+        'EXPECTED_PYTHON_VERSION="Python 3.12.3"',
+        "EXPECTED_PYTHON_STDLIB=/usr/lib/python3.12",
+        "EXPECTED_PYTHON_STDLIB_DIGEST="
+        "a3940bab942bcff9bf32ed7b81f7f71e0cd506166aec5c156c5058bf4f337d16",
+        "EXPECTED_PYTHON_DIST_PACKAGES=/usr/lib/python3/dist-packages",
+        "EXPECTED_PYTHON_DIST_PACKAGES_DIGEST="
+        "c7831aae147cc850f67958d070d122bf9e3c72c31a090fd497ff50177b84d189",
+        "EXPECTED_PYTHON_LOCAL_DIST_PACKAGES="
+        "/usr/local/lib/python3.12/dist-packages",
+        "EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST="
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "EXPECTED_PYTHON_SYSTEM_PATH="
+        "/usr/lib/python312.zip:/usr/lib/python3.12:"
+        "/usr/lib/python3.12/lib-dynload:"
+        "/usr/local/lib/python3.12/dist-packages:"
+        "/usr/lib/python3/dist-packages",
+        "EXPECTED_PYYAML_FILE=/usr/lib/python3/dist-packages/yaml/__init__.py",
+        "EXPECTED_PYYAML_VERSION=6.0.1",
+        "EXPECTED_ANT_INSTALL="
+        "52772e241e78a875fa00dea891eac2023d4f2be639a5f28a17dca81580f75e5b",
+        'EXPECTED_ANT_VERSION="Apache Ant(TM) version 1.10.12 '
+        'compiled on January 17 1970"',
+        "EXPECTED_CPACHECKER_JAR_CONTENT="
+        "49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3",
+    ):
+      self.assertIn(assignment, runner)
     self.assertGreaterEqual(runner.count("verify_runtime_closure"), 4)
     self.assertIn("jar_content_digest_value", runner)
     self.assertIn("EXPECTED_CPACHECKER_JAR_CONTENT=", runner)
