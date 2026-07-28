@@ -7574,6 +7574,31 @@ def phase_d_property_sha256(manifest):
   return matches[0]
 
 
+def phase_d_manifest_provenance(cap8, cap16):
+  manifests = (cap8["manifest"], cap16["manifest"])
+  repositories = manifests[0].get("repositories")
+  corpus_files = manifests[0].get("corpus_files")
+  if (
+      not isinstance(repositories, dict)
+      or not repositories
+      or any(
+          not isinstance(name, str)
+          or not name
+          or not isinstance(revision, str)
+          or re.fullmatch(r"[0-9a-f]{40}", revision) is None
+          for name, revision in repositories.items()
+      )
+      or manifests[1].get("repositories") != repositories
+      or not isinstance(corpus_files, list)
+      or not corpus_files
+      or manifests[1].get("corpus_files") != corpus_files
+  ):
+    raise RuntimeError(
+        "Phase-D source repository or corpus provenance is inconsistent"
+    )
+  return repositories, corpus_files
+
+
 def phase_d_rows(cap8, cap16):
   rows = []
   dedup = {}
@@ -7583,15 +7608,35 @@ def phase_d_rows(cap8, cap16):
       task = eligible["task"]
       record = source["details"][task]
       source_sha256 = record.get("source_sha256")
+      task_sha256 = record.get("task_sha256")
+      license_evidence = record.get("license_evidence")
+      repositories = source["manifest"].get("repositories", {})
       if (
-          not isinstance(source_sha256, list)
+          not isinstance(task_sha256, str)
+          or re.fullmatch(r"[0-9a-f]{64}", task_sha256) is None
+          or not isinstance(source_sha256, list)
           or not source_sha256
           or any(
-              re.fullmatch(r"[0-9a-f]{64}", value) is None
+              not isinstance(value, str)
+              or re.fullmatch(r"[0-9a-f]{64}", value) is None
               for value in source_sha256
           )
-          or not record.get("expected_verdict")
-          or not record.get("data_model")
+          or record.get("expected_verdict") not in {"true", "false"}
+          or not isinstance(record.get("data_model"), str)
+          or not record["data_model"]
+          or record.get("source") not in repositories
+          or not isinstance(record.get("license"), str)
+          or not record["license"]
+          or not isinstance(license_evidence, list)
+          or not license_evidence
+          or any(
+              not isinstance(evidence, dict)
+              or not isinstance(evidence.get("sha256"), str)
+              or re.fullmatch(
+                  r"[0-9a-f]{64}", evidence.get("sha256", "")
+              ) is None
+              for evidence in license_evidence
+          )
       ):
         raise RuntimeError(f"Phase-D task identity is invalid: {task}")
       key = (
@@ -7624,9 +7669,52 @@ def phase_d_rows(cap8, cap16):
   return sorted(rows, key=lambda row: row["task"])
 
 
+def copy_phase_d_external_files(output, rows, cap8, cap16):
+  sources = {source["cohort"]: source for source in (cap8, cap16)}
+  copied = {}
+  for row in rows:
+    record = row["record"]
+    if record["source"] == "sv-benchmarks":
+      continue
+    declared = (
+        (record["task_path"], record["task_sha256"]),
+        *zip(record["source_paths"], record["source_sha256"], strict=True),
+    )
+    source_root = Path(
+        sources[row["cohort"]]["manifest_path"]
+    ).resolve().parent
+    for name, expected in declared:
+      relative = Path(name)
+      if relative.is_absolute() or ".." in relative.parts:
+        raise RuntimeError(f"invalid Phase-D external path: {name}")
+      source_path = (source_root / relative).resolve()
+      try:
+        source_path.relative_to(source_root)
+      except ValueError as error:
+        raise RuntimeError(
+            f"Phase-D external path escapes source: {name}"
+        ) from error
+      if (
+          not source_path.is_file()
+          or baseline.sha256_file(source_path) != expected
+          or (
+              name in copied
+              and copied[name] != expected
+          )
+      ):
+        raise RuntimeError(f"Phase-D external file is invalid: {name}")
+      target = output / relative
+      if name not in copied:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_path, target)
+        copied[name] = expected
+  return copied
+
+
 def write_phase_d_output(output_dir, cap8, cap16):
   output = Path(output_dir).resolve()
   require_absent_or_empty_output(output)
+  repositories, corpus_files = phase_d_manifest_provenance(cap8, cap16)
   rows = phase_d_rows(cap8, cap16)
   parent_audit = {
       source["cohort"]: source["manifest"].get("parent_license_audit")
@@ -7635,6 +7723,13 @@ def write_phase_d_output(output_dir, cap8, cap16):
   if any(value is None for value in parent_audit.values()):
     raise RuntimeError("Phase-D source lacks parent license audit")
   output.mkdir(parents=True, exist_ok=True)
+  copy_declared_corpus_files(
+      cap8["manifest_path"], {"corpus_files": corpus_files}, output
+  )
+  for row in corpus_files:
+    if baseline.sha256_file(output / row["path"]) != row["sha256"]:
+      raise RuntimeError("Phase-D corpus copy is invalid")
+  copy_phase_d_external_files(output, rows, cap8, cap16)
   backlinks = {
       source["cohort"]: {
           "probe_artifact_aggregate_sha256": source["aggregate_sha256"],
@@ -7680,6 +7775,8 @@ def write_phase_d_output(output_dir, cap8, cap16):
         "split": split,
         "task_count": len(selected),
         "tasks": [row["record"] for row in selected],
+        "repositories": repositories,
+        "corpus_files": corpus_files,
         "parent_license_audit": parent_audit,
         "source_backlinks": backlinks,
     }
@@ -7737,9 +7834,6 @@ def write_phase_d_output(output_dir, cap8, cap16):
       json.dumps(summary, indent=2) + "\n", encoding="utf-8"
   )
   write_phase_b_artifact_manifest(output)
-  command_write_complete_sentinel(
-      argparse.Namespace(output=str(output / ".complete"))
-  )
   return summary
 
 
@@ -7772,12 +7866,8 @@ def validate_phase_d_output_path(args, cap8, cap16):
     raise RuntimeError("Phase-D output overlaps an authenticated input tree")
 
 
-def validate_phase_d_output(args, reproduce=True):
-  cap8, cap16 = phase_d_sources(args)
-  validate_phase_d_output_path(args, cap8, cap16)
-  root = Path(args.output_dir).resolve()
-  expected_topology = {
-      ".complete",
+def phase_d_expected_topology(corpus_files, rows, complete):
+  files = {
       "artifact-manifest.json",
       "dedup-audit.csv",
       "development-manifest.json",
@@ -7785,29 +7875,85 @@ def validate_phase_d_output(args, reproduce=True):
       "row-provenance.json",
       "summary.json",
       "validation-manifest.json",
+      *(row["path"] for row in corpus_files),
+      *(
+          name
+          for row in rows
+          if row["record"]["source"] != "sv-benchmarks"
+          for name in (
+              row["record"]["task_path"],
+              *row["record"]["source_paths"],
+          )
+      ),
   }
+  if complete:
+    files.add(".complete")
+  directories = {
+      parent.as_posix()
+      for name in files
+      for parent in Path(name).parents
+      if parent != Path(".")
+  }
+  return files, directories
+
+
+def validate_phase_d_tree(args, cap8, cap16, require_complete):
+  root = Path(args.output_dir).resolve()
+  repositories, corpus_files = phase_d_manifest_provenance(cap8, cap16)
+  rows = phase_d_rows(cap8, cap16)
+  expected_files, expected_directories = phase_d_expected_topology(
+      corpus_files, rows, require_complete
+  )
+  actual_files = set()
+  actual_directories = set()
+  if root.is_dir():
+    for path in root.rglob("*"):
+      relative = path.relative_to(root).as_posix()
+      mode = path.lstat().st_mode
+      if stat.S_ISREG(mode):
+        actual_files.add(relative)
+      elif stat.S_ISDIR(mode):
+        actual_directories.add(relative)
+      else:
+        raise RuntimeError("Phase-D output topology or completion is invalid")
   if (
       not root.is_dir()
-      or {path.name for path in root.iterdir()} != expected_topology
-      or (root / ".complete").is_symlink()
-      or not (root / ".complete").is_file()
-      or (root / ".complete").read_text(encoding="utf-8") != "complete\n"
+      or actual_files != expected_files
+      or actual_directories != expected_directories
+      or (
+          require_complete
+          and (root / ".complete").read_text(encoding="utf-8")
+          != "complete\n"
+      )
   ):
     raise RuntimeError("Phase-D output topology or completion is invalid")
   validate_artifact_manifest(
       root,
       root / "artifact-manifest.json",
-      {".complete"},
+      {".complete"} if require_complete else set(),
       expected_root=".",
   )
-  if reproduce:
-    with tempfile.TemporaryDirectory(
-        prefix="vguide-phase-d-check."
-    ) as temporary:
-      write_phase_d_output(temporary, cap8, cap16)
-      for name in expected_topology:
-        if (root / name).read_bytes() != (Path(temporary) / name).read_bytes():
-          raise RuntimeError("Phase-D output does not reproduce exactly")
+  for split in ("development", "validation", "heldout"):
+    manifest = json.loads(
+        (root / f"{split}-manifest.json").read_text(encoding="utf-8")
+    )
+    if (
+        manifest.get("repositories") != repositories
+        or manifest.get("corpus_files") != corpus_files
+    ):
+      raise RuntimeError("Phase-D manifest provenance is invalid")
+  with tempfile.TemporaryDirectory(
+      prefix="vguide-phase-d-check."
+  ) as temporary:
+    write_phase_d_output(temporary, cap8, cap16)
+    reproduced_files, reproduced_directories = phase_d_expected_topology(
+        corpus_files, rows, False
+    )
+    if reproduced_directories != expected_directories:
+      raise RuntimeError("Phase-D output does not reproduce exactly")
+    for name in reproduced_files:
+      if (root / name).read_bytes() != (Path(temporary) / name).read_bytes():
+        raise RuntimeError("Phase-D output does not reproduce exactly")
   return {
       "artifact_aggregate_sha256": json.loads(
           (root / "artifact-manifest.json").read_text(encoding="utf-8")
@@ -7819,12 +7965,22 @@ def validate_phase_d_output(args, reproduce=True):
   }
 
 
+def validate_phase_d_output(args):
+  cap8, cap16 = phase_d_sources(args)
+  validate_phase_d_output_path(args, cap8, cap16)
+  return validate_phase_d_tree(args, cap8, cap16, True)
+
+
 def command_finalize_phase_d(args):
   cap8, cap16 = phase_d_sources(args)
   validate_phase_d_output_path(args, cap8, cap16)
   summary = write_phase_d_output(args.output_dir, cap8, cap16)
-  validate_phase_d_output(args, reproduce=False)
-  print(json.dumps(summary, sort_keys=True))
+  rendered = json.dumps(summary, sort_keys=True)
+  validate_phase_d_tree(args, cap8, cap16, False)
+  command_write_complete_sentinel(
+      argparse.Namespace(output=str(Path(args.output_dir) / ".complete"))
+  )
+  print(rendered)
 
 
 def command_validate_phase_d(args):

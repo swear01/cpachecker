@@ -872,19 +872,28 @@ scripts/vguide/dataset.py validate-phase-d \
 ```
 
 The canonical deduplication key is the ordered source SHA-256 tuple, the
-unreach-call property SHA-256, expected verdict, and data model. Any duplicate
-fails closed; no representative is selected. The finalizer preserves every
-selected manifest task record, including license evidence, and both parent
-license audits. It assigns `source:family` through the fixed
+unreach-call property SHA-256, expected verdict, and data model. The frozen
+manifest schema encodes verdicts as the exact strings `true` and `false`;
+missing, boolean-valued, or other verdicts fail closed. Any duplicate fails
+closed; no representative is selected. The finalizer preserves every selected
+manifest task record, including license evidence, and both parent license
+audits. The two authenticated inputs must declare identical repository
+revisions and corpus-file provenance; all three split manifests copy those
+declarations exactly and the validator fixes them against the source
+manifests. It assigns `source:family` through the fixed
 `split_for_family` function, writes exact task- and family-disjoint
 development, validation, and heldout manifests, and never adjusts the heldout
 set using augmented outcomes.
 
 The exact output topology is `dedup-audit.csv`, the three split manifests,
-`row-provenance.json`, `summary.json`, `artifact-manifest.json`, and
-`.complete`. Validation reauthenticates both probe closures, checks the
-artifact hashes and backlinks, regenerates the complete output in a temporary
-directory, and requires every output byte to match.
+the declared `corpus/` files, `row-provenance.json`, `summary.json`,
+`artifact-manifest.json`, and `.complete`. Each split manifest therefore
+passes the standard manifest validator against the frozen SV-Benchmarks
+checkout. Finalization checks the complete draft, including temporary
+byte-for-byte reproduction, before atomically writing `.complete` as its last
+artifact operation; a failed acceptance check leaves no completion sentinel.
+Standalone validation reauthenticates both probe closures and checks the exact
+topology, artifact hashes, backlinks, source provenance, and reproduction.
 
 ## Wiki integrity
 

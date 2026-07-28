@@ -401,19 +401,25 @@ def package_cap16_fixture(fixture, output):
   )
 
 
-def phase_d_source_fixture(cohort, rows):
+def phase_d_source_fixture(cohort, rows, root):
+  root = Path(root)
   property_sha256 = hashlib.sha256(b"unreach-call").hexdigest()
+  sv_benchmarks = root / "sv-benchmarks"
+  sv_benchmarks.mkdir(parents=True, exist_ok=True)
   records = []
   for index, (task, source, family) in enumerate(rows):
+    task_path = sv_benchmarks / f"{task}.yml"
+    source_path = sv_benchmarks / f"{task}.c"
+    task_path.write_text(f"{cohort}-{task}-yaml\n", encoding="utf-8")
+    source_path.write_text(f"{cohort}-{index}\n", encoding="utf-8")
     records.append(
         {
             "task": task,
             "task_path": f"{task}.yml",
+            "task_sha256": dataset.baseline.sha256_file(task_path),
             "source_paths": [f"{task}.c"],
-            "source_sha256": [
-                hashlib.sha256(f"{cohort}-{index}".encode()).hexdigest()
-            ],
-            "expected_verdict": "true",
+            "source_sha256": [dataset.baseline.sha256_file(source_path)],
+            "expected_verdict": "true" if index % 2 == 0 else "false",
             "data_model": "ILP32",
             "source": source,
             "family": family,
@@ -427,6 +433,11 @@ def phase_d_source_fixture(cohort, rows):
         }
     )
   manifest = {
+      "repositories": {
+          "sv-benchmarks": hashlib.sha256(
+              b"sv-benchmarks-revision"
+          ).hexdigest()[:40],
+      },
       "corpus_files": [
           {
               "path": "corpus/properties/unreach-call.prp",
@@ -439,14 +450,26 @@ def phase_d_source_fixture(cohort, rows):
       },
       "tasks": records,
   }
+  probe_root = root / f"{cohort}-probe"
+  manifest_path = probe_root / "input/formal/manifest.json"
+  property_path = (
+      manifest_path.parent / "corpus/properties/unreach-call.prp"
+  )
+  property_path.parent.mkdir(parents=True)
+  property_path.write_bytes(b"unreach-call")
+  manifest_path.write_text(
+      json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+  )
   return {
       "cohort": cohort,
+      "root": probe_root,
       "aggregate_sha256": hashlib.sha256(
           f"{cohort}-aggregate".encode()
       ).hexdigest(),
       "manifest_sha256": hashlib.sha256(
           f"{cohort}-manifest".encode()
       ).hexdigest(),
+      "manifest_path": manifest_path,
       "eligible_sha256": hashlib.sha256(
           f"{cohort}-eligible".encode()
       ).hexdigest(),
@@ -481,10 +504,12 @@ class DatasetTest(unittest.TestCase):
     with tempfile.TemporaryDirectory() as temp:
       output = Path(temp) / "phase-d"
       cap8 = phase_d_source_fixture(
-          "cap8", [("cap8-task", "sv-benchmarks", "Loops")]
+          "cap8", [("cap8-task", "sv-benchmarks", "Loops")], temp
       )
       cap16 = phase_d_source_fixture(
-          "cap16", [("cap16-task", "sv-benchmarks", "LoopsOther")]
+          "cap16",
+          [("cap16-task", "sv-benchmarks", "LoopsOther")],
+          temp,
       )
       cap16_record = cap16["details"]["cap16-task"]
       cap16_record["source_sha256"] = cap8["details"]["cap8-task"][
@@ -501,12 +526,22 @@ class DatasetTest(unittest.TestCase):
       manifest_path = cap8_root / "input/formal/manifest.json"
       eligible_path = cap8_root / "summary/cegar-eligible.csv"
       manifest_path.parent.mkdir(parents=True)
+      property_path = (
+          manifest_path.parent / "corpus/properties/unreach-call.prp"
+      )
+      property_path.parent.mkdir(parents=True)
+      property_path.write_bytes(b"unreach-call")
       eligible_path.parent.mkdir(parents=True)
       manifest_path.write_text("{}\n", encoding="utf-8")
       eligible_path.write_text(
           "task,probe_classification\n", encoding="utf-8"
       )
       manifest = {
+          "repositories": {
+              "sv-benchmarks": hashlib.sha256(
+                  b"sv-benchmarks-revision"
+              ).hexdigest()[:40],
+          },
           "corpus_files": [
               {
                   "path": "corpus/properties/unreach-call.prp",
@@ -539,22 +574,42 @@ class DatasetTest(unittest.TestCase):
             cap8_root, root / "sv-benchmarks", "cap8"
         )
       cap16 = phase_d_source_fixture(
-          "cap16", [("cap16-task", "sv-benchmarks", "Loops")]
+          "cap16", [("cap16-task", "sv-benchmarks", "Loops")], root
       )
       output = root / "phase-d"
       summary = dataset.write_phase_d_output(output, cap8, cap16)
       self.assertEqual(summary["task_count"], 1)
 
+  def test_phase_d_rejects_non_schema_expected_verdict(self):
+    with tempfile.TemporaryDirectory() as temp:
+      output = Path(temp) / "phase-d"
+      cap8 = phase_d_source_fixture(
+          "cap8", [("cap8-task", "sv-benchmarks", "Loops")], temp
+      )
+      cap16 = phase_d_source_fixture("cap16", [], temp)
+      cap8["details"]["cap8-task"]["expected_verdict"] = False
+      with self.assertRaisesRegex(RuntimeError, "task identity is invalid"):
+        dataset.write_phase_d_output(output, cap8, cap16)
+      self.assertFalse(output.exists())
+
+  def test_phase_d_rejects_inconsistent_repository_provenance(self):
+    with tempfile.TemporaryDirectory() as temp:
+      output = Path(temp) / "phase-d"
+      cap8 = phase_d_source_fixture(
+          "cap8", [("cap8-task", "sv-benchmarks", "Loops")], temp
+      )
+      cap16 = phase_d_source_fixture("cap16", [], temp)
+      cap16["manifest"]["repositories"]["sv-benchmarks"] = "a" * 40
+      with self.assertRaisesRegex(RuntimeError, "provenance is inconsistent"):
+        dataset.write_phase_d_output(output, cap8, cap16)
+      self.assertFalse(output.exists())
+
   def test_phase_d_rejects_output_overlap_in_both_directions(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
-      cap8 = phase_d_source_fixture("cap8", [])
-      cap16 = phase_d_source_fixture("cap16", [])
-      cap8["root"] = root / "inputs/cap8"
-      cap16["root"] = root / "inputs/cap16"
-      sv_benchmarks = root / "sv-benchmarks"
-      for path in (cap8["root"], cap16["root"], sv_benchmarks):
-        path.mkdir(parents=True)
+      cap8 = phase_d_source_fixture("cap8", [], root / "inputs")
+      cap16 = phase_d_source_fixture("cap16", [], root / "inputs")
+      sv_benchmarks = root / "inputs/sv-benchmarks"
       nested_output = cap8["root"] / "phase-d"
       nested_args = SimpleNamespace(
           output_dir=str(nested_output),
@@ -578,6 +633,34 @@ class DatasetTest(unittest.TestCase):
             cap16,
         )
 
+  def test_phase_d_validation_failure_does_not_write_complete(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      cap8 = phase_d_source_fixture(
+          "cap8", [("cap8-task", "sv-benchmarks", "Loops")], root
+      )
+      cap16 = phase_d_source_fixture("cap16", [], root)
+      output = root / "phase-d"
+      args = SimpleNamespace(
+          output_dir=str(output),
+          sv_benchmarks=str(root / "sv-benchmarks"),
+      )
+      with (
+          mock.patch.object(
+              dataset, "phase_d_sources", return_value=(cap8, cap16)
+          ) as authenticate,
+          mock.patch.object(
+              dataset,
+              "validate_phase_d_tree",
+              side_effect=RuntimeError("draft validation failed"),
+          ),
+          self.assertRaisesRegex(RuntimeError, "draft validation failed"),
+      ):
+        dataset.command_finalize_phase_d(args)
+      self.assertEqual(authenticate.call_count, 1)
+      self.assertTrue(output.is_dir())
+      self.assertFalse((output / ".complete").exists())
+
   def test_phase_d_split_is_exact_disjoint_and_reproducible(self):
     families = {}
     candidate = 0
@@ -586,32 +669,58 @@ class DatasetTest(unittest.TestCase):
       split = dataset.split_for_family(f"sv-benchmarks:{family}")
       families.setdefault(split, family)
       candidate += 1
-    cap8 = phase_d_source_fixture(
-        "cap8",
-        [
-            ("task-a", "sv-benchmarks", families["development"]),
-            ("task-b", "sv-benchmarks", families["validation"]),
-        ],
-    )
-    cap16 = phase_d_source_fixture(
-        "cap16",
-        [
-            ("task-c", "sv-benchmarks", families["heldout"]),
-            ("task-d", "sv-benchmarks", families["development"]),
-        ],
-    )
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
-      cap8["root"] = root / "cap8"
-      cap16["root"] = root / "cap16"
       sv_benchmarks = root / "sv-benchmarks"
-      for path in (cap8["root"], cap16["root"], sv_benchmarks):
-        path.mkdir()
+      cap8 = phase_d_source_fixture(
+          "cap8",
+          [
+              ("task-a", "sv-benchmarks", families["development"]),
+              ("task-b", "sv-benchmarks", families["validation"]),
+          ],
+          root,
+      )
+      cap16 = phase_d_source_fixture(
+          "cap16",
+          [
+              ("task-c", "sv-benchmarks", families["heldout"]),
+              ("task-d", "sv-benchmarks", families["development"]),
+          ],
+          root,
+      )
+      external_revision = hashlib.sha256(
+          b"esbmc-revision"
+      ).hexdigest()[:40]
+      for source in (cap8, cap16):
+        source["manifest"]["repositories"]["esbmc"] = external_revision
+      external = cap16["details"]["task-c"]
+      external["source"] = "esbmc"
+      external["task_path"] = "corpus/external/esbmc/task-c.yml"
+      external["source_paths"] = ["corpus/external/esbmc/task-c.c"]
+      for name, content, hash_key in (
+          (external["task_path"], b"external task\n", "task_sha256"),
+          (
+              external["source_paths"][0],
+              b"external source\n",
+              "source_sha256",
+          ),
+      ):
+        path = cap16["manifest_path"].parent / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        digest = dataset.baseline.sha256_file(path)
+        external[hash_key] = [digest] if hash_key == "source_sha256" else digest
       output = root / "phase-d"
       summary = dataset.write_phase_d_output(output, cap8, cap16)
-      expected_topology = {
-          ".complete",
+      args = SimpleNamespace(
+          output_dir=str(output),
+          sv_benchmarks=str(sv_benchmarks),
+      )
+      draft_topology = {
           "artifact-manifest.json",
+          "corpus/external/esbmc/task-c.c",
+          "corpus/external/esbmc/task-c.yml",
+          "corpus/properties/unreach-call.prp",
           "dedup-audit.csv",
           "development-manifest.json",
           "heldout-manifest.json",
@@ -619,7 +728,27 @@ class DatasetTest(unittest.TestCase):
           "summary.json",
           "validation-manifest.json",
       }
-      self.assertEqual({path.name for path in output.iterdir()}, expected_topology)
+      self.assertEqual(
+          {
+              path.relative_to(output).as_posix()
+              for path in output.rglob("*")
+              if path.is_file()
+          },
+          draft_topology,
+      )
+      self.assertFalse((output / ".complete").exists())
+      dataset.validate_phase_d_tree(args, cap8, cap16, False)
+      dataset.command_write_complete_sentinel(
+          SimpleNamespace(output=str(output / ".complete"))
+      )
+      self.assertEqual(
+          {
+              path.relative_to(output).as_posix()
+              for path in output.rglob("*")
+              if path.is_file()
+          },
+          draft_topology | {".complete"},
+      )
       source_records = {
           task: record
           for source in (cap8, cap16)
@@ -639,6 +768,18 @@ class DatasetTest(unittest.TestCase):
                 "cap16": cap16["manifest"]["parent_license_audit"],
             },
         )
+        self.assertEqual(
+            manifest["repositories"], cap8["manifest"]["repositories"]
+        )
+        self.assertEqual(
+            manifest["corpus_files"], cap8["manifest"]["corpus_files"]
+        )
+        self.assertEqual(
+            dataset.validate_manifest(
+                output / f"{split}-manifest.json", sv_benchmarks
+            )["task_count"],
+            manifest["task_count"],
+        )
         for record in manifest["tasks"]:
           emitted[record["task"]] = record
           task_splits[record["task"]] = split
@@ -650,6 +791,17 @@ class DatasetTest(unittest.TestCase):
       self.assertEqual(
           set(task_splits), {"task-a", "task-b", "task-c", "task-d"}
       )
+      self.assertEqual(
+          {record["expected_verdict"] for record in emitted.values()},
+          {"true", "false"},
+      )
+      for record in emitted.values():
+        self.assertIn(
+            record["source"], cap8["manifest"]["repositories"]
+        )
+        self.assertRegex(record["task_sha256"], r"^[0-9a-f]{64}$")
+        self.assertTrue(record["license"])
+        self.assertTrue(record["license_evidence"])
       self.assertEqual(summary["heldout_outcome_adjustment"], False)
       with (output / "dedup-audit.csv").open(
           newline="", encoding="utf-8"
@@ -663,14 +815,26 @@ class DatasetTest(unittest.TestCase):
           },
           task_splits,
       )
-      args = SimpleNamespace(
-          output_dir=str(output),
-          sv_benchmarks=str(sv_benchmarks),
-      )
       with mock.patch.object(
           dataset, "phase_d_sources", return_value=(cap8, cap16)
       ):
         self.assertTrue(dataset.validate_phase_d_output(args)["valid"])
+        development = output / "development-manifest.json"
+        original_development = development.read_bytes()
+        tampered = json.loads(original_development)
+        tampered["repositories"]["sv-benchmarks"] = "a" * 40
+        development.write_text(
+            json.dumps(tampered, indent=2) + "\n", encoding="utf-8"
+        )
+        (output / ".complete").unlink()
+        (output / "artifact-manifest.json").unlink()
+        dataset.write_phase_b_artifact_manifest(output)
+        dataset.command_write_complete_sentinel(
+            SimpleNamespace(output=str(output / ".complete"))
+        )
+        with self.assertRaisesRegex(RuntimeError, "provenance is invalid"):
+          dataset.validate_phase_d_output(args)
+        development.write_bytes(original_development)
         (output / "summary.json").write_text("{}\n", encoding="utf-8")
         (output / ".complete").unlink()
         (output / "artifact-manifest.json").unlink()
