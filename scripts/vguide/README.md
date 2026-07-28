@@ -664,6 +664,29 @@ The audit accepts an official task only when each source has an inline license s
 
 `run-cegar-probe.sh` runs the resulting hard-portfolio manifest with the matched PredicateCPA configuration and a local deterministic provider that always returns zero candidates. This cannot augment precision. PredicateCPA is single-threaded, so the probe runs eight simultaneous one-core jobs on the eight physical P-cores. An empty telemetry file is created before analysis and atomically replaced after each refinement so BenchExec can retrieve zero-event or partial evidence from timeout runs. The probe intentionally does not pass CPAchecker's `--benchmark` shortcut because that shortcut disables all output files. A task is CEGAR-eligible only after native refinement produces a spurious counterexample whose path visits a loop head. No refinement event is the structurally-unreachable census; a refinement event without a loop-head visit and missing infrastructure output remain separate strata.
 
+`run-cap16-cegar-probe.sh` is the fail-closed Phase-C entry point for the
+cap-16 dataset. It accepts the completed cap-16 formal output rather than an
+arbitrary hard-case CSV. Before creating probe output it uses the formal
+output's saved scripts to reproduce the formal summary byte for byte and
+validates the complete formal closure. It then derives and saves a hard-only
+manifest, runs only on Athena with the pinned eight physical P-cores and
+runtime closure, and uses the formal load-monitor, taint, iterative
+replacement-plan, process-identity, attempt-marker, artifact-manifest, and
+completion-sentinel contracts. Completed uncontaminated cases remain in the
+plan while interrupted or contended cases alone are retried.
+
+Phase-C telemetry is accepted only when each refinement has the exact
+`vguide-telemetry-v1` schema, sequential refinement number, the fixed
+invariant/counterexample/refinement calls to
+`deterministic-empty-provider`, the frozen empty-response hash, zero rejected
+candidates, and an empty activated-candidate list. Unexpected, duplicate, or
+ambiguous telemetry fails closure. A missing file is an infrastructure row
+only for an explicit resource/verifier/infrastructure result; otherwise it
+fails. The authenticated summary contains the complete census plus separate
+eligible, no-event, hook-without-loop-head, and infrastructure CSVs. The
+summary is reproduced during closure validation before `.complete` is
+written.
+
 ## Wiki integrity
 
 ```bash

@@ -23,6 +23,7 @@ import shutil
 import stat
 import statistics
 import subprocess
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -128,11 +129,16 @@ FROZEN_BENCHEXEC_GENERATOR = "BenchExec 3.35-dev"
 FROZEN_TOOLMODULE = "benchexec.tools.cpachecker"
 DISCOVERY_DISPLAY = "CPAchecker frozen stock hard-case discovery screen"
 FORMAL_DISPLAY = "CPAchecker frozen stock hard-case formal measurement"
+PROBE_DISPLAY = "VGuide no-candidate CEGAR eligibility probe"
 FORMAL_REPETITION_PLAN_SCHEMA = "hard-case-formal-repetition-plan-v1"
 CAP16_FORMAL_REPETITION_PLAN_SCHEMA = (
     "hard-case-cap16-formal-repetition-plan-v1"
 )
 FORMAL_TAINT_SCHEMA = "hard-case-formal-taint-v1"
+CAP16_PROBE_TAINT_SCHEMA = "hard-case-cap16-cegar-probe-taint-v1"
+CAP16_PROBE_PLAN_SCHEMA = "hard-case-cap16-cegar-probe-plan-v1"
+CAP16_PROBE_INPUT_SCHEMA = "hard-case-cap16-cegar-probe-input-v1"
+CAP16_PROBE_SUMMARY_SCHEMA = "hard-case-cap16-cegar-probe-summary-v1"
 SCREEN_REPETITION_PLAN_SCHEMA = "hard-case-screen-repetition-plan-v1"
 SCREEN_TAINT_SCHEMA = "hard-case-screen-taint-v1"
 FORMAL_TAINT_REASONS = {
@@ -161,6 +167,10 @@ PYTHON_RUNTIME_FLAGS = (
     "-B",
     "-X",
     "pycache_prefix=/dev/null",
+)
+EMPTY_PROVIDER_MODEL = "deterministic-empty-provider"
+EMPTY_PROVIDER_RESPONSE_SHA256 = (
+    "950ec9013b84aed3afe9761427511822630e80cd5f009e837389312830deba94"
 )
 BENCHEXEC_MODULE_COMMAND = (
     "import importlib.util,runpy,sys; from pathlib import Path; "
@@ -1142,6 +1152,51 @@ def result_metadata(path, display, time_limit, allow_incomplete=False):
   return metadata
 
 
+def probe_result_metadata(path, allow_incomplete=False):
+  with baseline.open_result(Path(path)) as source:
+    root = ET.parse(source).getroot()
+  expected = {
+      "tool": "CPAchecker",
+      "toolmodule": FROZEN_TOOLMODULE,
+      "generator": FROZEN_BENCHEXEC_GENERATOR,
+      "displayName": PROBE_DISPLAY,
+      "memlimit": "15000000000B",
+      "timelimit": "900s",
+      "cpuCores": "1",
+      "block": "official",
+      "name": "cegar-eligibility.official",
+      "options": (
+          "--predicateAnalysis-vguide --heap 10000M --timelimit 900 s "
+          "--option vguide.enable=true --option vguide.provider=EMPTY"
+      ),
+  }
+  error = root.get("error")
+  if (
+      root.tag != "result"
+      or (error is not None and (not allow_incomplete or error != "incomplete"))
+      or any(root.get(name) != value for name, value in expected.items())
+      or not root.get("version")
+  ):
+    raise RuntimeError("probe result metadata does not match the zero-candidate protocol")
+  hosts = [node.get("hostname") for node in root.findall("systeminfo")]
+  if hosts != ["athena"]:
+    raise RuntimeError("probe result is not uniquely attributed to Athena")
+  metadata = {
+      "host": "athena",
+      "starttime": root.get("starttime"),
+      "endtime": root.get("endtime"),
+      "benchmarkname": root.get("benchmarkname"),
+      "incomplete": error == "incomplete",
+  }
+  if (
+      not metadata["starttime"]
+      or (not metadata["endtime"] and error != "incomplete")
+      or not metadata["benchmarkname"]
+  ):
+    raise RuntimeError("probe result lacks required timestamps or benchmark name")
+  return metadata
+
+
 def benchexec_path_representations(
     expected_path, sv_benchmarks, benchmark_definition, result_file
 ):
@@ -1363,19 +1418,15 @@ def validate_screen_definition(path, manifest_path, manifest, sv_benchmarks):
   )
 
 
-def command_render_probe(args):
-  manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
-  details = {row["task"]: row for row in manifest["tasks"]}
-  with Path(args.hard_portfolio).open(newline="", encoding="utf-8") as source:
-    tasks = [row["task"] for row in csv.DictReader(source)]
-  selected = [details[task] for task in tasks]
-  output = Path(args.output_dir).resolve()
+def render_probe(manifest_path, manifest, selected, sv_benchmarks, property_file, output):
+  output = Path(output).resolve()
+  require_absent_or_empty_output(output)
   output.mkdir(parents=True, exist_ok=True)
   task_sets = write_task_sets(
-      selected, Path(args.manifest), args.sv_benchmarks, output
+      selected, manifest_path, sv_benchmarks, output
   )
   root = benchmark_root(
-      "VGuide no-candidate CEGAR eligibility probe", "900 s", "910 s", "920 s"
+      PROBE_DISPLAY, "900 s", "910 s", "920 s"
   )
   root.set("cpuCores", "1")
   ET.SubElement(root, "resultfiles").text = "**/vguide-telemetry.json"
@@ -1393,12 +1444,150 @@ def command_render_probe(args):
       root,
       "cegar-eligibility",
       task_sets,
-      args.property_file,
-      Path(args.manifest).resolve().parent / "corpus/properties/unreach-call.prp",
+      property_file,
+      Path(manifest_path).resolve().parent / "corpus/properties/unreach-call.prp",
   )
   benchmark = output / "cegar-eligibility.xml"
   write_xml(root, benchmark)
+  subset = {
+      **manifest,
+      "task_count": len(selected),
+      "tasks": selected,
+  }
+  validate_probe_definition(
+      benchmark, manifest_path, subset, sv_benchmarks
+  )
   print(benchmark)
+
+
+def validate_probe_definition(path, manifest_path, manifest, sv_benchmarks):
+  root = ET.parse(path).getroot()
+  expected = benchmark_root(
+      PROBE_DISPLAY, "900 s", "910 s", "920 s"
+  )
+  expected.set("cpuCores", "1")
+  ET.SubElement(expected, "resultfiles").text = "**/vguide-telemetry.json"
+  for name, value in (
+      ("--predicateAnalysis-vguide", None),
+      ("--heap", "10000M"),
+      ("--timelimit", "900 s"),
+      ("--option", "vguide.enable=true"),
+      ("--option", "vguide.provider=EMPTY"),
+  ):
+    option = ET.SubElement(expected, "option", {"name": name})
+    if value:
+      option.text = value
+  definition_dir = Path(path).resolve().parent
+  groups = {
+      "official": [
+          row for row in manifest["tasks"] if row["source"] == "sv-benchmarks"
+      ],
+      "external": [
+          row for row in manifest["tasks"] if row["source"] != "sv-benchmarks"
+      ],
+  }
+  task_sets = {
+      group: definition_dir / f"hard-case-candidates-{group}.set"
+      for group, rows in groups.items()
+      if rows
+  }
+  write_run_definition(
+      expected,
+      "cegar-eligibility",
+      task_sets,
+      Path(sv_benchmarks).resolve() / "c/properties/unreach-call.prp",
+      Path(manifest_path).resolve().parent
+      / "corpus/properties/unreach-call.prp",
+  )
+  if xml_shape(root) != xml_shape(expected):
+    raise RuntimeError("probe benchmark definition topology is not frozen")
+  for group, task_set in task_sets.items():
+    expected_tasks = [
+        str(
+            (
+                Path(sv_benchmarks).resolve()
+                if row["source"] == "sv-benchmarks"
+                else Path(manifest_path).resolve().parent
+            )
+            / row["task_path"]
+        )
+        for row in groups[group]
+    ]
+    if task_set.read_text(encoding="utf-8").splitlines() != expected_tasks:
+      raise RuntimeError("probe task set does not match the authenticated manifest")
+
+
+def command_render_probe(args):
+  manifest_path = Path(args.manifest).resolve()
+  manifest = validate_manifest(manifest_path, args.sv_benchmarks)
+  details = {row["task"]: row for row in manifest["tasks"]}
+  with Path(args.hard_portfolio).open(newline="", encoding="utf-8") as source:
+    rows = list(csv.DictReader(source))
+  tasks = [row["task"] for row in rows]
+  if (
+      len(tasks) != len(set(tasks))
+      or any(task not in details for task in tasks)
+      or not tasks
+  ):
+    raise RuntimeError("probe hard portfolio is empty, duplicated, or outside manifest")
+  render_probe(
+      manifest_path,
+      manifest,
+      [details[task] for task in tasks],
+      args.sv_benchmarks,
+      args.property_file,
+      args.output_dir,
+  )
+
+
+def command_render_cap16_probe(args):
+  _, manifest_path, manifest, hard, _ = validate_cap16_probe_input(
+      args.probe_input, args.sv_benchmarks
+  )
+  details = {row["task"]: row for row in manifest["tasks"]}
+  render_probe(
+      manifest_path,
+      manifest,
+      [details[row["task"]] for row in hard],
+      args.sv_benchmarks,
+      args.property_file,
+      args.output_dir,
+  )
+
+
+def command_render_cap16_probe_replacement(args):
+  _, manifest_path, manifest, _, _ = validate_cap16_probe_input(
+      args.probe_input, args.sv_benchmarks
+  )
+  by_name = baseline.load_task_manifest(manifest_path)
+  result = Path(args.primary_result).resolve()
+  tainted = validate_taint_manifest(
+      json.loads(Path(args.taint_manifest).read_text(encoding="utf-8")),
+      1,
+      baseline.sha256_file(result),
+      by_name,
+      CAP16_PROBE_TAINT_SCHEMA,
+  )
+  if not tainted:
+    raise RuntimeError("probe replacement requires at least one tainted task")
+  result_tasks = set(result_task_names(result, by_name))
+  if not set(tainted) <= result_tasks:
+    raise RuntimeError("probe replacement taint is outside its result")
+  selected = sorted(
+      (
+          row for row in manifest["tasks"]
+          if row["task"] in tainted
+      ),
+      key=lambda row: row["task"],
+  )
+  render_probe(
+      manifest_path,
+      manifest,
+      selected,
+      args.sv_benchmarks,
+      args.property_file,
+      args.output_dir,
+  )
 
 
 def split_for_family(family):
@@ -2620,6 +2809,47 @@ def classify_probe_events(events):
   return "hook_reached_without_loop_head" if events else "structurally_unreachable"
 
 
+def validate_probe_events(events):
+  if not isinstance(events, list):
+    raise RuntimeError("probe telemetry is not an event list")
+  expected_roles = ("invariant", "counterexample", "refinement")
+  for refinement, event in enumerate(events, start=1):
+    if (
+        not isinstance(event, dict)
+        or set(event)
+        != {
+            "schema_version",
+            "refinement",
+            "counterexample_visits_loop_head",
+            "provider_calls",
+            "activated_candidates",
+            "rejected_candidates",
+        }
+        or event["schema_version"] != "vguide-telemetry-v1"
+        or type(event["refinement"]) is not int
+        or event["refinement"] != refinement
+        or not isinstance(event["counterexample_visits_loop_head"], bool)
+        or event["activated_candidates"] != []
+        or type(event["rejected_candidates"]) is not int
+        or event["rejected_candidates"] != 0
+        or not isinstance(event["provider_calls"], list)
+        or len(event["provider_calls"]) != len(expected_roles)
+    ):
+      raise RuntimeError("probe telemetry event topology is invalid")
+    for role, call in zip(
+        expected_roles, event["provider_calls"], strict=True
+    ):
+      if (
+          not isinstance(call, dict)
+          or set(call) != {"agent_role", "model", "response_sha256"}
+          or call["agent_role"] != role
+          or call["model"] != EMPTY_PROVIDER_MODEL
+          or call["response_sha256"] != EMPTY_PROVIDER_RESPONSE_SHA256
+      ):
+        raise RuntimeError("probe telemetry provider call is not deterministic EMPTY")
+  return classify_probe_events(events)
+
+
 def command_probe_summary(args):
   manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
   details = {row["task"]: row for row in manifest["tasks"]}
@@ -2642,9 +2872,7 @@ def command_probe_summary(args):
       telemetry_sha256 = ""
     else:
       events = json.loads(matches[0].read_text(encoding="utf-8"))
-      if not isinstance(events, list):
-        raise RuntimeError(f"telemetry is not an event list: {matches[0]}")
-      classification = classify_probe_events(events)
+      classification = validate_probe_events(events)
       rounds = len(events)
       telemetry_sha256 = baseline.sha256_file(matches[0])
     rows.append(
@@ -2689,6 +2917,198 @@ def command_probe_summary(args):
       + "\n",
       encoding="utf-8",
   )
+
+
+def probe_result_telemetry(result_path, manifest):
+  result_path = Path(result_path).resolve()
+  result_tasks = result_task_names(result_path, manifest)
+  basenames = {
+      task: Path(manifest[task]["task_path"]).name for task in result_tasks
+  }
+  if len(set(basenames.values())) != len(basenames):
+    raise RuntimeError("probe result tasks have ambiguous task basenames")
+  files_dirs = [
+      path for path in result_path.parent.iterdir()
+      if path.name.endswith(".files")
+  ]
+  actual = set(result_path.parent.rglob("vguide-telemetry.json"))
+  if len(files_dirs) > 1:
+    raise RuntimeError("probe result has multiple retrieved-result directories")
+  if not files_dirs:
+    if actual:
+      raise RuntimeError(
+          f"probe result contains misplaced telemetry: {sorted(map(str, actual))}"
+      )
+    return dict.fromkeys(result_tasks)
+  if files_dirs[0].is_symlink() or not files_dirs[0].is_dir():
+    raise RuntimeError("probe retrieved-result directory is not regular")
+  expected = {
+      task: (
+          files_dirs[0]
+          / "cegar-eligibility"
+          / basename
+          / "output/vguide-telemetry.json"
+      )
+      for task, basename in basenames.items()
+  }
+  unknown = actual - set(expected.values())
+  if unknown:
+    raise RuntimeError(
+        f"probe result contains unknown telemetry: {sorted(map(str, unknown))}"
+    )
+  return expected
+
+
+def cap16_probe_summary_rows(args):
+  _, manifest_path, manifest_data, hard_rows, identity = (
+      validate_cap16_probe_input(args.probe_input, args.sv_benchmarks)
+  )
+  manifest = baseline.load_task_manifest(manifest_path)
+  validate_probe_definition(
+      args.benchmark_definition,
+      manifest_path,
+      manifest_data,
+      args.sv_benchmarks,
+  )
+  plan_path = Path(args.probe_plan).resolve()
+  plan = load_screen_plan(
+      plan_path,
+      manifest,
+      manifest_path,
+      "athena",
+      args.sv_benchmarks,
+      args.benchmark_definition,
+      plan_schema=CAP16_PROBE_PLAN_SCHEMA,
+      repetition=1,
+      display=PROBE_DISPLAY,
+      time_limit="900 s",
+      taint_schema=CAP16_PROBE_TAINT_SCHEMA,
+      definition_validator=validate_probe_definition,
+      hard_threshold=200,
+  )
+  source_by_task = {row["task"]: row for row in plan["row_sources"]}
+  row_by_task = {row["task"]: row for row in plan["rows"].values()}
+  telemetry_by_result = {}
+  rows = []
+  for hard in hard_rows:
+    task = hard["task"]
+    source = source_by_task[task]
+    result = declared_plan_file(
+        plan_path.parent,
+        {
+            "path": source["result_path"],
+            "sha256": source["result_sha256"],
+        },
+        f"probe result for {task}",
+    )
+    if result not in telemetry_by_result:
+      telemetry_by_result[result] = probe_result_telemetry(result, manifest)
+    telemetry = telemetry_by_result[result][task]
+    result_row = row_by_task[task]
+    if telemetry is not None and telemetry.is_symlink():
+      raise RuntimeError(f"probe telemetry is a symlink for {task}")
+    if telemetry is not None and telemetry.exists() and not telemetry.is_file():
+      raise RuntimeError(f"probe telemetry is not a regular file for {task}")
+    if telemetry is not None and telemetry.is_file():
+      events = json.loads(telemetry.read_text(encoding="utf-8"))
+      classification = validate_probe_events(events)
+      rounds = len(events)
+      telemetry_sha256 = baseline.sha256_file(telemetry)
+      infrastructure_reason = ""
+    else:
+      if result_row["classification"] not in {
+          "out_of_memory",
+          "verifier_or_resource_error",
+          "infrastructure_or_manifest_failure",
+      }:
+        raise RuntimeError(f"probe telemetry is unexpectedly missing for {task}")
+      classification = "infrastructure_failure"
+      rounds = ""
+      telemetry_sha256 = ""
+      infrastructure_reason = (
+          f"missing telemetry; status={result_row['status']}; "
+          f"category={result_row['category']}"
+      )
+    rows.append({
+        **hard,
+        "probe_classification": classification,
+        "probe_refinement_rounds": rounds,
+        "telemetry_sha256": telemetry_sha256,
+        "probe_result_sha256": source["result_sha256"],
+        "probe_result_source": source["source"],
+        "infrastructure_reason": infrastructure_reason,
+    })
+  if {row["task"] for row in rows} != set(manifest):
+    raise RuntimeError("probe summary does not cover exactly the authenticated manifest")
+  return rows, plan, identity
+
+
+def write_cap16_probe_summary(args):
+  require_absent_or_empty_output(args.output_dir)
+  rows, plan, identity = cap16_probe_summary_rows(args)
+  output = Path(args.output_dir).resolve()
+  output.mkdir(parents=True, exist_ok=True)
+  fieldnames = list(rows[0])
+  strata = (
+      ("cegar-eligible.csv", "cegar_eligible"),
+      ("structurally-unreachable.csv", "structurally_unreachable"),
+      (
+          "hook-reached-without-loop-head.csv",
+          "hook_reached_without_loop_head",
+      ),
+      ("infrastructure-failure.csv", "infrastructure_failure"),
+  )
+  for filename, classification in (
+      ("cegar-eligibility.csv", None),
+      *strata,
+  ):
+    with (output / filename).open(
+        "w", newline="", encoding="utf-8"
+    ) as target:
+      writer = csv.DictWriter(target, fieldnames=fieldnames)
+      writer.writeheader()
+      writer.writerows(
+          rows
+          if classification is None
+          else (
+              row for row in rows
+              if row["probe_classification"] == classification
+          )
+      )
+  row_provenance = {
+      "schema_version": "hard-case-cap16-cegar-probe-row-provenance-v1",
+      "probe_plan_sha256": plan["plan_sha256"],
+      "primary_result_sha256": plan["primary_sha256"],
+      "replacement_result_sha256": plan["replacement_sha256"],
+      "rows": plan["row_sources"],
+  }
+  provenance_path = output / "row-provenance.json"
+  provenance_path.write_text(
+      json.dumps(row_provenance, indent=2) + "\n", encoding="utf-8"
+  )
+  counts = collections.Counter(row["probe_classification"] for row in rows)
+  summary = {
+      "schema_version": CAP16_PROBE_SUMMARY_SCHEMA,
+      "task_count": len(rows),
+      "classifications": dict(sorted(counts.items())),
+      "host": "athena",
+      "provider": "EMPTY",
+      "activated_candidate_count": 0,
+      "formal_artifact_aggregate_sha256": identity[
+          "formal_artifact_aggregate_sha256"
+      ],
+      "probe_input_manifest_sha256": identity["probe_manifest_sha256"],
+      "probe_plan_sha256": plan["plan_sha256"],
+      "row_provenance_sha256": baseline.sha256_file(provenance_path),
+  }
+  (output / "summary.json").write_text(
+      json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+  )
+  return summary
+
+
+def command_cap16_probe_summary(args):
+  print(json.dumps(write_cap16_probe_summary(args), sort_keys=True))
 
 
 def classify_screen_result(row):
@@ -3022,16 +3442,18 @@ def formal_process_descriptor(args, legacy=False):
           f"formal process {name} escapes output root"
       ) from error
   if (
-      args.mode not in {"cap8", "cap16"}
+      args.mode not in {"cap8", "cap16", "cap16-probe"}
       or args.p_cores != FORMAL_P_CORE_LIST
       or not isinstance(args.monitor_exclude_root, int)
       or args.monitor_exclude_root <= 0
   ):
     raise RuntimeError("formal process descriptor inputs are invalid")
-  expected_host = "athena" if args.mode == "cap16" else "valkyrie"
+  expected_host = (
+      "athena" if args.mode in {"cap16", "cap16-probe"} else "valkyrie"
+  )
   expected_python = (
       Path("/usr/bin/python3.12")
-      if args.mode == "cap16"
+      if args.mode in {"cap16", "cap16-probe"}
       else Path("/usr/bin/python3.10")
   )
   recovery_root = dataset_py.parent.parent
@@ -3063,9 +3485,13 @@ def formal_process_descriptor(args, legacy=False):
   ):
     raise RuntimeError("formal process descriptor runtime is not pinned")
   expected_name = (
-      f"hard-case-dataset-v2"
-      f"{'-cap16' if args.mode == 'cap16' else ''}"
-      f"-formal-{args.host}-{args.label}"
+      f"hard-case-dataset-v2-cap16-cegar-probe-{args.host}-{args.label}"
+      if args.mode == "cap16-probe"
+      else (
+          f"hard-case-dataset-v2"
+          f"{'-cap16' if args.mode == 'cap16' else ''}"
+          f"-formal-{args.host}-{args.label}"
+      )
   )
   if args.name != expected_name:
     raise RuntimeError("formal BenchExec run name is not canonical")
@@ -3131,9 +3557,9 @@ def formal_process_descriptor(args, legacy=False):
       "--overlay-dir",
       str(cpachecker_dir),
       "-N",
-      "2",
+      "8" if args.mode == "cap16-probe" else "2",
       "-c",
-      "4",
+      "1" if args.mode == "cap16-probe" else "4",
       str(definition),
   ]
   return {
@@ -3788,15 +4214,26 @@ def formal_attempt_record(args):
       "task_count": len(result_tasks),
       "tasks": [manifest[task] for task in result_tasks],
   }
-  validate_formal_definition(
-      paths["definition"][0],
-      manifest_path,
-      subset_manifest,
-      args.sv_benchmarks,
-  )
-  metadata = result_metadata(
-      paths["result"][0], FORMAL_DISPLAY, "900 s", allow_incomplete=True
-  )
+  if args.mode == "cap16-probe":
+    validate_probe_definition(
+        paths["definition"][0],
+        manifest_path,
+        subset_manifest,
+        args.sv_benchmarks,
+    )
+    metadata = probe_result_metadata(
+        paths["result"][0], allow_incomplete=True
+    )
+  else:
+    validate_formal_definition(
+        paths["definition"][0],
+        manifest_path,
+        subset_manifest,
+        args.sv_benchmarks,
+    )
+    metadata = result_metadata(
+        paths["result"][0], FORMAL_DISPLAY, "900 s", allow_incomplete=True
+    )
   if metadata["host"] != args.host:
     raise RuntimeError("formal attempt host is invalid")
   validate_result_run_topology(
@@ -5236,14 +5673,343 @@ def command_validate_formal_closure(args):
       raise RuntimeError(
           f"formal attempt marker does not match its planned attempt: {label}"
       )
-  print(json.dumps({
+  return {
       "artifact_aggregate_sha256": json.loads(
           artifact.read_text(encoding="utf-8")
       )["aggregate_sha256"],
       "attempt_count": len(markers),
       "complete": args.require_complete,
       "valid": True,
+  }
+
+
+def command_validate_formal_closure(args):
+  print(json.dumps(validate_formal_closure(args), sort_keys=True))
+
+
+def cap16_formal_probe_paths(formal_output):
+  root = Path(formal_output).resolve()
+  return {
+      "root": root,
+      "manifest": (
+          root
+          / "input/evidence/summary/candidate-manifest-analysis-survivors.json"
+      ),
+      "definition": root / "generated/hard-case-candidates.xml",
+      "plan_1": root / "repetition-1-plan.json",
+      "plan_2": root / "repetition-2-plan.json",
+      "hard": root / "summary/hard-portfolio.csv",
+      "classification": root / "summary/classification.csv",
+      "summary": root / "summary/summary.json",
+      "artifact": root / "provenance/artifact-manifest.json",
+  }
+
+
+def authenticate_cap16_formal_for_probe(formal_output, sv_benchmarks):
+  paths = cap16_formal_probe_paths(formal_output)
+  declared = Path(formal_output)
+  if (
+      declared.is_symlink()
+      or Path(os.path.abspath(declared)) != paths["root"]
+      or not paths["root"].is_dir()
+  ):
+    raise RuntimeError("cap-16 formal output must be a regular directory")
+  closure = validate_formal_closure(
+      argparse.Namespace(
+          output_root=str(paths["root"]),
+          manifest=str(paths["manifest"]),
+          benchmark_definition=str(paths["definition"]),
+          sv_benchmarks=str(Path(sv_benchmarks).resolve()),
+          host="athena",
+          mode="cap16",
+          repetition_plan=[str(paths["plan_1"]), str(paths["plan_2"])],
+          require_complete=True,
+      )
+  )
+  manifest = validate_manifest(paths["manifest"], sv_benchmarks)
+  with paths["classification"].open(newline="", encoding="utf-8") as source:
+    classification = list(csv.DictReader(source))
+  with paths["hard"].open(newline="", encoding="utf-8") as source:
+    hard = list(csv.DictReader(source))
+  expected = [
+      row
+      for row in classification
+      if row.get("classification")
+      in {"stable_hard_solved", "stable_analysis_unsolved"}
+  ]
+  tasks = [row.get("task") for row in hard]
+  details = {row["task"]: row for row in manifest["tasks"]}
+  if (
+      hard != expected
+      or not hard
+      or tasks != sorted(tasks)
+      or len(tasks) != len(set(tasks))
+      or any(task not in details for task in tasks)
+      or any(details[task]["source"] != "sv-benchmarks" for task in tasks)
+  ):
+    raise RuntimeError(
+        "cap-16 formal hard portfolio is not the exact authenticated stable-hard set"
+    )
+  return paths, manifest, hard, closure
+
+
+def command_package_cap16_probe_input(args):
+  paths, manifest, hard, closure = authenticate_cap16_formal_for_probe(
+      args.formal_output, args.sv_benchmarks
+  )
+  output = Path(args.output_dir).resolve()
+  require_absent_or_empty_output(output)
+  output.mkdir(parents=True, exist_ok=True)
+  tasks = [row["task"] for row in hard]
+  source_manifest_sha256 = baseline.sha256_file(paths["manifest"])
+  hard_sha256 = baseline.sha256_file(paths["hard"])
+  derived = manifest_subset(
+      manifest,
+      tasks,
+      {
+          "operation": "cap16_zero_candidate_probe_input",
+          "source_manifest_sha256": source_manifest_sha256,
+          "source_formal_manifest_sha256": source_manifest_sha256,
+          "source_formal_hard_portfolio_sha256": hard_sha256,
+          "source_formal_artifact_aggregate_sha256": closure[
+              "artifact_aggregate_sha256"
+          ],
+          "selection_independent_of_augmented_outcomes": True,
+      },
+  )
+  if (paths["manifest"].parent / "corpus").is_dir():
+    shutil.copytree(paths["manifest"].parent / "corpus", output / "corpus")
+  manifest_path = output / "candidate-manifest-cap16-probe.json"
+  manifest_path.write_text(
+      json.dumps(derived, indent=2) + "\n", encoding="utf-8"
+  )
+  shutil.copyfile(paths["hard"], output / "hard-portfolio.csv")
+  identity = {
+      "schema_version": CAP16_PROBE_INPUT_SCHEMA,
+      "host": "athena",
+      "task_count": len(tasks),
+      "formal_artifact_aggregate_sha256": closure[
+          "artifact_aggregate_sha256"
+      ],
+      "formal_artifact_manifest_sha256": baseline.sha256_file(
+          paths["artifact"]
+      ),
+      "formal_manifest_sha256": source_manifest_sha256,
+      "formal_hard_portfolio_sha256": hard_sha256,
+      "formal_summary_sha256": baseline.sha256_file(paths["summary"]),
+      "probe_manifest_sha256": baseline.sha256_file(manifest_path),
+      "selection_independent_of_augmented_outcomes": True,
+  }
+  (output / "identity.json").write_text(
+      json.dumps(identity, indent=2) + "\n", encoding="utf-8"
+  )
+  validate_cap16_probe_input(output, args.sv_benchmarks)
+  print(json.dumps(identity, sort_keys=True))
+
+
+def validate_cap16_probe_input(probe_input, sv_benchmarks):
+  root = Path(probe_input).resolve()
+  identity_path = root / "identity.json"
+  manifest_path = root / "candidate-manifest-cap16-probe.json"
+  hard_path = root / "hard-portfolio.csv"
+  identity = json.loads(identity_path.read_text(encoding="utf-8"))
+  if (
+      not isinstance(identity, dict)
+      or set(identity)
+      != {
+          "schema_version",
+          "host",
+          "task_count",
+          "formal_artifact_aggregate_sha256",
+          "formal_artifact_manifest_sha256",
+          "formal_manifest_sha256",
+          "formal_hard_portfolio_sha256",
+          "formal_summary_sha256",
+          "probe_manifest_sha256",
+          "selection_independent_of_augmented_outcomes",
+      }
+      or identity["schema_version"] != CAP16_PROBE_INPUT_SCHEMA
+      or identity["host"] != "athena"
+      or identity["selection_independent_of_augmented_outcomes"] is not True
+      or identity["probe_manifest_sha256"]
+      != baseline.sha256_file(manifest_path)
+  ):
+    raise RuntimeError("cap-16 probe input identity is invalid")
+  manifest = validate_manifest(manifest_path, sv_benchmarks)
+  with hard_path.open(newline="", encoding="utf-8") as source:
+    hard = list(csv.DictReader(source))
+  tasks = [row.get("task") for row in hard]
+  task_basenames = [
+      Path(row["task_path"]).name for row in manifest["tasks"]
+  ]
+  if (
+      not hard
+      or tasks != sorted(tasks)
+      or len(tasks) != len(set(tasks))
+      or tasks != sorted(row["task"] for row in manifest["tasks"])
+      or len(task_basenames) != len(set(task_basenames))
+      or identity["task_count"] != len(tasks)
+      or identity["formal_hard_portfolio_sha256"]
+      != baseline.sha256_file(hard_path)
+  ):
+    raise RuntimeError("cap-16 probe input hard portfolio is invalid")
+  return root, manifest_path, manifest, hard, identity
+
+
+def command_validate_cap16_probe_input(args):
+  _, _, manifest, _, identity = validate_cap16_probe_input(
+      args.probe_input, args.sv_benchmarks
+  )
+  print(json.dumps({
+      "task_count": manifest["task_count"],
+      "formal_artifact_aggregate_sha256": identity[
+          "formal_artifact_aggregate_sha256"
+      ],
+      "valid": True,
   }, sort_keys=True))
+
+
+def validate_cap16_probe_closure(args):
+  root = Path(args.output_root).resolve()
+  probe_input = root / "input/formal"
+  _, manifest_path, _, _, _ = validate_cap16_probe_input(
+      probe_input, args.sv_benchmarks
+  )
+  complete = root / "summary/.complete"
+  if args.require_complete:
+    if (
+        complete.is_symlink()
+        or not complete.is_file()
+        or complete.read_text(encoding="utf-8") != "complete\n"
+    ):
+      raise RuntimeError("probe completion sentinel is invalid")
+  elif complete.exists() or complete.is_symlink():
+    raise RuntimeError("probe output completed before closure validation")
+  expected_summary = {
+      "cegar-eligibility.csv",
+      "cegar-eligible.csv",
+      "hook-reached-without-loop-head.csv",
+      "infrastructure-failure.csv",
+      "row-provenance.json",
+      "structurally-unreachable.csv",
+      "summary.json",
+  }
+  actual_summary = {
+      path.name
+      for path in (root / "summary").iterdir()
+      if path.name != ".complete"
+  }
+  if actual_summary != expected_summary:
+    raise RuntimeError("probe summary topology is incomplete")
+  summary_args = argparse.Namespace(
+      probe_input=str(probe_input),
+      sv_benchmarks=args.sv_benchmarks,
+      benchmark_definition=str(root / "generated/cegar-eligibility.xml"),
+      probe_plan=str(root / "probe-plan.json"),
+      output_dir=None,
+  )
+  with tempfile.TemporaryDirectory(
+      prefix="vguide-cap16-probe-summary-check."
+  ) as temp:
+    summary_args.output_dir = temp
+    write_cap16_probe_summary(summary_args)
+    for candidate in Path(temp).iterdir():
+      expected = root / "summary" / candidate.name
+      if (
+          not expected.is_file()
+          or expected.is_symlink()
+          or candidate.read_bytes() != expected.read_bytes()
+      ):
+        raise RuntimeError("probe summary does not reproduce exactly")
+  artifact = root / "provenance/artifact-manifest.json"
+  validate_artifact_manifest(root, artifact, {"summary/.complete"})
+  mandatory = (
+      "input/research/inventory.sha256",
+      "provenance/build.log",
+      "provenance/cgroup-check.log",
+      "provenance/machine-preflight-start.json",
+      "provenance/machine-preflight-end.json",
+      "provenance/machine-preflight-check.json",
+      "provenance/research-verification-final.log",
+      "provenance/runtime-verification-final.log",
+      "provenance/runtime-closure.txt",
+  )
+  for relative in mandatory:
+    path = root / relative
+    if not path.is_file() or path.is_symlink():
+      raise RuntimeError(f"probe closure lacks mandatory evidence: {relative}")
+  manifest = baseline.load_task_manifest(manifest_path)
+  plan_path = root / "probe-plan.json"
+  plan = json.loads(plan_path.read_text(encoding="utf-8"))
+  authenticated = load_screen_plan(
+      plan_path,
+      manifest,
+      manifest_path,
+      "athena",
+      args.sv_benchmarks,
+      root / "generated/cegar-eligibility.xml",
+      plan_schema=CAP16_PROBE_PLAN_SCHEMA,
+      repetition=1,
+      display=PROBE_DISPLAY,
+      time_limit="900 s",
+      taint_schema=CAP16_PROBE_TAINT_SCHEMA,
+      definition_validator=validate_probe_definition,
+      hard_threshold=200,
+  )
+  markers = sorted((root / "provenance/attempts").glob("*.json"))
+  records = {
+      marker.stem: validate_formal_attempt_marker(
+          marker,
+          root,
+          manifest_path,
+          args.sv_benchmarks,
+          "athena",
+          "cap16-probe",
+      )
+      for marker in markers
+  }
+  expected_attempts = {
+      "repetition-1": {
+          "role": "primary",
+          "result_sha256": plan["primary"]["sha256"],
+          "definition_sha256": baseline.sha256_file(
+              root / "generated/cegar-eligibility.xml"
+          ),
+          "tasks": sorted(manifest),
+      }
+  }
+  for entry in plan["replacements"]:
+    expected_attempts[Path(entry["path"]).parent.name] = {
+        "role": "replacement",
+        "result_sha256": entry["sha256"],
+        "definition_sha256": entry["definition_sha256"],
+        "tasks": entry["result_tasks"],
+    }
+  if set(records) != set(expected_attempts):
+    raise RuntimeError("probe attempt markers do not exactly match the plan")
+  for label, expected in expected_attempts.items():
+    record = records[label]
+    actual = {
+        "role": record["role"],
+        "result_sha256": record["files"]["result"]["sha256"],
+        "definition_sha256": record["files"]["definition"]["sha256"],
+        "tasks": record["result_tasks"],
+    }
+    if actual != expected or record["repetition"] != 1:
+      raise RuntimeError(f"probe attempt marker does not match plan: {label}")
+  return {
+      "artifact_aggregate_sha256": json.loads(
+          artifact.read_text(encoding="utf-8")
+      )["aggregate_sha256"],
+      "attempt_count": len(records),
+      "result_count": 1 + len(authenticated["replacement_sha256"]),
+      "complete": args.require_complete,
+      "valid": True,
+  }
+
+
+def command_validate_cap16_probe_closure(args):
+  print(json.dumps(validate_cap16_probe_closure(args), sort_keys=True))
 
 
 def command_write_complete_sentinel(args):
@@ -5371,8 +6137,12 @@ def run_taints(
     allow_final_log_only_completion=False,
 ):
   result = Path(result).resolve()
-  metadata = result_metadata(
-      result, display, time_limit, allow_incomplete=True
+  metadata = (
+      probe_result_metadata(result, allow_incomplete=True)
+      if display == PROBE_DISPLAY
+      else result_metadata(
+          result, display, time_limit, allow_incomplete=True
+      )
   )
   result_tasks = result_task_names(result, manifest)
   subset = {task: manifest[task] for task in result_tasks}
@@ -5550,6 +6320,33 @@ def command_screen_taint(args):
   print(output)
 
 
+def command_probe_taint(args):
+  output = Path(args.output).resolve()
+  if output.exists():
+    raise RuntimeError(f"probe taint output already exists: {output}")
+  manifest = baseline.load_task_manifest(args.manifest)
+  primary_hash = baseline.sha256_file(Path(args.result))
+  tainted = run_taints(
+      args.result,
+      args.benchexec_log,
+      args.load_monitor,
+      manifest,
+      PROBE_DISPLAY,
+      "900 s",
+  )
+  output.parent.mkdir(parents=True, exist_ok=True)
+  output.write_text(json.dumps({
+      "schema_version": CAP16_PROBE_TAINT_SCHEMA,
+      "repetition": 1,
+      "primary_result_sha256": primary_hash,
+      "tasks": [
+          {"task": task, "reason": tainted[task]}
+          for task in sorted(tainted)
+      ],
+  }, indent=2) + "\n", encoding="utf-8")
+  print(output)
+
+
 def row_is_complete(row):
   return (
       bool(row["status"])
@@ -5600,8 +6397,12 @@ def load_repetition_plan(
   root = path.parent
   primary = declared_plan_file(root, plan["primary"], "primary result")
   primary_hash = plan["primary"]["sha256"]
-  primary_metadata = result_metadata(
-      primary, display, time_limit, allow_incomplete=True
+  primary_metadata = (
+      probe_result_metadata(primary, allow_incomplete=True)
+      if display == PROBE_DISPLAY
+      else result_metadata(
+          primary, display, time_limit, allow_incomplete=True
+      )
   )
   if primary_metadata["host"] != host:
     raise RuntimeError("formal primary result must run on the merged manifest host")
@@ -5922,6 +6723,12 @@ def command_cap16_repetition_plan(args):
   )
 
 
+def command_cap16_probe_plan(args):
+  write_iterative_repetition_plan(
+      args, CAP16_PROBE_PLAN_SCHEMA, CAP16_PROBE_TAINT_SCHEMA
+  )
+
+
 def load_screen_plan(
     path,
     manifest,
@@ -5961,8 +6768,12 @@ def load_screen_plan(
   root = path.parent
   primary = declared_plan_file(root, plan["primary"], "screen primary result")
   primary_hash = plan["primary"]["sha256"]
-  primary_metadata = result_metadata(
-      primary, display, time_limit, allow_incomplete=True
+  primary_metadata = (
+      probe_result_metadata(primary, allow_incomplete=True)
+      if display == PROBE_DISPLAY
+      else result_metadata(
+          primary, display, time_limit, allow_incomplete=True
+      )
   )
   if primary_metadata["host"] != host:
     raise RuntimeError("screen primary result does not match its manifest host")
@@ -6073,8 +6884,12 @@ def load_screen_plan(
         replacement_manifest,
         sv_benchmarks,
     )
-    replacement_metadata = result_metadata(
-        replacement, display, time_limit, allow_incomplete=True
+    replacement_metadata = (
+        probe_result_metadata(replacement, allow_incomplete=True)
+        if display == PROBE_DISPLAY
+        else result_metadata(
+            replacement, display, time_limit, allow_incomplete=True
+        )
     )
     if replacement_metadata["host"] != host:
       raise RuntimeError("screen replacement does not match its manifest host")
@@ -6465,6 +7280,49 @@ def main():
   probe.add_argument("--property-file", required=True)
   probe.add_argument("--output-dir", required=True)
   probe.set_defaults(function=command_render_probe)
+  package_cap16_probe = commands.add_parser("package-cap16-probe-input")
+  package_cap16_probe.add_argument("--formal-output", required=True)
+  package_cap16_probe.add_argument("--sv-benchmarks", required=True)
+  package_cap16_probe.add_argument("--output-dir", required=True)
+  package_cap16_probe.set_defaults(
+      function=command_package_cap16_probe_input
+  )
+  validate_cap16_probe = commands.add_parser("validate-cap16-probe-input")
+  validate_cap16_probe.add_argument("--probe-input", required=True)
+  validate_cap16_probe.add_argument("--sv-benchmarks", required=True)
+  validate_cap16_probe.set_defaults(
+      function=command_validate_cap16_probe_input
+  )
+  render_cap16_probe = commands.add_parser("render-cap16-probe")
+  render_cap16_probe.add_argument("--probe-input", required=True)
+  render_cap16_probe.add_argument("--sv-benchmarks", required=True)
+  render_cap16_probe.add_argument("--property-file", required=True)
+  render_cap16_probe.add_argument("--output-dir", required=True)
+  render_cap16_probe.set_defaults(function=command_render_cap16_probe)
+  render_cap16_probe_replacement = commands.add_parser(
+      "render-cap16-probe-replacement"
+  )
+  render_cap16_probe_replacement.add_argument(
+      "--probe-input", required=True
+  )
+  render_cap16_probe_replacement.add_argument(
+      "--sv-benchmarks", required=True
+  )
+  render_cap16_probe_replacement.add_argument(
+      "--primary-result", required=True
+  )
+  render_cap16_probe_replacement.add_argument(
+      "--taint-manifest", required=True
+  )
+  render_cap16_probe_replacement.add_argument(
+      "--property-file", required=True
+  )
+  render_cap16_probe_replacement.add_argument(
+      "--output-dir", required=True
+  )
+  render_cap16_probe_replacement.set_defaults(
+      function=command_render_cap16_probe_replacement
+  )
   validate = commands.add_parser("validate")
   validate.add_argument("--manifest", required=True)
   validate.add_argument("--sv-benchmarks", required=True)
@@ -6488,6 +7346,15 @@ def main():
   probe_summary.add_argument("--result-files", required=True)
   probe_summary.add_argument("--output-dir", required=True)
   probe_summary.set_defaults(function=command_probe_summary)
+  cap16_probe_summary = commands.add_parser("cap16-probe-summary")
+  cap16_probe_summary.add_argument("--probe-input", required=True)
+  cap16_probe_summary.add_argument("--sv-benchmarks", required=True)
+  cap16_probe_summary.add_argument(
+      "--benchmark-definition", required=True
+  )
+  cap16_probe_summary.add_argument("--probe-plan", required=True)
+  cap16_probe_summary.add_argument("--output-dir", required=True)
+  cap16_probe_summary.set_defaults(function=command_cap16_probe_summary)
   repetition_plan = commands.add_parser("repetition-plan")
   repetition_plan.add_argument("--manifest", required=True)
   repetition_plan.add_argument("--repetition", type=int, choices=(1, 2), required=True)
@@ -6517,6 +7384,21 @@ def main():
   cap16_repetition_plan.set_defaults(
       function=command_cap16_repetition_plan
   )
+  cap16_probe_plan = commands.add_parser("cap16-probe-plan")
+  cap16_probe_plan.add_argument("--manifest", required=True)
+  cap16_probe_plan.add_argument("--primary-result", required=True)
+  cap16_probe_plan.add_argument("--taint-manifest")
+  cap16_probe_plan.add_argument("--replacement-result", action="append")
+  cap16_probe_plan.add_argument(
+      "--replacement-definition", action="append"
+  )
+  cap16_probe_plan.add_argument(
+      "--replacement-taint-manifest", action="append"
+  )
+  cap16_probe_plan.add_argument("--output", required=True)
+  cap16_probe_plan.set_defaults(
+      function=command_cap16_probe_plan, repetition=1
+  )
   screen_plan = commands.add_parser("screen-plan")
   screen_plan.add_argument("--manifest", required=True)
   screen_plan.add_argument("--primary-result", required=True)
@@ -6537,7 +7419,9 @@ def main():
   capture_process.set_defaults(function=command_capture_process_identity)
   process_unit = commands.add_parser("formal-systemd-unit")
   process_unit.add_argument("--output-root", required=True)
-  process_unit.add_argument("--mode", choices=("cap8", "cap16"), required=True)
+  process_unit.add_argument(
+      "--mode", choices=("cap8", "cap16", "cap16-probe"), required=True
+  )
   process_unit.add_argument("--label", required=True)
   process_unit.set_defaults(function=command_formal_systemd_unit)
   process_descriptor = commands.add_parser(
@@ -6574,7 +7458,7 @@ def main():
   require_formal_gone.add_argument("--identity", required=True)
   require_formal_gone.add_argument("--output-root", required=True)
   require_formal_gone.add_argument(
-      "--mode", choices=("cap8", "cap16"), required=True
+      "--mode", choices=("cap8", "cap16", "cap16-probe"), required=True
   )
   require_formal_gone.add_argument("--label", required=True)
   require_formal_gone.add_argument("--host", required=True)
@@ -6591,7 +7475,9 @@ def main():
   attempt_complete.add_argument("--manifest", required=True)
   attempt_complete.add_argument("--sv-benchmarks", required=True)
   attempt_complete.add_argument("--host", required=True)
-  attempt_complete.add_argument("--mode", choices=("cap8", "cap16"), required=True)
+  attempt_complete.add_argument(
+      "--mode", choices=("cap8", "cap16", "cap16-probe"), required=True
+  )
   attempt_complete.add_argument("--label", required=True)
   attempt_complete.add_argument(
       "--role", choices=("primary", "replacement"), required=True
@@ -6690,6 +7576,13 @@ def main():
   )
   formal_closure.add_argument("--require-complete", action="store_true")
   formal_closure.set_defaults(function=command_validate_formal_closure)
+  probe_closure = commands.add_parser("validate-cap16-probe-closure")
+  probe_closure.add_argument("--output-root", required=True)
+  probe_closure.add_argument("--sv-benchmarks", required=True)
+  probe_closure.add_argument("--require-complete", action="store_true")
+  probe_closure.set_defaults(
+      function=command_validate_cap16_probe_closure
+  )
   complete_sentinel = commands.add_parser("write-complete-sentinel")
   complete_sentinel.add_argument("--output", required=True)
   complete_sentinel.set_defaults(function=command_write_complete_sentinel)
@@ -6706,6 +7599,13 @@ def main():
   formal_taint.add_argument("--mode", choices=("cap8", "cap16"))
   formal_taint.add_argument("--output", required=True)
   formal_taint.set_defaults(function=command_formal_taint)
+  probe_taint = commands.add_parser("probe-taint")
+  probe_taint.add_argument("--manifest", required=True)
+  probe_taint.add_argument("--result", required=True)
+  probe_taint.add_argument("--benchexec-log", required=True)
+  probe_taint.add_argument("--load-monitor", required=True)
+  probe_taint.add_argument("--output", required=True)
+  probe_taint.set_defaults(function=command_probe_taint)
   screen_taint = commands.add_parser("screen-taint")
   screen_taint.add_argument("--manifest", required=True)
   screen_taint.add_argument("--result", required=True)
