@@ -51,8 +51,10 @@ EXPECTED_BENCHEXEC_ARCHIVE=75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737
 EXPECTED_BENCHEXEC_VERSION="benchexec 3.35-dev"
 EXPECTED_CPACHECKER_JAR_CONTENT=49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3
 EXPECTED_MANIFEST=16e5f9ff04ed08ef9c29d8674021c11de3eed87b9da6a8c1e2ef68c6847ec0bb
+EXPECTED_R2_RUNNER=95b9250ab84014fec9fceb2e1805c0e0912bc395bbccd9c2e586031cec4a0480
 P_CORES=0,2,4,6,8,10,12,14
 HOST=$(hostname -s)
+SAVED_R2_RUNNER=
 
 [[ "$HOST" == athena ]] || {
   echo "cap-16 Phase A is Athena-only; refusing host: $HOST" >&2
@@ -113,6 +115,20 @@ PY
   [[ "$status" -eq 0 ]]
 }
 
+authenticate_saved_package_script() {
+  local name=$1
+  local current=$2
+  local saved=$3
+  local saved_hash
+  if cmp --silent "$current" "$saved"; then
+    return
+  fi
+  [[ "$name" == run-stock-cap16-dataset.sh ]] || return 1
+  saved_hash=$(sha256sum "$saved" | cut -d' ' -f1) || return
+  [[ "$saved_hash" == "$EXPECTED_R2_RUNNER" ]] || return 1
+  SAVED_R2_RUNNER=$saved_hash
+}
+
 SAVED_INPUT="$OUTPUT_DIR/input"
 if [[ ! -e "$OUTPUT_DIR" ]] || {
   [[ -d "$OUTPUT_DIR" ]] &&
@@ -129,7 +145,8 @@ else
   [[ $(sha256sum "$SAVED_INPUT/candidate-manifest-athena.json" |
     cut -d' ' -f1) == "$EXPECTED_MANIFEST" ]]
   for package_script in "${CAP16_PACKAGE_SCRIPT_FILES[@]}"; do
-    cmp "$SCRIPT_DIR/$package_script" "$SAVED_INPUT/scripts/$package_script" ||
+    authenticate_saved_package_script "$package_script" \
+      "$SCRIPT_DIR/$package_script" "$SAVED_INPUT/scripts/$package_script" ||
       exit
   done
   [[ -d "$OUTPUT_DIR/generated" && -d "$OUTPUT_DIR/attempts" &&
@@ -160,6 +177,14 @@ INVOCATION_NUMBER=$(find "$OUTPUT_DIR/provenance" -maxdepth 1 -type d \
 printf -v INVOCATION 'invocation-%03d' "$INVOCATION_NUMBER"
 INVOCATION_DIR="$OUTPUT_DIR/provenance/$INVOCATION"
 mkdir "$INVOCATION_DIR"
+if [[ -n "$SAVED_R2_RUNNER" ]]; then
+  cp "$SCRIPT_DIR/run-stock-cap16-dataset.sh" \
+    "$INVOCATION_DIR/recovery-runner.sh"
+  printf 'saved_runner_sha256=%s\nrecovery_runner_sha256=%s\n' \
+    "$SAVED_R2_RUNNER" \
+    "$(sha256sum "$INVOCATION_DIR/recovery-runner.sh" | cut -d' ' -f1)" \
+    >"$INVOCATION_DIR/runner-compatibility.txt"
+fi
 verify_runtime_closure false
 write_runtime_provenance "$INVOCATION_DIR/runtime-closure-before.txt"
 MONITOR_PID=
@@ -322,6 +347,7 @@ run_screen() {
   label=$(basename "$attempt_dir") || return
   local result_dir="$attempt_dir/results"
   local monitor="$attempt_dir/load-monitor.jsonl"
+  local pipeline_status run_status tee_status
   mkdir -p "$result_dir" || return
   taskset -c 16-23 "$PYTHON_BIN" -I -u -c '
 import runpy
@@ -371,10 +397,9 @@ runpy.run_path(str(script), run_name="__main__")
       -N 2 -c 4 \
       "$definition"
   ) 2>&1 | tee "$attempt_dir/benchexec.log"
-  local pipeline_status
   pipeline_status=("${PIPESTATUS[@]}")
-  local run_status=${pipeline_status[0]}
-  local tee_status=${pipeline_status[1]}
+  run_status=${pipeline_status[0]}
+  tee_status=${pipeline_status[1]}
   set -e
   [[ "$tee_status" -eq 0 ]] || return "$tee_status"
   kill "$MONITOR_PID" || return

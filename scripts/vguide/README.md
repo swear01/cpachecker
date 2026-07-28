@@ -135,7 +135,11 @@ index, skip-worktree, and runtime-closure checks as the formal runner. Rebuilds
 are compared by the deterministic JAR-content digest rather than the
 timestamp-sensitive JAR byte hash. A summary becomes complete only after its
 post-screen machine check, final runtime verification, and atomic artifact
-manifest have all succeeded.
+manifest have all succeeded. The BenchExec and log-writer exit codes are
+captured immediately after their pipeline, so a completed XML remains
+recoverable if later bookkeeping is interrupted. Recovery also accepts the
+exact archived r2 runner hash and records both the archived and recovery
+runner hashes; any other saved-script mismatch remains rejected.
 
 ```bash
 env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \

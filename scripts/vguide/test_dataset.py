@@ -3044,6 +3044,35 @@ copy_phase_evidence "$2"
     self.assertIn("abandoned-incomplete-metadata", runner)
     self.assertNotIn("cthulhu", runner.lower())
     self.assertNotIn("output directory must be absent or empty", runner)
+    self.assertIn("local pipeline_status run_status tee_status", runner)
+    self.assertIn(
+        ') 2>&1 | tee "$attempt_dir/benchexec.log"\n'
+        '  pipeline_status=("${PIPESTATUS[@]}")\n'
+        "  run_status=${pipeline_status[0]}\n"
+        "  tee_status=${pipeline_status[1]}",
+        runner,
+    )
+    self.assertNotIn(
+        'local pipeline_status\n  pipeline_status=("${PIPESTATUS[@]}")',
+        runner,
+    )
+    self.assertIn(
+        "EXPECTED_R2_RUNNER="
+        "95b9250ab84014fec9fceb2e1805c0e0912bc395bbccd9c2e586031cec4a0480",
+        runner,
+    )
+    self.assertIn(
+        '[[ "$name" == run-stock-cap16-dataset.sh ]] || return 1',
+        runner,
+    )
+    self.assertIn(
+        '[[ "$saved_hash" == "$EXPECTED_R2_RUNNER" ]] || return 1',
+        runner,
+    )
+    self.assertIn(
+        '"$INVOCATION_DIR/runner-compatibility.txt"',
+        runner,
+    )
     self.assertLess(
         runner.rindex("--output \"$ARTIFACT_CANDIDATE\""),
         runner.rindex('write_atomic complete "$OUTPUT_DIR/summary/.complete"'),
