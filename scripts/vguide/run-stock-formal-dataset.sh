@@ -1089,8 +1089,13 @@ main() {
     local marker="$OUTPUT_DIR/provenance/attempts/$label.json"
     local benchexec_process="$OUTPUT_DIR/provenance/$label-benchexec.process.json"
     local process_descriptor="$OUTPUT_DIR/provenance/$label-process-descriptor.json"
+    local recovery_research_head
+    recovery_research_head=$(cat \
+      "$ACTIVE_RESEARCH_PROVENANCE/research-head.txt")
+    [[ "$recovery_research_head" =~ ^[0-9a-f]{40}$ ]]
+    local recovery_directory="$OUTPUT_DIR/provenance/recoveries/$label/$recovery_research_head"
     local unit
-    local -a attempt_descriptor=(
+    local -a attempt_common=(
       --output-root "$OUTPUT_DIR"
       --manifest "$FORMAL_MANIFEST"
       --sv-benchmarks "$SV_BENCHMARKS_DIR"
@@ -1106,27 +1111,46 @@ main() {
       --load-monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl"
       --monitor-pid "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.pid"
       --monitor-process "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.process.json"
-      --monitor-stopped "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.stopped"
       --machine-before "$OUTPUT_DIR/provenance/machine-before-$label.json"
+    )
+    local -a attempt_descriptor=(
+      "${attempt_common[@]}"
+      --monitor-stopped "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.stopped"
       --machine-after "$OUTPUT_DIR/provenance/machine-after-$label.json"
       --machine-check "$OUTPUT_DIR/provenance/machine-check-$label.json"
+      --output "$marker"
+    )
+    local -a recovery_attempt_descriptor=(
+      "${attempt_common[@]}"
+      --monitor-stopped "$recovery_directory/monitor-stopped"
+      --machine-after "$recovery_directory/machine-after.json"
+      --machine-check "$recovery_directory/machine-check.json"
       --output "$marker"
     )
     authenticate_formal_attempt() {
       local status=$1
       local result_path=$2
-      run_python_script "$DATASET_PY" formal-attempt-complete \
-        "${attempt_descriptor[@]}" \
-        --benchexec-exit "$status" \
-        --result "$result_path"
+      if [[ "$status" -eq 125 ]]; then
+        run_python_script "$DATASET_PY" formal-attempt-complete \
+          "${recovery_attempt_descriptor[@]}" \
+          --benchexec-exit "$status" \
+          --result "$result_path"
+      else
+        run_python_script "$DATASET_PY" formal-attempt-complete \
+          "${attempt_descriptor[@]}" \
+          --benchexec-exit "$status" \
+          --result "$result_path"
+      fi
     }
     mkdir -p "$output"
     if [[ -f "$marker" ]]; then
       result=$(single_formal_result "$output")
-      benchexec_status=$("$PYTHON_BIN" -I -c \
-        'import json,sys; print(json.load(open(sys.argv[1]))["benchexec_exit"])' \
-        "$marker")
-      authenticate_formal_attempt "$benchexec_status" "$result" >/dev/null
+      run_python_script "$DATASET_PY" validate-formal-attempt \
+        --output-root "$OUTPUT_DIR" --manifest "$FORMAL_MANIFEST" \
+        --sv-benchmarks "$SV_BENCHMARKS_DIR" --host "$FORMAL_HOST" \
+        --mode "$FORMAL_MODE" --label "$label" --role "$role" \
+        --repetition "$repetition" --definition "$definition" \
+        --result "$result" --marker "$marker" >/dev/null
       return
     fi
     if [[ -n $(find "$output" -mindepth 1 -print -quit) ||
@@ -1150,7 +1174,9 @@ main() {
         fi
       done
       JAVA_HOME="$JAVA_HOME" run_python_script "$DATASET_PY" \
-        recover-formal-attempt "${attempt_descriptor[@]}" --result "$result"
+        recover-formal-attempt "${recovery_attempt_descriptor[@]}" \
+        --research-provenance "$ACTIVE_RESEARCH_PROVENANCE" \
+        --result "$result"
       return
     fi
     run_python_script "$DATASET_PY" write-formal-process-descriptor \

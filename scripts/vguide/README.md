@@ -213,6 +213,23 @@ sustained-contention rows enter the taint/replacement plan; the completed
 untainted rows and original result remain in place. Forged, overlapping,
 inconsistent, or insufficient evidence fails closed instead of abandoning the
 whole attempt.
+Recovery evidence is revision-addressed at
+`provenance/recoveries/<attempt-label>/<full-research-head>/` with exactly
+`monitor-stopped`, `machine-after.json`, and `machine-check.json`. The runner
+authenticates the active saved research closure before deriving this path.
+The first write is immutable. A same-revision retry validates the exact
+namespace topology and bytes, reuses the stored process/boot binding, and never
+resamples recovery uptime or machine state. A different research revision gets
+a distinct namespace. Initial evidence is assembled and fsynced in a fixed
+sibling preparation directory, validated, then published with one atomic
+directory rename. Resume discards only a recognized incomplete preparation;
+a complete preparation is authenticated and published without resampling.
+Missing or extra files in a published namespace, symlinks, tampering, and
+path/head mismatches fail closed. The version-4 attempt marker hashes the actual
+versioned paths and is the final recovery write; taint, replacement planning,
+and further measurement cannot begin before that marker reauthenticates. Fixed
+evidence paths referenced by prior version-3/version-4 markers remain valid
+read-only.
 The Athena repetition-1 repair is intentionally not a general selector. It
 pins the full abandoned 50-complete-row attempt and displaced zero-complete-row
 rerun inventories, writes a prepared transaction ledger, atomically moves the

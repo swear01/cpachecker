@@ -4013,6 +4013,59 @@ copy_phase_evidence "$2"
       saved_dataset = root / "input/research/scripts/dataset.py"
       saved_dataset.parent.mkdir(parents=True)
       saved_dataset.write_text("saved\n", encoding="utf-8")
+      recovery_head = "b" * 40
+      recovery_provenance = (
+          root / f"input/recovery-research-{recovery_head}"
+      )
+      recovery_scripts = recovery_provenance / "scripts"
+      recovery_scripts.mkdir(parents=True)
+      for name in (
+          "baseline.py",
+          "dataset.py",
+          "run-stock-cap16-formal-dataset.sh",
+          "run-stock-formal-dataset.sh",
+      ):
+        (recovery_scripts / name).write_text(
+            f"{name}\n", encoding="utf-8"
+        )
+      (recovery_provenance / "research-head.txt").write_text(
+          f"{recovery_head}\n", encoding="utf-8"
+      )
+      (recovery_provenance / "research-status.porcelain").write_text(
+          "", encoding="utf-8"
+      )
+      (recovery_provenance / "research-diff.patch").write_text(
+          "", encoding="utf-8"
+      )
+      (recovery_provenance / "research-index-flags.txt").write_text(
+          "flags\n", encoding="utf-8"
+      )
+      (recovery_provenance / "research-state.json").write_text(
+          json.dumps(
+              {
+                  "head": recovery_head,
+                  "clean": True,
+                  "status_sha256": dataset.baseline.sha256_file(
+                      recovery_provenance / "research-status.porcelain"
+                  ),
+                  "diff_sha256": dataset.baseline.sha256_file(
+                      recovery_provenance / "research-diff.patch"
+                  ),
+              },
+              indent=2,
+          )
+          + "\n",
+          encoding="utf-8",
+      )
+      (recovery_provenance / "inventory.sha256").write_text(
+          "".join(
+              f"{dataset.baseline.sha256_file(path)}  "
+              f"{path.relative_to(recovery_provenance).as_posix()}\n"
+              for path in sorted(recovery_provenance.rglob("*"))
+              if path.is_file() and path.name != "inventory.sha256"
+          ),
+          encoding="utf-8",
+      )
 
       def write_process_descriptor(
           label,
@@ -4183,6 +4236,22 @@ copy_phase_evidence "$2"
       (root / "monitor.stopped.missing").rename(stopped)
       dataset.command_formal_attempt_complete(args)
       dataset.command_formal_attempt_complete(args)
+      validation = SimpleNamespace(
+          output_root=str(root),
+          manifest=str(manifest_path),
+          sv_benchmarks=str(root),
+          host="athena",
+          mode="cap16",
+          label="repetition-1",
+          role="primary",
+          repetition=1,
+          definition=str(
+              definition_dir / "hard-case-candidates.xml"
+          ),
+          result=str(result),
+          marker=str(marker),
+      )
+      dataset.command_validate_formal_attempt(validation)
       normal_marker = marker.read_bytes()
       normal_process_identity = process_identity.read_bytes()
       normal_benchexec_identity = benchexec_identity.read_bytes()
@@ -4276,10 +4345,10 @@ copy_phase_evidence "$2"
           ),
       )
       uptime = mock.patch.object(
-          dataset, "current_uptime_ticks", return_value=1
+          dataset, "current_uptime_ticks", side_effect=[1]
       )
       legacy_trust.start()
-      uptime.start()
+      uptime_mock = uptime.start()
       self.addCleanup(legacy_trust.stop)
       self.addCleanup(uptime.stop)
 
@@ -4313,19 +4382,179 @@ copy_phase_evidence "$2"
           }),
           encoding="utf-8",
       )
+      historical_stopped = (
+          root / "provenance/repetition-1-load-monitor.jsonl.stopped"
+      )
+      historical_after = (
+          root / "provenance/machine-after-repetition-1.json"
+      )
+      historical_check = (
+          root / "provenance/machine-check-repetition-1.json"
+      )
+      historical_stopped.parent.mkdir(parents=True, exist_ok=True)
+      historical_stopped.write_text(
+          f"pid={owned.pid}\nexit=unobserved\nsamples=1\n"
+          "recovery=authenticated-process-gone\n",
+          encoding="utf-8",
+      )
+      capture_recovery_machine(
+          SimpleNamespace(output=str(historical_after))
+      )
+      historical_binding = dataset.recovery_process_boot_binding({
+          "benchexec-launcher": json.loads(
+              benchexec_identity.read_text(encoding="utf-8")
+          ),
+          "load-monitor": json.loads(
+              process_identity.read_text(encoding="utf-8")
+          ),
+      })
+      historical_check.write_text(
+          json.dumps(
+              dataset.recovered_machine_check_record(
+                  before, historical_after, historical_binding
+              ),
+              sort_keys=True,
+          )
+          + "\n",
+          encoding="utf-8",
+      )
+      args.benchexec_exit = 125
+      args.monitor_stopped = str(historical_stopped)
+      args.machine_after = str(historical_after)
+      args.machine_check = str(historical_check)
+      dataset.command_formal_attempt_complete(args)
+      dataset.command_validate_formal_attempt(validation)
+      marker.unlink()
+      arbitrary_directory = root / "arbitrary-recovered-evidence"
+      arbitrary_directory.mkdir()
+      arbitrary_paths = {
+          "monitor_stopped": arbitrary_directory / "monitor-stopped",
+          "machine_after": arbitrary_directory / "machine-after.json",
+          "machine_check": arbitrary_directory / "machine-check.json",
+      }
+      for name, source in (
+          ("monitor_stopped", historical_stopped),
+          ("machine_after", historical_after),
+          ("machine_check", historical_check),
+      ):
+        arbitrary_paths[name].write_bytes(source.read_bytes())
+        setattr(args, name, str(arbitrary_paths[name]))
+      with self.assertRaisesRegex(RuntimeError, "namespace identity"):
+        dataset.command_formal_attempt_complete(args)
+      args.benchexec_exit = 130
+      for path in (
+          historical_stopped,
+          historical_after,
+          historical_check,
+          *arbitrary_paths.values(),
+      ):
+        path.unlink()
+      arbitrary_directory.rmdir()
+      uptime_mock.reset_mock()
+      uptime_mock.side_effect = [1]
+      fixed_stopped = stopped
+      fixed_after = after
+      fixed_check = check
+      recovery_directory = (
+          root
+          / "provenance/recoveries/repetition-1"
+          / recovery_head
+      )
+      stopped = recovery_directory / "monitor-stopped"
+      after = recovery_directory / "machine-after.json"
+      check = recovery_directory / "machine-check.json"
+      args.research_provenance = str(recovery_provenance)
+      args.monitor_stopped = str(stopped)
+      args.machine_after = str(after)
+      args.machine_check = str(check)
       original_machine_after = args.machine_after
-      args.machine_after = args.result
-      with self.assertRaisesRegex(RuntimeError, "paths overlap"):
+      args.machine_after = str(fixed_after)
+      with self.assertRaisesRegex(RuntimeError, "versioned path"):
         dataset.command_recover_formal_attempt(args)
       args.machine_after = original_machine_after
+      prepared_directory = recovery_directory.with_name(
+          f".{recovery_head}.preparing"
+      )
+      with mock.patch.object(
+          dataset.baseline,
+          "command_machine",
+          side_effect=RuntimeError("capture crash"),
+      ), self.assertRaisesRegex(RuntimeError, "capture crash"):
+        dataset.command_recover_formal_attempt(args)
+      self.assertFalse(recovery_directory.exists())
+      self.assertEqual(
+          {path.name for path in prepared_directory.iterdir()},
+          {"monitor-stopped"},
+      )
+      self.assertFalse(marker.exists())
+      real_rename = dataset.os.rename
+
+      def crash_before_publish(source, target):
+        if Path(source) == prepared_directory:
+          raise RuntimeError("publish crash")
+        return real_rename(source, target)
+
       with mock.patch.object(
           dataset.baseline, "command_machine", side_effect=capture_recovery_machine
-      ):
+      ) as preparation_capture, mock.patch.object(
+          dataset.os, "rename", side_effect=crash_before_publish
+      ), self.assertRaisesRegex(RuntimeError, "publish crash"):
         dataset.command_recover_formal_attempt(args)
+      self.assertFalse(recovery_directory.exists())
+      self.assertEqual(
+          {path.name for path in prepared_directory.iterdir()},
+          {"monitor-stopped", "machine-after.json", "machine-check.json"},
+      )
+      self.assertFalse(marker.exists())
+      self.assertEqual(uptime_mock.call_count, 1)
+      self.assertEqual(preparation_capture.call_count, 1)
+      with mock.patch.object(
+          dataset.baseline, "command_machine", side_effect=capture_recovery_machine
+      ) as machine_capture:
         dataset.command_recover_formal_attempt(args)
+        evidence = {
+            path: path.read_bytes() for path in (stopped, after, check)
+        }
+        dataset.command_recover_formal_attempt(args)
+      self.assertEqual(uptime_mock.call_count, 1)
+      self.assertEqual(machine_capture.call_count, 0)
+      self.assertFalse(prepared_directory.exists())
+      self.assertEqual(
+          evidence,
+          {path: path.read_bytes() for path in (stopped, after, check)},
+      )
       recovered = json.loads(marker.read_text(encoding="utf-8"))
       self.assertEqual(recovered["benchexec_exit"], 125)
       self.assertTrue(recovered["result_incomplete"])
+      self.assertEqual(
+          recovered["files"]["machine_check"]["path"],
+          check.relative_to(root).as_posix(),
+      )
+      dataset.command_validate_formal_attempt(validation)
+      post_marker_extra = recovery_directory / "post-marker-extra"
+      post_marker_extra.write_text("forged\n", encoding="utf-8")
+      with self.assertRaisesRegex(RuntimeError, "topology"):
+        dataset.command_validate_formal_attempt(validation)
+      post_marker_extra.unlink()
+      missing_head = "d" * 40
+      missing_head_directory = recovery_directory.with_name(missing_head)
+      shutil.copytree(recovery_directory, missing_head_directory)
+      missing_head_paths = dataset.formal_recovery_evidence_paths(
+          root, "repetition-1", missing_head
+      )
+      missing_head_args = SimpleNamespace(
+          **{
+              **vars(args),
+              "benchexec_exit": 125,
+              **{
+                  name: str(path)
+                  for name, path in missing_head_paths.items()
+              },
+          }
+      )
+      with self.assertRaisesRegex(RuntimeError, "provenance is missing"):
+        dataset.formal_attempt_record(missing_head_args)
+      shutil.rmtree(missing_head_directory)
       self.assertIn(
           "recovery=authenticated-process-gone",
           stopped.read_text(encoding="utf-8"),
@@ -4376,12 +4605,99 @@ copy_phase_evidence "$2"
         dataset.command_recover_formal_attempt(args)
       stopped.write_bytes(recovered_stop)
       marker.unlink()
+      machine_after_bytes = after.read_bytes()
+      after.unlink()
+      with self.assertRaisesRegex(RuntimeError, "topology"):
+        dataset.command_recover_formal_attempt(args)
+      after.write_bytes(machine_after_bytes)
+      extra = recovery_directory / "extra"
+      extra.write_text("forged\n", encoding="utf-8")
+      with self.assertRaisesRegex(RuntimeError, "topology"):
+        dataset.command_recover_formal_attempt(args)
+      extra.unlink()
+      inventory = recovery_provenance / "inventory.sha256"
+      inventory_bytes = inventory.read_bytes()
+      inventory.write_text("forged\n", encoding="utf-8")
+      with self.assertRaisesRegex(RuntimeError, "inventory"):
+        dataset.command_recover_formal_attempt(args)
+      inventory.write_bytes(inventory_bytes)
+      mismatched_provenance = (
+          root / f"input/recovery-research-{'d' * 40}"
+      )
+      shutil.copytree(recovery_provenance, mismatched_provenance)
+      args.research_provenance = str(mismatched_provenance)
+      with self.assertRaisesRegex(RuntimeError, "path does not match"):
+        dataset.command_recover_formal_attempt(args)
+      args.research_provenance = str(recovery_provenance)
+      downstream = root / "repetition-1-plan.json"
+      with mock.patch.object(
+          dataset,
+          "command_formal_attempt_complete",
+          side_effect=RuntimeError("marker failure"),
+      ), self.assertRaisesRegex(RuntimeError, "marker failure"):
+        dataset.command_recover_formal_attempt(args)
+      self.assertFalse(marker.exists())
+      self.assertFalse(downstream.exists())
+      other_head = "c" * 40
+      other_provenance = root / f"input/recovery-research-{other_head}"
+      shutil.copytree(recovery_provenance, other_provenance)
+      (other_provenance / "research-head.txt").write_text(
+          f"{other_head}\n", encoding="utf-8"
+      )
+      other_state = json.loads(
+          (other_provenance / "research-state.json").read_text(
+              encoding="utf-8"
+          )
+      )
+      other_state["head"] = other_head
+      (other_provenance / "research-state.json").write_text(
+          json.dumps(other_state, indent=2) + "\n", encoding="utf-8"
+      )
+      (other_provenance / "inventory.sha256").write_text(
+          "".join(
+              f"{dataset.baseline.sha256_file(path)}  "
+              f"{path.relative_to(other_provenance).as_posix()}\n"
+              for path in sorted(other_provenance.rglob("*"))
+              if path.is_file() and path.name != "inventory.sha256"
+          ),
+          encoding="utf-8",
+      )
+      other_paths = dataset.formal_recovery_evidence_paths(
+          root, "repetition-1", other_head
+      )
+      self.assertNotEqual(
+          {path.parent for path in other_paths.values()},
+          {recovery_directory},
+      )
+      args.research_provenance = str(other_provenance)
+      args.monitor_stopped = str(other_paths["monitor_stopped"])
+      args.machine_after = str(other_paths["machine_after"])
+      args.machine_check = str(other_paths["machine_check"])
+      uptime_mock.side_effect = [2]
+      with mock.patch.object(
+          dataset.baseline,
+          "command_machine",
+          side_effect=capture_recovery_machine,
+      ):
+        dataset.command_recover_formal_attempt(args)
+      self.assertTrue(marker.is_file())
+      self.assertEqual(
+          evidence,
+          {path: path.read_bytes() for path in (stopped, after, check)},
+      )
+      self.assertTrue(all(path.is_file() for path in other_paths.values()))
       result.write_bytes(normal_result)
       before.write_bytes(normal_before)
       monitor.write_bytes(normal_monitor)
       process_identity.write_bytes(normal_process_identity)
       benchexec_identity.write_bytes(normal_benchexec_identity)
       log.write_text("complete log\n", encoding="utf-8")
+      stopped = fixed_stopped
+      after = fixed_after
+      check = fixed_check
+      args.monitor_stopped = str(stopped)
+      args.machine_after = str(after)
+      args.machine_check = str(check)
       stopped.write_text(
           f"pid={owned.pid}\nexit=0\nsamples=1\n", encoding="utf-8"
       )
@@ -4631,8 +4947,16 @@ copy_phase_evidence "$2"
     self.assertIn('current_taint=$replacement_taint', runner)
     self.assertIn("FORMAL_BENCHMARK_SCOPE=-cap16", runner)
     self.assertIn("formal-attempt-complete", runner)
+    self.assertIn("validate-formal-attempt", runner)
     self.assertIn("local -a attempt_descriptor=", runner)
-    self.assertEqual(runner.count("--monitor-stopped"), 1)
+    self.assertEqual(runner.count("--monitor-stopped"), 2)
+    self.assertIn("local -a recovery_attempt_descriptor=", runner)
+    self.assertIn(
+        'provenance/recoveries/$label/$recovery_research_head', runner
+    )
+    self.assertIn(
+        '--research-provenance "$ACTIVE_RESEARCH_PROVENANCE"', runner
+    )
     self.assertIn("summary.staging", runner)
     self.assertIn("validate-formal-closure", runner)
     self.assertNotIn("missing-atomic-attempt-completion", runner)

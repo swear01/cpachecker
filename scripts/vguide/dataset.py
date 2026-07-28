@@ -3667,6 +3667,83 @@ def formal_attempt_record(args):
     expected_check = recovered_machine_check_record(
         paths["machine_before"][0], paths["machine_after"][0], binding
     )
+    recovery_relatives = {
+        name: Path(paths[name][1])
+        for name in ("monitor_stopped", "machine_after", "machine_check")
+    }
+    versioned = [
+        relative.parts[:2] == ("provenance", "recoveries")
+        for relative in recovery_relatives.values()
+    ]
+    if any(versioned):
+      parents = {relative.parent for relative in recovery_relatives.values()}
+      if (
+          not all(versioned)
+          or len(parents) != 1
+          or len(next(iter(parents)).parts) != 4
+      ):
+        raise RuntimeError(
+            "formal recovery evidence namespace identity is invalid"
+        )
+      parent = next(iter(parents))
+      expected_paths = formal_recovery_evidence_paths(
+          root, args.label, parent.name
+      )
+      if any(
+          paths[name][0] != expected_paths[name]
+          for name in expected_paths
+      ) or not recovery_evidence_namespace_complete(expected_paths):
+        raise RuntimeError(
+            "formal recovery evidence namespace identity is invalid"
+        )
+      revision_provenance = (
+          root / f"input/recovery-research-{parent.name}"
+      )
+      original_provenance = root / "input/research"
+      if revision_provenance.exists() or revision_provenance.is_symlink():
+        recovery_provenance = revision_provenance
+      elif (
+          original_provenance.is_dir()
+          and not original_provenance.is_symlink()
+          and original_provenance.joinpath("research-head.txt").is_file()
+          and original_provenance.joinpath(
+              "research-head.txt"
+          ).read_text(encoding="utf-8")
+          == f"{parent.name}\n"
+      ):
+        recovery_provenance = original_provenance
+      else:
+        raise RuntimeError(
+            "formal recovery research provenance is missing"
+        )
+      if (
+          formal_recovery_research_head(
+              root, recovery_provenance, args.mode
+          )
+          != parent.name
+      ):
+        raise RuntimeError(
+            "formal recovery research provenance is invalid"
+        )
+    else:
+      historical_paths = {
+          "monitor_stopped": (
+              root / f"provenance/{args.label}-load-monitor.jsonl.stopped"
+          ),
+          "machine_after": (
+              root / f"provenance/machine-after-{args.label}.json"
+          ),
+          "machine_check": (
+              root / f"provenance/machine-check-{args.label}.json"
+          ),
+      }
+      if any(
+          paths[name][0] != historical_paths[name]
+          for name in historical_paths
+      ):
+        raise RuntimeError(
+            "formal recovery evidence namespace identity is invalid"
+        )
   else:
     load_formal_contention_intervals(paths["load_monitor"][0])
     expected_check = machine_check_record(
@@ -3923,6 +4000,30 @@ def command_formal_attempt_complete(args):
   print(output)
 
 
+def command_validate_formal_attempt(args):
+  root = Path(args.output_root).resolve()
+  record = validate_formal_attempt_marker(
+      args.marker,
+      root,
+      Path(args.manifest).resolve(),
+      args.sv_benchmarks,
+      args.host,
+      args.mode,
+  )
+  expected = {
+      "label": args.label,
+      "role": args.role,
+      "repetition": args.repetition,
+  }
+  if any(record[name] != value for name, value in expected.items()):
+    raise RuntimeError("formal attempt marker invocation is invalid")
+  for name in ("definition", "result"):
+    recorded = (root / record["files"][name]["path"]).resolve()
+    if recorded != Path(getattr(args, name)).resolve():
+      raise RuntimeError("formal attempt marker invocation is invalid")
+  print(record["benchexec_exit"])
+
+
 def recovery_path(root, value, label, must_exist):
   declared = Path(value)
   if declared.is_symlink():
@@ -3961,6 +4062,236 @@ def write_recovery_evidence(path, content):
       os.close(directory)
   finally:
     temporary.unlink(missing_ok=True)
+
+
+def formal_recovery_research_head(root, value, mode):
+  declared = Path(value)
+  provenance = declared.resolve()
+  try:
+    relative = provenance.relative_to(root)
+  except ValueError as error:
+    raise RuntimeError(
+        "formal recovery research provenance escapes output root"
+    ) from error
+  if (
+      declared.is_symlink()
+      or Path(os.path.abspath(declared)) != provenance
+      or not provenance.is_dir()
+  ):
+    raise RuntimeError(
+        "formal recovery research provenance is not a canonical directory"
+    )
+  expected_files = {
+      "inventory.sha256",
+      "research-diff.patch",
+      "research-head.txt",
+      "research-index-flags.txt",
+      "research-state.json",
+      "research-status.porcelain",
+      "scripts/baseline.py",
+      "scripts/dataset.py",
+      "scripts/run-stock-formal-dataset.sh",
+  }
+  if mode == "cap16":
+    expected_files.add("scripts/run-stock-cap16-formal-dataset.sh")
+  actual_files = set()
+  actual_directories = set()
+  for path in provenance.rglob("*"):
+    if path.is_symlink():
+      raise RuntimeError(
+          "formal recovery research provenance contains a symlink"
+      )
+    entry = path.relative_to(provenance).as_posix()
+    if path.is_dir():
+      actual_directories.add(entry)
+    elif path.is_file():
+      actual_files.add(entry)
+    else:
+      raise RuntimeError(
+          "formal recovery research provenance topology is invalid"
+      )
+  if actual_directories != {"scripts"} or actual_files != expected_files:
+    raise RuntimeError(
+        "formal recovery research provenance topology is invalid"
+    )
+  head_text = (provenance / "research-head.txt").read_text(encoding="utf-8")
+  if re.fullmatch(r"[0-9a-f]{40}\n", head_text) is None:
+    raise RuntimeError("formal recovery research head is invalid")
+  head = head_text.rstrip("\n")
+  expected_relative = {
+      Path("input/research"),
+      Path(f"input/recovery-research-{head}"),
+  }
+  if relative not in expected_relative:
+    raise RuntimeError(
+        "formal recovery research path does not match its head"
+    )
+  empty_hash = hashlib.sha256(b"").hexdigest()
+  expected_state = {
+      "head": head,
+      "clean": True,
+      "status_sha256": empty_hash,
+      "diff_sha256": empty_hash,
+  }
+  if (
+      (provenance / "research-status.porcelain").read_bytes()
+      or (provenance / "research-diff.patch").read_bytes()
+      or json.loads(
+          (provenance / "research-state.json").read_text(encoding="utf-8")
+      )
+      != expected_state
+  ):
+    raise RuntimeError("formal recovery research state is invalid")
+  inventory = "".join(
+      f"{baseline.sha256_file(provenance / relative_path)}  "
+      f"{relative_path}\n"
+      for relative_path in sorted(expected_files - {"inventory.sha256"})
+  )
+  if (
+      provenance.joinpath("inventory.sha256").read_text(encoding="utf-8")
+      != inventory
+  ):
+    raise RuntimeError("formal recovery research inventory is invalid")
+  return head
+
+
+def formal_recovery_evidence_paths(root, label, research_head):
+  if (
+      re.fullmatch(
+          r"repetition-[12](?:-replacement-attempt-[1-9]\d*)?", label
+      )
+      is None
+      or re.fullmatch(r"[0-9a-f]{40}", research_head) is None
+  ):
+    raise RuntimeError("formal recovery evidence identity is invalid")
+  directory = (
+      Path(root).resolve()
+      / "provenance/recoveries"
+      / label
+      / research_head
+  )
+  return {
+      "monitor_stopped": directory / "monitor-stopped",
+      "machine_after": directory / "machine-after.json",
+      "machine_check": directory / "machine-check.json",
+  }
+
+
+def recovery_evidence_namespace_complete(paths):
+  directory = paths["monitor_stopped"].parent
+  if not directory.exists():
+    return False
+  if directory.is_symlink() or not directory.is_dir():
+    raise RuntimeError("formal recovery evidence namespace is invalid")
+  expected = {path.name for path in paths.values()}
+  actual = {path.name for path in directory.iterdir()}
+  if actual != expected or any(
+      path.is_symlink() or not path.is_file() for path in directory.iterdir()
+  ):
+    raise RuntimeError("formal recovery evidence topology is invalid")
+  return True
+
+
+def formal_recovery_preparation_paths(paths):
+  directory = paths["monitor_stopped"].parent
+  prepared = directory.with_name(f".{directory.name}.preparing")
+  return {
+      name: prepared / path.name for name, path in paths.items()
+  }
+
+
+def recovery_preparation_complete(paths):
+  directory = paths["monitor_stopped"].parent
+  if not directory.exists():
+    return False
+  if directory.is_symlink() or not directory.is_dir():
+    raise RuntimeError("formal recovery preparation is invalid")
+  expected = {path.name for path in paths.values()}
+  entries = list(directory.iterdir())
+  actual = {entry.name for entry in entries}
+  if actual == expected and all(
+      not entry.is_symlink() and entry.is_file() for entry in entries
+  ):
+    return True
+  allowed_temporary = re.compile(
+      r"^\.(?:monitor-stopped|machine-after\.json|machine-check\.json)"
+      r"\.(?:tmp|capture)-[1-9]\d*$"
+  )
+  if any(
+      entry.is_symlink()
+      or not entry.is_file()
+      or (
+          entry.name not in expected
+          and allowed_temporary.fullmatch(entry.name) is None
+      )
+      for entry in entries
+  ):
+    raise RuntimeError("formal recovery preparation topology is invalid")
+  return False
+
+
+def discard_incomplete_recovery_preparation(paths):
+  directory = paths["monitor_stopped"].parent
+  if not directory.exists():
+    return
+  if directory.is_symlink() or not directory.is_dir():
+    raise RuntimeError("formal recovery preparation is invalid")
+  allowed = {path.name for path in paths.values()}
+  temporary = re.compile(
+      r"^\.(?:monitor-stopped|machine-after\.json|machine-check\.json)"
+      r"\.(?:tmp|capture)-[1-9]\d*$"
+  )
+  entries = list(directory.iterdir())
+  if any(
+      entry.is_symlink()
+      or not entry.is_file()
+      or (
+          entry.name not in allowed
+          and temporary.fullmatch(entry.name) is None
+      )
+      for entry in entries
+  ):
+    raise RuntimeError("formal recovery preparation topology is invalid")
+  for entry in entries:
+    entry.unlink()
+  directory.rmdir()
+  descriptor = os.open(directory.parent, os.O_RDONLY)
+  try:
+    os.fsync(descriptor)
+  finally:
+    os.close(descriptor)
+
+
+def publish_recovery_preparation(prepared, published):
+  source = prepared["monitor_stopped"].parent
+  target = published["monitor_stopped"].parent
+  if target.exists() or target.is_symlink():
+    raise RuntimeError("formal recovery evidence namespace already exists")
+  os.rename(source, target)
+  descriptor = os.open(target.parent, os.O_RDONLY)
+  try:
+    os.fsync(descriptor)
+  finally:
+    os.close(descriptor)
+
+
+def validate_stored_recovery_evidence(
+    paths, machine_before, identities, stop_content
+):
+  write_recovery_evidence(paths["monitor_stopped"], stop_content)
+  actual_check = json.loads(
+      paths["machine_check"].read_text(encoding="utf-8")
+  )
+  binding = actual_check.get("process_boot_binding")
+  if not isinstance(binding, dict):
+    raise RuntimeError("formal recovery boot binding is missing")
+  validate_recovery_process_boot_binding(binding, identities)
+  check = recovered_machine_check_record(
+      machine_before, paths["machine_after"], binding
+  )
+  write_recovery_evidence(
+      paths["machine_check"], json.dumps(check, sort_keys=True) + "\n"
+  )
 
 
 def formal_result_directory_digest(directory):
@@ -4320,6 +4651,38 @@ def command_recover_formal_attempt(args):
     raise RuntimeError(
         "formal recovery requires an exact frozen legacy selection"
     )
+  canonical_label = (
+      f"repetition-{args.repetition}"
+      if args.role == "primary"
+      else rf"repetition-{args.repetition}-replacement-attempt-[1-9]\d*"
+  )
+  if (
+      args.label != canonical_label
+      if args.role == "primary"
+      else re.fullmatch(canonical_label, args.label) is None
+  ):
+    raise RuntimeError("formal recovery attempt label is not canonical")
+  research_head = formal_recovery_research_head(
+      root, args.research_provenance, args.mode
+  )
+  expected_outputs = formal_recovery_evidence_paths(
+      root, args.label, research_head
+  )
+  for name, expected in expected_outputs.items():
+    if outputs[name] != expected:
+      raise RuntimeError(
+          f"formal recovery {name.replace('_', ' ')} is not its "
+          "versioned path"
+      )
+  complete_namespace = recovery_evidence_namespace_complete(expected_outputs)
+  prepared_outputs = formal_recovery_preparation_paths(expected_outputs)
+  if (
+      complete_namespace
+      and prepared_outputs["monitor_stopped"].parent.exists()
+  ):
+    raise RuntimeError(
+        "formal recovery preparation conflicts with published evidence"
+    )
   pid_text = inputs["monitor_pid"].read_text(encoding="utf-8")
   if not re.fullmatch(r"[1-9]\d*\n?", pid_text):
     raise RuntimeError("formal recovery monitor PID is invalid")
@@ -4338,31 +4701,55 @@ def command_recover_formal_attempt(args):
   samples = len(monitor_lines) - 1
   if samples <= 0:
     raise RuntimeError("formal recovery load monitor has no samples")
-  write_recovery_evidence(
-      outputs["monitor_stopped"],
-      (
-          f"pid={pid}\nexit=unobserved\nsamples={samples}\n"
-          "recovery=authenticated-process-gone\n"
-      ),
+  stop_content = (
+      f"pid={pid}\nexit=unobserved\nsamples={samples}\n"
+      "recovery=authenticated-process-gone\n"
   )
-  if not outputs["machine_after"].exists():
-    outputs["machine_after"].parent.mkdir(parents=True, exist_ok=True)
-    temporary = outputs["machine_after"].with_name(
-        f".{outputs['machine_after'].name}.tmp-{os.getpid()}"
+  if complete_namespace:
+    validate_stored_recovery_evidence(
+        outputs, inputs["machine_before"], identities, stop_content
+    )
+  elif recovery_preparation_complete(prepared_outputs):
+    validate_stored_recovery_evidence(
+        prepared_outputs,
+        inputs["machine_before"],
+        identities,
+        stop_content,
+    )
+    publish_recovery_preparation(prepared_outputs, outputs)
+  else:
+    discard_incomplete_recovery_preparation(prepared_outputs)
+    prepared_outputs["monitor_stopped"].parent.mkdir(parents=True)
+    write_recovery_evidence(
+        prepared_outputs["monitor_stopped"], stop_content
+    )
+    temporary = prepared_outputs["machine_after"].with_name(
+        f".{prepared_outputs['machine_after'].name}.capture-{os.getpid()}"
     )
     try:
       baseline.command_machine(argparse.Namespace(output=str(temporary)))
-      os.replace(temporary, outputs["machine_after"])
+      write_recovery_evidence(
+          prepared_outputs["machine_after"],
+          temporary.read_text(encoding="utf-8"),
+      )
     finally:
       temporary.unlink(missing_ok=True)
-  check = recovered_machine_check_record(
-      inputs["machine_before"],
-      outputs["machine_after"],
-      recovery_process_boot_binding(identities),
-  )
-  write_recovery_evidence(
-      outputs["machine_check"], json.dumps(check, sort_keys=True) + "\n"
-  )
+    check = recovered_machine_check_record(
+        inputs["machine_before"],
+        prepared_outputs["machine_after"],
+        recovery_process_boot_binding(identities),
+    )
+    write_recovery_evidence(
+        prepared_outputs["machine_check"],
+        json.dumps(check, sort_keys=True) + "\n",
+    )
+    validate_stored_recovery_evidence(
+        prepared_outputs,
+        inputs["machine_before"],
+        identities,
+        stop_content,
+    )
+    publish_recovery_preparation(prepared_outputs, outputs)
   recovered_args = argparse.Namespace(**vars(args))
   recovered_args.benchexec_exit = 125
   command_formal_attempt_complete(recovered_args)
@@ -5880,6 +6267,25 @@ def main():
     attempt_complete.add_argument(f"--{name}", required=True)
   attempt_complete.add_argument("--output", required=True)
   attempt_complete.set_defaults(function=command_formal_attempt_complete)
+  validate_attempt = commands.add_parser("validate-formal-attempt")
+  validate_attempt.add_argument("--output-root", required=True)
+  validate_attempt.add_argument("--manifest", required=True)
+  validate_attempt.add_argument("--sv-benchmarks", required=True)
+  validate_attempt.add_argument("--host", required=True)
+  validate_attempt.add_argument(
+      "--mode", choices=("cap8", "cap16"), required=True
+  )
+  validate_attempt.add_argument("--label", required=True)
+  validate_attempt.add_argument(
+      "--role", choices=("primary", "replacement"), required=True
+  )
+  validate_attempt.add_argument(
+      "--repetition", type=int, choices=(1, 2), required=True
+  )
+  validate_attempt.add_argument("--definition", required=True)
+  validate_attempt.add_argument("--result", required=True)
+  validate_attempt.add_argument("--marker", required=True)
+  validate_attempt.set_defaults(function=command_validate_formal_attempt)
   recover_attempt = commands.add_parser("recover-formal-attempt")
   recover_attempt.add_argument("--output-root", required=True)
   recover_attempt.add_argument("--manifest", required=True)
@@ -5895,6 +6301,7 @@ def main():
   recover_attempt.add_argument(
       "--repetition", type=int, choices=(1, 2), required=True
   )
+  recover_attempt.add_argument("--research-provenance", required=True)
   for name in (
       "definition",
       "result",
