@@ -23,6 +23,7 @@ import shutil
 import stat
 import statistics
 import subprocess
+import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
@@ -125,6 +126,57 @@ FROZEN_CAP16_PHASE_A_SURVIVOR_SHA256 = (
 FROZEN_CAP16_FORMAL_ARTIFACT_AGGREGATE_SHA256 = (
     "PENDING_AFTER_CAP16_FORMAL_COMPLETION"
 )
+FROZEN_CAP8_FORMAL_ARTIFACT_AGGREGATE_SHA256 = (
+    "PENDING_AFTER_CAP8_R8_FORMAL_COMPLETION"
+)
+FROZEN_CAP8_FORMAL_PACKAGE_MANIFEST_SHA256 = (
+    "a20797345df1bef6d5be5356906ee106b75b374b0d6cd2adfbc56cc5c3e65fef"
+)
+FROZEN_CAP8_FORMAL_PACKAGE_AGGREGATE_SHA256 = (
+    "6c4592e158e037179d431f161c87cb494c7a22b00a9774d689ebe9b94b58f14c"
+)
+FROZEN_CAP8_FORMAL_TASK_COUNT = 270
+FROZEN_CAP8_RESEARCH_HEAD = "558e54c5da5982db46ffb8fbca4704f4b6e03f21"
+FROZEN_CAP8_RESEARCH_INVENTORY_SHA256 = (
+    "a183f08ff2459ffa9102f1638d31183bb5c6b7fd7e8531deaf35b33e52c8f4f9"
+)
+FROZEN_CAP8_RUNTIME_CLOSURE = {
+    "stock_lib_java_sha256":
+        "eea0df062de5c8e3febe0d96b583741c140e79d3ae41a87a56d7be365b876f9d",
+    "jdk_sha256":
+        "867ff62e01a0936fc0a90ceae27338be1973559767ef0717896f8d64f780ece6",
+    "ant_install": "/home/swear01/.local/opt/ant/usr",
+    "ant_install_sha256":
+        "52772e241e78a875fa00dea891eac2023d4f2be639a5f28a17dca81580f75e5b",
+    "ant_version":
+        "Apache Ant(TM) version 1.10.12 compiled on January 17 1970",
+    "python_real": "/usr/bin/python3.10",
+    "python_sha256":
+        "7d51cd6b48b521277f5caa4610a82126e315fa2be4df069823a8b1eeb5bd4a86",
+    "python_version": "Python 3.10.12",
+    "python_stdlib": "/usr/lib/python3.10",
+    "python_stdlib_sha256":
+        "eef7994f6b57cb0bbdb803ef6aadc0c1afbe61d444932eeef5dc5c114b6cf27b",
+    "python_dist_packages": "/usr/lib/python3/dist-packages",
+    "python_dist_packages_sha256":
+        "0970024a48206a1937b5bfbf889335525b769b89a27ca7df25d793d7727b909c",
+    "python_local_dist_packages":
+        "/usr/local/lib/python3.10/dist-packages",
+    "python_local_dist_packages_sha256":
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "python_environment":
+        '{"python_executable":"/usr/bin/python3.10","sys_path":'
+        '["/var/tmp/swear01-cpachecker-paper/benchexec",'
+        '"/usr/lib/python310.zip","/usr/lib/python3.10",'
+        '"/usr/lib/python3.10/lib-dynload",'
+        '"/usr/local/lib/python3.10/dist-packages",'
+        '"/usr/lib/python3/dist-packages"],'
+        '"yaml_file":"/usr/lib/python3/dist-packages/yaml/__init__.py",'
+        '"yaml_version":"5.4.1"}',
+    "benchexec_archive_sha256":
+        "75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737c143ba018bc",
+    "benchexec_version": "benchexec 3.35-dev",
+}
 PHASE_A_OPERATION = {
     "original_valkyrie": "deterministic_stratified_shard",
     "reroute_valkyrie": "deterministic_stratified_reroute",
@@ -145,12 +197,17 @@ CAP16_PROBE_TAINT_SCHEMA = "hard-case-cap16-cegar-probe-taint-v1"
 CAP16_PROBE_PLAN_SCHEMA = "hard-case-cap16-cegar-probe-plan-v1"
 CAP16_PROBE_INPUT_SCHEMA = "hard-case-cap16-cegar-probe-input-v1"
 CAP16_PROBE_SUMMARY_SCHEMA = "hard-case-cap16-cegar-probe-summary-v1"
-CAP16_PROBE_STRATA = (
+CAP8_PROBE_TAINT_SCHEMA = "hard-case-cap8-cegar-probe-taint-v1"
+CAP8_PROBE_PLAN_SCHEMA = "hard-case-cap8-cegar-probe-plan-v1"
+CAP8_PROBE_INPUT_SCHEMA = "hard-case-cap8-cegar-probe-input-v1"
+CAP8_PROBE_SUMMARY_SCHEMA = "hard-case-cap8-cegar-probe-summary-v1"
+STRICT_PROBE_STRATA = (
     ("cegar-eligible.csv", "cegar_eligible"),
     ("no-event.csv", "no_event"),
     ("hook-reached-without-loop-head.csv", "hook_reached_without_loop_head"),
     ("infrastructure-failure.csv", "infrastructure_failure"),
 )
+CAP16_PROBE_STRATA = STRICT_PROBE_STRATA
 SCREEN_REPETITION_PLAN_SCHEMA = "hard-case-screen-repetition-plan-v1"
 SCREEN_TAINT_SCHEMA = "hard-case-screen-taint-v1"
 FORMAL_TAINT_REASONS = {
@@ -175,6 +232,46 @@ BENCHEXEC_MODULE_COMMAND = (
     'sys.argv[0]="benchexec"; '
     'runpy.run_module("benchexec.benchexec",run_name="__main__")'
 )
+
+
+def strict_probe_profile(cohort):
+  profiles = {
+      "cap8": {
+          "host": "valkyrie",
+          "manifest_name": "candidate-manifest-cap8-probe.json",
+          "input_schema": CAP8_PROBE_INPUT_SCHEMA,
+          "plan_schema": CAP8_PROBE_PLAN_SCHEMA,
+          "taint_schema": CAP8_PROBE_TAINT_SCHEMA,
+          "summary_schema": CAP8_PROBE_SUMMARY_SCHEMA,
+          "row_provenance_schema":
+              "hard-case-cap8-cegar-probe-row-provenance-v1",
+          "accepted_labels": {"stable_hard_solved", "stable_unsolved"},
+          "operation": "cap8_zero_candidate_probe_input",
+      },
+      "cap16": {
+          "host": "athena",
+          "manifest_name": "candidate-manifest-cap16-probe.json",
+          "input_schema": CAP16_PROBE_INPUT_SCHEMA,
+          "plan_schema": CAP16_PROBE_PLAN_SCHEMA,
+          "taint_schema": CAP16_PROBE_TAINT_SCHEMA,
+          "summary_schema": CAP16_PROBE_SUMMARY_SCHEMA,
+          "row_provenance_schema":
+              "hard-case-cap16-cegar-probe-row-provenance-v1",
+          "accepted_labels": {
+              "stable_hard_solved",
+              "stable_analysis_unsolved",
+          },
+          "operation": "cap16_zero_candidate_probe_input",
+      },
+  }
+  try:
+    return profiles[cohort]
+  except KeyError as error:
+    raise RuntimeError(f"unknown strict probe cohort: {cohort}") from error
+
+
+def is_strict_probe_mode(mode):
+  return mode in {"cap8-probe", "cap16-probe"}
 
 
 def sha256_text(value):
@@ -933,10 +1030,12 @@ def probe_result_metadata(path, allow_incomplete=False):
   ):
     raise RuntimeError("probe result metadata does not match the zero-candidate protocol")
   hosts = [node.get("hostname") for node in root.findall("systeminfo")]
-  if hosts != ["athena"]:
-    raise RuntimeError("probe result is not uniquely attributed to Athena")
+  if len(hosts) != 1 or not hosts[0]:
+    raise RuntimeError(
+        "probe result must contain exactly one systeminfo hostname"
+    )
   metadata = {
-      "host": "athena",
+      "host": hosts[0],
       "starttime": root.get("starttime"),
       "endtime": root.get("endtime"),
       "benchmarkname": root.get("benchmarkname"),
@@ -1287,9 +1386,9 @@ def command_render_probe(args):
   )
 
 
-def command_render_cap16_probe(args):
-  _, manifest_path, manifest, hard, _ = validate_cap16_probe_input(
-      args.probe_input, args.sv_benchmarks
+def render_strict_probe(args, cohort):
+  _, manifest_path, manifest, hard, _ = validate_strict_probe_input(
+      args.probe_input, args.sv_benchmarks, cohort
   )
   details = {row["task"]: row for row in manifest["tasks"]}
   render_probe(
@@ -1302,9 +1401,18 @@ def command_render_cap16_probe(args):
   )
 
 
-def command_render_cap16_probe_replacement(args):
-  _, manifest_path, manifest, _, _ = validate_cap16_probe_input(
-      args.probe_input, args.sv_benchmarks
+def command_render_cap8_probe(args):
+  render_strict_probe(args, "cap8")
+
+
+def command_render_cap16_probe(args):
+  render_strict_probe(args, "cap16")
+
+
+def render_strict_probe_replacement(args, cohort):
+  profile = strict_probe_profile(cohort)
+  _, manifest_path, manifest, _, _ = validate_strict_probe_input(
+      args.probe_input, args.sv_benchmarks, cohort
   )
   by_name = baseline.load_task_manifest(manifest_path)
   result = Path(args.primary_result).resolve()
@@ -1313,7 +1421,7 @@ def command_render_cap16_probe_replacement(args):
       1,
       baseline.sha256_file(result),
       by_name,
-      CAP16_PROBE_TAINT_SCHEMA,
+      profile["taint_schema"],
   )
   if not tainted:
     raise RuntimeError("probe replacement requires at least one tainted task")
@@ -1335,6 +1443,14 @@ def command_render_cap16_probe_replacement(args):
       args.property_file,
       args.output_dir,
   )
+
+
+def command_render_cap8_probe_replacement(args):
+  render_strict_probe_replacement(args, "cap8")
+
+
+def command_render_cap16_probe_replacement(args):
+  render_strict_probe_replacement(args, "cap16")
 
 
 def split_for_family(family):
@@ -2714,9 +2830,15 @@ def probe_result_telemetry(result_path, manifest):
   return expected
 
 
-def cap16_probe_summary_rows(args):
+def strict_probe_summary_rows(args, cohort):
+  profile = strict_probe_profile(cohort)
+  validate_input = (
+      validate_cap8_probe_input
+      if cohort == "cap8"
+      else validate_cap16_probe_input
+  )
   _, manifest_path, manifest_data, hard_rows, identity = (
-      validate_cap16_probe_input(args.probe_input, args.sv_benchmarks)
+      validate_input(args.probe_input, args.sv_benchmarks)
   )
   manifest = baseline.load_task_manifest(manifest_path)
   validate_probe_definition(
@@ -2730,14 +2852,14 @@ def cap16_probe_summary_rows(args):
       plan_path,
       manifest,
       manifest_path,
-      "athena",
+      profile["host"],
       args.sv_benchmarks,
       args.benchmark_definition,
-      plan_schema=CAP16_PROBE_PLAN_SCHEMA,
+      plan_schema=profile["plan_schema"],
       repetition=1,
       display=PROBE_DISPLAY,
       time_limit="900 s",
-      taint_schema=CAP16_PROBE_TAINT_SCHEMA,
+      taint_schema=profile["taint_schema"],
       definition_validator=validate_probe_definition,
       hard_threshold=200,
   )
@@ -2811,15 +2933,26 @@ def cap16_probe_summary_rows(args):
   return rows, plan, identity
 
 
-def write_cap16_probe_summary(args):
+def cap16_probe_summary_rows(args):
+  return strict_probe_summary_rows(args, "cap16")
+
+
+def cap8_probe_summary_rows(args):
+  return strict_probe_summary_rows(args, "cap8")
+
+
+def write_strict_probe_summary(args, cohort, rows_provider=None):
+  profile = strict_probe_profile(cohort)
   require_absent_or_empty_output(args.output_dir)
-  rows, plan, identity = cap16_probe_summary_rows(args)
+  if rows_provider is None:
+    rows_provider = lambda value: strict_probe_summary_rows(value, cohort)
+  rows, plan, identity = rows_provider(args)
   output = Path(args.output_dir).resolve()
   output.mkdir(parents=True, exist_ok=True)
   fieldnames = list(rows[0])
   for filename, classification in (
       ("cegar-eligibility.csv", None),
-      *CAP16_PROBE_STRATA,
+      *STRICT_PROBE_STRATA,
   ):
     with (output / filename).open(
         "w", newline="", encoding="utf-8"
@@ -2835,7 +2968,7 @@ def write_cap16_probe_summary(args):
           )
       )
   row_provenance = {
-      "schema_version": "hard-case-cap16-cegar-probe-row-provenance-v1",
+      "schema_version": profile["row_provenance_schema"],
       "probe_plan_sha256": plan["plan_sha256"],
       "primary_result_sha256": plan["primary_sha256"],
       "replacement_result_sha256": plan["replacement_sha256"],
@@ -2847,10 +2980,10 @@ def write_cap16_probe_summary(args):
   )
   counts = collections.Counter(row["probe_classification"] for row in rows)
   summary = {
-      "schema_version": CAP16_PROBE_SUMMARY_SCHEMA,
+      "schema_version": profile["summary_schema"],
       "task_count": len(rows),
       "classifications": dict(sorted(counts.items())),
-      "host": "athena",
+      "host": profile["host"],
       "provider": "EMPTY",
       "activated_candidate_count": 0,
       "formal_artifact_aggregate_sha256": identity[
@@ -2864,6 +2997,20 @@ def write_cap16_probe_summary(args):
       json.dumps(summary, indent=2) + "\n", encoding="utf-8"
   )
   return summary
+
+
+def write_cap8_probe_summary(args):
+  return write_strict_probe_summary(args, "cap8", cap8_probe_summary_rows)
+
+
+def write_cap16_probe_summary(args):
+  return write_strict_probe_summary(
+      args, "cap16", cap16_probe_summary_rows
+  )
+
+
+def command_cap8_probe_summary(args):
+  print(json.dumps(write_cap8_probe_summary(args), sort_keys=True))
 
 
 def command_cap16_probe_summary(args):
@@ -3201,7 +3348,7 @@ def formal_process_descriptor(args):
           f"formal process {name} escapes output root"
       ) from error
   if (
-      args.mode not in {"cap8", "cap16", "cap16-probe"}
+      args.mode not in {"cap8", "cap16", "cap8-probe", "cap16-probe"}
       or args.p_cores != FORMAL_P_CORE_LIST
       or not isinstance(args.monitor_exclude_root, int)
       or args.monitor_exclude_root <= 0
@@ -3222,8 +3369,9 @@ def formal_process_descriptor(args):
   ):
     raise RuntimeError("formal process descriptor runtime is not pinned")
   expected_name = (
-      f"hard-case-dataset-v2-cap16-cegar-probe-{args.host}-{args.label}"
-      if args.mode == "cap16-probe"
+      f"hard-case-dataset-v2-{args.mode.removesuffix('-probe')}"
+      f"-cegar-probe-{args.host}-{args.label}"
+      if is_strict_probe_mode(args.mode)
       else (
           f"hard-case-dataset-v2"
           f"{'-cap16' if args.mode == 'cap16' else ''}"
@@ -3285,9 +3433,9 @@ def formal_process_descriptor(args):
       "--overlay-dir",
       str(cpachecker_dir),
       "-N",
-      "8" if args.mode == "cap16-probe" else "2",
+      "8" if is_strict_probe_mode(args.mode) else "2",
       "-c",
-      "1" if args.mode == "cap16-probe" else "4",
+      "1" if is_strict_probe_mode(args.mode) else "4",
       str(definition),
   ]
   return {
@@ -3677,11 +3825,11 @@ def validate_monitor_stop_evidence(path, pid, mode, benchexec_exit):
       or (
           normal_stop
           and benchexec_exit not in {0, 130}
-          and (mode != "cap16-probe" or benchexec_exit != 125)
+          and (not is_strict_probe_mode(mode) or benchexec_exit != 125)
       )
       or (
           recovered_stop
-          and (mode != "cap16-probe" or benchexec_exit != 125)
+          and (not is_strict_probe_mode(mode) or benchexec_exit != 125)
       )
   ):
     raise RuntimeError("formal attempt monitor stop evidence is invalid")
@@ -3717,7 +3865,7 @@ def formal_attempt_record(args):
       "task_count": len(result_tasks),
       "tasks": [manifest[task] for task in result_tasks],
   }
-  if args.mode == "cap16-probe":
+  if is_strict_probe_mode(args.mode):
     validate_probe_definition(
         paths["definition"][0],
         manifest_path,
@@ -4106,10 +4254,352 @@ def command_validate_formal_closure(args):
   print(json.dumps(validate_formal_closure(args), sort_keys=True))
 
 
-def cap16_formal_probe_paths(formal_output):
+def validate_sha256_inventory(root, inventory_path, expected_paths=None):
+  root = Path(root).resolve()
+  inventory_path = Path(inventory_path).resolve()
+  if (
+      inventory_path.is_symlink()
+      or not inventory_path.is_file()
+      or inventory_path.parent != root
+  ):
+    raise RuntimeError("SHA-256 inventory is not a regular root file")
+  entries = {}
+  for line in inventory_path.read_text(encoding="utf-8").splitlines():
+    match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
+    if match is None:
+      raise RuntimeError("SHA-256 inventory line is invalid")
+    digest, relative_text = match.groups()
+    relative = Path(relative_text)
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or relative.as_posix() in entries
+    ):
+      raise RuntimeError("SHA-256 inventory path is invalid")
+    path = root / relative
+    current = root
+    symlink_ancestor = False
+    for component in relative.parts[:-1]:
+      current /= component
+      if current.is_symlink():
+        symlink_ancestor = True
+        break
+    if (
+        symlink_ancestor
+        or path.is_symlink()
+        or not path.is_file()
+        or baseline.sha256_file(path) != digest
+    ):
+      raise RuntimeError(f"SHA-256 inventory mismatch: {relative}")
+    entries[relative.as_posix()] = digest
+  if list(entries) != sorted(entries):
+    raise RuntimeError("SHA-256 inventory paths are not sorted")
+  if expected_paths is not None and set(entries) != set(expected_paths):
+    raise RuntimeError("SHA-256 inventory topology is not exact")
+  return entries
+
+
+def cap8_formal_probe_paths(formal_output):
   root = Path(formal_output).resolve()
+  evidence = root / "input/evidence"
+  research = root / "input/research"
   return {
       "root": root,
+      "manifest": (
+          root / "input/formal/candidate-manifest-valkyrie-formal.json"
+      ),
+      "formal_package_artifact": root / "input/formal/artifact-manifest.json",
+      "definition": root / "generated/hard-case-candidates.xml",
+      "plan_1": root / "repetition-1-plan.json",
+      "plan_2": root / "repetition-2-plan.json",
+      "hard": root / "summary/hard-portfolio.csv",
+      "classification": root / "summary/classification.csv",
+      "summary": root / "summary/summary.json",
+      "artifact": root / "provenance/artifact-manifest.json",
+      "evidence": evidence,
+      "research": research,
+      "saved_dataset": research / "scripts/dataset.py",
+      "research_head": research / "research-head.txt",
+      "research_inventory": research / "inventory.sha256",
+  }
+
+
+def frozen_cap8_formal_artifact_aggregate():
+  frozen = FROZEN_CAP8_FORMAL_ARTIFACT_AGGREGATE_SHA256
+  if re.fullmatch(r"[0-9a-f]{64}", frozen) is None:
+    raise RuntimeError("cap-8 r8 formal artifact aggregate pin is pending")
+  return frozen
+
+
+def cap8_phase_result(evidence, role):
+  matches = [
+      path for path in (
+          evidence / f"{role}-result.xml",
+          evidence / f"{role}-result.xml.bz2",
+      )
+      if path.is_file() and not path.is_symlink()
+  ]
+  if len(matches) != 1:
+    raise RuntimeError(f"cap-8 r8 {role} Phase-A result is not unique")
+  return matches[0]
+
+
+def cap8_summary_reproduction_arguments(paths, sv_benchmarks, output_dir):
+  evidence = paths["evidence"]
+  arguments = [
+      "summarize",
+      "--parent-manifest", str(evidence / "parent-manifest.json"),
+  ]
+  for role in ("original", "reroute", "recovery"):
+    arguments.extend([
+        "--phase-a-manifest", str(evidence / f"{role}-manifest.json"),
+    ])
+  for role in ("original", "reroute", "recovery"):
+    arguments.extend([
+        "--phase-a-result", str(cap8_phase_result(evidence, role)),
+    ])
+  for role in ("original", "reroute", "recovery"):
+    arguments.extend([
+        "--survivor-manifest", str(evidence / f"{role}-survivor.json"),
+    ])
+  arguments.extend([
+      "--sv-benchmarks", str(Path(sv_benchmarks).resolve()),
+      "--manifest", str(paths["manifest"]),
+      "--benchmark-definition", str(paths["definition"]),
+      "--repetition-plan", str(paths["plan_1"]),
+      "--repetition-plan", str(paths["plan_2"]),
+      "--output-dir", str(Path(output_dir).resolve()),
+      "--hard-threshold", "200",
+  ])
+  return arguments
+
+
+def run_saved_dataset(script, arguments, python_bin=None):
+  if python_bin is None:
+    python_bin = sys.executable
+  command = [
+      str(python_bin),
+      "-I",
+      "-c",
+      (
+          "import runpy,sys;"
+          "from pathlib import Path;"
+          "script=Path(sys.argv.pop(1)).resolve();"
+          "sys.argv[0]=str(script);"
+          "sys.dont_write_bytecode=True;"
+          "sys.pycache_prefix='/dev/null';"
+          "sys.path.insert(0,str(script.parent));"
+          "runpy.run_path(str(script),run_name='__main__')"
+      ),
+      str(script),
+      *arguments,
+  ]
+  subprocess.run(command, check=True)
+
+
+def authenticate_cap8_formal_for_probe(formal_output, sv_benchmarks):
+  frozen_aggregate = frozen_cap8_formal_artifact_aggregate()
+  paths = cap8_formal_probe_paths(formal_output)
+  declared = Path(formal_output)
+  if (
+      declared.is_symlink()
+      or Path(os.path.abspath(declared)) != paths["root"]
+      or not paths["root"].is_dir()
+  ):
+    raise RuntimeError("cap-8 r8 formal output must be a regular directory")
+  package_artifact = validate_artifact_manifest(
+      paths["manifest"].parent,
+      paths["formal_package_artifact"],
+      set(),
+      expected_root=".",
+  )
+  if (
+      baseline.sha256_file(paths["formal_package_artifact"])
+      != FROZEN_CAP8_FORMAL_PACKAGE_MANIFEST_SHA256
+      or package_artifact["aggregate_sha256"]
+      != FROZEN_CAP8_FORMAL_PACKAGE_AGGREGATE_SHA256
+      or baseline.sha256_file(paths["manifest"])
+      != FROZEN_FORMAL_MANIFEST_SHA256
+  ):
+    raise RuntimeError("cap-8 r8 frozen formal input package is invalid")
+  manifest = validate_manifest(paths["manifest"], sv_benchmarks)
+  if (
+      manifest["task_count"] != FROZEN_CAP8_FORMAL_TASK_COUNT
+      or any(row["source"] != "sv-benchmarks" for row in manifest["tasks"])
+  ):
+    raise RuntimeError("cap-8 r8 formal manifest identity is invalid")
+
+  evidence_paths = {
+      "corpus/properties/unreach-call.prp",
+      "parent-manifest.json",
+      *(
+          f"{role}-{kind}.{suffix}"
+          for role in ("original", "reroute", "recovery")
+          for kind, suffix in (
+              ("manifest", "json"),
+              ("survivor", "json"),
+          )
+      ),
+  }
+  for role in ("original", "reroute", "recovery"):
+    evidence_paths.add(
+        cap8_phase_result(paths["evidence"], role)
+        .relative_to(paths["evidence"]).as_posix()
+    )
+  validate_sha256_inventory(
+      paths["evidence"],
+      paths["evidence"] / "inventory.sha256",
+      evidence_paths,
+  )
+
+  research_paths = {
+      "research-diff.patch",
+      "research-head.txt",
+      "research-index-flags.txt",
+      "research-state.json",
+      "research-status.porcelain",
+      "scripts/baseline.py",
+      "scripts/dataset.py",
+      "scripts/run-stock-formal-dataset.sh",
+  }
+  if (
+      paths["research_head"].read_text(encoding="utf-8")
+      != f"{FROZEN_CAP8_RESEARCH_HEAD}\n"
+      or baseline.sha256_file(paths["research_inventory"])
+      != FROZEN_CAP8_RESEARCH_INVENTORY_SHA256
+  ):
+    raise RuntimeError("cap-8 r8 saved research identity is invalid")
+  validate_sha256_inventory(
+      paths["research"], paths["research_inventory"], research_paths
+  )
+
+  mandatory = (
+      "provenance/build.log",
+      "provenance/cgroup-check.log",
+      "provenance/machine-preflight-start.json",
+      "provenance/machine-preflight-end.json",
+      "provenance/machine-preflight-check.json",
+      "provenance/research-verification-final.log",
+      "provenance/runtime-verification-final.log",
+      "provenance/runtime-closure.txt",
+  )
+  for relative in mandatory:
+    path = paths["root"] / relative
+    if path.is_symlink() or not path.is_file():
+      raise RuntimeError(
+          f"cap-8 r8 formal closure lacks evidence: {relative}"
+      )
+  failure_evidence = [
+      path for path in (paths["root"] / "provenance").iterdir()
+      if "failure" in path.name
+  ]
+  if failure_evidence:
+    raise RuntimeError("cap-8 r8 formal launcher did not close successfully")
+  runtime_closure = {}
+  for line in (
+      paths["root"] / "provenance/runtime-closure.txt"
+  ).read_text(encoding="utf-8").splitlines():
+    if "=" not in line:
+      raise RuntimeError("cap-8 r8 runtime closure line is invalid")
+    key, value = line.split("=", 1)
+    if key in runtime_closure:
+      raise RuntimeError("cap-8 r8 runtime closure key is duplicated")
+    runtime_closure[key] = value
+  if runtime_closure != FROZEN_CAP8_RUNTIME_CLOSURE:
+    raise RuntimeError("cap-8 r8 runtime closure is not the frozen runtime")
+  expected_summary = {
+      "classification.csv",
+      "hard-portfolio.csv",
+      "mixed.csv",
+      "row-provenance.json",
+      "summary.json",
+      "verifier-failure-quarantine.csv",
+      "wrong-quarantine.csv",
+  }
+  if (
+      {
+          path.name for path in (paths["root"] / "summary").iterdir()
+      }
+      != expected_summary
+  ):
+    raise RuntimeError("cap-8 r8 summary topology is not exact")
+  for plan in (paths["plan_1"], paths["plan_2"]):
+    if plan.is_symlink() or not plan.is_file():
+      raise RuntimeError("cap-8 r8 repetition plan is not regular")
+
+  with tempfile.TemporaryDirectory(
+      prefix="vguide-cap8-r8-summary-check."
+  ) as temporary:
+    run_saved_dataset(
+        paths["saved_dataset"],
+        cap8_summary_reproduction_arguments(
+            paths, sv_benchmarks, temporary
+        ),
+        python_bin="/usr/bin/python3.10",
+    )
+    reproduced = Path(temporary)
+    if {path.name for path in reproduced.iterdir()} != expected_summary:
+      raise RuntimeError("cap-8 r8 reproduced summary topology is not exact")
+    for name in expected_summary:
+      if (
+          (reproduced / name).read_bytes()
+          != (paths["root"] / "summary" / name).read_bytes()
+      ):
+        raise RuntimeError("cap-8 r8 summary does not reproduce byte-identically")
+
+  artifact = validate_artifact_manifest(
+      paths["root"], paths["artifact"], set()
+  )
+  if artifact["aggregate_sha256"] != frozen_aggregate:
+    raise RuntimeError("cap-8 r8 formal artifact aggregate is not frozen")
+  with paths["classification"].open(newline="", encoding="utf-8") as source:
+    classification = list(csv.DictReader(source))
+  with paths["hard"].open(newline="", encoding="utf-8") as source:
+    hard = list(csv.DictReader(source))
+  expected = [
+      row for row in classification
+      if row.get("classification")
+      in {"stable_hard_solved", "stable_unsolved"}
+  ]
+  tasks = [row.get("task") for row in hard]
+  details = {row["task"]: row for row in manifest["tasks"]}
+  if (
+      hard != expected
+      or not hard
+      or tasks != sorted(tasks)
+      or len(tasks) != len(set(tasks))
+      or any(task not in details for task in tasks)
+  ):
+    raise RuntimeError(
+        "cap-8 r8 hard portfolio is not the exact authenticated stable-hard set"
+    )
+  return paths, manifest, hard, {
+      "artifact_aggregate_sha256": artifact["aggregate_sha256"],
+      "valid": True,
+  }
+
+
+def command_authenticate_cap8_formal_for_probe(args):
+  _, manifest, hard, closure = authenticate_cap8_formal_for_probe(
+      args.formal_output, args.sv_benchmarks
+  )
+  print(json.dumps({
+      "artifact_aggregate_sha256": closure[
+          "artifact_aggregate_sha256"
+      ],
+      "hard_task_count": len(hard),
+      "manifest_task_count": manifest["task_count"],
+      "valid": True,
+  }, sort_keys=True))
+
+
+def cap16_formal_probe_paths(formal_output):
+  root = Path(formal_output).resolve()
+  phase_a = root / "input/evidence"
+  return {
+      "root": root,
+      "phase_a": phase_a,
+      "saved_dataset": root / "input/research/scripts/dataset.py",
       "manifest": (
           root
           / "input/evidence/summary/candidate-manifest-analysis-survivors.json"
@@ -4134,6 +4624,7 @@ def frozen_cap16_formal_artifact_aggregate():
 
 
 def authenticate_cap16_formal_for_probe(formal_output, sv_benchmarks):
+  frozen_aggregate = frozen_cap16_formal_artifact_aggregate()
   paths = cap16_formal_probe_paths(formal_output)
   declared = Path(formal_output)
   if (
@@ -4142,6 +4633,38 @@ def authenticate_cap16_formal_for_probe(formal_output, sv_benchmarks):
       or not paths["root"].is_dir()
   ):
     raise RuntimeError("cap-16 formal output must be a regular directory")
+  artifact = validate_artifact_manifest(
+      paths["root"], paths["artifact"], {"summary/.complete"}
+  )
+  if artifact["aggregate_sha256"] != frozen_aggregate:
+    raise RuntimeError("cap-16 formal artifact aggregate is not frozen")
+  with tempfile.TemporaryDirectory(
+      prefix="vguide-cap16-formal-summary-check."
+  ) as temporary:
+    run_saved_dataset(paths["saved_dataset"], [
+        "summarize-cap16-formal",
+        "--phase-a-output", str(paths["phase_a"]),
+        "--sv-benchmarks", str(Path(sv_benchmarks).resolve()),
+        "--manifest", str(paths["manifest"]),
+        "--benchmark-definition", str(paths["definition"]),
+        "--repetition-plan", str(paths["plan_1"]),
+        "--repetition-plan", str(paths["plan_2"]),
+        "--output-dir", str(Path(temporary).resolve()),
+        "--hard-threshold", "200",
+    ], python_bin="/usr/bin/python3.12")
+    reproduced = Path(temporary)
+    actual_summary = {
+        path.name for path in (paths["root"] / "summary").iterdir()
+        if path.name != ".complete"
+    }
+    if {path.name for path in reproduced.iterdir()} != actual_summary:
+      raise RuntimeError("cap-16 formal summary topology does not reproduce")
+    for candidate in reproduced.iterdir():
+      if (
+          candidate.read_bytes()
+          != (paths["root"] / "summary" / candidate.name).read_bytes()
+      ):
+        raise RuntimeError("cap-16 formal summary does not reproduce exactly")
   closure = validate_formal_closure(
       argparse.Namespace(
           output_root=str(paths["root"]),
@@ -4156,7 +4679,7 @@ def authenticate_cap16_formal_for_probe(formal_output, sv_benchmarks):
   )
   if (
       closure["artifact_aggregate_sha256"]
-      != frozen_cap16_formal_artifact_aggregate()
+      != frozen_aggregate
   ):
     raise RuntimeError("cap-16 formal artifact aggregate is not frozen")
   manifest = validate_manifest(paths["manifest"], sv_benchmarks)
@@ -4186,8 +4709,28 @@ def authenticate_cap16_formal_for_probe(formal_output, sv_benchmarks):
   return paths, manifest, hard, closure
 
 
-def command_package_cap16_probe_input(args):
-  paths, manifest, hard, closure = authenticate_cap16_formal_for_probe(
+def command_authenticate_cap16_formal_for_probe(args):
+  _, manifest, hard, closure = authenticate_cap16_formal_for_probe(
+      args.formal_output, args.sv_benchmarks
+  )
+  print(json.dumps({
+      "artifact_aggregate_sha256": closure[
+          "artifact_aggregate_sha256"
+      ],
+      "hard_task_count": len(hard),
+      "manifest_task_count": manifest["task_count"],
+      "valid": True,
+  }, sort_keys=True))
+
+
+def package_strict_probe_input(args, cohort):
+  profile = strict_probe_profile(cohort)
+  authenticate = (
+      authenticate_cap8_formal_for_probe
+      if cohort == "cap8"
+      else authenticate_cap16_formal_for_probe
+  )
+  paths, manifest, hard, closure = authenticate(
       args.formal_output, args.sv_benchmarks
   )
   output = Path(args.output_dir).resolve()
@@ -4200,7 +4743,7 @@ def command_package_cap16_probe_input(args):
       manifest,
       tasks,
       {
-          "operation": "cap16_zero_candidate_probe_input",
+          "operation": profile["operation"],
           "source_manifest_sha256": source_manifest_sha256,
           "source_formal_manifest_sha256": source_manifest_sha256,
           "source_formal_hard_portfolio_sha256": hard_sha256,
@@ -4212,7 +4755,7 @@ def command_package_cap16_probe_input(args):
   )
   if (paths["manifest"].parent / "corpus").is_dir():
     shutil.copytree(paths["manifest"].parent / "corpus", output / "corpus")
-  manifest_path = output / "candidate-manifest-cap16-probe.json"
+  manifest_path = output / profile["manifest_name"]
   manifest_path.write_text(
       json.dumps(derived, indent=2) + "\n", encoding="utf-8"
   )
@@ -4225,8 +4768,8 @@ def command_package_cap16_probe_input(args):
   ):
     shutil.copyfile(source, output / target)
   identity = {
-      "schema_version": CAP16_PROBE_INPUT_SCHEMA,
-      "host": "athena",
+      "schema_version": profile["input_schema"],
+      "host": profile["host"],
       "task_count": len(tasks),
       "formal_artifact_aggregate_sha256": closure[
           "artifact_aggregate_sha256"
@@ -4246,14 +4789,23 @@ def command_package_cap16_probe_input(args):
   (output / "identity.json").write_text(
       json.dumps(identity, indent=2) + "\n", encoding="utf-8"
   )
-  validate_cap16_probe_input(output, args.sv_benchmarks)
+  validate_strict_probe_input(output, args.sv_benchmarks, cohort)
   print(json.dumps(identity, sort_keys=True))
 
 
-def validate_cap16_probe_input(probe_input, sv_benchmarks):
+def command_package_cap8_probe_input(args):
+  package_strict_probe_input(args, "cap8")
+
+
+def command_package_cap16_probe_input(args):
+  package_strict_probe_input(args, "cap16")
+
+
+def validate_strict_probe_input(probe_input, sv_benchmarks, cohort):
+  profile = strict_probe_profile(cohort)
   root = Path(probe_input).resolve()
   identity_path = root / "identity.json"
-  manifest_path = root / "candidate-manifest-cap16-probe.json"
+  manifest_path = root / profile["manifest_name"]
   hard_path = root / "hard-portfolio.csv"
   identity = json.loads(identity_path.read_text(encoding="utf-8"))
   if (
@@ -4272,8 +4824,8 @@ def validate_cap16_probe_input(probe_input, sv_benchmarks):
           "probe_manifest_sha256",
           "selection_independent_of_augmented_outcomes",
       }
-      or identity["schema_version"] != CAP16_PROBE_INPUT_SCHEMA
-      or identity["host"] != "athena"
+      or identity["schema_version"] != profile["input_schema"]
+      or identity["host"] != profile["host"]
       or identity["selection_independent_of_augmented_outcomes"] is not True
       or any(
           re.fullmatch(r"[0-9a-f]{64}", identity[name]) is None
@@ -4283,7 +4835,7 @@ def validate_cap16_probe_input(probe_input, sv_benchmarks):
       or identity["probe_manifest_sha256"]
       != baseline.sha256_file(manifest_path)
   ):
-    raise RuntimeError("cap-16 probe input identity is invalid")
+    raise RuntimeError(f"{cohort} probe input identity is invalid")
   manifest = validate_manifest(manifest_path, sv_benchmarks)
   source_manifest_path = root / "source-formal-manifest.json"
   source_classification_path = root / "source-formal-classification.csv"
@@ -4297,8 +4849,12 @@ def validate_cap16_probe_input(probe_input, sv_benchmarks):
   )
   artifact_index = validate_artifact_manifest_index(artifact)
   if not Path(artifact["root"]).is_absolute():
-    raise RuntimeError("cap-16 probe formal artifact root is not absolute")
-  formal_paths = cap16_formal_probe_paths(Path(artifact["root"]))
+    raise RuntimeError(f"{cohort} probe formal artifact root is not absolute")
+  formal_paths = (
+      cap8_formal_probe_paths(Path(artifact["root"]))
+      if cohort == "cap8"
+      else cap16_formal_probe_paths(Path(artifact["root"]))
+  )
   expected_artifacts = {
       formal_paths["manifest"].relative_to(formal_paths["root"]).as_posix():
           identity["formal_manifest_sha256"],
@@ -4314,11 +4870,19 @@ def validate_cap16_probe_input(probe_input, sv_benchmarks):
       identity["formal_artifact_manifest_sha256"]
       != baseline.sha256_file(source_artifact_path)
       or identity["formal_manifest_sha256"]
-      != FROZEN_CAP16_PHASE_A_SURVIVOR_SHA256
+      != (
+          FROZEN_FORMAL_MANIFEST_SHA256
+          if cohort == "cap8"
+          else FROZEN_CAP16_PHASE_A_SURVIVOR_SHA256
+      )
       or identity["formal_artifact_aggregate_sha256"]
       != artifact["aggregate_sha256"]
       or identity["formal_artifact_aggregate_sha256"]
-      != frozen_cap16_formal_artifact_aggregate()
+      != (
+          frozen_cap8_formal_artifact_aggregate()
+          if cohort == "cap8"
+          else frozen_cap16_formal_artifact_aggregate()
+      )
       or any(
           relative not in artifact_index
           or artifact_index[relative]["sha256"] != digest
@@ -4331,7 +4895,7 @@ def validate_cap16_probe_input(probe_input, sv_benchmarks):
       or identity["formal_summary_sha256"]
       != baseline.sha256_file(source_summary_path)
   ):
-    raise RuntimeError("cap-16 probe formal-closure backlink is invalid")
+    raise RuntimeError(f"{cohort} probe formal-closure backlink is invalid")
   with hard_path.open(newline="", encoding="utf-8") as source:
     hard = list(csv.DictReader(source))
   with source_classification_path.open(
@@ -4358,29 +4922,47 @@ def validate_cap16_probe_input(probe_input, sv_benchmarks):
       != [
           row for row in classification
           if row.get("classification")
-          in {"stable_hard_solved", "stable_analysis_unsolved"}
+          in profile["accepted_labels"]
       ]
-      or manifest["derivation"].get("source_formal_manifest_sha256")
-      != identity["formal_manifest_sha256"]
-      or manifest["derivation"].get(
-          "source_formal_hard_portfolio_sha256"
-      )
-      != identity["formal_hard_portfolio_sha256"]
-      or manifest["derivation"].get(
-          "source_formal_artifact_aggregate_sha256"
-      )
-      != identity["formal_artifact_aggregate_sha256"]
-      or manifest["derivation"].get(
-          "selection_independent_of_augmented_outcomes"
-      )
-      is not True
+      or manifest["derivation"] != {
+          "operation": profile["operation"],
+          "source_manifest_sha256": identity["formal_manifest_sha256"],
+          "source_formal_manifest_sha256":
+              identity["formal_manifest_sha256"],
+          "source_formal_hard_portfolio_sha256":
+              identity["formal_hard_portfolio_sha256"],
+          "source_formal_artifact_aggregate_sha256":
+              identity["formal_artifact_aggregate_sha256"],
+          "selection_independent_of_augmented_outcomes": True,
+      }
       or any(
           source_by_task.get(row["task"]) != row
           for row in manifest["tasks"]
       )
   ):
-    raise RuntimeError("cap-16 probe input hard portfolio is invalid")
+    raise RuntimeError(f"{cohort} probe input hard portfolio is invalid")
   return root, manifest_path, manifest, hard, identity
+
+
+def validate_cap8_probe_input(probe_input, sv_benchmarks):
+  return validate_strict_probe_input(probe_input, sv_benchmarks, "cap8")
+
+
+def validate_cap16_probe_input(probe_input, sv_benchmarks):
+  return validate_strict_probe_input(probe_input, sv_benchmarks, "cap16")
+
+
+def command_validate_cap8_probe_input(args):
+  _, _, manifest, _, identity = validate_cap8_probe_input(
+      args.probe_input, args.sv_benchmarks
+  )
+  print(json.dumps({
+      "task_count": manifest["task_count"],
+      "formal_artifact_aggregate_sha256": identity[
+          "formal_artifact_aggregate_sha256"
+      ],
+      "valid": True,
+  }, sort_keys=True))
 
 
 def command_validate_cap16_probe_input(args):
@@ -4396,11 +4978,12 @@ def command_validate_cap16_probe_input(args):
   }, sort_keys=True))
 
 
-def validate_cap16_probe_closure(args):
+def validate_strict_probe_closure(args, cohort):
+  profile = strict_probe_profile(cohort)
   root = Path(args.output_root).resolve()
   probe_input = root / "input/formal"
-  _, manifest_path, _, _, _ = validate_cap16_probe_input(
-      probe_input, args.sv_benchmarks
+  _, manifest_path, _, _, _ = validate_strict_probe_input(
+      probe_input, args.sv_benchmarks, cohort
   )
   complete = root / "summary/.complete"
   if args.require_complete:
@@ -4416,7 +4999,7 @@ def validate_cap16_probe_closure(args):
       "cegar-eligibility.csv",
       "row-provenance.json",
       "summary.json",
-      *(filename for filename, _ in CAP16_PROBE_STRATA),
+      *(filename for filename, _ in STRICT_PROBE_STRATA),
   }
   actual_summary = {
       path.name
@@ -4433,10 +5016,10 @@ def validate_cap16_probe_closure(args):
       output_dir=None,
   )
   with tempfile.TemporaryDirectory(
-      prefix="vguide-cap16-probe-summary-check."
+      prefix=f"vguide-{cohort}-probe-summary-check."
   ) as temp:
     summary_args.output_dir = temp
-    write_cap16_probe_summary(summary_args)
+    write_strict_probe_summary(summary_args, cohort)
     for candidate in Path(temp).iterdir():
       expected = root / "summary" / candidate.name
       if (
@@ -4469,14 +5052,14 @@ def validate_cap16_probe_closure(args):
       plan_path,
       manifest,
       manifest_path,
-      "athena",
+      profile["host"],
       args.sv_benchmarks,
       root / "generated/cegar-eligibility.xml",
-      plan_schema=CAP16_PROBE_PLAN_SCHEMA,
+      plan_schema=profile["plan_schema"],
       repetition=1,
       display=PROBE_DISPLAY,
       time_limit="900 s",
-      taint_schema=CAP16_PROBE_TAINT_SCHEMA,
+      taint_schema=profile["taint_schema"],
       definition_validator=validate_probe_definition,
       hard_threshold=200,
   )
@@ -4487,8 +5070,8 @@ def validate_cap16_probe_closure(args):
           root,
           manifest_path,
           args.sv_benchmarks,
-          "athena",
-          "cap16-probe",
+          profile["host"],
+          f"{cohort}-probe",
       )
       for marker in markers
   }
@@ -4530,6 +5113,18 @@ def validate_cap16_probe_closure(args):
       "complete": args.require_complete,
       "valid": True,
   }
+
+
+def validate_cap8_probe_closure(args):
+  return validate_strict_probe_closure(args, "cap8")
+
+
+def validate_cap16_probe_closure(args):
+  return validate_strict_probe_closure(args, "cap16")
+
+
+def command_validate_cap8_probe_closure(args):
+  print(json.dumps(validate_cap8_probe_closure(args), sort_keys=True))
 
 
 def command_validate_cap16_probe_closure(args):
@@ -4763,7 +5358,8 @@ def command_screen_taint(args):
   print(output)
 
 
-def command_probe_taint(args):
+def write_probe_taint(args, cohort):
+  profile = strict_probe_profile(cohort)
   output = Path(args.output).resolve()
   if output.exists():
     raise RuntimeError(f"probe taint output already exists: {output}")
@@ -4779,7 +5375,7 @@ def command_probe_taint(args):
   )
   output.parent.mkdir(parents=True, exist_ok=True)
   output.write_text(json.dumps({
-      "schema_version": CAP16_PROBE_TAINT_SCHEMA,
+      "schema_version": profile["taint_schema"],
       "repetition": 1,
       "primary_result_sha256": primary_hash,
       "tasks": [
@@ -4788,6 +5384,14 @@ def command_probe_taint(args):
       ],
   }, indent=2) + "\n", encoding="utf-8")
   print(output)
+
+
+def command_cap8_probe_taint(args):
+  write_probe_taint(args, "cap8")
+
+
+def command_probe_taint(args):
+  write_probe_taint(args, "cap16")
 
 
 def row_is_complete(row):
@@ -5169,6 +5773,12 @@ def command_cap16_repetition_plan(args):
 def command_cap16_probe_plan(args):
   write_iterative_repetition_plan(
       args, CAP16_PROBE_PLAN_SCHEMA, CAP16_PROBE_TAINT_SCHEMA
+  )
+
+
+def command_cap8_probe_plan(args):
+  write_iterative_repetition_plan(
+      args, CAP8_PROBE_PLAN_SCHEMA, CAP8_PROBE_TAINT_SCHEMA
   )
 
 
@@ -5723,6 +6333,29 @@ def main():
   probe.add_argument("--property-file", required=True)
   probe.add_argument("--output-dir", required=True)
   probe.set_defaults(function=command_render_probe)
+  authenticate_cap8_probe = commands.add_parser(
+      "authenticate-cap8-formal-for-probe"
+  )
+  authenticate_cap8_probe.add_argument("--formal-output", required=True)
+  authenticate_cap8_probe.add_argument("--sv-benchmarks", required=True)
+  authenticate_cap8_probe.set_defaults(
+      function=command_authenticate_cap8_formal_for_probe
+  )
+  authenticate_cap16_probe = commands.add_parser(
+      "authenticate-cap16-formal-for-probe"
+  )
+  authenticate_cap16_probe.add_argument("--formal-output", required=True)
+  authenticate_cap16_probe.add_argument("--sv-benchmarks", required=True)
+  authenticate_cap16_probe.set_defaults(
+      function=command_authenticate_cap16_formal_for_probe
+  )
+  package_cap8_probe = commands.add_parser("package-cap8-probe-input")
+  package_cap8_probe.add_argument("--formal-output", required=True)
+  package_cap8_probe.add_argument("--sv-benchmarks", required=True)
+  package_cap8_probe.add_argument("--output-dir", required=True)
+  package_cap8_probe.set_defaults(
+      function=command_package_cap8_probe_input
+  )
   package_cap16_probe = commands.add_parser("package-cap16-probe-input")
   package_cap16_probe.add_argument("--formal-output", required=True)
   package_cap16_probe.add_argument("--sv-benchmarks", required=True)
@@ -5736,6 +6369,18 @@ def main():
   validate_cap16_probe.set_defaults(
       function=command_validate_cap16_probe_input
   )
+  validate_cap8_probe = commands.add_parser("validate-cap8-probe-input")
+  validate_cap8_probe.add_argument("--probe-input", required=True)
+  validate_cap8_probe.add_argument("--sv-benchmarks", required=True)
+  validate_cap8_probe.set_defaults(
+      function=command_validate_cap8_probe_input
+  )
+  render_cap8_probe = commands.add_parser("render-cap8-probe")
+  render_cap8_probe.add_argument("--probe-input", required=True)
+  render_cap8_probe.add_argument("--sv-benchmarks", required=True)
+  render_cap8_probe.add_argument("--property-file", required=True)
+  render_cap8_probe.add_argument("--output-dir", required=True)
+  render_cap8_probe.set_defaults(function=command_render_cap8_probe)
   render_cap16_probe = commands.add_parser("render-cap16-probe")
   render_cap16_probe.add_argument("--probe-input", required=True)
   render_cap16_probe.add_argument("--sv-benchmarks", required=True)
@@ -5765,6 +6410,30 @@ def main():
   )
   render_cap16_probe_replacement.set_defaults(
       function=command_render_cap16_probe_replacement
+  )
+  render_cap8_probe_replacement = commands.add_parser(
+      "render-cap8-probe-replacement"
+  )
+  render_cap8_probe_replacement.add_argument(
+      "--probe-input", required=True
+  )
+  render_cap8_probe_replacement.add_argument(
+      "--sv-benchmarks", required=True
+  )
+  render_cap8_probe_replacement.add_argument(
+      "--primary-result", required=True
+  )
+  render_cap8_probe_replacement.add_argument(
+      "--taint-manifest", required=True
+  )
+  render_cap8_probe_replacement.add_argument(
+      "--property-file", required=True
+  )
+  render_cap8_probe_replacement.add_argument(
+      "--output-dir", required=True
+  )
+  render_cap8_probe_replacement.set_defaults(
+      function=command_render_cap8_probe_replacement
   )
   validate = commands.add_parser("validate")
   validate.add_argument("--manifest", required=True)
@@ -5798,6 +6467,15 @@ def main():
   cap16_probe_summary.add_argument("--probe-plan", required=True)
   cap16_probe_summary.add_argument("--output-dir", required=True)
   cap16_probe_summary.set_defaults(function=command_cap16_probe_summary)
+  cap8_probe_summary = commands.add_parser("cap8-probe-summary")
+  cap8_probe_summary.add_argument("--probe-input", required=True)
+  cap8_probe_summary.add_argument("--sv-benchmarks", required=True)
+  cap8_probe_summary.add_argument(
+      "--benchmark-definition", required=True
+  )
+  cap8_probe_summary.add_argument("--probe-plan", required=True)
+  cap8_probe_summary.add_argument("--output-dir", required=True)
+  cap8_probe_summary.set_defaults(function=command_cap8_probe_summary)
   repetition_plan = commands.add_parser("repetition-plan")
   repetition_plan.add_argument("--manifest", required=True)
   repetition_plan.add_argument("--repetition", type=int, choices=(1, 2), required=True)
@@ -5842,6 +6520,21 @@ def main():
   cap16_probe_plan.set_defaults(
       function=command_cap16_probe_plan, repetition=1
   )
+  cap8_probe_plan = commands.add_parser("cap8-probe-plan")
+  cap8_probe_plan.add_argument("--manifest", required=True)
+  cap8_probe_plan.add_argument("--primary-result", required=True)
+  cap8_probe_plan.add_argument("--taint-manifest")
+  cap8_probe_plan.add_argument("--replacement-result", action="append")
+  cap8_probe_plan.add_argument(
+      "--replacement-definition", action="append"
+  )
+  cap8_probe_plan.add_argument(
+      "--replacement-taint-manifest", action="append"
+  )
+  cap8_probe_plan.add_argument("--output", required=True)
+  cap8_probe_plan.set_defaults(
+      function=command_cap8_probe_plan, repetition=1
+  )
   screen_plan = commands.add_parser("screen-plan")
   screen_plan.add_argument("--manifest", required=True)
   screen_plan.add_argument("--primary-result", required=True)
@@ -5863,7 +6556,9 @@ def main():
   process_unit = commands.add_parser("formal-systemd-unit")
   process_unit.add_argument("--output-root", required=True)
   process_unit.add_argument(
-      "--mode", choices=("cap8", "cap16", "cap16-probe"), required=True
+      "--mode",
+      choices=("cap8", "cap16", "cap8-probe", "cap16-probe"),
+      required=True,
   )
   process_unit.add_argument("--label", required=True)
   process_unit.set_defaults(function=command_formal_systemd_unit)
@@ -5901,7 +6596,9 @@ def main():
   require_formal_gone.add_argument("--identity", required=True)
   require_formal_gone.add_argument("--output-root", required=True)
   require_formal_gone.add_argument(
-      "--mode", choices=("cap8", "cap16", "cap16-probe"), required=True
+      "--mode",
+      choices=("cap8", "cap16", "cap8-probe", "cap16-probe"),
+      required=True,
   )
   require_formal_gone.add_argument("--label", required=True)
   require_formal_gone.add_argument("--host", required=True)
@@ -5919,7 +6616,9 @@ def main():
   attempt_complete.add_argument("--sv-benchmarks", required=True)
   attempt_complete.add_argument("--host", required=True)
   attempt_complete.add_argument(
-      "--mode", choices=("cap8", "cap16", "cap16-probe"), required=True
+      "--mode",
+      choices=("cap8", "cap16", "cap8-probe", "cap16-probe"),
+      required=True,
   )
   attempt_complete.add_argument("--label", required=True)
   attempt_complete.add_argument(
@@ -5967,6 +6666,17 @@ def main():
   probe_closure.set_defaults(
       function=command_validate_cap16_probe_closure
   )
+  cap8_probe_closure = commands.add_parser(
+      "validate-cap8-probe-closure"
+  )
+  cap8_probe_closure.add_argument("--output-root", required=True)
+  cap8_probe_closure.add_argument("--sv-benchmarks", required=True)
+  cap8_probe_closure.add_argument(
+      "--require-complete", action="store_true"
+  )
+  cap8_probe_closure.set_defaults(
+      function=command_validate_cap8_probe_closure
+  )
   complete_sentinel = commands.add_parser("write-complete-sentinel")
   complete_sentinel.add_argument("--output", required=True)
   complete_sentinel.set_defaults(function=command_write_complete_sentinel)
@@ -5985,6 +6695,20 @@ def main():
   probe_taint.add_argument("--load-monitor", required=True)
   probe_taint.add_argument("--output", required=True)
   probe_taint.set_defaults(function=command_probe_taint)
+  cap16_probe_taint = commands.add_parser("cap16-probe-taint")
+  cap16_probe_taint.add_argument("--manifest", required=True)
+  cap16_probe_taint.add_argument("--result", required=True)
+  cap16_probe_taint.add_argument("--benchexec-log", required=True)
+  cap16_probe_taint.add_argument("--load-monitor", required=True)
+  cap16_probe_taint.add_argument("--output", required=True)
+  cap16_probe_taint.set_defaults(function=command_probe_taint)
+  cap8_probe_taint = commands.add_parser("cap8-probe-taint")
+  cap8_probe_taint.add_argument("--manifest", required=True)
+  cap8_probe_taint.add_argument("--result", required=True)
+  cap8_probe_taint.add_argument("--benchexec-log", required=True)
+  cap8_probe_taint.add_argument("--load-monitor", required=True)
+  cap8_probe_taint.add_argument("--output", required=True)
+  cap8_probe_taint.set_defaults(function=command_cap8_probe_taint)
   screen_taint = commands.add_parser("screen-taint")
   screen_taint.add_argument("--manifest", required=True)
   screen_taint.add_argument("--result", required=True)
