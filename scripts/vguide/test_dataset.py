@@ -3190,6 +3190,9 @@ copy_phase_evidence "$2"
           FROZEN_CAP16_ATHENA_MANIFEST_SHA256=fixture.manifest_sha256,
           FROZEN_CAP16_PARENT_MANIFEST_SHA256=fixture.parent_sha256,
           FROZEN_CAP16_PHASE_A_TASK_COUNT=6,
+          FROZEN_CAP16_PHASE_A_PACKAGE_AGGREGATE_SHA256=(
+              "PENDING_AFTER_ATHENA_ATTEMPT3"
+          ),
       ):
         with self.assertRaisesRegex(RuntimeError, "pending"):
           dataset.authenticate_cap16_phase_a_output(

@@ -170,9 +170,9 @@ result paths to corpus-relative forms, rebuilds the screen plan, row
 provenance, survivor manifest and summary, and writes an artifact manifest
 whose root is `.`. The package can therefore be moved without retaining the
 source Phase-A output. Its exact aggregate hash is the formal identity gate.
-Until the Athena attempt-3 aggregate replaces
-`PENDING_AFTER_ATHENA_ATTEMPT3` in `dataset.py`, production authentication
-fails closed and the formal runner cannot launch.
+The accepted Athena attempt-3 package aggregate is
+`b0ce4f33ad505df816d559a4260d8cc75f96a9914b9396e214fe9c2e3ecf5dee`;
+production authentication requires this exact value.
 
 The cap-16 formal runner authenticates that frozen package's 254-task Athena
 manifest, fixed screen definition, complete iterative screen plan and every
