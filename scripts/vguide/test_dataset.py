@@ -3124,6 +3124,11 @@ copy_phase_evidence "$2"
           for index in range(5)
       ]
       manifest = {task["task"]: task for task in tasks}
+      manifest_path = root / "manifest.json"
+      manifest_path.write_text(
+          json.dumps({"task_count": len(tasks), "tasks": tasks}),
+          encoding="utf-8",
+      )
       result = root / "result.xml"
       write_stock_result(result, tasks, "athena", formal=True, marker="01")
       result_root = ET.parse(result).getroot()
@@ -3169,7 +3174,12 @@ copy_phase_evidence "$2"
 
       write_log([0, 1, 2, 3])
       tainted = dataset.run_taints(
-          result, log, monitor, manifest, allow_trailing_nul=True
+          result,
+          log,
+          monitor,
+          manifest,
+          allow_trailing_nul=True,
+          allow_final_log_only_completion=True,
       )
       self.assertEqual(
           tainted,
@@ -3178,6 +3188,15 @@ copy_phase_evidence "$2"
               "c/t4.yml": "interrupted_incomplete",
           },
       )
+
+      with self.assertRaisesRegex(RuntimeError, "log and complete"):
+        dataset.run_taints(
+            result,
+            log,
+            monitor,
+            manifest,
+            allow_trailing_nul=True,
+        )
 
       unpadded_monitor = root / "unpadded-load.jsonl"
       unpadded_monitor.write_bytes(monitor.read_bytes().rstrip(b"\0"))
@@ -3188,6 +3207,7 @@ copy_phase_evidence "$2"
             unpadded_monitor,
             manifest,
             allow_trailing_nul=True,
+            allow_final_log_only_completion=True,
         )
       with self.assertRaisesRegex(RuntimeError, "log and complete"):
         dataset.run_taints(
@@ -3201,19 +3221,34 @@ copy_phase_evidence "$2"
       write_log([0, 1, 2, 3, 4])
       with self.assertRaisesRegex(RuntimeError, "log and complete"):
         dataset.run_taints(
-            result, log, monitor, manifest, allow_trailing_nul=True
+            result,
+            log,
+            monitor,
+            manifest,
+            allow_trailing_nul=True,
+            allow_final_log_only_completion=True,
         )
 
       write_log([0, 1, 3, 2])
       with self.assertRaisesRegex(RuntimeError, "log and complete"):
         dataset.run_taints(
-            result, log, monitor, manifest, allow_trailing_nul=True
+            result,
+            log,
+            monitor,
+            manifest,
+            allow_trailing_nul=True,
+            allow_final_log_only_completion=True,
         )
 
       write_log([0, 1, 3])
       with self.assertRaisesRegex(RuntimeError, "log and complete"):
         dataset.run_taints(
-            result, log, monitor, manifest, allow_trailing_nul=True
+            result,
+            log,
+            monitor,
+            manifest,
+            allow_trailing_nul=True,
+            allow_final_log_only_completion=True,
         )
 
       log.write_text(
@@ -3275,6 +3310,99 @@ copy_phase_evidence "$2"
         dataset.run_taints(
             result, log, monitor, manifest, allow_trailing_nul=True
         )
+
+      write_log([0, 1, 2, 3])
+      selection_files = {}
+      for name, path in {
+          "result": result,
+          "benchexec_log": log,
+          "load_monitor": monitor,
+      }.items():
+        selection_files[name] = {
+            "path": path.relative_to(root).as_posix(),
+            "sha256": dataset.baseline.sha256_file(path),
+        }
+      for name in (
+          "definition",
+          "benchexec_process",
+          "process_descriptor",
+          "monitor_pid",
+          "monitor_process",
+          "machine_before",
+      ):
+        path = root / f"evidence/{name}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{name}\n", encoding="utf-8")
+        selection_files[name] = {
+            "path": path.relative_to(root).as_posix(),
+            "sha256": dataset.baseline.sha256_file(path),
+        }
+      selection = {
+          **dataset.FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION,
+          "files": selection_files,
+      }
+      record = {
+          "schema_version": dataset.FORMAL_ATTEMPT_SCHEMA,
+          "label": selection["label"],
+          "role": selection["role"],
+          "repetition": selection["repetition"],
+          "benchexec_exit": 125,
+          "result_incomplete": True,
+          "files": selection_files,
+      }
+      authenticated_taint = root / "authenticated-taint.json"
+      with mock.patch.object(
+          dataset,
+          "FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION",
+          selection,
+      ), mock.patch.object(
+          dataset,
+          "validate_formal_attempt_marker",
+          return_value=record,
+      ):
+        self.assertTrue(
+            dataset.marker_authorizes_final_log_only_completion(record)
+        )
+        self.assertFalse(
+            dataset.marker_authorizes_final_log_only_completion({
+                **record,
+                "schema_version": dataset.LEGACY_FORMAL_ATTEMPT_SCHEMA,
+            })
+        )
+        self.assertFalse(
+            dataset.marker_authorizes_final_log_only_completion({
+                **record,
+                "files": {
+                    **selection_files,
+                    "result": {
+                        **selection_files["result"],
+                        "sha256": "0" * 64,
+                    },
+                },
+            })
+        )
+        dataset.command_formal_taint(SimpleNamespace(
+            manifest=str(manifest_path),
+            repetition=selection["repetition"],
+            result=str(result),
+            benchexec_log=str(log),
+            load_monitor=str(monitor),
+            output=str(authenticated_taint),
+            attempt_marker=str(root / f"{selection['label']}.json"),
+            output_root=str(root),
+            sv_benchmarks=str(root),
+            host="athena",
+            mode="cap16",
+        ))
+      self.assertEqual(
+          [
+              row["task"]
+              for row in json.loads(
+                  authenticated_taint.read_text(encoding="utf-8")
+              )["tasks"]
+          ],
+          ["c/t3.yml", "c/t4.yml"],
+      )
 
   def test_phase_b_zero_survivors_are_preserved_and_skip_formal(self):
     with tempfile.TemporaryDirectory() as temp:
@@ -4151,6 +4279,8 @@ copy_phase_evidence "$2"
       result.write_text("result\n", encoding="utf-8")
       partial = result_directory / "partial.log"
       partial.write_text("partial\n", encoding="utf-8")
+      required_directory = result_directory / "result.logfiles"
+      required_directory.mkdir()
       paths["result"] = result
       closure = root / "generated/tasks.set"
       closure.parent.mkdir()
@@ -4173,6 +4303,7 @@ copy_phase_evidence "$2"
           "result_directory_digest": (
               dataset.formal_result_directory_digest(result_directory)
           ),
+          "result_directories": ("result.logfiles",),
           "files": {
               name: {
                   "path": path.relative_to(root).as_posix(),
@@ -4199,14 +4330,71 @@ copy_phase_evidence "$2"
       self.addCleanup(selection_patch.stop)
       self.addCleanup(boot_patch.stop)
 
-      dataset.validate_markerless_recovery_identity_selection(
-          root,
-          selection["label"],
-          selection["role"],
-          selection["repetition"],
-          paths,
-          identities,
+      self.assertTrue(
+          dataset.validate_markerless_recovery_identity_selection(
+              root,
+              selection["label"],
+              selection["role"],
+              selection["repetition"],
+              paths,
+              identities,
+          )
       )
+      self.assertFalse(
+          dataset.validate_markerless_recovery_identity_selection(
+              root,
+              "repetition-1",
+              "primary",
+              1,
+              paths,
+              {
+                  role: {
+                      "schema_version": (
+                          dataset.LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA
+                      )
+                  }
+                  for role in ("benchexec-launcher", "load-monitor")
+              },
+          )
+      )
+
+      extra_directory = result_directory / "extra"
+      extra_directory.mkdir()
+      with self.assertRaisesRegex(RuntimeError, "selection differs"):
+        dataset.validate_markerless_recovery_identity_selection(
+            root,
+            selection["label"],
+            selection["role"],
+            selection["repetition"],
+            paths,
+            identities,
+        )
+      extra_directory.rmdir()
+
+      nested_directory = required_directory / "nested"
+      nested_directory.mkdir()
+      with self.assertRaisesRegex(RuntimeError, "selection differs"):
+        dataset.validate_markerless_recovery_identity_selection(
+            root,
+            selection["label"],
+            selection["role"],
+            selection["repetition"],
+            paths,
+            identities,
+        )
+      nested_directory.rmdir()
+
+      required_directory.rmdir()
+      with self.assertRaisesRegex(RuntimeError, "selection differs"):
+        dataset.validate_markerless_recovery_identity_selection(
+            root,
+            selection["label"],
+            selection["role"],
+            selection["repetition"],
+            paths,
+            identities,
+        )
+      required_directory.mkdir()
 
       for label, role, repetition in (
           ("repetition-1", selection["role"], selection["repetition"]),
@@ -4254,6 +4442,8 @@ copy_phase_evidence "$2"
         path.write_bytes(original)
 
       for path in result_directory.iterdir():
+        if not path.is_file():
+          continue
         original = path.read_bytes()
         path.write_bytes(original + b"x")
         with self.subTest(result_member=path.name), self.assertRaisesRegex(
@@ -4782,6 +4972,26 @@ copy_phase_evidence "$2"
       args.monitor_stopped = str(historical_stopped)
       args.machine_after = str(historical_after)
       args.machine_check = str(historical_check)
+      with self.assertRaisesRegex(RuntimeError, "log and complete"):
+        dataset.command_formal_attempt_complete(args)
+      log.write_text(
+          "\n".join(
+              [
+                  *(
+                      line
+                      for row in fixture.rows[:-1]
+                      for line in (
+                          f"00:00:01   starting   {row['task']}",
+                          f"00:00:02              {row['task']}   "
+                          "TIMEOUT 900 1",
+                      )
+                  ),
+                  f"00:00:03   starting   {fixture.rows[-1]['task']}",
+              ]
+          )
+          + "\n",
+          encoding="utf-8",
+      )
       dataset.command_formal_attempt_complete(args)
       dataset.command_validate_formal_attempt(validation)
       marker.unlink()

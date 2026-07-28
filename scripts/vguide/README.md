@@ -209,13 +209,15 @@ still alive, resume fails closed and never signals it. For an authenticated
 markerless incomplete attempt, resume atomically records an unobserved monitor
 stop, a recovery machine snapshot/check, and reserved exit `125`, then validates
 the BenchExec log against every complete XML row. Authenticated structured XML
-is the only reusable-completion oracle. If the recovered load monitor has valid
-trailing NUL padding, exactly one final console-log completion that is absent
-from the incomplete XML is treated as interrupted; every other XML/log
-mismatch fails closed. Only missing/in-flight or sustained-contention rows
-enter the taint/replacement plan; the completed untainted rows and original
-result remain in place. Forged, overlapping, inconsistent, or insufficient
-evidence fails closed instead of abandoning the whole attempt.
+is the only reusable-completion oracle. Only the one frozen version-2 selection
+below may treat exactly one final console-log completion absent from incomplete
+XML as interrupted; its recovered load monitor must also have valid trailing
+NUL padding. Padding alone, including on legacy recovery, never authorizes that
+mismatch. Every other XML/log mismatch fails closed. Only missing/in-flight or
+sustained-contention rows enter the taint/replacement plan; the completed
+untainted rows and original result remain in place. Forged, overlapping,
+inconsistent, or insufficient evidence fails closed instead of abandoning the
+whole attempt.
 Recovery evidence is revision-addressed at
 `provenance/recoveries/<attempt-label>/<full-research-head>/` with exactly
 `monitor-stopped`, `machine-after.json`, and `machine-check.json`. The runner
@@ -245,13 +247,13 @@ and must prove a reboot because their recorded `/proc` start ticks exceed the
 recovery boot uptime. General new identities, which include the kernel boot UUID
 and exact positive type/range checks, are not accepted by the markerless
 recovery path. Its one frozen version-2 selection pins the exact replacement
-label, role, repetition, captured boot UUID, result-directory digest, and every
-definition, result, console, load-monitor, process, machine, task-set, and prior
-taint input. Every other version-2 attempt remains rejected; mixed schemas or
-any drift fail closed. The result-directory digest uses the production helper's
-Python `Path` part ordering; reproduce it with that helper or `PurePosixPath`,
-not a plain sort of relative strings. Only a proven reboot records machine
-counters as unavailable. Recovered
+label, role, repetition, captured boot UUID, result-directory digest and exact
+directory topology, and every definition, result, console, load-monitor,
+process, machine, task-set, and prior taint input. Every other version-2 attempt
+remains rejected; mixed schemas or any drift fail closed. The result-directory
+digest uses the production helper's Python `Path` part ordering; reproduce it
+with that helper or `PurePosixPath`, not a plain sort of relative strings. Only
+a proven reboot records machine counters as unavailable. Recovered
 snapshots still require identical host, platform, kernel, CPU model,
 online/P-core sets, and Java identity; recorded `/proc/meminfo` `MemTotal` is
 not an identity field because its reported byte count can change across boots.

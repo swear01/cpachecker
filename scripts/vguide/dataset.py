@@ -240,6 +240,10 @@ FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION = {
     "result_directory_digest": (
         "e2180b2dd7a9826616cc55455542add6f0694120bf99642a60019008e6ff5155"
     ),
+    "result_directories": (
+        "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+        "repetition-1-replacement-attempt-1.2026-07-29_04-46-16.logfiles",
+    ),
     "files": {
         "definition": {
             "path": (
@@ -3749,13 +3753,15 @@ def formal_attempt_record(args):
         "benchexec-launcher": benchexec_identity,
         "load-monitor": process_identity,
     }
-    validate_markerless_recovery_identity_selection(
-        root,
-        args.label,
-        args.role,
-        args.repetition,
-        {name: path for name, (path, _) in paths.items()},
-        identities,
+    allow_final_log_only_completion = (
+        validate_markerless_recovery_identity_selection(
+            root,
+            args.label,
+            args.role,
+            args.repetition,
+            {name: path for name, (path, _) in paths.items()},
+            identities,
+        )
     )
     run_taints(
         paths["result"][0],
@@ -3763,6 +3769,7 @@ def formal_attempt_record(args):
         paths["load_monitor"][0],
         manifest,
         allow_trailing_nul=True,
+        allow_final_log_only_completion=allow_final_log_only_completion,
     )
     binding = actual_check.get("process_boot_binding")
     if not isinstance(binding, dict):
@@ -4417,7 +4424,7 @@ def validate_markerless_recovery_identity_selection(
 ):
   schemas = {identity["schema_version"] for identity in identities.values()}
   if schemas == {LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA}:
-    return
+    return False
   if schemas != {FORMAL_PROCESS_IDENTITY_SCHEMA}:
     raise RuntimeError("formal process identity schemas do not match")
   selection = FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION
@@ -4455,6 +4462,12 @@ def validate_markerless_recovery_identity_selection(
       or not result_directory.is_dir()
       or formal_result_directory_digest(result_directory)
       != selection["result_directory_digest"]
+      or {
+          path.relative_to(result_directory).as_posix()
+          for path in result_directory.rglob("*")
+          if path.is_dir() and not path.is_symlink()
+      }
+      != set(selection["result_directories"])
   ):
     raise RuntimeError("frozen v2 recovery selection differs")
   captured = {identity["boot_id"] for identity in identities.values()}
@@ -4462,6 +4475,25 @@ def validate_markerless_recovery_identity_selection(
     raise RuntimeError("frozen v2 recovery boot identity differs")
   if read_boot_id() == selection["captured_boot_id"]:
     raise RuntimeError("frozen v2 recovery is not bound across reboot")
+  return True
+
+
+def marker_authorizes_final_log_only_completion(record):
+  selection = FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION
+  if (
+      record.get("schema_version") != FORMAL_ATTEMPT_SCHEMA
+      or record.get("benchexec_exit") != 125
+      or not record.get("result_incomplete")
+      or record.get("label") != selection["label"]
+      or record.get("role") != selection["role"]
+      or record.get("repetition") != selection["repetition"]
+      or not isinstance(record.get("files"), dict)
+  ):
+    return False
+  return all(
+      record["files"].get(name) == expected
+      for name, expected in selection["files"].items()
+  )
 
 
 def validate_recovery_result(directory, expected_hash, rows, complete):
@@ -5201,6 +5233,7 @@ def run_taints(
     display=FORMAL_DISPLAY,
     time_limit="900 s",
     allow_trailing_nul=False,
+    allow_final_log_only_completion=False,
 ):
   result = Path(result).resolve()
   metadata = result_metadata(
@@ -5260,7 +5293,8 @@ def run_taints(
   logged_complete = set(ends)
   extra_logged_complete = logged_complete - complete
   recovered_trailing_completion = (
-      allow_trailing_nul
+      allow_final_log_only_completion
+      and allow_trailing_nul
       and metadata["incomplete"]
       and Path(load_monitor).read_bytes().endswith(b"\0")
       and complete <= logged_complete
@@ -5306,6 +5340,7 @@ def command_formal_taint(args):
         "formal taint recovery authentication is incomplete"
     )
   allow_trailing_nul = False
+  allow_final_log_only_completion = False
   if all(supplied):
     root = Path(args.output_root).resolve()
     record = validate_formal_attempt_marker(
@@ -5329,12 +5364,16 @@ def command_formal_taint(args):
             f"formal taint {argument.replace('_', ' ')} does not match marker"
         )
     allow_trailing_nul = record["benchexec_exit"] == 125
+    allow_final_log_only_completion = (
+        marker_authorizes_final_log_only_completion(record)
+    )
   tainted = run_taints(
       args.result,
       args.benchexec_log,
       args.load_monitor,
       manifest,
       allow_trailing_nul=allow_trailing_nul,
+      allow_final_log_only_completion=allow_final_log_only_completion,
   )
   output.parent.mkdir(parents=True, exist_ok=True)
   output.write_text(json.dumps({
