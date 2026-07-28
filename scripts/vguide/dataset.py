@@ -2847,13 +2847,32 @@ def formal_process_descriptor(args):
       if args.mode == "cap16"
       else Path("/usr/bin/python3.10")
   )
+  recovery_root = dataset_py.parent.parent
+  recovery_match = re.fullmatch(
+      r"recovery-research-([0-9a-f]{40})", recovery_root.name
+  )
+  recovery_head = recovery_root / "research-head.txt"
+  revision_runtime_is_pinned = (
+      args.mode == "cap16"
+      and recovery_match is not None
+      and recovery_root.parent == root / "input"
+      and dataset_py == recovery_root / "scripts/dataset.py"
+      and recovery_head.is_file()
+      and not recovery_head.is_symlink()
+      and recovery_head.read_text(encoding="utf-8")
+      == f"{recovery_match.group(1)}\n"
+  )
   if (
       args.host != expected_host
       or python_bin != expected_python
-      or dataset_py not in {
-          root / "input/research/scripts/dataset.py",
-          root / "input/recovery-research/scripts/dataset.py",
-      }
+      or (
+          dataset_py
+          not in {
+              root / "input/research/scripts/dataset.py",
+              root / "input/recovery-research/scripts/dataset.py",
+          }
+          and not revision_runtime_is_pinned
+      )
   ):
     raise RuntimeError("formal process descriptor runtime is not pinned")
   expected_name = (

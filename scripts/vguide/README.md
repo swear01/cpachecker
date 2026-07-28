@@ -240,9 +240,14 @@ operations.
 
 The pre-recovery `input/research/` closure remains immutable. A resume from the
 frozen `2e2f8e7694d5d827756c322f788f59ac3c07a39d` runner authenticates those
-saved files against that Git object and stores the clean recovery implementation
-separately under `input/recovery-research/`; both closures are reverified during
-failure and final teardown.
+saved files against that Git object. The first recovery closure at
+`6b78ae338c687c32d905679243fb1d3a3f916733`, already stored under
+`input/recovery-research/`, remains immutable. Each later clean recovery revision
+is stored separately under
+`input/recovery-research-<full-research-head>/`. Resume verifies the legacy
+closure and every revision-addressed closure against its Git object during
+activation, failure capture and final teardown; an existing path conflict,
+path/head mismatch or modified prior closure fails closed.
 
 Summary generation uses a separate staging directory. A crash cannot expose a
 partial final summary; on resume a staged summary is recomputed and either

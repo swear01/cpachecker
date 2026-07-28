@@ -1751,6 +1751,252 @@ fi
       )
       self.assertFalse(Path(f"{killed_monitor}.stopped").exists())
 
+  def test_formal_recovery_provenance_is_revision_addressed_and_immutable(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      research = root / "research"
+      script_dir = research / "scripts/vguide"
+      script_dir.mkdir(parents=True)
+      for name in (
+          "run-stock-formal-dataset.sh",
+          "run-stock-cap16-formal-dataset.sh",
+          "dataset.py",
+          "baseline.py",
+      ):
+        shutil.copy2(Path(__file__).with_name(name), script_dir / name)
+      subprocess.run(["git", "init", "-q", research], check=True)
+      subprocess.run(
+          ["git", "-C", research, "config", "user.email", "test@example.com"],
+          check=True,
+      )
+      subprocess.run(
+          ["git", "-C", research, "config", "user.name", "Test"], check=True
+      )
+
+      def commit(message):
+        subprocess.run(["git", "-C", research, "add", "."], check=True)
+        subprocess.run(
+            ["git", "-C", research, "commit", "-qm", message], check=True
+        )
+        return subprocess.check_output(
+            ["git", "-C", research, "rev-parse", "HEAD"], text=True
+        ).strip()
+
+      def invoke(output):
+        return subprocess.run(
+            [
+                "bash",
+                "-c",
+                """
+source "$1"
+SCRIPT_DIR=$2
+RESEARCH_ROOT=$3
+OUTPUT_DIR=$4
+RESUMING=true
+FORMAL_MODE=cap16
+LEGACY_FORMAL_RESEARCH_HEAD=$5
+LEGACY_RECOVERY_RESEARCH_HEAD=$6
+activate_formal_research_provenance
+printf '%s\n' "$ACTIVE_RESEARCH_PROVENANCE"
+""",
+                "bash",
+                str(runner),
+                str(script_dir),
+                str(research),
+                str(output),
+                original_head,
+                prior_head,
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+      def capture(destination):
+        subprocess.run(
+            [
+                "bash",
+                "-c",
+                """
+source "$1"
+SCRIPT_DIR=$2
+RESEARCH_ROOT=$3
+FORMAL_MODE=cap16
+capture_research_provenance "$4"
+""",
+                "bash",
+                str(runner),
+                str(script_dir),
+                str(research),
+                str(destination),
+            ],
+            check=True,
+        )
+
+      def file_bytes(directory):
+        return {
+            path.relative_to(directory).as_posix(): path.read_bytes()
+            for path in directory.rglob("*")
+            if path.is_file()
+        }
+
+      original_head = commit("original")
+      output = root / "output"
+      original = output / "input/research"
+      capture(original)
+
+      with (script_dir / "baseline.py").open("a", encoding="utf-8") as handle:
+        handle.write("\n")
+      prior_head = commit("first recovery")
+      prior = output / "input/recovery-research"
+      capture(prior)
+      prior_bytes = file_bytes(prior)
+
+      with (script_dir / "dataset.py").open("a", encoding="utf-8") as handle:
+        handle.write("\n")
+      current_head = commit("second recovery")
+      current = output / f"input/recovery-research-{current_head}"
+
+      tampered_before_capture = root / "tampered-before-capture"
+      shutil.copytree(output, tampered_before_capture)
+      (
+          tampered_before_capture / "input/recovery-research/scripts/dataset.py"
+      ).write_text("tampered\n", encoding="utf-8")
+      rejected_before_capture = invoke(tampered_before_capture)
+      self.assertNotEqual(rejected_before_capture.returncode, 0)
+      self.assertFalse(
+          (
+              tampered_before_capture
+              / f"input/recovery-research-{current_head}"
+          ).exists()
+      )
+
+      extra_before_capture = root / "extra-before-capture"
+      shutil.copytree(output, extra_before_capture)
+      (
+          extra_before_capture / "input/recovery-research/extra-file"
+      ).write_text("extra\n", encoding="utf-8")
+      rejected_extra = invoke(extra_before_capture)
+      self.assertNotEqual(rejected_extra.returncode, 0)
+      self.assertFalse(
+          (extra_before_capture / f"input/recovery-research-{current_head}")
+          .exists()
+      )
+
+      missing_prior = root / "missing-prior"
+      shutil.copytree(output, missing_prior)
+      shutil.rmtree(missing_prior / "input/recovery-research")
+      rejected_missing_prior = invoke(missing_prior)
+      self.assertNotEqual(rejected_missing_prior.returncode, 0)
+      self.assertFalse(
+          (missing_prior / f"input/recovery-research-{current_head}").exists()
+      )
+
+      activated = invoke(output)
+      self.assertEqual(activated.returncode, 0, activated.stderr)
+      self.assertEqual(activated.stdout.splitlines()[-1], str(current))
+      self.assertEqual(file_bytes(prior), prior_bytes)
+      current_bytes = file_bytes(current)
+      self.assertEqual(
+          (current / "research-head.txt").read_text(encoding="utf-8").strip(),
+          current_head,
+      )
+
+      repeated = invoke(output)
+      self.assertEqual(repeated.returncode, 0, repeated.stderr)
+      self.assertEqual(file_bytes(prior), prior_bytes)
+      self.assertEqual(file_bytes(current), current_bytes)
+
+      descriptor = dataset.formal_process_descriptor(SimpleNamespace(
+          output_root=str(output),
+          mode="cap16",
+          label="repetition-1",
+          host="athena",
+          name="hard-case-dataset-v2-cap16-formal-athena-repetition-1",
+          definition=str(output / "generated/hard-case-candidates.xml"),
+          result_output=str(output / "results/repetition-1"),
+          monitor_output=str(output / "provenance/load-monitor.jsonl"),
+          monitor_exclude_root=123,
+          dataset_py=str(current / "scripts/dataset.py"),
+          cpachecker_dir=str(root / "cpachecker"),
+          benchexec_dir=str(root / "benchexec"),
+          python_bin="/usr/bin/python3.12",
+          java_home=str(root / "jdk"),
+          p_cores=dataset.FORMAL_P_CORE_LIST,
+      ))
+      self.assertEqual(
+          descriptor["inputs"]["dataset_py"],
+          str(current / "scripts/dataset.py"),
+      )
+      (current / "research-head.txt").write_text(
+          f"{'0' * 40}\n", encoding="utf-8"
+      )
+      with self.assertRaisesRegex(RuntimeError, "runtime is not pinned"):
+        dataset.formal_process_descriptor(SimpleNamespace(
+            **descriptor["inputs"],
+            output_root=str(output),
+            mode="cap16",
+            label="repetition-1",
+            host="athena",
+        ))
+      (current / "research-head.txt").write_bytes(
+          current_bytes["research-head.txt"]
+      )
+      cap8_inputs = {
+          **descriptor["inputs"],
+          "name": "hard-case-dataset-v2-formal-valkyrie-repetition-1",
+          "python_bin": "/usr/bin/python3.10",
+      }
+      with self.assertRaisesRegex(RuntimeError, "runtime is not pinned"):
+        dataset.formal_process_descriptor(SimpleNamespace(
+            **cap8_inputs,
+            output_root=str(output),
+            mode="cap8",
+            label="repetition-1",
+            host="valkyrie",
+        ))
+
+      prior_dataset = prior / "scripts/dataset.py"
+      prior_dataset.write_text("tampered\n", encoding="utf-8")
+      tampered = invoke(output)
+      self.assertNotEqual(tampered.returncode, 0)
+      prior_dataset.write_bytes(prior_bytes["scripts/dataset.py"])
+
+      with (script_dir / "run-stock-cap16-formal-dataset.sh").open(
+          "a", encoding="utf-8"
+      ) as handle:
+        handle.write("\n")
+      next_head = commit("third recovery")
+      next_recovery = output / f"input/recovery-research-{next_head}"
+      advanced = invoke(output)
+      self.assertEqual(advanced.returncode, 0, advanced.stderr)
+      self.assertEqual(file_bytes(prior), prior_bytes)
+      self.assertEqual(file_bytes(current), current_bytes)
+      self.assertEqual(
+          (next_recovery / "research-head.txt")
+          .read_text(encoding="utf-8")
+          .strip(),
+          next_head,
+      )
+      current_dataset = current / "scripts/dataset.py"
+      current_dataset.write_text("tampered\n", encoding="utf-8")
+      tampered_revision = invoke(output)
+      self.assertNotEqual(tampered_revision.returncode, 0)
+      current_dataset.write_bytes(current_bytes["scripts/dataset.py"])
+
+      conflicting_output = root / "conflicting-output"
+      shutil.copytree(output, conflicting_output)
+      conflicting_current = (
+          conflicting_output / f"input/recovery-research-{next_head}"
+      )
+      shutil.rmtree(conflicting_current)
+      conflicting_current.write_text("conflict\n", encoding="utf-8")
+      conflict = invoke(conflicting_output)
+      self.assertNotEqual(conflict.returncode, 0)
+      self.assertEqual(
+          conflicting_current.read_text(encoding="utf-8"), "conflict\n"
+      )
+
   def test_formal_runner_reverifies_runtime_closure(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
     baseline_path = Path(__file__).with_name("baseline.py")

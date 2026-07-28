@@ -285,7 +285,9 @@ verify_research_provenance() {
 verify_frozen_research_provenance() {
   local destination=$1
   local expected_head=$2
+  local actual_topology
   local empty_hash=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  local expected_topology
   local path
   require_clean_repo "$RESEARCH_ROOT" "research"
   git -C "$RESEARCH_ROOT" merge-base --is-ancestor \
@@ -306,9 +308,36 @@ verify_frozen_research_provenance() {
     cmp -- "$destination/scripts/$path" \
       <(git -C "$RESEARCH_ROOT" show "$expected_head:scripts/vguide/$path")
   fi
+  actual_topology=$(find -P "$destination" -mindepth 1 -printf '%y %P\n' | sort)
+  expected_topology=$(
+    {
+      printf '%s\n' \
+        "d scripts" \
+        "f inventory.sha256" \
+        "f research-diff.patch" \
+        "f research-head.txt" \
+        "f research-index-flags.txt" \
+        "f research-state.json" \
+        "f research-status.porcelain" \
+        "f scripts/baseline.py" \
+        "f scripts/dataset.py" \
+        "f scripts/run-stock-formal-dataset.sh"
+      if [[ ${FORMAL_MODE:-cap8} == cap16 ]]; then
+        printf '%s\n' "f scripts/run-stock-cap16-formal-dataset.sh"
+      fi
+    } | sort
+  )
+  if [[ "$actual_topology" != "$expected_topology" ]]; then
+    echo "research provenance node topology differs" >&2
+    return 1
+  fi
   (
     cd "$destination"
-    sha256sum --check --strict inventory.sha256
+    cmp -- inventory.sha256 <(
+      find -P . -type f ! -name inventory.sha256 -printf '%P\n' |
+        sort |
+        xargs sha256sum
+    )
   )
 }
 
@@ -323,9 +352,14 @@ activate_formal_research_provenance() {
     ACTIVE_RESEARCH_PROVENANCE=$original
   elif [[ "$RESUMING" == true && "$FORMAL_MODE" == cap16 &&
     "$original_head" == "$LEGACY_FORMAL_RESEARCH_HEAD" ]]; then
-    verify_frozen_research_provenance "$original" "$original_head"
-    ACTIVE_RESEARCH_PROVENANCE="$OUTPUT_DIR/input/recovery-research"
-    if [[ ! -e "$ACTIVE_RESEARCH_PROVENANCE" ]]; then
+    ACTIVE_RESEARCH_PROVENANCE=$(
+      printf '%s/input/recovery-research-%s' "$OUTPUT_DIR" "$current_head"
+    )
+    verify_all_research_provenance
+    if [[ -L "$ACTIVE_RESEARCH_PROVENANCE" ]]; then
+      echo "recovery research provenance is not a directory" >&2
+      return 1
+    elif [[ ! -e "$ACTIVE_RESEARCH_PROVENANCE" ]]; then
       capture_research_provenance "$ACTIVE_RESEARCH_PROVENANCE"
     elif [[ ! -d "$ACTIVE_RESEARCH_PROVENANCE" ]]; then
       echo "recovery research provenance is not a directory" >&2
@@ -340,13 +374,45 @@ activate_formal_research_provenance() {
 }
 
 verify_all_research_provenance() {
+  local destination
   local original_head
+  local recovery_head
+  local recovery_name
   original_head=$(cat "$ORIGINAL_RESEARCH_PROVENANCE/research-head.txt")
   verify_frozen_research_provenance \
     "$ORIGINAL_RESEARCH_PROVENANCE" "$original_head"
-  if [[ "$ACTIVE_RESEARCH_PROVENANCE" != "$ORIGINAL_RESEARCH_PROVENANCE" ]]; then
-    verify_research_provenance "$ACTIVE_RESEARCH_PROVENANCE"
+
+  destination="$OUTPUT_DIR/input/recovery-research"
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    if [[ ! -d "$destination" || -L "$destination" ]]; then
+      echo "legacy recovery research provenance is not a directory" >&2
+      return 1
+    fi
+    verify_frozen_research_provenance \
+      "$destination" "$LEGACY_RECOVERY_RESEARCH_HEAD"
+  elif [[ "$ACTIVE_RESEARCH_PROVENANCE" != \
+    "$ORIGINAL_RESEARCH_PROVENANCE" ]]; then
+    echo "legacy recovery research provenance is missing" >&2
+    return 1
   fi
+
+  for destination in "$OUTPUT_DIR"/input/recovery-research-*; do
+    if [[ ! -e "$destination" && ! -L "$destination" ]]; then
+      continue
+    fi
+    if [[ ! -d "$destination" || -L "$destination" ]]; then
+      echo "revision recovery research provenance is not a directory" >&2
+      return 1
+    fi
+    recovery_name=${destination##*/}
+    recovery_head=${recovery_name#recovery-research-}
+    if [[ ! "$recovery_head" =~ ^[0-9a-f]{40}$ ]] ||
+      [[ $(cat "$destination/research-head.txt") != "$recovery_head" ]]; then
+      echo "revision recovery research provenance does not match its path" >&2
+      return 1
+    fi
+    verify_frozen_research_provenance "$destination" "$recovery_head"
+  done
 }
 
 directory_digest_value() {
@@ -685,6 +751,7 @@ main() {
   EXPECTED_BENCHEXEC_VERSION="benchexec 3.35-dev"
   EXPECTED_CPACHECKER_JAR_CONTENT=49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3
   LEGACY_FORMAL_RESEARCH_HEAD=2e2f8e7694d5d827756c322f788f59ac3c07a39d
+  LEGACY_RECOVERY_RESEARCH_HEAD=6b78ae338c687c32d905679243fb1d3a3f916733
   EXPECTED_MANIFEST=e8aed1d26a0920bfef4964d495d86b69bbad666efb8d72e87462f297ca243855
   EXPECTED_PACKAGE_MANIFEST=a20797345df1bef6d5be5356906ee106b75b374b0d6cd2adfbc56cc5c3e65fef
   P_CORES=0,2,4,6,8,10,12,14
