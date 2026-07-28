@@ -1826,6 +1826,12 @@ stop_process_monitor
       stopped = Path(f"{monitor}.stopped").read_text()
       self.assertIn("exit=0", stopped)
       self.assertIn("samples=", stopped)
+      self.assertFalse(list(provenance.glob("*.stopped.tmp.*")))
+      runner_text = runner.read_text(encoding="utf-8")
+      self.assertIn(
+          'stopped_tmp=$(mktemp "$stopped.tmp.XXXXXX")', runner_text
+      )
+      self.assertIn('mv -- "$stopped_tmp" "$stopped"', runner_text)
       command = """
 source "$1"
 MONITOR_ACTIVE=false
@@ -1866,6 +1872,47 @@ fi
           check=True,
       )
       self.assertFalse(Path(f"{killed_monitor}.stopped").exists())
+
+      for failure in ("kill", "wait"):
+        poisoned = root / f"{failure}-race-monitor.jsonl"
+        poisoned.write_text("header\nsample\n", encoding="utf-8")
+        command = """
+source "$1"
+set +e
+MONITOR_ACTIVE=true
+MONITOR_PID=424242
+MONITOR_OUTPUT=$2
+if [[ $3 == kill ]]; then
+  kill() {
+    [[ $1 == -0 ]]
+  }
+else
+  kill() {
+    return 0
+  }
+  wait() {
+    return 1
+  }
+fi
+if stop_process_monitor; then
+  exit 1
+fi
+test "$MONITOR_ACTIVE" = true
+test ! -e "$MONITOR_OUTPUT.stopped"
+"""
+        subprocess.run(
+            [
+                "bash",
+                "-c",
+                command,
+                "bash",
+                str(runner),
+                str(poisoned),
+                failure,
+            ],
+            check=True,
+        )
+
 
   def test_formal_recovery_provenance_is_revision_addressed_and_immutable(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
@@ -3523,7 +3570,7 @@ copy_phase_evidence "$2"
               }),
               json.dumps({
                   "timestamp": "2026-07-27T00:00:31+08:00",
-                  "elapsed_seconds": 17.0,
+                  "elapsed_seconds": 16.0,
                   "offenders": [],
               }),
           ]) + "\n",
@@ -3545,6 +3592,22 @@ copy_phase_evidence "$2"
           [row["task"] for row in tainted],
           ["c/t0.yml", "c/t1.yml"],
       )
+      monitor.write_text(
+          "\n".join(monitor.read_text(encoding="utf-8").splitlines()[:2])
+          + "\n",
+          encoding="utf-8",
+      )
+      with self.assertRaisesRegex(RuntimeError, "fully observed"):
+        dataset.command_formal_taint(
+            SimpleNamespace(
+                manifest=str(manifest),
+                repetition=1,
+                result=str(result),
+                benchexec_log=str(log),
+                load_monitor=str(monitor),
+                output=str(root / "unobserved-taint.json"),
+            )
+        )
 
   def test_recovered_taint_uses_xml_for_one_trailing_log_completion(self):
     with tempfile.TemporaryDirectory() as temp:
@@ -5282,6 +5345,46 @@ copy_phase_evidence "$2"
 
       self.assertEqual(len(loaded["rows"]), len(manifest["tasks"]))
 
+  def test_probe_unclosed_monitor_stop_requires_authenticated_recovery(self):
+    with tempfile.TemporaryDirectory() as temp:
+      stopped = Path(temp) / "monitor.stopped"
+      stopped.write_text(
+          "pid=123\nexit=unobserved\nsamples=4\n"
+          "recovery=authenticated-process-gone\n",
+          encoding="utf-8",
+      )
+
+      self.assertTrue(
+          dataset.validate_monitor_stop_evidence(
+              stopped, 123, "cap16-probe", 125
+          )
+      )
+      stopped.write_text(
+          "pid=123\nexit=0\nsamples=4\n", encoding="utf-8"
+      )
+      self.assertFalse(
+          dataset.validate_monitor_stop_evidence(
+              stopped, 123, "cap16-probe", 125
+          )
+      )
+      with self.assertRaisesRegex(RuntimeError, "stop evidence"):
+        dataset.validate_monitor_stop_evidence(
+            stopped, 123, "cap16", 125
+        )
+      stopped.write_text(
+          "pid=123\nexit=unobserved\nsamples=4\n"
+          "recovery=authenticated-process-gone\n",
+          encoding="utf-8",
+      )
+      for mode, status in (
+          ("cap16", 125),
+          ("cap16-probe", 130),
+      ):
+        with self.assertRaisesRegex(RuntimeError, "stop evidence"):
+          dataset.validate_monitor_stop_evidence(
+              stopped, 123, mode, status
+          )
+
   def test_formal_attempt_marker_requires_atomic_teardown_closure(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
@@ -5400,15 +5503,20 @@ copy_phase_evidence "$2"
           result_output=None,
           monitor_output=None,
           monitor_exclude_root=123,
+          mode="cap16",
       ):
         descriptor_args = SimpleNamespace(
             output_root=str(root),
-            mode="cap16",
+            mode=mode,
             label=label,
             host="athena",
             name=(
-                "hard-case-dataset-v2-cap16-formal-athena-"
-                f"{label}"
+                (
+                    "hard-case-dataset-v2-cap16-cegar-probe-athena-"
+                    if mode == "cap16-probe"
+                    else "hard-case-dataset-v2-cap16-formal-athena-"
+                )
+                + label
             ),
             definition=str(
                 definition
@@ -5427,7 +5535,7 @@ copy_phase_evidence "$2"
         )
         dataset.command_write_formal_process_descriptor(descriptor_args)
         return dataset.load_formal_process_descriptor(
-            path, root, "cap16", label, "athena"
+            path, root, mode, label, "athena"
         )
 
       process_descriptor = root / "repetition-1-process-descriptor.json"
@@ -6096,6 +6204,75 @@ copy_phase_evidence "$2"
       args.output = str(marker)
       args.benchexec_process = str(benchexec_identity)
       args.process_descriptor = str(process_descriptor)
+      probe_definition = root / "probe-definition"
+      manifest_data = json.loads(
+          manifest_path.read_text(encoding="utf-8")
+      )
+      dataset.render_probe(
+          manifest_path,
+          manifest_data,
+          manifest_data["tasks"],
+          root,
+          root / "c/properties/unreach-call.prp",
+          probe_definition,
+      )
+      probe_result = root / "probe-result.xml"
+      write_stock_result(
+          probe_result, fixture.rows, "athena", probe=True
+      )
+      probe_label = "repetition-1-replacement-attempt-1"
+      probe_descriptor_path = root / "probe-process-descriptor.json"
+      probe_descriptor = write_process_descriptor(
+          probe_label,
+          probe_descriptor_path,
+          definition=probe_definition / "cegar-eligibility.xml",
+          mode="cap16-probe",
+      )
+      probe_monitor_identity = root / "probe-monitor.process.json"
+      probe_monitor_identity.write_text(json.dumps({
+          **identity,
+          **probe_descriptor["identities"]["load-monitor"],
+      }), encoding="utf-8")
+      probe_benchexec_identity = root / "probe-benchexec.process.json"
+      probe_benchexec_identity.write_text(json.dumps({
+          **identity,
+          "role": "benchexec-launcher",
+          **probe_descriptor["identities"]["benchexec-launcher"],
+      }), encoding="utf-8")
+      recovered_stopped = root / "probe-monitor.stopped"
+      recovered_stopped.write_text(
+          f"pid={owned.pid}\nexit=unobserved\nsamples=1\n"
+          "recovery=authenticated-process-gone\n",
+          encoding="utf-8",
+      )
+      recovered_args = SimpleNamespace(
+          **{
+              **vars(args),
+              "mode": "cap16-probe",
+              "label": probe_label,
+              "role": "replacement",
+              "benchexec_exit": 125,
+              "definition": str(
+                  probe_definition / "cegar-eligibility.xml"
+              ),
+              "result": str(probe_result),
+              "benchexec_process": str(probe_benchexec_identity),
+              "process_descriptor": str(probe_descriptor_path),
+              "monitor_process": str(probe_monitor_identity),
+              "monitor_stopped": str(recovered_stopped),
+              "output": str(
+                  root / f"provenance/attempts/{probe_label}.json"
+              ),
+          }
+      )
+      dataset.command_formal_attempt_complete(recovered_args)
+      self.assertEqual(
+          json.loads(
+              Path(recovered_args.output).read_text(encoding="utf-8")
+          )["benchexec_exit"],
+          125,
+      )
+      Path(recovered_args.output).unlink()
       forged = json.loads(marker.read_text(encoding="utf-8"))
       forged["host"] = "valkyrie"
       marker.write_text(json.dumps(forged), encoding="utf-8")
@@ -6745,6 +6922,289 @@ test "$(cat "$root/partial-summary/new")" = new
       self.assertEqual(
           rows[0]["probe_classification"], "infrastructure_failure"
       )
+      telemetry = (
+          root
+          / "run.files/cegar-eligibility/a.yml/output/vguide-telemetry.json"
+      )
+      telemetry.parent.mkdir(parents=True)
+      telemetry.write_text("[]\n", encoding="utf-8")
+      with (
+          mock.patch.object(
+              dataset,
+              "validate_cap16_probe_input",
+              return_value=(
+                  root,
+                  manifest_path,
+                  manifest_data,
+                  [{"task": "a.yml"}],
+                  {},
+              ),
+          ),
+          mock.patch.object(dataset, "validate_probe_definition"),
+          mock.patch.object(dataset, "load_screen_plan", return_value=plan),
+          mock.patch.object(
+              dataset, "declared_plan_file", return_value=result
+          ),
+      ):
+        rows, _, _ = dataset.cap16_probe_summary_rows(
+            SimpleNamespace(
+                probe_input=str(root),
+                sv_benchmarks=str(root),
+                benchmark_definition=str(root / "probe.xml"),
+                probe_plan=str(root / "plan.json"),
+            )
+        )
+      self.assertEqual(
+          rows[0]["probe_classification"], "infrastructure_failure"
+      )
+
+  def test_cap16_probe_input_authenticates_saved_formal_backlink(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root)
+      source_manifest = json.loads(
+          Path(fixture.parent_manifest).read_text(encoding="utf-8")
+      )
+      source_manifest.pop("corpus_files")
+      formal = root / "formal"
+      paths = dataset.cap16_formal_probe_paths(formal)
+      paths["manifest"].parent.mkdir(parents=True)
+      paths["summary"].parent.mkdir(parents=True)
+      paths["artifact"].parent.mkdir(parents=True)
+      paths["manifest"].write_text(
+          json.dumps(source_manifest, indent=2) + "\n", encoding="utf-8"
+      )
+      classification = [
+          {
+              "task": "t0.yml",
+              "classification": "stable_hard_solved",
+          },
+          {
+              "task": "t1.yml",
+              "classification": "stable_analysis_unsolved",
+          },
+          {"task": "t2.yml", "classification": "correct_fast"},
+      ]
+      for path, rows in (
+          (paths["classification"], classification),
+          (paths["hard"], classification[:2]),
+      ):
+        with path.open("w", newline="", encoding="utf-8") as target:
+          writer = csv.DictWriter(
+              target, fieldnames=("task", "classification")
+          )
+          writer.writeheader()
+          writer.writerows(rows)
+      paths["summary"].write_text("{}\n", encoding="utf-8")
+      dataset.baseline.write_artifact_manifest(formal, paths["artifact"])
+
+      probe = root / "probe"
+      probe.mkdir()
+      source_manifest_sha256 = dataset.baseline.sha256_file(
+          paths["manifest"]
+      )
+      hard_sha256 = dataset.baseline.sha256_file(paths["hard"])
+      artifact = json.loads(
+          paths["artifact"].read_text(encoding="utf-8")
+      )
+      derived = dataset.manifest_subset(
+          source_manifest,
+          ["t0.yml", "t1.yml"],
+          {
+              "operation": "cap16_zero_candidate_probe_input",
+              "source_manifest_sha256": source_manifest_sha256,
+              "source_formal_manifest_sha256": source_manifest_sha256,
+              "source_formal_hard_portfolio_sha256": hard_sha256,
+              "source_formal_artifact_aggregate_sha256": artifact[
+                  "aggregate_sha256"
+              ],
+              "selection_independent_of_augmented_outcomes": True,
+          },
+      )
+      manifest_path = probe / "candidate-manifest-cap16-probe.json"
+      manifest_path.write_text(
+          json.dumps(derived, indent=2) + "\n", encoding="utf-8"
+      )
+      shutil.copyfile(paths["hard"], probe / "hard-portfolio.csv")
+      for source, target in (
+          (paths["manifest"], "source-formal-manifest.json"),
+          (paths["classification"], "source-formal-classification.csv"),
+          (paths["summary"], "source-formal-summary.json"),
+          (paths["artifact"], "source-formal-artifact-manifest.json"),
+      ):
+        shutil.copyfile(source, probe / target)
+      identity = {
+          "schema_version": dataset.CAP16_PROBE_INPUT_SCHEMA,
+          "host": "athena",
+          "task_count": 2,
+          "formal_artifact_aggregate_sha256": artifact[
+              "aggregate_sha256"
+          ],
+          "formal_artifact_manifest_sha256": dataset.baseline.sha256_file(
+              paths["artifact"]
+          ),
+          "formal_manifest_sha256": source_manifest_sha256,
+          "formal_hard_portfolio_sha256": hard_sha256,
+          "formal_classification_sha256": dataset.baseline.sha256_file(
+              paths["classification"]
+          ),
+          "formal_summary_sha256": dataset.baseline.sha256_file(
+              paths["summary"]
+          ),
+          "probe_manifest_sha256": dataset.baseline.sha256_file(
+              manifest_path
+          ),
+          "selection_independent_of_augmented_outcomes": True,
+      }
+      identity_path = probe / "identity.json"
+
+      def write_identity():
+        identity_path.write_text(
+            json.dumps(identity, indent=2) + "\n", encoding="utf-8"
+        )
+
+      write_identity()
+      with mock.patch.object(
+          dataset,
+          "FROZEN_CAP16_PHASE_A_SURVIVOR_SHA256",
+          source_manifest_sha256,
+      ):
+        with self.assertRaisesRegex(RuntimeError, "pin is pending"):
+          dataset.validate_cap16_probe_input(probe, root)
+      with mock.patch.multiple(
+          dataset,
+          FROZEN_CAP16_PHASE_A_SURVIVOR_SHA256=source_manifest_sha256,
+          FROZEN_CAP16_FORMAL_ARTIFACT_AGGREGATE_SHA256=artifact[
+              "aggregate_sha256"
+          ],
+      ):
+        dataset.validate_cap16_probe_input(probe, root)
+        identity["formal_manifest_sha256"] = "NOT-A-HASH"
+        write_identity()
+        with self.assertRaisesRegex(RuntimeError, "identity"):
+          dataset.validate_cap16_probe_input(probe, root)
+
+        identity["formal_manifest_sha256"] = source_manifest_sha256
+        derived["derivation"]["source_formal_manifest_sha256"] = "b" * 64
+        manifest_path.write_text(
+            json.dumps(derived, indent=2) + "\n", encoding="utf-8"
+        )
+        identity["probe_manifest_sha256"] = dataset.baseline.sha256_file(
+            manifest_path
+        )
+        write_identity()
+        with self.assertRaisesRegex(RuntimeError, "hard portfolio"):
+          dataset.validate_cap16_probe_input(probe, root)
+
+        derived["derivation"][
+            "source_formal_manifest_sha256"
+        ] = source_manifest_sha256
+        derived["tasks"][0]["family"] = "forged-family"
+        manifest_path.write_text(
+            json.dumps(derived, indent=2) + "\n", encoding="utf-8"
+        )
+        identity["probe_manifest_sha256"] = dataset.baseline.sha256_file(
+            manifest_path
+        )
+        write_identity()
+        with self.assertRaisesRegex(RuntimeError, "hard portfolio"):
+          dataset.validate_cap16_probe_input(probe, root)
+
+        forged_classification = [
+            {
+                "task": "t0.yml",
+                "classification": "stable_hard_solved",
+            },
+            {"task": "t1.yml", "classification": "correct_fast"},
+            {
+                "task": "t2.yml",
+                "classification": "stable_analysis_unsolved",
+            },
+        ]
+        forged_hard = [
+            forged_classification[0], forged_classification[2]
+        ]
+        copied_classification = (
+            probe / "source-formal-classification.csv"
+        )
+        copied_hard = probe / "hard-portfolio.csv"
+        for path, rows in (
+            (copied_classification, forged_classification),
+            (copied_hard, forged_hard),
+        ):
+          with path.open("w", newline="", encoding="utf-8") as target:
+            writer = csv.DictWriter(
+                target, fieldnames=("task", "classification")
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+        forged_hard_sha256 = dataset.baseline.sha256_file(copied_hard)
+        forged_classification_sha256 = dataset.baseline.sha256_file(
+            copied_classification
+        )
+        manifest_path.write_text(
+            json.dumps(derived, indent=2) + "\n", encoding="utf-8"
+        )
+        copied_artifact = probe / "source-formal-artifact-manifest.json"
+        forged_artifact = json.loads(
+            copied_artifact.read_text(encoding="utf-8")
+        )
+        classification_relative = paths["classification"].relative_to(
+            formal
+        ).as_posix()
+        hard_relative = paths["hard"].relative_to(formal).as_posix()
+        for entry in forged_artifact["files"]:
+          if entry["path"] == classification_relative:
+            entry["sha256"] = forged_classification_sha256
+            entry["size_bytes"] = copied_classification.stat().st_size
+          elif entry["path"] == hard_relative:
+            entry["sha256"] = forged_hard_sha256
+            entry["size_bytes"] = copied_hard.stat().st_size
+        aggregate = hashlib.sha256()
+        for entry in forged_artifact["files"]:
+          aggregate.update(entry["path"].encode("utf-8"))
+          aggregate.update(b"\0")
+          aggregate.update(bytes.fromhex(entry["sha256"]))
+        forged_artifact["aggregate_sha256"] = aggregate.hexdigest()
+        copied_artifact.write_text(
+            json.dumps(forged_artifact, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        identity["formal_artifact_aggregate_sha256"] = aggregate.hexdigest()
+        identity[
+            "formal_hard_portfolio_sha256"
+        ] = forged_hard_sha256
+        identity[
+            "formal_classification_sha256"
+        ] = forged_classification_sha256
+        identity[
+            "formal_artifact_manifest_sha256"
+        ] = dataset.baseline.sha256_file(copied_artifact)
+        forged_derived = dataset.manifest_subset(
+            source_manifest,
+            ["t0.yml", "t2.yml"],
+            {
+                "operation": "cap16_zero_candidate_probe_input",
+                "source_manifest_sha256": source_manifest_sha256,
+                "source_formal_manifest_sha256": source_manifest_sha256,
+                "source_formal_hard_portfolio_sha256":
+                    forged_hard_sha256,
+                "source_formal_artifact_aggregate_sha256":
+                    aggregate.hexdigest(),
+                "selection_independent_of_augmented_outcomes": True,
+            },
+        )
+        manifest_path.write_text(
+            json.dumps(forged_derived, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        identity["task_count"] = 2
+        identity["probe_manifest_sha256"] = dataset.baseline.sha256_file(
+            manifest_path
+        )
+        write_identity()
+        with self.assertRaisesRegex(RuntimeError, "backlink"):
+          dataset.validate_cap16_probe_input(probe, root)
 
   def test_cap16_probe_runner_has_no_arbitrary_hard_csv_input(self):
     runner = Path(__file__).with_name(
@@ -6757,10 +7217,43 @@ test "$(cat "$root/partial-summary/new")" = new
         'diff -r -- "$EXPECTED_INPUT" "$OUTPUT_DIR/input/formal"', runner
     )
     self.assertIn("require-formal-process-gone", runner)
-    self.assertIn("missing-atomic-attempt-completion", runner)
+    self.assertIn("recovery=authenticated-process-gone", runner)
+    self.assertIn('--benchexec-exit "$recovery_exit"', runner)
+    self.assertIn("authenticate_probe_taint", runner)
+    self.assertNotIn('if [[ ! -f "$primary_taint" ]]', runner)
+    self.assertNotIn("ABANDONED", runner)
+    self.assertEqual(runner.count("set +e"), 2)
+    recovery = runner.index("local recovery_exit=125")
+    recovered_marker = runner.index(
+        '--benchexec-exit "$recovery_exit"', recovery
+    )
+    recovered_return = runner.index("\n    return\n", recovered_marker)
+    new_descriptor = runner.index(
+        "write-formal-process-descriptor", recovered_return
+    )
+    self.assertLess(recovery, recovered_marker)
+    self.assertLess(recovered_marker, recovered_return)
+    self.assertLess(recovered_return, new_descriptor)
     self.assertIn('-L "$OUTPUT_DIR/summary/.complete"', runner)
     self.assertIn("--mode cap16-probe", runner)
     self.assertIn("-N 8 -c 1", runner)
+    self.assertIn(
+        "EXPECTED_STOCK_LIB_JAVA="
+        "eea0df062de5c8e3febe0d96b583741c140e79d3ae41a87a56d7be365b876f9d",
+        runner,
+    )
+    self.assertIn(
+        "EXPECTED_CPACHECKER_JAR_CONTENT="
+        "34953059634f4a708ef0fc9f9bd288d6d4f0172c980b95033fd8d75229535a69",
+        runner,
+    )
+    self.assertNotIn(
+        'EXPECTED_STOCK_LIB_JAVA=$(directory_digest_value', runner
+    )
+    self.assertIn('after_tmp=$(mktemp "$after.tmp.XXXXXX")', runner)
+    self.assertIn('mv -- "$after_tmp" "$after"', runner)
+    self.assertIn('check_tmp=$(mktemp "$check.tmp.XXXXXX")', runner)
+    self.assertIn('mv -- "$check_tmp" "$check"', runner)
     self.assertIn("vguide.provider=EMPTY", Path(__file__).with_name(
         "dataset.py"
     ).read_text(encoding="utf-8"))

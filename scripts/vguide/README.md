@@ -669,11 +669,34 @@ cap-16 dataset. It accepts the completed cap-16 formal output rather than an
 arbitrary hard-case CSV. Before creating probe output it uses the formal
 output's saved scripts to reproduce the formal summary byte for byte and
 validates the complete formal closure. It then derives and saves a hard-only
-manifest, runs only on Athena with the pinned eight physical P-cores and
+manifest together with the formal manifest, classification, summary, and
+artifact-manifest backlink. The saved closure independently pins the source
+survivor manifest to `7ad21cb5...ab49f`, validates every formal identity as an
+exact SHA-256 value, and binds the derived task rows and derivation hashes to
+that source. The Phase-C gate remains closed at
+`PENDING_AFTER_CAP16_FORMAL_COMPLETION` until the completed formal artifact
+aggregate is reviewed and frozen; after that pin, classification and hard-set
+substitution cannot self-authenticate through the adjacent identity file. It
+runs only on Athena with the pinned eight physical P-cores and
 runtime closure, and uses the formal load-monitor, taint, iterative
 replacement-plan, process-identity, attempt-marker, artifact-manifest, and
 completion-sentinel contracts. Completed uncontaminated cases remain in the
 plan while interrupted or contended cases alone are retried.
+
+The measured Phase-C CPAchecker runtime is a separate clean checkout at
+`a80db518765174c582e2574eee1f527eff18c910`. The ignored `lib/java` tree is
+frozen at `eea0df06...6f9d`, and two clean pinned-JDK/Ant builds produced the
+same JAR-content digest `34953059...5a69`; the runner verifies both constants
+before accepting any attempt instead of self-baselining the live tree.
+If the launcher exits before writing its attempt marker, resume first proves
+the saved BenchExec and monitor identities are gone, authenticates the
+incomplete result and all surviving evidence, and then builds the same taint
+and replacement plan from complete rows and activity intervals. It never
+archives and reruns clean completed rows; missing or inconsistent recovery
+evidence fails closed. Every markerless recovery uses reserved BenchExec exit
+value `125` because the launcher exit was not persisted. If the monitor exit
+was also not observed, its stop record says `exit=unobserved`; neither exit is
+invented during recovery.
 
 Phase-C telemetry is accepted only when each refinement has the exact
 `vguide-telemetry-v1` schema, sequential refinement number, the fixed
