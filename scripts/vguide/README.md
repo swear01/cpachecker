@@ -81,6 +81,61 @@ Athena, Cthulhu, and Valkyrie. `validate-shards` independently recomputes the
 assignment and rejects overlap, omission, changed records, or a different
 assignment.
 
+For the approved cap-16-minus-cap-8 expansion, use the frozen Athena-only
+assignment. Cthulhu had no safe P-core capacity at preregistration time; this
+assignment is independent of verifier outcomes:
+
+```bash
+scripts/vguide/dataset.py difference \
+  --manifest /path/to/cap16/candidate-manifest-license-audited.json \
+  --exclude-manifest /path/to/cap8/candidate-manifest-license-audited.json \
+  --sv-benchmarks /path/to/sv-benchmarks \
+  --output-dir /path/to/cap16-minus-cap8 \
+  --host athena
+
+scripts/vguide/dataset.py validate-shards \
+  --manifest /path/to/cap16-minus-cap8/candidate-manifest.json \
+  --shard-manifest /path/to/cap16-minus-cap8/candidate-manifest-athena.json \
+  --sv-benchmarks /path/to/sv-benchmarks \
+  --host athena
+```
+
+The approved license-clean cohort and Athena manifest both have 254 tasks.
+Their SHA-256 hashes are
+`490f2337d68fba626f34eed05abb64c772c752289bab31689b354240d2146876`
+and
+`16e5f9ff04ed08ef9c29d8674021c11de3eed87b9da6a8c1e2ef68c6847ec0bb`.
+Omitting `--host` retains the frozen three-host cap-8 derivation.
+
+`run-stock-cap16-dataset.sh` accepts only the frozen Athena manifest. It uses
+two four-core slots on physical P-cores `0,2,4,6,8,10,12,14`, records the
+r8 sustained-contention monitor, and derives an authenticated screen plan.
+Completed untainted primary cases remain accepted; only incomplete or
+contention-overlapping cases enter the next replacement definition. Each
+replacement records its own taint manifest; if it is interrupted or
+contended, only that attempt's still-tainted subset continues to the next
+round. The final hashed screen plan authenticates every accepted row and
+proves that completed rows were not rerun. Reinvoking the same command with
+the same output directory after a reboot authenticates the saved
+manifest, declared corpus property, scripts, and JAR; finalizes any preserved
+incomplete XML; and resumes from its tainted subset without overwriting a
+completed attempt. The stock,
+SV-Benchmarks, and BenchExec checkouts are authenticated with the same clean
+index, skip-worktree, and runtime-closure checks as the formal runner. Rebuilds
+are compared by the deterministic JAR-content digest rather than the
+timestamp-sensitive JAR byte hash. A summary becomes complete only after its
+post-screen machine check, final runtime verification, and atomic artifact
+manifest have all succeeded.
+
+```bash
+env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
+  JAVA_HOME=/path/to/pinned-jdk-21 ANT_HOME=/path/to/pinned-ant \
+  scripts/vguide/run-stock-cap16-dataset.sh \
+  /path/to/cpachecker-stock /path/to/sv-benchmarks /path/to/benchexec \
+  /path/to/cap16-minus-cap8/candidate-manifest-athena.json \
+  /path/to/phase-a-output
+```
+
 The r4 runner at commit
 `9701fce2b28672ba6da91ea2b1b10df3f715d6ba` accepts only the fixed Cthulhu
 reroute manifest for Athena

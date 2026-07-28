@@ -575,6 +575,42 @@ class DatasetTest(unittest.TestCase):
           dataset.command_validate_shards(validation_args)
       athena_path.write_text(json.dumps(original), encoding="utf-8")
 
+      empty = root / "empty.json"
+      write_manifest(empty, [])
+      two_host_output = root / "two-host-derived"
+      two_hosts = ["athena", "cthulhu"]
+      dataset.command_difference(
+          SimpleNamespace(
+              manifest=str(full),
+              exclude_manifest=str(empty),
+              sv_benchmarks=str(root),
+              output_dir=str(two_host_output),
+              host=two_hosts,
+          )
+      )
+      two_host_shards = [
+          two_host_output / f"candidate-manifest-{host}.json"
+          for host in two_hosts
+      ]
+      self.assertFalse(
+          (two_host_output / "candidate-manifest-valkyrie.json").exists()
+      )
+      self.assertEqual(
+          [
+              json.loads(path.read_text(encoding="utf-8"))["task_count"]
+              for path in two_host_shards
+          ],
+          [2, 2],
+      )
+      dataset.command_validate_shards(
+          SimpleNamespace(
+              manifest=str(two_host_output / "candidate-manifest.json"),
+              shard_manifest=[str(path) for path in two_host_shards],
+              sv_benchmarks=str(root),
+              host=two_hosts,
+          )
+      )
+
   def test_cthulhu_reroute_is_fixed_complete_and_fail_closed(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
@@ -2780,6 +2816,320 @@ copy_phase_evidence "$2"
                 output_dir=str(root / "wrong-host-summary"),
             )
         )
+
+  def test_screen_plan_preserves_untainted_rows_and_replaces_only_tainted(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root)
+      manifest_path = Path(fixture.parent_manifest)
+      manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+      manifest["derivation"] = {"host": "athena"}
+      manifest_path.write_text(
+          json.dumps(manifest), encoding="utf-8"
+      )
+      property_file = root / "c/properties/unreach-call.prp"
+      generated = root / "generated"
+      dataset.command_render(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              sv_benchmarks=str(root),
+              property_file=str(property_file),
+              output_dir=str(generated),
+          )
+      )
+      primary = root / "primary.xml"
+      write_stock_result(primary, manifest["tasks"], "athena")
+      tainted_tasks = [row["task"] for row in manifest["tasks"][-2:]]
+      taint = root / "taint.json"
+      taint.write_text(json.dumps({
+          "schema_version": dataset.SCREEN_TAINT_SCHEMA,
+          "repetition": 1,
+          "primary_result_sha256": dataset.baseline.sha256_file(primary),
+          "tasks": [
+              {"task": task, "reason": "foreign_p_core_contention"}
+              for task in sorted(tainted_tasks)
+          ],
+      }), encoding="utf-8")
+      replacement_generated = root / "replacement-generated"
+      dataset.command_render_screen_replacement(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              primary_result=str(primary),
+              taint_manifest=str(taint),
+              sv_benchmarks=str(root),
+              property_file=str(property_file),
+              output_dir=str(replacement_generated),
+          )
+      )
+      replacement = root / "replacement.xml"
+      write_stock_result(
+          replacement,
+          [
+              row
+              for row in manifest["tasks"]
+              if row["task"] in tainted_tasks
+          ],
+          "athena",
+          marker="1",
+      )
+      replacement_taint = root / "replacement-taint.json"
+      replacement_taint.write_text(json.dumps({
+          "schema_version": dataset.SCREEN_TAINT_SCHEMA,
+          "repetition": 1,
+          "primary_result_sha256": dataset.baseline.sha256_file(replacement),
+          "tasks": [
+              {
+                  "task": tainted_tasks[-1],
+                  "reason": "interrupted_incomplete",
+              }
+          ],
+      }), encoding="utf-8")
+      second_generated = root / "second-replacement-generated"
+      dataset.command_render_screen_replacement(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              primary_result=str(replacement),
+              taint_manifest=str(replacement_taint),
+              sv_benchmarks=str(root),
+              property_file=str(property_file),
+              output_dir=str(second_generated),
+          )
+      )
+      second_replacement = root / "second-replacement.xml"
+      write_stock_result(
+          second_replacement,
+          [
+              row
+              for row in manifest["tasks"]
+              if row["task"] == tainted_tasks[-1]
+          ],
+          "athena",
+          marker="2",
+      )
+      second_taint = root / "second-replacement-taint.json"
+      second_taint.write_text(json.dumps({
+          "schema_version": dataset.SCREEN_TAINT_SCHEMA,
+          "repetition": 1,
+          "primary_result_sha256": dataset.baseline.sha256_file(
+              second_replacement
+          ),
+          "tasks": [],
+      }), encoding="utf-8")
+      plan = root / "screen-plan.json"
+      dataset.command_screen_plan(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              primary_result=str(primary),
+              taint_manifest=str(taint),
+              replacement_result=[
+                  str(replacement),
+                  str(second_replacement),
+              ],
+              replacement_definition=[
+                  str(replacement_generated / "hard-case-candidates.xml"),
+                  str(second_generated / "hard-case-candidates.xml"),
+              ],
+              replacement_taint_manifest=[
+                  str(replacement_taint),
+                  str(second_taint),
+              ],
+              output=str(plan),
+              repetition=1,
+          )
+      )
+      output = root / "screen-summary"
+      dataset.command_screen_summary_plan(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              benchmark_definition=str(
+                  generated / "hard-case-candidates.xml"
+              ),
+              screen_plan=str(plan),
+              sv_benchmarks=str(root),
+              phase_a_host="athena",
+              output_dir=str(output),
+          )
+      )
+
+      provenance = json.loads(
+          (output / "row-provenance.json").read_text(encoding="utf-8")
+      )
+      sources = {
+          row["task"]: row["source"] for row in provenance["rows"]
+      }
+      self.assertEqual(
+          {task for task, source in sources.items() if source == "replacement"},
+          set(tainted_tasks),
+      )
+      replacement_hashes = {
+          row["task"]: row["result_sha256"]
+          for row in provenance["rows"]
+          if row["source"] == "replacement"
+      }
+      self.assertNotEqual(
+          replacement_hashes[tainted_tasks[0]],
+          replacement_hashes[tainted_tasks[1]],
+      )
+      self.assertEqual(
+          json.loads((output / "summary.json").read_text(encoding="utf-8"))[
+              "classifications"
+          ],
+          {"analysis_survivor": len(manifest["tasks"])},
+      )
+
+  def test_cap16_runner_is_athena_only_and_uses_case_recovery_plan(self):
+    runner = Path(__file__).with_name(
+        "run-stock-cap16-dataset.sh"
+    ).read_text(encoding="utf-8")
+
+    self.assertIn('[[ "$HOST" == athena ]]', runner)
+    self.assertIn(
+        "EXPECTED_MANIFEST="
+        "16e5f9ff04ed08ef9c29d8674021c11de3eed87b9da6a8c1e2ef68c6847ec0bb",
+        runner,
+    )
+    self.assertIn("-N 2 -c 4", runner)
+    self.assertIn("screen-taint", runner)
+    self.assertIn("render-screen-replacement", runner)
+    self.assertIn("screen-summary-plan", runner)
+    self.assertIn('source "$SCRIPT_DIR/run-stock-formal-dataset.sh"', runner)
+    self.assertGreaterEqual(runner.count("verify_runtime_closure"), 4)
+    self.assertIn("jar_content_digest_value", runner)
+    self.assertIn("EXPECTED_CPACHECKER_JAR_CONTENT=", runner)
+    self.assertNotIn("CURRENT_JAR_SHA256", runner)
+    self.assertIn("abandoned-incomplete-metadata", runner)
+    self.assertNotIn("cthulhu", runner.lower())
+    self.assertNotIn("output directory must be absent or empty", runner)
+    self.assertLess(
+        runner.rindex("--output \"$ARTIFACT_CANDIDATE\""),
+        runner.rindex('write_atomic complete "$OUTPUT_DIR/summary/.complete"'),
+    )
+
+    copy_start = runner.index("copy_manifest_package() {")
+    copy_end = runner.index("\nSAVED_INPUT=", copy_start)
+    copy_function = runner[copy_start:copy_end]
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      source = root / "source"
+      destination = root / "destination"
+      property_file = source / "corpus/properties/unreach-call.prp"
+      property_file.parent.mkdir(parents=True)
+      property_file.write_text("CHECK( init(main()), LTL(G ! call(__VERIFIER_error())) )\n")
+      manifest = {
+          "task_count": 0,
+          "corpus_files": [
+              {
+                  "path": "corpus/properties/unreach-call.prp",
+                  "sha256": hashlib.sha256(property_file.read_bytes()).hexdigest(),
+              }
+          ],
+          "tasks": [],
+      }
+      manifest_path = source / "candidate-manifest-athena.json"
+      manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+      destination.mkdir()
+      subprocess.run(
+          [
+              "bash",
+              "-c",
+              copy_function
+              + "\nPYTHON_BIN=python3\nSCRIPT_DIR=$1\n"
+              + 'copy_manifest_package "$2" "$3"\n',
+              "bash",
+              str(Path(__file__).parent),
+              str(manifest_path),
+              str(destination),
+          ],
+          check=True,
+      )
+      dataset.command_validate(
+          SimpleNamespace(
+              manifest=str(destination / "candidate-manifest-athena.json"),
+              sv_benchmarks=str(root),
+          )
+      )
+
+    start = runner.index("promote_plan() {")
+    end = runner.index("\nrun_screen() {", start)
+    promotion_functions = runner[start:end]
+    with tempfile.TemporaryDirectory() as temp:
+      subprocess.run(
+          [
+              "bash",
+              "-c",
+              promotion_functions
+              + r'''
+set -euo pipefail
+PYTHON_BIN=python3
+root=$1
+printf '{' >"$root/partial-plan.json"
+printf '{}\n' >"$root/candidate-plan.json"
+promote_plan "$root/candidate-plan.json" "$root/partial-plan.json" \
+  "$root/preserved-partial-plan.json"
+test "$(cat "$root/partial-plan.json")" = '{}'
+test "$(cat "$root/preserved-partial-plan.json")" = '{'
+printf '{}\n' >"$root/authenticated-plan.json"
+printf '{"different": true}\n' >"$root/conflicting-plan.json"
+if promote_plan "$root/conflicting-plan.json" \
+  "$root/authenticated-plan.json" "$root/unexpected-plan-evidence.json"; then
+  exit 1
+fi
+test -f "$root/conflicting-plan.json"
+test "$(cat "$root/authenticated-plan.json")" = '{}'
+printf '{' >"$root/partial-taint.json"
+printf '{}\n' >"$root/candidate-taint.json"
+promote_plan "$root/candidate-taint.json" "$root/partial-taint.json" \
+  "$root/preserved-partial-taint.json"
+test "$(cat "$root/partial-taint.json")" = '{}'
+test "$(cat "$root/preserved-partial-taint.json")" = '{'
+: >"$root/partial-result.path"
+printf '/tmp/result.xml\n' >"$root/candidate-result.path"
+promote_path_record "$root/candidate-result.path" "$root/partial-result.path" \
+  "$root/preserved-partial-result.path"
+test "$(cat "$root/partial-result.path")" = '/tmp/result.xml'
+test ! -s "$root/preserved-partial-result.path"
+printf '/tmp/res' >"$root/truncated-result.path"
+printf '/tmp/result.xml\n' >"$root/second-candidate-result.path"
+promote_path_record "$root/second-candidate-result.path" \
+  "$root/truncated-result.path" "$root/preserved-truncated-result.path"
+test "$(cat "$root/truncated-result.path")" = '/tmp/result.xml'
+test "$(cat "$root/preserved-truncated-result.path")" = '/tmp/res'
+printf '/tmp/first.xml\n' >"$root/authenticated-result.path"
+printf '/tmp/second.xml\n' >"$root/conflicting-result.path"
+if promote_path_record "$root/conflicting-result.path" \
+  "$root/authenticated-result.path" "$root/unexpected-result-evidence.path"; then
+  exit 1
+fi
+test -f "$root/conflicting-result.path"
+test "$(cat "$root/authenticated-result.path")" = '/tmp/first.xml'
+mkdir "$root/partial-summary" "$root/candidate-summary"
+printf old >"$root/partial-summary/old"
+printf new >"$root/candidate-summary/new"
+promote_summary "$root/candidate-summary" "$root/partial-summary" \
+  "$root/preserved-partial-summary"
+test ! -e "$root/partial-summary/.complete"
+test "$(cat "$root/partial-summary/new")" = new
+test "$(cat "$root/preserved-partial-summary/old")" = old
+write_atomic complete "$root/partial-summary/.complete"
+cp -a "$root/partial-summary" "$root/identical-summary"
+promote_summary "$root/identical-summary" "$root/partial-summary" \
+  "$root/unexpected-partial-summary"
+test ! -e "$root/identical-summary"
+test ! -e "$root/unexpected-partial-summary"
+cp -a "$root/partial-summary" "$root/conflicting-summary"
+printf changed >"$root/conflicting-summary/new"
+if promote_summary "$root/conflicting-summary" "$root/partial-summary" \
+  "$root/unexpected-conflicting-summary"; then
+  exit 1
+fi
+test -d "$root/conflicting-summary"
+test "$(cat "$root/partial-summary/new")" = new
+''',
+              "bash",
+              temp,
+          ],
+          check=True,
+      )
 
   def test_probe_classification_requires_spurious_path_through_loop_head(self):
     self.assertEqual(dataset.classify_probe_events([]), "structurally_unreachable")

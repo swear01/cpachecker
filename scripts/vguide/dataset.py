@@ -118,6 +118,8 @@ DISCOVERY_DISPLAY = "CPAchecker frozen stock hard-case discovery screen"
 FORMAL_DISPLAY = "CPAchecker frozen stock hard-case formal measurement"
 FORMAL_REPETITION_PLAN_SCHEMA = "hard-case-formal-repetition-plan-v1"
 FORMAL_TAINT_SCHEMA = "hard-case-formal-taint-v1"
+SCREEN_REPETITION_PLAN_SCHEMA = "hard-case-screen-repetition-plan-v1"
+SCREEN_TAINT_SCHEMA = "hard-case-screen-taint-v1"
 FORMAL_TAINT_REASONS = {
     "foreign_p_core_contention",
     "interrupted_incomplete",
@@ -681,6 +683,74 @@ def command_render_formal_replacement(args):
   )
 
 
+def command_render_screen_replacement(args):
+  require_absent_or_empty_output(args.output_dir)
+  manifest_path = Path(args.manifest).resolve()
+  manifest = validate_manifest(manifest_path, args.sv_benchmarks)
+  host = manifest.get("derivation", {}).get("host")
+  if host not in DISCOVERY_HOSTS:
+    raise RuntimeError("screen manifest has no known host provenance")
+  rows = baseline.load_task_manifest(manifest_path)
+  primary = Path(args.primary_result).resolve()
+  primary_hash = baseline.sha256_file(primary)
+  metadata = result_metadata(
+      primary, DISCOVERY_DISPLAY, "120 s", allow_incomplete=True
+  )
+  if metadata["host"] != host:
+    raise RuntimeError("screen primary result does not match its manifest host")
+  primary_tasks = result_task_names(primary, rows)
+  primary_subset = {task: rows[task] for task in primary_tasks}
+  validate_result_run_topology(
+      primary, primary_subset, args.sv_benchmarks
+  )
+  tainted = validate_taint_manifest(
+      json.loads(Path(args.taint_manifest).read_text(encoding="utf-8")),
+      1,
+      primary_hash,
+      rows,
+      SCREEN_TAINT_SCHEMA,
+  )
+  if not tainted:
+    raise RuntimeError("screen replacement requires at least one tainted task")
+  if not set(tainted) <= set(primary_tasks):
+    raise RuntimeError("screen taint contains tasks absent from its result")
+  missing = {
+      row["task"]
+      for row in baseline.parse_result_rows(primary, primary_subset, 200)
+      if not row_is_complete(row)
+  }
+  if missing - set(tainted):
+    raise RuntimeError(
+        f"incomplete screen rows are not tainted: {sorted(missing - set(tainted))}"
+    )
+  selected = sorted(
+      (row for row in manifest["tasks"] if row["task"] in tainted),
+      key=lambda row: row["task"],
+  )
+  property_file = (
+      Path(args.sv_benchmarks).resolve() / "c/properties/unreach-call.prp"
+  )
+  if args.property_file != str(property_file) or not property_file.is_file():
+    raise RuntimeError("screen property file must be the frozen official property")
+  benchmark = render_stock(
+      args,
+      DISCOVERY_DISPLAY,
+      ("120 s", "130 s", "140 s"),
+      rows=selected,
+  )
+  replacement_manifest = {
+      **manifest,
+      "task_count": len(selected),
+      "tasks": selected,
+  }
+  validate_screen_definition(
+      benchmark,
+      manifest_path,
+      replacement_manifest,
+      args.sv_benchmarks,
+  )
+
+
 def write_task_sets(rows, manifest_path, sv_benchmarks, output):
   task_sets = {}
   for source_group, selected in (
@@ -887,19 +957,22 @@ def xml_shape(node):
   )
 
 
-def validate_formal_definition(path, manifest_path, manifest, sv_benchmarks):
+def validate_stock_definition(
+    path, manifest_path, manifest, sv_benchmarks, display, limits
+):
+  time_limit, hard_time_limit, wall_time_limit = limits
   root = ET.parse(path).getroot()
   expected_attributes = {
       "tool": "cpachecker",
-      "displayName": FORMAL_DISPLAY,
-      "timelimit": "900 s",
-      "hardtimelimit": "910 s",
-      "walltimelimit": "920 s",
+      "displayName": display,
+      "timelimit": time_limit,
+      "hardtimelimit": hard_time_limit,
+      "walltimelimit": wall_time_limit,
       "memlimit": "15 GB",
       "cpuCores": "4",
   }
   if root.tag != "benchmark" or root.attrib != expected_attributes:
-    raise RuntimeError("formal benchmark metadata is not fixed at 900/910/920")
+    raise RuntimeError("stock benchmark metadata does not match the fixed limits")
   definition_dir = Path(path).resolve().parent
   groups = {
       "official": [
@@ -914,13 +987,13 @@ def validate_formal_definition(path, manifest_path, manifest, sv_benchmarks):
       for group, rows in groups.items()
       if rows
   }
-  expected = benchmark_root(FORMAL_DISPLAY, "900 s", "910 s", "920 s")
+  expected = benchmark_root(display, *limits)
   ET.SubElement(expected, "resultfiles").text = "**/witness.*"
   for name, value in (
       ("--svcomp27", None),
       ("--heap", "10000M"),
       ("--benchmark", None),
-      ("--timelimit", "900 s"),
+      ("--timelimit", time_limit),
   ):
     option = ET.SubElement(expected, "option", {"name": name})
     if value:
@@ -933,7 +1006,7 @@ def validate_formal_definition(path, manifest_path, manifest, sv_benchmarks):
       Path(manifest_path).resolve().parent / "corpus/properties/unreach-call.prp",
   )
   if xml_shape(root) != xml_shape(expected):
-    raise RuntimeError("formal benchmark definition topology is not frozen")
+    raise RuntimeError("stock benchmark definition topology is not frozen")
   for group, task_set in task_sets.items():
     expected_tasks = [
         str(
@@ -947,7 +1020,40 @@ def validate_formal_definition(path, manifest_path, manifest, sv_benchmarks):
         for row in groups[group]
     ]
     if task_set.read_text(encoding="utf-8").splitlines() != expected_tasks:
-      raise RuntimeError("formal benchmark task set does not match the host manifest")
+      raise RuntimeError("stock benchmark task set does not match the host manifest")
+
+
+def validate_formal_definition(path, manifest_path, manifest, sv_benchmarks):
+  root = ET.parse(path).getroot()
+  if root.attrib != {
+      "tool": "cpachecker",
+      "displayName": FORMAL_DISPLAY,
+      "timelimit": "900 s",
+      "hardtimelimit": "910 s",
+      "walltimelimit": "920 s",
+      "memlimit": "15 GB",
+      "cpuCores": "4",
+  }:
+    raise RuntimeError("formal benchmark metadata is not fixed at 900/910/920")
+  validate_stock_definition(
+      path,
+      manifest_path,
+      manifest,
+      sv_benchmarks,
+      FORMAL_DISPLAY,
+      ("900 s", "910 s", "920 s"),
+  )
+
+
+def validate_screen_definition(path, manifest_path, manifest, sv_benchmarks):
+  validate_stock_definition(
+      path,
+      manifest_path,
+      manifest,
+      sv_benchmarks,
+      DISCOVERY_DISPLAY,
+      ("120 s", "130 s", "140 s"),
+  )
 
 
 def command_render_probe(args):
@@ -1061,6 +1167,17 @@ def stratified_shards(rows, hosts=DISCOVERY_HOSTS):
   return shards
 
 
+def requested_shard_hosts(args):
+  hosts = tuple(getattr(args, "host", None) or DISCOVERY_HOSTS)
+  if (
+      not hosts
+      or len(hosts) != len(set(hosts))
+      or any(host not in DISCOVERY_HOSTS for host in hosts)
+  ):
+    raise RuntimeError("shard hosts must be known, nonempty, and unique")
+  return hosts
+
+
 def validate_shard_partition(rows, shards, hosts=DISCOVERY_HOSTS):
   hosts = tuple(hosts)
   expected = stratified_shards(rows, hosts)
@@ -1081,6 +1198,7 @@ def validate_shard_partition(rows, shards, hosts=DISCOVERY_HOSTS):
 
 
 def command_difference(args):
+  hosts = requested_shard_hosts(args)
   full_path = Path(args.manifest).resolve()
   excluded_path = Path(args.exclude_manifest).resolve()
   full = validate_manifest(full_path, args.sv_benchmarks)
@@ -1111,10 +1229,10 @@ def command_difference(args):
       json.dumps(difference, indent=2) + "\n", encoding="utf-8"
   )
   difference_sha256 = baseline.sha256_file(difference_path)
-  assigned = stratified_shards(difference["tasks"])
+  assigned = stratified_shards(difference["tasks"], hosts)
   shards = {}
   shard_manifests = {}
-  for host in DISCOVERY_HOSTS:
+  for host in hosts:
     host_tasks = [row["task"] for row in assigned[host]]
     shard = manifest_subset(
         full,
@@ -1123,7 +1241,7 @@ def command_difference(args):
             "operation": "deterministic_stratified_shard",
             "source_manifest_sha256": full_sha256,
             "parent_manifest_sha256": difference_sha256,
-            "hosts": list(DISCOVERY_HOSTS),
+            "hosts": list(hosts),
             "host": host,
             "algorithm": (
                 "strata (family,seed_class,expected_verdict) by (-size,key); "
@@ -1143,6 +1261,7 @@ def command_difference(args):
   validate_shard_partition(
       difference["tasks"],
       {host: shard["tasks"] for host, shard in shard_manifests.items()},
+      hosts,
   )
   print(
       json.dumps(
@@ -1157,6 +1276,7 @@ def command_difference(args):
 
 
 def command_validate_shards(args):
+  hosts = requested_shard_hosts(args)
   manifest_path = Path(args.manifest).resolve()
   manifest = validate_manifest(manifest_path, args.sv_benchmarks)
   parent_sha256 = baseline.sha256_file(manifest_path)
@@ -1165,16 +1285,16 @@ def command_validate_shards(args):
     shard = validate_manifest(path, args.sv_benchmarks)
     derivation = shard.get("derivation", {})
     host = derivation.get("host")
-    if host not in DISCOVERY_HOSTS or host in shards:
+    if host not in hosts or host in shards:
       raise RuntimeError(f"invalid or duplicate shard host: {host}")
     if derivation.get("operation") != "deterministic_stratified_shard":
       raise RuntimeError(f"invalid shard operation: {host}")
-    if derivation.get("hosts") != list(DISCOVERY_HOSTS):
+    if derivation.get("hosts") != list(hosts):
       raise RuntimeError(f"invalid shard host list: {host}")
     if derivation.get("parent_manifest_sha256") != parent_sha256:
       raise RuntimeError(f"invalid shard parent manifest hash: {host}")
     shards[host] = shard["tasks"]
-  validate_shard_partition(manifest["tasks"], shards)
+  validate_shard_partition(manifest["tasks"], shards, hosts)
   print(json.dumps({"task_count": manifest["task_count"], "valid": True}))
 
 
@@ -1982,6 +2102,26 @@ def command_screen_summary(args):
   )
   parsed_manifest = baseline.load_task_manifest(manifest_path)
   runs = baseline.parse_result_rows(args.result, parsed_manifest, hard_threshold=200)
+  write_screen_summary(
+      args,
+      manifest_path,
+      manifest,
+      phase_a_host,
+      runs,
+      {
+          "result_sha256": baseline.sha256_file(Path(args.result)),
+      },
+  )
+
+
+def write_screen_summary(
+    args,
+    manifest_path,
+    manifest,
+    phase_a_host,
+    runs,
+    provenance,
+):
   missing_metrics = [
       run["task"]
       for run in runs
@@ -2041,7 +2181,7 @@ def command_screen_summary(args):
       {
           "operation": "phase_a_analysis_survivors",
           "parent_manifest_sha256": baseline.sha256_file(manifest_path),
-          "result_sha256": baseline.sha256_file(Path(args.result)),
+          **provenance,
           "allowed_results": sorted(ANALYSIS_UNSOLVED),
           "phase_a_host": phase_a_host,
           "selection_independent_of_augmented_outcomes": True,
@@ -2057,13 +2197,64 @@ def command_screen_summary(args):
       "task_count": len(rows),
       "phase_a_host": phase_a_host,
       "classifications": dict(sorted(counts.items())),
-      "result_sha256": baseline.sha256_file(Path(args.result)),
+      **provenance,
       "survivor_manifest_sha256": baseline.sha256_file(survivor_path),
   }
   (output / "summary.json").write_text(
       json.dumps(summary, indent=2) + "\n", encoding="utf-8"
   )
   print(json.dumps(summary, sort_keys=True))
+
+
+def command_screen_summary_plan(args):
+  manifest_path = Path(args.manifest).resolve()
+  manifest = validate_manifest(manifest_path, args.sv_benchmarks)
+  host = manifest.get("derivation", {}).get("host")
+  if args.phase_a_host != host or host not in DISCOVERY_HOSTS:
+    raise RuntimeError("Phase-A host does not match manifest provenance")
+  validate_screen_definition(
+      args.benchmark_definition,
+      manifest_path,
+      manifest,
+      args.sv_benchmarks,
+  )
+  rows = baseline.load_task_manifest(manifest_path)
+  plan = load_screen_plan(
+      args.screen_plan,
+      rows,
+      manifest_path,
+      host,
+      args.sv_benchmarks,
+      args.benchmark_definition,
+  )
+  output = Path(args.output_dir).resolve()
+  row_provenance_content = json.dumps({
+      "schema_version": "hard-case-screen-row-provenance-v1",
+      "screen_plan_sha256": plan["plan_sha256"],
+      "primary_result_sha256": plan["primary_sha256"],
+      "replacement_result_sha256": plan["replacement_sha256"],
+      "rows": plan["row_sources"],
+  }, indent=2) + "\n"
+  write_screen_summary(
+      args,
+      manifest_path,
+      manifest,
+      host,
+      [plan["rows"][task] for task in rows],
+      {
+          "screen_plan_sha256": plan["plan_sha256"],
+          "result_sha256": [
+              plan["primary_sha256"],
+              *plan["replacement_sha256"],
+          ],
+          "row_provenance_sha256": hashlib.sha256(
+              row_provenance_content.encode("utf-8")
+          ).hexdigest(),
+      },
+  )
+  (output / "row-provenance.json").write_text(
+      row_provenance_content, encoding="utf-8"
+  )
 
 
 def declared_plan_file(root, entry, label):
@@ -2118,7 +2309,13 @@ def result_task_names(path, manifest):
   return tasks
 
 
-def validate_taint_manifest(data, repetition, primary_hash, manifest):
+def validate_taint_manifest(
+    data,
+    repetition,
+    primary_hash,
+    manifest,
+    schema=FORMAL_TAINT_SCHEMA,
+):
   if not isinstance(data, dict) or set(data) != {
       "schema_version",
       "repetition",
@@ -2127,7 +2324,7 @@ def validate_taint_manifest(data, repetition, primary_hash, manifest):
   }:
     raise RuntimeError("formal taint manifest topology is not exact")
   if (
-      data["schema_version"] != FORMAL_TAINT_SCHEMA
+      data["schema_version"] != schema
       or not isinstance(data["repetition"], int)
       or data["repetition"] not in {1, 2}
       or data["repetition"] != repetition
@@ -2343,9 +2540,18 @@ def match_benchexec_log_task(name, manifest):
     return baseline.match_result_task(f"c/{name}", manifest)
 
 
-def formal_run_taints(result, log, load_monitor, manifest):
+def run_taints(
+    result,
+    log,
+    load_monitor,
+    manifest,
+    display=FORMAL_DISPLAY,
+    time_limit="900 s",
+):
   result = Path(result).resolve()
-  metadata = result_metadata(result, FORMAL_DISPLAY, "900 s", allow_incomplete=True)
+  metadata = result_metadata(
+      result, display, time_limit, allow_incomplete=True
+  )
   result_tasks = result_task_names(result, manifest)
   subset = {task: manifest[task] for task in result_tasks}
   rows = {
@@ -2408,7 +2614,7 @@ def command_formal_taint(args):
     raise RuntimeError(f"formal taint output already exists: {output}")
   manifest = baseline.load_task_manifest(args.manifest)
   primary_hash = baseline.sha256_file(Path(args.result))
-  tainted = formal_run_taints(
+  tainted = run_taints(
       args.result,
       args.benchexec_log,
       args.load_monitor,
@@ -2418,6 +2624,33 @@ def command_formal_taint(args):
   output.write_text(json.dumps({
       "schema_version": FORMAL_TAINT_SCHEMA,
       "repetition": args.repetition,
+      "primary_result_sha256": primary_hash,
+      "tasks": [
+          {"task": task, "reason": tainted[task]}
+          for task in sorted(tainted)
+      ],
+  }, indent=2) + "\n", encoding="utf-8")
+  print(output)
+
+
+def command_screen_taint(args):
+  output = Path(args.output).resolve()
+  if output.exists():
+    raise RuntimeError(f"screen taint output already exists: {output}")
+  manifest = baseline.load_task_manifest(args.manifest)
+  primary_hash = baseline.sha256_file(Path(args.result))
+  tainted = run_taints(
+      args.result,
+      args.benchexec_log,
+      args.load_monitor,
+      manifest,
+      DISCOVERY_DISPLAY,
+      "120 s",
+  )
+  output.parent.mkdir(parents=True, exist_ok=True)
+  output.write_text(json.dumps({
+      "schema_version": SCREEN_TAINT_SCHEMA,
+      "repetition": 1,
       "primary_result_sha256": primary_hash,
       "tasks": [
           {"task": task, "reason": tainted[task]}
@@ -2444,6 +2677,11 @@ def load_repetition_plan(
     sv_benchmarks,
     benchmark_definition,
     hard_threshold,
+    plan_schema=FORMAL_REPETITION_PLAN_SCHEMA,
+    taint_schema=FORMAL_TAINT_SCHEMA,
+    display=FORMAL_DISPLAY,
+    time_limit="900 s",
+    definition_validator=validate_formal_definition,
 ):
   declared_path = Path(path)
   path = declared_path.resolve()
@@ -2463,7 +2701,7 @@ def load_repetition_plan(
   }:
     raise RuntimeError("formal repetition-plan topology is not exact")
   if (
-      plan["schema_version"] != FORMAL_REPETITION_PLAN_SCHEMA
+      plan["schema_version"] != plan_schema
       or not isinstance(plan["repetition"], int)
       or plan["repetition"] not in {1, 2}
       or not isinstance(plan["replacements"], list)
@@ -2473,7 +2711,7 @@ def load_repetition_plan(
   primary = declared_plan_file(root, plan["primary"], "primary result")
   primary_hash = plan["primary"]["sha256"]
   primary_metadata = result_metadata(
-      primary, FORMAL_DISPLAY, "900 s", allow_incomplete=True
+      primary, display, time_limit, allow_incomplete=True
   )
   if primary_metadata["host"] != host:
     raise RuntimeError("formal primary result must run on the merged manifest host")
@@ -2502,6 +2740,7 @@ def load_repetition_plan(
         plan["repetition"],
         primary_hash,
         manifest,
+        taint_schema,
     )
   missing = {
       task for task, row in primary_rows.items() if not row_is_complete(row)
@@ -2572,13 +2811,13 @@ def load_repetition_plan(
         "task_count": len(entry["tasks"]),
         "tasks": [manifest[task] for task in entry["tasks"]],
     }
-    validate_formal_definition(
+    definition_validator(
         definition,
         manifest_path,
         full_manifest,
         sv_benchmarks,
     )
-    metadata = result_metadata(replacement, FORMAL_DISPLAY, "900 s")
+    metadata = result_metadata(replacement, display, time_limit)
     if metadata["host"] != host:
       raise RuntimeError("formal replacement must run on the merged manifest host")
     validate_result_run_topology(
@@ -2636,7 +2875,11 @@ def load_repetition_plan(
   }
 
 
-def command_repetition_plan(args):
+def write_repetition_plan(
+    args,
+    plan_schema=FORMAL_REPETITION_PLAN_SCHEMA,
+    taint_schema=FORMAL_TAINT_SCHEMA,
+):
   output = Path(args.output).resolve()
   if output.exists():
     raise RuntimeError(f"repetition plan output already exists: {output}")
@@ -2652,6 +2895,7 @@ def command_repetition_plan(args):
         args.repetition,
         primary["sha256"],
         manifest,
+        taint_schema,
     )
   else:
     taint = None
@@ -2685,7 +2929,7 @@ def command_repetition_plan(args):
   if covered != set(tainted):
     raise RuntimeError("replacement results do not cover exactly the taint manifest")
   plan = {
-      "schema_version": FORMAL_REPETITION_PLAN_SCHEMA,
+      "schema_version": plan_schema,
       "repetition": args.repetition,
       "primary": primary,
       "taint": taint,
@@ -2693,6 +2937,289 @@ def command_repetition_plan(args):
   }
   output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
   print(output)
+
+
+def command_repetition_plan(args):
+  write_repetition_plan(args)
+
+
+def command_screen_plan(args):
+  output = Path(args.output).resolve()
+  if output.exists():
+    raise RuntimeError(f"screen plan output already exists: {output}")
+  output.parent.mkdir(parents=True, exist_ok=True)
+  manifest = baseline.load_task_manifest(args.manifest)
+  primary = plan_file_entry(args.primary_result, output.parent)
+  if args.taint_manifest:
+    taint = plan_file_entry(args.taint_manifest, output.parent)
+    remaining = validate_taint_manifest(
+        json.loads(
+            (output.parent / taint["path"]).read_text(encoding="utf-8")
+        ),
+        1,
+        primary["sha256"],
+        manifest,
+        SCREEN_TAINT_SCHEMA,
+    )
+  else:
+    taint = None
+    remaining = {}
+  results = args.replacement_result or []
+  definitions = args.replacement_definition or []
+  taints = args.replacement_taint_manifest or []
+  if len({len(results), len(definitions), len(taints)}) != 1:
+    raise RuntimeError(
+        "screen replacement results, definitions, and taints must align"
+    )
+  replacements = []
+  for result_path, definition_path, taint_path in zip(
+      results, definitions, taints, strict=True
+  ):
+    result = plan_file_entry(result_path, output.parent)
+    definition = plan_file_entry(definition_path, output.parent)
+    replacement_taint = plan_file_entry(taint_path, output.parent)
+    result_tasks = sorted(result_task_names(result_path, manifest))
+    if set(result_tasks) != set(remaining):
+      raise RuntimeError(
+          "screen replacement must contain exactly the preceding tainted tasks"
+      )
+    next_remaining = validate_taint_manifest(
+        json.loads(
+            (output.parent / replacement_taint["path"]).read_text(
+                encoding="utf-8"
+            )
+        ),
+        1,
+        result["sha256"],
+        manifest,
+        SCREEN_TAINT_SCHEMA,
+    )
+    if not set(next_remaining) <= set(remaining):
+      raise RuntimeError("screen replacement taint expands the pending task set")
+    accepted = sorted(set(remaining) - set(next_remaining))
+    replacements.append({
+        **result,
+        "definition_path": definition["path"],
+        "definition_sha256": definition["sha256"],
+        "taint_path": replacement_taint["path"],
+        "taint_sha256": replacement_taint["sha256"],
+        "result_tasks": result_tasks,
+        "accepted_tasks": accepted,
+    })
+    remaining = next_remaining
+  if remaining:
+    raise RuntimeError("screen replacements do not resolve every tainted task")
+  plan = {
+      "schema_version": SCREEN_REPETITION_PLAN_SCHEMA,
+      "repetition": 1,
+      "primary": primary,
+      "taint": taint,
+      "replacements": replacements,
+  }
+  output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+  print(output)
+
+
+def load_screen_plan(
+    path,
+    manifest,
+    manifest_path,
+    host,
+    sv_benchmarks,
+    benchmark_definition,
+):
+  declared_path = Path(path)
+  path = declared_path.resolve()
+  if (
+      declared_path.is_symlink()
+      or Path(os.path.abspath(declared_path)) != path
+      or not path.is_file()
+  ):
+    raise RuntimeError("screen plan must be a regular non-symlink file")
+  plan = json.loads(path.read_text(encoding="utf-8"))
+  if not isinstance(plan, dict) or set(plan) != {
+      "schema_version",
+      "repetition",
+      "primary",
+      "taint",
+      "replacements",
+  } or (
+      plan["schema_version"] != SCREEN_REPETITION_PLAN_SCHEMA
+      or plan["repetition"] != 1
+      or not isinstance(plan["replacements"], list)
+  ):
+    raise RuntimeError("screen plan topology or identity is invalid")
+  root = path.parent
+  primary = declared_plan_file(root, plan["primary"], "screen primary result")
+  primary_hash = plan["primary"]["sha256"]
+  primary_metadata = result_metadata(
+      primary, DISCOVERY_DISPLAY, "120 s", allow_incomplete=True
+  )
+  if primary_metadata["host"] != host:
+    raise RuntimeError("screen primary result does not match its manifest host")
+  validate_result_run_topology(
+      primary, manifest, sv_benchmarks, benchmark_definition
+  )
+  primary_rows = {
+      row["task"]: row
+      for row in baseline.parse_result_rows(primary, manifest, 200)
+  }
+  if plan["taint"] is None:
+    tainted = {}
+    taint_hash = None
+  else:
+    taint_path = declared_plan_file(
+        root, plan["taint"], "screen primary taint"
+    )
+    taint_hash = plan["taint"]["sha256"]
+    tainted = validate_taint_manifest(
+        json.loads(taint_path.read_text(encoding="utf-8")),
+        1,
+        primary_hash,
+        manifest,
+        SCREEN_TAINT_SCHEMA,
+    )
+  missing = {
+      task for task, row in primary_rows.items() if not row_is_complete(row)
+  }
+  if missing - set(tainted):
+    raise RuntimeError(
+        f"incomplete screen primary rows are not tainted: "
+        f"{sorted(missing - set(tainted))}"
+    )
+  accepted = {
+      task: row
+      for task, row in primary_rows.items()
+      if task not in tainted
+  }
+  row_sources = {
+      task: {
+          "task": task,
+          "source": "primary",
+          "result_path": plan["primary"]["path"],
+          "result_sha256": primary_hash,
+      }
+      for task in accepted
+  }
+  remaining = set(tainted)
+  pending_reasons = dict(tainted)
+  result_hashes = [primary_hash]
+  metadata = [primary_metadata]
+  for entry in plan["replacements"]:
+    if (
+        not isinstance(entry, dict)
+        or set(entry) != {
+            "path",
+            "sha256",
+            "definition_path",
+            "definition_sha256",
+            "taint_path",
+            "taint_sha256",
+            "result_tasks",
+            "accepted_tasks",
+        }
+        or not isinstance(entry["path"], str)
+        or not isinstance(entry["result_tasks"], list)
+        or not isinstance(entry["accepted_tasks"], list)
+        or entry["result_tasks"] != sorted(entry["result_tasks"])
+        or entry["accepted_tasks"] != sorted(entry["accepted_tasks"])
+    ):
+      raise RuntimeError("screen replacement entry is invalid")
+    replacement = declared_plan_file(
+        root,
+        {"path": entry["path"], "sha256": entry["sha256"]},
+        "screen replacement result",
+    )
+    definition = declared_plan_file(
+        root,
+        {
+            "path": entry["definition_path"],
+            "sha256": entry["definition_sha256"],
+        },
+        "screen replacement definition",
+    )
+    replacement_taint = declared_plan_file(
+        root,
+        {"path": entry["taint_path"], "sha256": entry["taint_sha256"]},
+        "screen replacement taint",
+    )
+    if (
+        set(entry["result_tasks"]) != remaining
+        or sorted(result_task_names(replacement, manifest))
+        != entry["result_tasks"]
+    ):
+      raise RuntimeError(
+          "screen replacement tasks do not equal the pending task set"
+      )
+    subset = {task: manifest[task] for task in entry["result_tasks"]}
+    replacement_manifest = {
+        "task_count": len(entry["result_tasks"]),
+        "tasks": [manifest[task] for task in entry["result_tasks"]],
+    }
+    validate_screen_definition(
+        definition,
+        manifest_path,
+        replacement_manifest,
+        sv_benchmarks,
+    )
+    replacement_metadata = result_metadata(
+        replacement, DISCOVERY_DISPLAY, "120 s", allow_incomplete=True
+    )
+    if replacement_metadata["host"] != host:
+      raise RuntimeError("screen replacement does not match its manifest host")
+    validate_result_run_topology(
+        replacement, subset, sv_benchmarks, definition
+    )
+    rows = {
+        row["task"]: row
+        for row in baseline.parse_result_rows(replacement, subset, 200)
+    }
+    next_tainted = validate_taint_manifest(
+        json.loads(replacement_taint.read_text(encoding="utf-8")),
+        1,
+        entry["sha256"],
+        manifest,
+        SCREEN_TAINT_SCHEMA,
+    )
+    if not set(next_tainted) <= remaining:
+      raise RuntimeError("screen replacement taint expands the pending task set")
+    expected_accepted = sorted(remaining - set(next_tainted))
+    if entry["accepted_tasks"] != expected_accepted:
+      raise RuntimeError("screen replacement accepted-task set is invalid")
+    if any(not row_is_complete(rows[task]) for task in expected_accepted):
+      raise RuntimeError("accepted screen replacement row is incomplete")
+    for task in expected_accepted:
+      accepted[task] = rows[task]
+      row_sources[task] = {
+          "task": task,
+          "source": "replacement",
+          "result_path": entry["path"],
+          "result_sha256": entry["sha256"],
+          "definition_path": entry["definition_path"],
+          "definition_sha256": entry["definition_sha256"],
+          "taint_path": entry["taint_path"],
+          "taint_sha256": entry["taint_sha256"],
+          "reason": pending_reasons[task],
+      }
+    remaining = set(next_tainted)
+    pending_reasons = dict(next_tainted)
+    result_hashes.append(entry["sha256"])
+    metadata.append(replacement_metadata)
+  if remaining or set(accepted) != set(manifest):
+    raise RuntimeError("screen plan does not resolve exactly the full manifest")
+  if len(result_hashes) != len(set(result_hashes)):
+    raise RuntimeError("screen result artifacts must be distinct")
+  for field in ("starttime", "benchmarkname"):
+    if len({item[field] for item in metadata}) != len(metadata):
+      raise RuntimeError(f"screen attempts must have distinct {field} values")
+  return {
+      "plan_sha256": baseline.sha256_file(path),
+      "primary_sha256": primary_hash,
+      "taint_sha256": taint_hash,
+      "replacement_sha256": result_hashes[1:],
+      "rows": accepted,
+      "row_sources": [row_sources[task] for task in sorted(row_sources)],
+  }
 
 
 def command_summarize(args):
@@ -2892,11 +3419,17 @@ def main():
   difference.add_argument("--exclude-manifest", required=True)
   difference.add_argument("--sv-benchmarks", required=True)
   difference.add_argument("--output-dir", required=True)
+  difference.add_argument(
+      "--host", action="append", choices=DISCOVERY_HOSTS
+  )
   difference.set_defaults(function=command_difference)
   validate_shards = commands.add_parser("validate-shards")
   validate_shards.add_argument("--manifest", required=True)
   validate_shards.add_argument("--shard-manifest", action="append", required=True)
   validate_shards.add_argument("--sv-benchmarks", required=True)
+  validate_shards.add_argument(
+      "--host", action="append", choices=DISCOVERY_HOSTS
+  )
   validate_shards.set_defaults(function=command_validate_shards)
   reroute = commands.add_parser("reroute-cthulhu")
   reroute.add_argument("--manifest", required=True)
@@ -2952,6 +3485,18 @@ def main():
   render_replacement.add_argument("--property-file", required=True)
   render_replacement.add_argument("--output-dir", required=True)
   render_replacement.set_defaults(function=command_render_formal_replacement)
+  render_screen_replacement = commands.add_parser(
+      "render-screen-replacement"
+  )
+  render_screen_replacement.add_argument("--manifest", required=True)
+  render_screen_replacement.add_argument("--primary-result", required=True)
+  render_screen_replacement.add_argument("--taint-manifest", required=True)
+  render_screen_replacement.add_argument("--sv-benchmarks", required=True)
+  render_screen_replacement.add_argument("--property-file", required=True)
+  render_screen_replacement.add_argument("--output-dir", required=True)
+  render_screen_replacement.set_defaults(
+      function=command_render_screen_replacement
+  )
   probe = commands.add_parser("render-probe")
   probe.add_argument("--manifest", required=True)
   probe.add_argument("--hard-portfolio", required=True)
@@ -2984,6 +3529,15 @@ def main():
   repetition_plan.add_argument("--replacement-definition", action="append")
   repetition_plan.add_argument("--output", required=True)
   repetition_plan.set_defaults(function=command_repetition_plan)
+  screen_plan = commands.add_parser("screen-plan")
+  screen_plan.add_argument("--manifest", required=True)
+  screen_plan.add_argument("--primary-result", required=True)
+  screen_plan.add_argument("--taint-manifest")
+  screen_plan.add_argument("--replacement-result", action="append")
+  screen_plan.add_argument("--replacement-definition", action="append")
+  screen_plan.add_argument("--replacement-taint-manifest", action="append")
+  screen_plan.add_argument("--output", required=True)
+  screen_plan.set_defaults(function=command_screen_plan, repetition=1)
   monitor_formal_load = commands.add_parser("monitor-formal-load")
   monitor_formal_load.add_argument("--output", required=True)
   monitor_formal_load.add_argument("--exclude-root", type=int, required=True)
@@ -2996,6 +3550,13 @@ def main():
   formal_taint.add_argument("--load-monitor", required=True)
   formal_taint.add_argument("--output", required=True)
   formal_taint.set_defaults(function=command_formal_taint)
+  screen_taint = commands.add_parser("screen-taint")
+  screen_taint.add_argument("--manifest", required=True)
+  screen_taint.add_argument("--result", required=True)
+  screen_taint.add_argument("--benchexec-log", required=True)
+  screen_taint.add_argument("--load-monitor", required=True)
+  screen_taint.add_argument("--output", required=True)
+  screen_taint.set_defaults(function=command_screen_taint)
   summarize = commands.add_parser("summarize")
   add_phase_b_inputs(summarize)
   summarize.add_argument("--manifest", required=True)
@@ -3011,6 +3572,14 @@ def main():
   screen_summary.add_argument("--phase-a-host", required=True)
   screen_summary.add_argument("--output-dir", required=True)
   screen_summary.set_defaults(function=command_screen_summary)
+  screen_summary_plan = commands.add_parser("screen-summary-plan")
+  screen_summary_plan.add_argument("--manifest", required=True)
+  screen_summary_plan.add_argument("--benchmark-definition", required=True)
+  screen_summary_plan.add_argument("--screen-plan", required=True)
+  screen_summary_plan.add_argument("--sv-benchmarks", required=True)
+  screen_summary_plan.add_argument("--phase-a-host", required=True)
+  screen_summary_plan.add_argument("--output-dir", required=True)
+  screen_summary_plan.set_defaults(function=command_screen_summary_plan)
   args = parser.parse_args()
   args.function(args)
 
