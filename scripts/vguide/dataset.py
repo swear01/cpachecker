@@ -3444,7 +3444,6 @@ def recovered_machine_check_record(before, after, process_boot_binding):
       "cpu_model",
       "online_cpus",
       "allowed_p_core_cpus",
-      "memory_bytes",
       "java_version",
   )
   if any(

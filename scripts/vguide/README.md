@@ -225,8 +225,11 @@ recovery boot uptime. New identities include the kernel boot UUID and exact
 positive type/range checks for normal attempts; they are not accepted by the
 markerless recovery path. That path is deliberately limited to the exact pinned
 legacy selection instead of trusting owner-writable PID evidence as a general
-oracle. Only a proven reboot records machine counters as unavailable. Fully
-authenticated legacy version-3 completion markers remain immutable and are
+oracle. Only a proven reboot records machine counters as unavailable. Recovered
+snapshots still require identical host, platform, kernel, CPU model,
+online/P-core sets, and Java identity; recorded `/proc/meminfo` `MemTotal` is
+not an identity field because its reported byte count can change across boots.
+Fully authenticated legacy version-3 completion markers remain immutable and are
 validated read-only; new recovery markers use version 4.
 Its runtime
 closure is the cap-16 Athena Python 3.12/PyYAML 6.0.1 closure, not the older

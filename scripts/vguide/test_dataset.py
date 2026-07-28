@@ -3567,6 +3567,66 @@ copy_phase_evidence "$2"
       with self.assertRaisesRegex(RuntimeError, "ledger differs"):
         dataset.restore_formal_attempt(root, spec)
 
+  def test_recovered_machine_identity_ignores_memtotal_but_not_hardware(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      before = root / "before.json"
+      after = root / "after.json"
+      snapshot = {
+          "hostname": "athena",
+          "platform": "Linux-6.8.0-x86_64-with-glibc2.39",
+          "kernel": "6.8.0-71-generic",
+          "cpu_model": "13th Gen Intel(R) Core(TM) i9-13900K",
+          "online_cpus": "0-31",
+          "allowed_p_core_cpus": list(dataset.FORMAL_P_CORE_CPUS[::2]),
+          "memory_bytes": 134795411456,
+          "java_version": "openjdk 21.0.10 2026-01-20",
+      }
+      before.write_text(json.dumps(snapshot), encoding="utf-8")
+      after.write_text(
+          json.dumps({**snapshot, "memory_bytes": 134795423744}),
+          encoding="utf-8",
+      )
+      binding = {"rebooted": True}
+      self.assertTrue(
+          dataset.recovered_machine_check_record(
+              before, after, binding
+          )["accepted"]
+      )
+      after.write_text(
+          json.dumps({
+              **snapshot,
+              "memory_bytes": snapshot["memory_bytes"] // 2,
+          }),
+          encoding="utf-8",
+      )
+      self.assertTrue(
+          dataset.recovered_machine_check_record(
+              before, after, binding
+          )["accepted"]
+      )
+      for field, changed in (
+          ("hostname", "cthulhu"),
+          ("platform", "changed"),
+          ("kernel", "changed"),
+          ("cpu_model", "changed"),
+          ("online_cpus", "0-15"),
+          ("allowed_p_core_cpus", [0, 2]),
+          ("java_version", "changed"),
+      ):
+        after.write_text(
+            json.dumps({
+                **snapshot,
+                "memory_bytes": snapshot["memory_bytes"] // 2,
+                field: changed,
+            }),
+            encoding="utf-8",
+        )
+        with self.subTest(field=field), self.assertRaisesRegex(
+            RuntimeError, "machine identity changed"
+        ):
+          dataset.recovered_machine_check_record(before, after, binding)
+
   def test_formal_attempt_marker_requires_atomic_teardown_closure(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
