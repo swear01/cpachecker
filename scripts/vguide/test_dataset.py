@@ -1235,7 +1235,7 @@ class DatasetTest(unittest.TestCase):
     self.assertIn(
         'capture_research_provenance "$OUTPUT_DIR/input/research"', runner
     )
-    self.assertIn('activate_saved_scripts "$OUTPUT_DIR/input/research"', runner)
+    self.assertIn("activate_formal_research_provenance", runner)
     self.assertIn('record_process_snapshot "$OUTPUT_DIR/provenance"', runner)
     self.assertIn('start_process_monitor "$OUTPUT_DIR/provenance/$label-', runner)
     self.assertIn("wait_for_process_monitor", runner)
@@ -1635,6 +1635,42 @@ verify_research_provenance "$4"
           check=True,
       )
       self.assertEqual(marker.read_text(encoding="utf-8"), "saved\n")
+      frozen_head = subprocess.check_output(
+          ["git", "-C", research, "rev-parse", "HEAD"], text=True
+      ).strip()
+      (script_dir / "baseline.py").write_text(
+          "#!/usr/bin/env python3\n", encoding="utf-8"
+      )
+      subprocess.run(["git", "-C", research, "add", "."], check=True)
+      subprocess.run(
+          ["git", "-C", research, "commit", "-qm", "recovery code"],
+          check=True,
+      )
+      verify_frozen = """
+source "$1"
+SCRIPT_DIR=$2
+RESEARCH_ROOT=$3
+FORMAL_MODE=cap8
+verify_frozen_research_provenance "$4" "$5"
+"""
+      frozen_args = [
+          str(runner),
+          str(script_dir),
+          str(research),
+          str(saved),
+          frozen_head,
+      ]
+      subprocess.run(
+          ["bash", "-c", verify_frozen, "bash", *frozen_args], check=True
+      )
+      saved_dataset = saved / "scripts/dataset.py"
+      original_saved_dataset = saved_dataset.read_bytes()
+      saved_dataset.write_text("forged\n", encoding="utf-8")
+      forged = subprocess.run(
+          ["bash", "-c", verify_frozen, "bash", *frozen_args]
+      )
+      self.assertNotEqual(forged.returncode, 0)
+      saved_dataset.write_bytes(original_saved_dataset)
 
       provenance = root / "monitor"
       provenance.mkdir()
@@ -3392,6 +3428,145 @@ copy_phase_evidence "$2"
           sources[pending[1]]["result_sha256"],
       )
 
+  def test_formal_recovery_selects_50_row_abandoned_attempt_once(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      source = (
+          root / "provenance/abandoned/"
+          "repetition-1-1785246981276501974"
+      )
+      selected_results = source / "results"
+      canonical_results = root / "results/repetition-1"
+      selected_provenance = source / "provenance"
+      canonical_provenance = root / "provenance"
+      selected_results.mkdir(parents=True)
+      canonical_results.mkdir(parents=True)
+      selected_provenance.mkdir()
+
+      def write_incomplete_result(path, complete):
+        result = ET.Element("result", error="incomplete")
+        for index in range(224):
+          run = ET.SubElement(result, "run", name=f"task-{index}.yml")
+          if index < complete:
+            for title in ("cputime", "memory", "status", "walltime"):
+              ET.SubElement(run, "column", title=title, value="1")
+        ET.ElementTree(result).write(path, encoding="unicode")
+
+      selected_result = selected_results / "selected.xml"
+      displaced_result = canonical_results / "displaced.xml"
+      write_incomplete_result(selected_result, 50)
+      write_incomplete_result(displaced_result, 0)
+      abandoned = source / "ABANDONED"
+      abandoned.write_text(
+          "reason=missing-atomic-attempt-completion\n", encoding="utf-8"
+      )
+      selected_evidence = selected_provenance / "attempt.process.json"
+      displaced_evidence = canonical_provenance / "attempt.process.json"
+      selected_evidence.write_text("selected\n", encoding="utf-8")
+      displaced_evidence.write_text("displaced\n", encoding="utf-8")
+      spec = {
+          "label": "repetition-1",
+          "source": source.relative_to(root).as_posix(),
+          "quarantine": (
+              "provenance/abandoned/"
+              "repetition-1-superseded-zero-row-rerun"
+          ),
+          "abandoned_sha256": dataset.baseline.sha256_file(abandoned),
+          "selected_results_digest": (
+              dataset.formal_result_directory_digest(selected_results)
+          ),
+          "displaced_results_digest": (
+              dataset.formal_result_directory_digest(canonical_results)
+          ),
+          "selected_result_sha256": (
+              dataset.baseline.sha256_file(selected_result)
+          ),
+          "displaced_result_sha256": (
+              dataset.baseline.sha256_file(displaced_result)
+          ),
+          "selected_complete_rows": 50,
+          "displaced_complete_rows": 0,
+          "result_rows": 224,
+          "selected_provenance": {
+              selected_evidence.name: dataset.baseline.sha256_file(
+                  selected_evidence
+              )
+          },
+          "displaced_provenance": {
+              displaced_evidence.name: dataset.baseline.sha256_file(
+                  displaced_evidence
+              )
+          },
+      }
+      spec_path = root / "recovery-spec.json"
+      spec_path.write_text(json.dumps(spec), encoding="utf-8")
+      crashed = subprocess.run(
+          [
+              "/usr/bin/python3",
+              "-I",
+              "-c",
+              (
+                  "import importlib.util, json, os, sys\n"
+                  "p = importlib.util.spec_from_file_location('d', sys.argv[1])\n"
+                  "d = importlib.util.module_from_spec(p)\n"
+                  "p.loader.exec_module(d)\n"
+                  "real = d.os.replace\n"
+                  "count = [0]\n"
+                  "def replace(a, b):\n"
+                  "  count[0] += 1\n"
+                  "  real(a, b)\n"
+                  "  if count[0] == 3:\n"
+                  "    os._exit(91)\n"
+                  "d.os.replace = replace\n"
+                  "d.restore_formal_attempt(\n"
+                  "    sys.argv[2], json.load(open(sys.argv[3])))\n"
+              ),
+              str(Path(dataset.__file__).resolve()),
+              str(root),
+              str(spec_path),
+          ],
+          check=False,
+      )
+      self.assertEqual(crashed.returncode, 91)
+      self.assertTrue(
+          root.joinpath(
+              "provenance/recovery-selections/repetition-1.prepared.json"
+          ).is_file()
+      )
+      selection = dataset.restore_formal_attempt(root, spec)
+      dataset.restore_formal_attempt(root, spec)
+      self.assertTrue(selection.is_file())
+      self.assertEqual(
+          dataset.baseline.sha256_file(
+              canonical_results / selected_result.name
+          ),
+          spec["selected_result_sha256"],
+      )
+      quarantine = root / spec["quarantine"]
+      self.assertEqual(
+          dataset.baseline.sha256_file(
+              quarantine / "results" / displaced_result.name
+          ),
+          spec["displaced_result_sha256"],
+      )
+      self.assertFalse(selected_results.exists())
+      self.assertFalse(selected_evidence.exists())
+      prepared = selection.with_suffix(".prepared.json")
+      prepared.write_text(
+          json.dumps({
+              **dataset.recovery_selection_record(spec),
+              "state": "prepared",
+          }, indent=2, sort_keys=True) + "\n",
+          encoding="utf-8",
+      )
+      dataset.restore_formal_attempt(root, spec)
+      self.assertFalse(prepared.exists())
+      forged = json.loads(selection.read_text(encoding="utf-8"))
+      forged["selected_complete_rows"] = 0
+      selection.write_text(json.dumps(forged), encoding="utf-8")
+      with self.assertRaisesRegex(RuntimeError, "ledger differs"):
+        dataset.restore_formal_attempt(root, spec)
+
   def test_formal_attempt_marker_requires_atomic_teardown_closure(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
@@ -3496,6 +3671,19 @@ copy_phase_evidence "$2"
       process_identity.write_text(
           json.dumps(identity), encoding="utf-8"
       )
+      for field, value in (
+          ("pid", -1),
+          ("proc_starttime", None),
+          ("uid", True),
+          ("argv", ["valid", 1]),
+          ("boot_id", "forged"),
+      ):
+        forged_identity = root / f"forged-{field}.json"
+        forged_identity.write_text(
+            json.dumps({**identity, field: value}), encoding="utf-8"
+        )
+        with self.assertRaisesRegex(RuntimeError, "identity is invalid"):
+          dataset.load_owned_process_identity(forged_identity)
       benchexec_identity = root / "benchexec.process.json"
       launcher_identity = {
           **identity,
@@ -3512,12 +3700,24 @@ copy_phase_evidence "$2"
               returncode=0,
               stdout=(
                   "LoadState=not-found\n"
-                  "ActiveState=inactive\nMainPID=0\n"
+                  "ActiveState=inactive\n"
               ),
           ),
       )
       systemctl_mock = systemctl.start()
       self.addCleanup(systemctl.stop)
+      systemctl_mock.return_value = SimpleNamespace(
+          returncode=0,
+          stdout="LoadState=loaded\nActiveState=failed\n",
+      )
+      dataset.require_process_gone(
+          dataset.load_owned_process_identity(benchexec_identity),
+          descriptor["systemd_unit"],
+      )
+      systemctl_mock.return_value = SimpleNamespace(
+          returncode=0,
+          stdout="LoadState=not-found\nActiveState=inactive\n",
+      )
       stopped = root / "monitor.stopped"
       stopped.write_text(
           f"pid={owned.pid}\nexit=0\nsamples=1\n", encoding="utf-8"
@@ -3594,6 +3794,224 @@ copy_phase_evidence "$2"
       (root / "monitor.stopped.missing").rename(stopped)
       dataset.command_formal_attempt_complete(args)
       dataset.command_formal_attempt_complete(args)
+      normal_marker = marker.read_bytes()
+      normal_process_identity = process_identity.read_bytes()
+      normal_benchexec_identity = benchexec_identity.read_bytes()
+      for name, identity_path in (
+          ("monitor_process", process_identity),
+          ("benchexec_process", benchexec_identity),
+      ):
+        legacy_identity = json.loads(identity_path.read_text(encoding="utf-8"))
+        legacy_identity["schema_version"] = (
+            dataset.LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA
+        )
+        del legacy_identity["boot_id"]
+        identity_path.write_text(
+            json.dumps(legacy_identity), encoding="utf-8"
+        )
+      legacy_marker = json.loads(normal_marker)
+      legacy_marker["schema_version"] = dataset.LEGACY_FORMAL_ATTEMPT_SCHEMA
+      for name, identity_path in (
+          ("monitor_process", process_identity),
+          ("benchexec_process", benchexec_identity),
+      ):
+        legacy_marker["files"][name]["sha256"] = (
+            dataset.baseline.sha256_file(identity_path)
+        )
+      marker.write_text(
+          json.dumps(legacy_marker, indent=2) + "\n", encoding="utf-8"
+      )
+      dataset.command_formal_attempt_complete(args)
+      self.assertEqual(
+          json.loads(marker.read_text(encoding="utf-8"))["schema_version"],
+          dataset.LEGACY_FORMAL_ATTEMPT_SCHEMA,
+      )
+      self.assertEqual(
+          dataset.validate_formal_attempt_marker(
+              marker, root, manifest_path, root, "athena", "cap16"
+          )["schema_version"],
+          dataset.LEGACY_FORMAL_ATTEMPT_SCHEMA,
+      )
+      process_identity.write_bytes(normal_process_identity)
+      benchexec_identity.write_bytes(normal_benchexec_identity)
+      marker.write_bytes(normal_marker)
+      with self.assertRaisesRegex(RuntimeError, "exact frozen legacy"):
+        dataset.command_recover_formal_attempt(args)
+      normal_result = result.read_bytes()
+      normal_before = before.read_bytes()
+      normal_monitor = monitor.read_bytes()
+      marker.unlink()
+      result_root = ET.parse(result).getroot()
+      result_root.set("error", "incomplete")
+      result_root.attrib.pop("endtime")
+      incomplete_run = result_root.findall("run")[-1]
+      for column in list(incomplete_run):
+        incomplete_run.remove(column)
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      log.write_text(
+          "\n".join(
+              [
+                  *(
+                      line
+                      for row in fixture.rows[:-1]
+                      for line in (
+                          f"00:00:01   starting   {row['task']}",
+                          f"00:00:02              {row['task']}   TIMEOUT 900 1",
+                      )
+                  ),
+                  f"00:00:03   starting   {fixture.rows[-1]['task']}",
+              ]
+          )
+          + "\n",
+          encoding="utf-8",
+      )
+      stopped.unlink()
+      after.unlink()
+      check.unlink()
+      monitor.write_bytes(monitor.read_bytes() + (b"\0" * 16))
+      for identity_path in (process_identity, benchexec_identity):
+        legacy_identity = json.loads(identity_path.read_text(encoding="utf-8"))
+        legacy_identity["schema_version"] = (
+            dataset.LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA
+        )
+        legacy_identity["proc_starttime"] = 10**12
+        del legacy_identity["boot_id"]
+        identity_path.write_text(
+            json.dumps(legacy_identity), encoding="utf-8"
+        )
+      legacy_trust = mock.patch.object(
+          dataset,
+          "trusted_legacy_process_identity",
+          side_effect=lambda _root, _label, path: (
+              dataset.baseline.sha256_file(path)
+          ),
+      )
+      uptime = mock.patch.object(
+          dataset, "current_uptime_ticks", return_value=1
+      )
+      legacy_trust.start()
+      uptime.start()
+      self.addCleanup(legacy_trust.stop)
+      self.addCleanup(uptime.stop)
+
+      def capture_recovery_machine(machine_args):
+        Path(machine_args.output).write_text(
+            json.dumps({
+                "hostname": "athena",
+                "platform": "test",
+                "kernel": "test",
+                "cpu_model": "test",
+                "online_cpus": "0-31",
+                "allowed_p_core_cpus": list(dataset.FORMAL_P_CORE_CPUS[::2]),
+                "memory_bytes": 1,
+                "java_version": "test",
+                "measurement_counters": counters,
+            }),
+            encoding="utf-8",
+        )
+
+      before.write_text(
+          json.dumps({
+              "hostname": "athena",
+              "platform": "test",
+              "kernel": "test",
+              "cpu_model": "test",
+              "online_cpus": "0-31",
+              "allowed_p_core_cpus": list(dataset.FORMAL_P_CORE_CPUS[::2]),
+              "memory_bytes": 1,
+              "java_version": "test",
+              "measurement_counters": counters,
+          }),
+          encoding="utf-8",
+      )
+      original_machine_after = args.machine_after
+      args.machine_after = args.result
+      with self.assertRaisesRegex(RuntimeError, "paths overlap"):
+        dataset.command_recover_formal_attempt(args)
+      args.machine_after = original_machine_after
+      with mock.patch.object(
+          dataset.baseline, "command_machine", side_effect=capture_recovery_machine
+      ):
+        dataset.command_recover_formal_attempt(args)
+        dataset.command_recover_formal_attempt(args)
+      recovered = json.loads(marker.read_text(encoding="utf-8"))
+      self.assertEqual(recovered["benchexec_exit"], 125)
+      self.assertTrue(recovered["result_incomplete"])
+      self.assertIn(
+          "recovery=authenticated-process-gone",
+          stopped.read_text(encoding="utf-8"),
+      )
+      strict_taint = root / "strict-taint.json"
+      with self.assertRaisesRegex(RuntimeError, "trailing NUL"):
+        dataset.command_formal_taint(SimpleNamespace(
+            manifest=str(manifest_path),
+            repetition=1,
+            result=str(result),
+            benchexec_log=str(log),
+            load_monitor=str(monitor),
+            output=str(strict_taint),
+            attempt_marker=None,
+            output_root=None,
+            sv_benchmarks=None,
+            host=None,
+            mode=None,
+        ))
+      authenticated_taint = root / "authenticated-taint.json"
+      dataset.command_formal_taint(SimpleNamespace(
+          manifest=str(manifest_path),
+          repetition=1,
+          result=str(result),
+          benchexec_log=str(log),
+          load_monitor=str(monitor),
+          output=str(authenticated_taint),
+          attempt_marker=str(marker),
+          output_root=str(root),
+          sv_benchmarks=str(root),
+          host="athena",
+          mode="cap16",
+      ))
+      self.assertEqual(
+          [
+              entry["task"]
+              for entry in json.loads(
+                  authenticated_taint.read_text(encoding="utf-8")
+              )["tasks"]
+          ],
+          [fixture.rows[-1]["task"]],
+      )
+      recovered_stop = stopped.read_bytes()
+      stopped.write_text("forged\n", encoding="utf-8")
+      with mock.patch.object(
+          dataset.baseline, "command_machine", side_effect=capture_recovery_machine
+      ), self.assertRaisesRegex(RuntimeError, "recovery evidence"):
+        dataset.command_recover_formal_attempt(args)
+      stopped.write_bytes(recovered_stop)
+      marker.unlink()
+      result.write_bytes(normal_result)
+      before.write_bytes(normal_before)
+      monitor.write_bytes(normal_monitor)
+      process_identity.write_bytes(normal_process_identity)
+      benchexec_identity.write_bytes(normal_benchexec_identity)
+      log.write_text("complete log\n", encoding="utf-8")
+      stopped.write_text(
+          f"pid={owned.pid}\nexit=0\nsamples=1\n", encoding="utf-8"
+      )
+      after.write_text(json.dumps({
+          "hostname": "athena", "measurement_counters": counters
+      }), encoding="utf-8")
+      check.write_text(json.dumps({
+          "hostname": "athena",
+          "accepted": True,
+          "stable": True,
+          "counter_deltas": {
+              "package_throttle_count": 0,
+              "package_throttle_total_time_ms": 0,
+              "pswpin_pages": 0,
+              "pswpout_pages": 0,
+          },
+          "warnings": [],
+      }), encoding="utf-8")
+      marker.write_bytes(normal_marker)
       args.label = "repetition-2"
       args.repetition = 2
       args.result = str(second_result)
@@ -3828,8 +4246,13 @@ copy_phase_evidence "$2"
     self.assertEqual(runner.count("--monitor-stopped"), 1)
     self.assertIn("summary.staging", runner)
     self.assertIn("validate-formal-closure", runner)
-    self.assertIn("missing-atomic-attempt-completion", runner)
-    self.assertIn("require-formal-process-gone", runner)
+    self.assertNotIn("missing-atomic-attempt-completion", runner)
+    self.assertIn("recover-formal-attempt", runner)
+    self.assertIn("restore-legacy-cap16-athena-attempt", runner)
+    self.assertIn("formal-owned-process-identity-v2", runner)
+    self.assertIn("input/recovery-research", runner)
+    self.assertIn("verify_frozen_research_provenance", runner)
+    self.assertNotIn("require-formal-process-gone", runner)
     self.assertNotIn('"$DATASET_PY" require-process-gone', runner)
     self.assertNotIn("pgrep", runner)
     self.assertIn('--unit="$unit"', runner)

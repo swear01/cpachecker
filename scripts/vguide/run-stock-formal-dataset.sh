@@ -278,21 +278,75 @@ activate_saved_scripts() {
 
 verify_research_provenance() {
   local destination=$1
+  verify_frozen_research_provenance \
+    "$destination" "$(git -C "$RESEARCH_ROOT" rev-parse HEAD)"
+}
+
+verify_frozen_research_provenance() {
+  local destination=$1
+  local expected_head=$2
+  local empty_hash=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  local path
   require_clean_repo "$RESEARCH_ROOT" "research"
-  [[ $(git -C "$RESEARCH_ROOT" rev-parse HEAD) == \
-    "$(cat "$destination/research-head.txt")" ]]
-  cmp -- "$SCRIPT_DIR/run-stock-formal-dataset.sh" \
-    "$destination/scripts/run-stock-formal-dataset.sh"
+  git -C "$RESEARCH_ROOT" merge-base --is-ancestor \
+    "$expected_head" "$(git -C "$RESEARCH_ROOT" rev-parse HEAD)"
+  [[ $(cat "$destination/research-head.txt") == "$expected_head" ]]
+  [[ ! -s "$destination/research-status.porcelain" ]]
+  [[ ! -s "$destination/research-diff.patch" ]]
+  [[ $(cat "$destination/research-state.json") == "$(
+    printf '{\n  "head": "%s",\n  "clean": true,\n  "status_sha256": "%s",\n  "diff_sha256": "%s"\n}' \
+      "$expected_head" "$empty_hash" "$empty_hash"
+  )" ]]
+  for path in run-stock-formal-dataset.sh dataset.py baseline.py; do
+    cmp -- "$destination/scripts/$path" \
+      <(git -C "$RESEARCH_ROOT" show "$expected_head:scripts/vguide/$path")
+  done
   if [[ ${FORMAL_MODE:-cap8} == cap16 ]]; then
-    cmp -- "$SCRIPT_DIR/run-stock-cap16-formal-dataset.sh" \
-      "$destination/scripts/run-stock-cap16-formal-dataset.sh"
+    path=run-stock-cap16-formal-dataset.sh
+    cmp -- "$destination/scripts/$path" \
+      <(git -C "$RESEARCH_ROOT" show "$expected_head:scripts/vguide/$path")
   fi
-  cmp -- "$SCRIPT_DIR/dataset.py" "$destination/scripts/dataset.py"
-  cmp -- "$SCRIPT_DIR/baseline.py" "$destination/scripts/baseline.py"
   (
     cd "$destination"
     sha256sum --check --strict inventory.sha256
   )
+}
+
+activate_formal_research_provenance() {
+  local original="$OUTPUT_DIR/input/research"
+  local original_head
+  local current_head
+  original_head=$(cat "$original/research-head.txt")
+  current_head=$(git -C "$RESEARCH_ROOT" rev-parse HEAD)
+  ORIGINAL_RESEARCH_PROVENANCE=$original
+  if [[ "$original_head" == "$current_head" ]]; then
+    ACTIVE_RESEARCH_PROVENANCE=$original
+  elif [[ "$RESUMING" == true && "$FORMAL_MODE" == cap16 &&
+    "$original_head" == "$LEGACY_FORMAL_RESEARCH_HEAD" ]]; then
+    verify_frozen_research_provenance "$original" "$original_head"
+    ACTIVE_RESEARCH_PROVENANCE="$OUTPUT_DIR/input/recovery-research"
+    if [[ ! -e "$ACTIVE_RESEARCH_PROVENANCE" ]]; then
+      capture_research_provenance "$ACTIVE_RESEARCH_PROVENANCE"
+    elif [[ ! -d "$ACTIVE_RESEARCH_PROVENANCE" ]]; then
+      echo "recovery research provenance is not a directory" >&2
+      return 1
+    fi
+  else
+    echo "saved formal research head is not an authenticated recovery parent" >&2
+    return 1
+  fi
+  activate_saved_scripts "$ACTIVE_RESEARCH_PROVENANCE"
+  verify_all_research_provenance
+}
+
+verify_all_research_provenance() {
+  local original_head
+  original_head=$(cat "$ORIGINAL_RESEARCH_PROVENANCE/research-head.txt")
+  verify_frozen_research_provenance \
+    "$ORIGINAL_RESEARCH_PROVENANCE" "$original_head"
+  if [[ "$ACTIVE_RESEARCH_PROVENANCE" != "$ORIGINAL_RESEARCH_PROVENANCE" ]]; then
+    verify_research_provenance "$ACTIVE_RESEARCH_PROVENANCE"
+  fi
 }
 
 directory_digest_value() {
@@ -630,6 +684,7 @@ main() {
   EXPECTED_BENCHEXEC_ARCHIVE=75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737c143ba018bc
   EXPECTED_BENCHEXEC_VERSION="benchexec 3.35-dev"
   EXPECTED_CPACHECKER_JAR_CONTENT=49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3
+  LEGACY_FORMAL_RESEARCH_HEAD=2e2f8e7694d5d827756c322f788f59ac3c07a39d
   EXPECTED_MANIFEST=e8aed1d26a0920bfef4964d495d86b69bbad666efb8d72e87462f297ca243855
   EXPECTED_PACKAGE_MANIFEST=a20797345df1bef6d5be5356906ee106b75b374b0d6cd2adfbc56cc5c3e65fef
   P_CORES=0,2,4,6,8,10,12,14
@@ -727,8 +782,7 @@ main() {
     CAP16_PHASE_A_OUTPUT="$OUTPUT_DIR/input/evidence"
     FORMAL_MANIFEST="$CAP16_PHASE_A_OUTPUT/summary/candidate-manifest-analysis-survivors.json"
   fi
-  activate_saved_scripts "$OUTPUT_DIR/input/research"
-  verify_research_provenance "$OUTPUT_DIR/input/research"
+  activate_formal_research_provenance
   verify_runtime_closure false
   COMPLETE_SENTINEL="$OUTPUT_DIR/summary/.complete"
   if [[ -e "$COMPLETE_SENTINEL" || -L "$COMPLETE_SENTINEL" ]]; then
@@ -765,7 +819,7 @@ main() {
     if [[ "$FORMAL_MODE" == cap16 ]]; then
       verify_cap16_phase_evidence
     fi
-    verify_research_provenance "$OUTPUT_DIR/input/research" >/dev/null
+    verify_all_research_provenance >/dev/null
     verify_runtime_closure true >/dev/null
     return
   fi
@@ -809,7 +863,7 @@ main() {
       set +e
       stop_process_monitor_for_teardown
       monitor_status=$?
-      verify_research_provenance "$OUTPUT_DIR/input/research" \
+      verify_all_research_provenance \
         >"$OUTPUT_DIR/provenance/research-verification-failure.log" 2>&1
       research_status=$?
       runtime_status=125
@@ -833,7 +887,7 @@ main() {
           --output "$OUTPUT_DIR/provenance/artifact-manifest.json"
         artifact_status=$?
       fi
-      verify_research_provenance "$OUTPUT_DIR/input/research" >/dev/null 2>&1
+      verify_all_research_provenance >/dev/null 2>&1
       final_research_status=$?
       final_runtime_status=125
       if ((final_research_status == 0)); then
@@ -946,6 +1000,15 @@ main() {
       tee "$OUTPUT_DIR/provenance/render-formal.log"
   fi
 
+  if [[
+    "$FORMAL_MODE" == cap16 &&
+    "$FORMAL_HOST" == athena &&
+    -d "$OUTPUT_DIR/provenance/abandoned/repetition-1-1785246981276501974"
+  ]]; then
+    run_python_script "$DATASET_PY" \
+      restore-legacy-cap16-athena-attempt --output-root "$OUTPUT_DIR"
+  fi
+
   run_formal_benchmark() {
     local label=$1
     local name=$2
@@ -1003,53 +1066,25 @@ main() {
       -e "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.process.json" ||
       -e "$benchexec_process" ||
       -e "$process_descriptor" ]]; then
-      result=$(single_formal_result "$output" 2>/dev/null || printf 'none')
-      local abandoned="$OUTPUT_DIR/provenance/abandoned/$label-$(date +%s%N)"
       local process_identity="$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.process.json"
-      if [[ ! -f "$process_descriptor" ]]; then
-        echo "unclosed attempt lacks its process descriptor" >&2
-        return 1
-      fi
-      if [[ ! -f "$process_identity" &&
-        ( -e "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.pid" ||
-          -e "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" ) ]]; then
-        echo "unclosed monitor lacks authenticated process identity" >&2
-        return 1
-      fi
-      if [[ ! -f "$benchexec_process" &&
-        ( -s "$OUTPUT_DIR/provenance/$label-benchexec.log" ||
-          -n $(find "$output" -mindepth 1 -print -quit) ) ]]; then
-        echo "unclosed BenchExec lacks authenticated process identity" >&2
-        return 1
-      fi
-      if [[ -f "$process_identity" ]]; then
-        run_python_script "$DATASET_PY" require-formal-process-gone \
-          --descriptor "$process_descriptor" \
-          --identity "$process_identity" \
-          --output-root "$OUTPUT_DIR" --mode "$FORMAL_MODE" \
-          --label "$label" --host "$FORMAL_HOST" --role load-monitor
-      fi
-      if [[ -f "$benchexec_process" ]]; then
-        run_python_script "$DATASET_PY" require-formal-process-gone \
-          --descriptor "$process_descriptor" \
-          --identity "$benchexec_process" \
-          --output-root "$OUTPUT_DIR" --mode "$FORMAL_MODE" \
-          --label "$label" --host "$FORMAL_HOST" \
-          --role benchexec-launcher
-      fi
-      mkdir -p "$abandoned/provenance"
-      mv -- "$output" "$abandoned/results"
-      mkdir -p "$output"
+      result=$(single_formal_result "$output")
       for candidate in \
-        "$OUTPUT_DIR/provenance/$label-"* \
+        "$process_descriptor" \
+        "$process_identity" \
+        "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.pid" \
+        "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
+        "$benchexec_process" \
         "$OUTPUT_DIR/provenance/machine-before-$label.json" \
-        "$OUTPUT_DIR/provenance/machine-after-$label.json" \
-        "$OUTPUT_DIR/provenance/machine-check-$label.json"; do
-        [[ -e "$candidate" ]] || continue
-        mv -- "$candidate" "$abandoned/provenance/"
+        "$OUTPUT_DIR/provenance/$label-benchexec.log" \
+        "$result"; do
+        if [[ -L "$candidate" || ! -f "$candidate" ]]; then
+          echo "unclosed attempt lacks regular recovery evidence: $candidate" >&2
+          return 1
+        fi
       done
-      printf 'reason=missing-atomic-attempt-completion\nresult=%s\n' \
-        "$result" >"$abandoned/ABANDONED"
+      JAVA_HOME="$JAVA_HOME" run_python_script "$DATASET_PY" \
+        recover-formal-attempt "${attempt_descriptor[@]}" --result "$result"
+      return
     fi
     run_python_script "$DATASET_PY" write-formal-process-descriptor \
       --output-root "$OUTPUT_DIR" --mode "$FORMAL_MODE" \
@@ -1102,13 +1137,14 @@ uid = int(next(line for line in status.splitlines() if line.startswith("Uid:")).
 stat = proc.joinpath("stat").read_text()
 starttime = int(stat[stat.rfind(")") + 2:].split()[19])
 identity = {
-    "schema_version": "formal-owned-process-identity-v1",
+    "schema_version": "formal-owned-process-identity-v2",
     "role": "benchexec-launcher",
     "uid": uid,
     "pid": os.getpid(),
     "proc_starttime": starttime,
     "argv": argv,
     "systemd_unit": unit,
+    "boot_id": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
 }
 Path(output).write_text(json.dumps(identity, indent=2) + "\n")
 os.execvp(argv[0], argv)
@@ -1148,6 +1184,11 @@ PY
         --result "$primary" \
         --benchexec-log "$OUTPUT_DIR/provenance/$label-benchexec.log" \
         --load-monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
+        --attempt-marker "$OUTPUT_DIR/provenance/attempts/$label.json" \
+        --output-root "$OUTPUT_DIR" \
+        --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+        --host "$FORMAL_HOST" \
+        --mode "$FORMAL_MODE" \
         --output "$taint"
     fi
     taint_count=$("$PYTHON_BIN" -I -c \
@@ -1205,6 +1246,11 @@ PY
           --result "$replacement" \
           --benchexec-log "$OUTPUT_DIR/provenance/$attempt_label-benchexec.log" \
           --load-monitor "$OUTPUT_DIR/provenance/$attempt_label-load-monitor.jsonl" \
+          --attempt-marker "$OUTPUT_DIR/provenance/attempts/$attempt_label.json" \
+          --output-root "$OUTPUT_DIR" \
+          --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+          --host "$FORMAL_HOST" \
+          --mode "$FORMAL_MODE" \
           --output "$replacement_taint"
       fi
       replacement_args+=(
@@ -1291,7 +1337,7 @@ PY
     mv -- "$SUMMARY_STAGE" "$OUTPUT_DIR/summary"
   fi
 
-  verify_research_provenance "$OUTPUT_DIR/input/research" \
+  verify_all_research_provenance \
     >"$OUTPUT_DIR/provenance/research-verification-final.log" 2>&1
   verify_runtime_closure true \
     >"$OUTPUT_DIR/provenance/runtime-verification-final.log" 2>&1
@@ -1301,7 +1347,7 @@ PY
   if [[ "$FORMAL_MODE" == cap16 ]]; then
     verify_cap16_phase_evidence
   fi
-  verify_research_provenance "$OUTPUT_DIR/input/research" >/dev/null
+  verify_all_research_provenance >/dev/null
   verify_runtime_closure true >/dev/null
   run_python_script "$DATASET_PY" validate-formal-closure \
     --output-root "$OUTPUT_DIR" \

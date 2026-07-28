@@ -189,9 +189,10 @@ BenchExec interruption that leaves an incomplete XML is preserved. Reinvoking
 the same output authenticates its saved inputs, retains every completed
 untainted row, and continues only the current tainted subset. Each replacement
 round gets a newly rendered definition for the remaining subset; a clean
-primary is never rerun. An attempt is reusable only after an atomic completion
-record binds its result and definition, accepted BenchExec exit, nonempty log,
-load monitor PID and stopped/sample record, and before/after machine check.
+primary is never rerun. An attempt is reusable only after an atomic version-4
+completion record binds its result and definition, accepted BenchExec exit,
+nonempty log, load monitor PID and stopped/sample record, and before/after
+machine check.
 An attempt without that record, with or without XML, is checked against its
 recorded process identity (UID, PID, `/proc` start time and exact argv). The
 BenchExec launcher additionally uses a deterministic unique transient systemd
@@ -201,17 +202,44 @@ systemd-run/taskset/environment/Python/BenchExec argv, plus the exact load
 monitor script, output and excluded root argv. Resume authenticates an
 unfinished identity against that descriptor before checking it and queries the
 descriptor's expected unit rather than trusting the identity's recorded unit.
-It requires both the launcher identity
-to be gone and that expected unit to be definitively inactive/not found. If either the
-exact owned process or unit is still alive, resume fails closed and never signals it.
-Only a gone or PID-reused/mismatched process allows the evidence to be moved to
-the abandoned archive and rerun; XML existence alone never authorizes reuse.
+It requires both the launcher identity to be gone and that expected unit to be
+definitively inactive/not found. If either the exact owned process or unit is
+still alive, resume fails closed and never signals it. For an authenticated
+markerless incomplete attempt, resume atomically records an unobserved monitor
+stop, a recovery machine snapshot/check, and reserved exit `125`, then validates
+the BenchExec log against every complete XML row. Only missing/in-flight or
+sustained-contention rows enter the taint/replacement plan; the completed
+untainted rows and original result remain in place. Forged, overlapping,
+inconsistent, or insufficient evidence fails closed instead of abandoning the
+whole attempt.
+The Athena repetition-1 repair is intentionally not a general selector. It
+pins the full abandoned 50-complete-row attempt and displaced zero-complete-row
+rerun inventories, writes a prepared transaction ledger, atomically moves the
+displaced files into a fixed quarantine, and records the exact selected
+attempt. Resume validates every possible transaction location and completes an
+interrupted move only when each selected and displaced object exists in exactly
+one expected location. Both ledgers and directory renames are fsynced. The
+legacy version-1 PID identities are accepted only through that pinned selection
+and must prove a reboot because their recorded `/proc` start ticks exceed the
+recovery boot uptime. New identities include the kernel boot UUID and exact
+positive type/range checks for normal attempts; they are not accepted by the
+markerless recovery path. That path is deliberately limited to the exact pinned
+legacy selection instead of trusting owner-writable PID evidence as a general
+oracle. Only a proven reboot records machine counters as unavailable. Fully
+authenticated legacy version-3 completion markers remain immutable and are
+validated read-only; new recovery markers use version 4.
 Its runtime
 closure is the cap-16 Athena Python 3.12/PyYAML 6.0.1 closure, not the older
 Valkyrie Python 3.10 closure. Before any rendering or measurement it copies
 the portable package under `input/evidence/`, reauthenticates that saved copy,
 and uses only saved-copy paths for all later render, validate and summarize
 operations.
+
+The pre-recovery `input/research/` closure remains immutable. A resume from the
+frozen `2e2f8e7694d5d827756c322f788f59ac3c07a39d` runner authenticates those
+saved files against that Git object and stores the clean recovery implementation
+separately under `input/recovery-research/`; both closures are reverified during
+failure and final teardown.
 
 Summary generation uses a separate staging directory. A crash cannot expose a
 partial final summary; on resume a staged summary is recomputed and either
