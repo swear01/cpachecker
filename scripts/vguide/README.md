@@ -455,3 +455,7 @@ scripts/vguide/wiki.py check /path/to/cpachecker.wiki
 scripts/vguide/wiki.py backup \
   https://github.com/swear01/cpachecker.wiki.git cpachecker-wiki.bundle
 ```
+
+Before publishing provenance, expand abbreviated Git revisions with
+`git rev-parse` and verify the full object with `git cat-file`; never construct
+the missing suffix manually.
