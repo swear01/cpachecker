@@ -1012,8 +1012,8 @@ class DatasetTest(unittest.TestCase):
     self.assertIn('$(hostname -s) != "valkyrie"', runner)
     self.assertIn("LLM/VGuide environment is forbidden", runner)
     self.assertIn("output directory must be absent or empty", runner)
-    self.assertIn('OUTPUT_DIR=$(realpath -m "${15}")', runner)
-    self.assertNotRegex(runner, r"\$1[0-9]")
+    self.assertIn('R8_RECOVERY_ROOT=$(realpath "${15}")', runner)
+    self.assertIn('OUTPUT_DIR=$(realpath -m "${16}")', runner)
     self.assertIn("flock -n 9", runner)
     self.assertNotIn("foreign-workload-gate", runner)
     self.assertIn('require_clean_repo "$RESEARCH_ROOT" "research"', runner)
@@ -1060,6 +1060,10 @@ class DatasetTest(unittest.TestCase):
     self.assertIn(
         'cp -a "$FORMAL_PACKAGE/." "$OUTPUT_DIR/input/formal/"', runner
     )
+    self.assertIn(
+        'cp -a "$R8_RECOVERY_ROOT" "$OUTPUT_DIR/input/recovery-r8"', runner
+    )
+    self.assertGreaterEqual(runner.count("validate-cap8-r8-recovery"), 2)
     self.assertIn('copy_phase_evidence "$OUTPUT_DIR/input/evidence"', runner)
     self.assertIn(
         'capture_research_provenance "$OUTPUT_DIR/input/research"', runner
@@ -1068,6 +1072,14 @@ class DatasetTest(unittest.TestCase):
     self.assertIn('record_process_snapshot "$OUTPUT_DIR/provenance"', runner)
     self.assertIn('start_process_monitor "$OUTPUT_DIR/provenance/$label-', runner)
     self.assertIn("wait_for_process_monitor", runner)
+    self.assertIn("wait_for_benchmark_with_monitor", runner)
+    self.assertIn('systemctl --user stop "$scope"', runner)
+    self.assertGreaterEqual(
+        Path(__file__).with_name("dataset.py").read_text().count(
+            "ProcessLookupError"
+        ),
+        2,
+    )
     self.assertIn('[[ "$samples" -ge 10 ]]', runner)
     self.assertIn("stop_process_monitor_for_teardown", runner)
     self.assertIn("stop_process_monitor", runner)
@@ -1088,31 +1100,25 @@ class DatasetTest(unittest.TestCase):
     self.assertIn('if [[ "$TASK_COUNT" -ne 270 ]]', runner)
     self.assertIn("--hard-threshold 200", runner)
     self.assertNotIn("44ec679a56d3", runner)
-    first = runner.index(
-        "run_formal_benchmark repetition-1"
-    )
+    self.assertNotIn("run_formal_benchmark repetition-1", runner)
+    self.assertNotIn("run_formal_benchmark repetition-2", runner)
+    first = runner.index('RECOVERY_COPY="$OUTPUT_DIR/input/recovery-r8"')
     first_result = runner.index(
         'single_formal_result "$OUTPUT_DIR/results/repetition-1"', first
     )
     first_plan = runner.index(
-        'build_repetition_plan 1 "${RESULTS[0]}"', first_result
+        '--output "$OUTPUT_DIR/repetition-1-plan.json"', first_result
     )
-    second = runner.index(
-        "run_formal_benchmark repetition-2"
-    )
+    second = runner.index('build_repetition_plan 2 "${RESULTS[1]}"')
     second_result = runner.index(
-        'single_formal_result "$OUTPUT_DIR/results/repetition-2"', second
-    )
-    second_plan = runner.index(
-        'build_repetition_plan 2 "${RESULTS[1]}"', second_result
+        'single_formal_result "$OUTPUT_DIR/results/repetition-2"', first
     )
     summarize = runner.index('"$DATASET_PY" summarize', second)
     self.assertLess(first, first_result)
     self.assertLess(first_result, first_plan)
+    self.assertLess(second_result, first_plan)
     self.assertLess(first_plan, second)
-    self.assertLess(second, second_result)
-    self.assertLess(second_result, second_plan)
-    self.assertLess(second_plan, summarize)
+    self.assertLess(second, summarize)
     self.assertIn('--repetition-plan "${PLANS[0]}"', runner)
     self.assertIn('--repetition-plan "${PLANS[1]}"', runner)
     self.assertNotIn('--result "${RESULTS[0]}"', runner)
@@ -1541,6 +1547,29 @@ fi
           check=True,
       )
       self.assertFalse(Path(f"{killed_monitor}.stopped").exists())
+
+      command = """
+source "$1"
+sleep 0.2 &
+MONITOR_PID=$!
+sleep 60 &
+benchmark=$!
+systemctl() {
+  kill "$benchmark"
+}
+if wait_for_benchmark_with_monitor test.scope "$benchmark"; then
+  exit 1
+fi
+! kill -0 "$benchmark" 2>/dev/null
+"""
+      stopped = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner)],
+          capture_output=True,
+          text=True,
+          timeout=5,
+      )
+      self.assertEqual(stopped.returncode, 0, stopped.stderr)
+      self.assertIn("process monitor died during BenchExec", stopped.stderr)
 
   def test_formal_runner_reverifies_runtime_closure(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
@@ -2534,10 +2563,11 @@ copy_phase_evidence "$2"
                   "sample_interval_seconds": 1.0,
                   "excluded_process_root": 123,
               }),
-              json.dumps({
-                  "timestamp": "2026-07-27T00:00:15+08:00",
+              *[
+                json.dumps({
+                  "timestamp": f"2026-07-27T00:00:{second:02d}+08:00",
                   "elapsed_seconds": 1.0,
-                  "offenders": [{
+                  "offenders": ([{
                       "pid": 456,
                       "uid": 1000,
                       "comm": "foreign",
@@ -2545,8 +2575,10 @@ copy_phase_evidence "$2"
                       "duration_seconds": 10.0,
                       "since": "2026-07-27T00:00:05+08:00",
                       "contended": True,
-                  }],
-              }),
+                  }] if second == 15 else []),
+                })
+                for second in range(1, 32)
+              ],
           ]) + "\n",
           encoding="utf-8",
       )
@@ -2566,6 +2598,56 @@ copy_phase_evidence "$2"
           [row["task"] for row in tainted],
           ["c/t0.yml", "c/t1.yml"],
       )
+
+      monitor.write_text(
+          "\n".join(monitor.read_text(encoding="utf-8").splitlines()[:-8])
+          + "\n",
+          encoding="utf-8",
+      )
+      tainted = dataset.formal_run_taints(result, log, monitor, {
+          row["task"]: row for row in tasks
+      })
+      self.assertEqual(
+          tainted["c/t2.yml"], "missing_load_monitor_coverage"
+      )
+
+  def test_frozen_recovery_manifest_rejects_tree_drift_and_special_nodes(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      (root / "provenance").mkdir()
+      data = root / "evidence"
+      data.write_text("frozen\n", encoding="utf-8")
+      digest = dataset.baseline.sha256_file(data)
+      aggregate = hashlib.sha256()
+      aggregate.update(b"evidence\0")
+      aggregate.update(bytes.fromhex(digest))
+      artifact = root / "provenance/artifact-manifest.json"
+      artifact.write_text(json.dumps({
+          "root": "frozen-original",
+          "file_count": 1,
+          "aggregate_sha256": aggregate.hexdigest(),
+          "files": [{
+              "path": "evidence",
+              "size_bytes": data.stat().st_size,
+              "sha256": digest,
+          }],
+      }, indent=2) + "\n", encoding="utf-8")
+      with mock.patch.object(
+          dataset, "FROZEN_CAP8_R8_FAILURE_ROOT", "frozen-original"
+      ):
+        dataset.validate_frozen_artifact_manifest(
+            root,
+            dataset.baseline.sha256_file(artifact),
+            aggregate.hexdigest(),
+        )
+        fifo = root / "fifo"
+        os.mkfifo(fifo)
+        with self.assertRaisesRegex(RuntimeError, "unsupported"):
+          dataset.validate_frozen_artifact_manifest(
+              root,
+              dataset.baseline.sha256_file(artifact),
+              aggregate.hexdigest(),
+          )
 
   def test_phase_b_zero_survivors_are_preserved_and_skip_formal(self):
     with tempfile.TemporaryDirectory() as temp:

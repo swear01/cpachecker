@@ -511,6 +511,34 @@ wait_for_process_monitor() {
   done
 }
 
+wait_for_benchmark_with_monitor() {
+  local scope=$1
+  local benchmark_pid=$2
+  local benchmark_exit
+  while kill -0 "$benchmark_pid" 2>/dev/null; do
+    if ! kill -0 "$MONITOR_PID" 2>/dev/null; then
+      if ! systemctl --user stop "$scope"; then
+        echo "could not stop $scope through systemd; terminating launcher" >&2
+        kill "$benchmark_pid" 2>/dev/null || :
+      fi
+      wait "$benchmark_pid" 2>/dev/null || :
+      echo "process monitor died during BenchExec; stopped $scope" >&2
+      return 1
+    fi
+    sleep 0.2
+  done
+  if wait "$benchmark_pid"; then
+    benchmark_exit=0
+  else
+    benchmark_exit=$?
+  fi
+  if ! kill -0 "$MONITOR_PID" 2>/dev/null; then
+    echo "process monitor died before BenchExec teardown" >&2
+    return 1
+  fi
+  return "$benchmark_exit"
+}
+
 single_formal_result() {
   local directory=$1
   local matches=()
@@ -530,8 +558,8 @@ single_formal_result() {
 }
 
 main() {
-  if [[ $# -ne 15 ]]; then
-    echo "usage: $0 CPACHECKER_DIR SV_BENCHMARKS_DIR BENCHEXEC_DIR FORMAL_PACKAGE PARENT_MANIFEST ORIGINAL_MANIFEST ORIGINAL_RESULT ORIGINAL_SURVIVOR REROUTE_MANIFEST REROUTE_RESULT REROUTE_SURVIVOR RECOVERY_MANIFEST RECOVERY_RESULT RECOVERY_SURVIVOR OUTPUT_DIR" >&2
+  if [[ $# -ne 16 ]]; then
+    echo "usage: $0 CPACHECKER_DIR SV_BENCHMARKS_DIR BENCHEXEC_DIR FORMAL_PACKAGE PARENT_MANIFEST ORIGINAL_MANIFEST ORIGINAL_RESULT ORIGINAL_SURVIVOR REROUTE_MANIFEST REROUTE_RESULT REROUTE_SURVIVOR RECOVERY_MANIFEST RECOVERY_RESULT RECOVERY_SURVIVOR R8_RECOVERY_ROOT OUTPUT_DIR" >&2
     exit 2
   fi
 
@@ -559,7 +587,12 @@ main() {
     "$(realpath "${11}")"
     "$(realpath "${14}")"
   )
-  OUTPUT_DIR=$(realpath -m "${15}")
+  if [[ -L ${15} ]]; then
+    echo "r8 recovery root must not be a symlink: ${15}" >&2
+    exit 1
+  fi
+  R8_RECOVERY_ROOT=$(realpath "${15}")
+  OUTPUT_DIR=$(realpath -m "${16}")
   SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
   RESEARCH_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 
@@ -618,7 +651,8 @@ main() {
     "$JAVA_HOME" "$ANT_INSTALL" "$PYTHON_BIN" "$PYTHON_STDLIB" \
     "$PYTHON_DIST_PACKAGES" "$PYTHON_LOCAL_DIST_PACKAGES" \
     "$FORMAL_PACKAGE" "$PARENT_MANIFEST" \
-    "${PHASE_MANIFESTS[@]}" "${PHASE_RESULTS[@]}" "${PHASE_SURVIVORS[@]}"
+    "$R8_RECOVERY_ROOT" "${PHASE_MANIFESTS[@]}" \
+    "${PHASE_RESULTS[@]}" "${PHASE_SURVIVORS[@]}"
   if [[ -e "$OUTPUT_DIR" ]] && {
     [[ ! -d "$OUTPUT_DIR" ]] ||
       [[ -n $(find "$OUTPUT_DIR" -mindepth 1 -print -quit) ]]
@@ -635,6 +669,9 @@ main() {
   run_python_script "$SCRIPT_DIR/dataset.py" validate \
     --manifest "$FORMAL_MANIFEST" \
     --sv-benchmarks "$SV_BENCHMARKS_DIR"
+  run_python_script "$SCRIPT_DIR/dataset.py" validate-cap8-r8-recovery \
+    --root "$R8_RECOVERY_ROOT" \
+    --sv-benchmarks "$SV_BENCHMARKS_DIR"
 
   exec 9>/var/tmp/vguide-valkyrie-pcores.lock
   if ! flock -n 9; then
@@ -646,10 +683,15 @@ main() {
     "$OUTPUT_DIR/input/research" "$OUTPUT_DIR/generated" \
     "$OUTPUT_DIR/results" "$OUTPUT_DIR/provenance"
   cp -a "$FORMAL_PACKAGE/." "$OUTPUT_DIR/input/formal/"
+  cp -a "$R8_RECOVERY_ROOT" "$OUTPUT_DIR/input/recovery-r8"
   FORMAL_MANIFEST="$OUTPUT_DIR/input/formal/candidate-manifest-valkyrie-formal.json"
   capture_research_provenance "$OUTPUT_DIR/input/research"
   activate_saved_scripts "$OUTPUT_DIR/input/research"
   verify_research_provenance "$OUTPUT_DIR/input/research"
+  run_python_script "$DATASET_PY" validate-cap8-r8-recovery \
+    --root "$OUTPUT_DIR/input/recovery-r8" \
+    --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+    >"$OUTPUT_DIR/provenance/r8-recovery-validation.json"
   verify_runtime_closure false
   write_runtime_provenance "$OUTPUT_DIR/provenance/runtime-closure.txt"
   BUILD_COMPLETED=false
@@ -787,6 +829,8 @@ main() {
     local name=$2
     local definition=$3
     local output=$4
+    local scope="vguide-$label.scope"
+    local benchmark_pid
     mkdir -p "$output"
     JAVA_HOME="$JAVA_HOME" run_python_script "$BASELINE_PY" machine \
       --output "$OUTPUT_DIR/provenance/machine-before-$label.json"
@@ -794,7 +838,8 @@ main() {
     wait_for_process_monitor
     (
       cd "$CPACHECKER_DIR"
-      systemd-run --user --quiet --scope --slice=benchexec -p Delegate=yes \
+      exec systemd-run --user --quiet --scope --collect \
+        --unit="${scope%.scope}" --slice=benchexec -p Delegate=yes \
         taskset -c "$P_CORES" env -i \
         HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
         JAVA="$JAVA_HOME/bin/java" \
@@ -812,7 +857,9 @@ main() {
         --overlay-dir "$CPACHECKER_DIR" \
         -N 2 -c 4 \
         "$definition"
-    ) 2>&1 | tee "$OUTPUT_DIR/provenance/$label-benchexec.log"
+    ) >"$OUTPUT_DIR/provenance/$label-benchexec.log" 2>&1 &
+    benchmark_pid=$!
+    wait_for_benchmark_with_monitor "$scope" "$benchmark_pid"
     stop_process_monitor
     JAVA_HOME="$JAVA_HOME" run_python_script "$BASELINE_PY" machine \
       --output "$OUTPUT_DIR/provenance/machine-after-$label.json"
@@ -896,20 +943,48 @@ main() {
     BUILT_PLAN=$plan
   }
 
-  RESULTS=()
-  PLANS=()
-  run_formal_benchmark repetition-1 \
-    hard-case-dataset-v2-formal-valkyrie-repetition-1 \
-    "$OUTPUT_DIR/generated/hard-case-candidates.xml" \
-    "$OUTPUT_DIR/results/repetition-1"
-  RESULTS+=("$(single_formal_result "$OUTPUT_DIR/results/repetition-1")")
-  build_repetition_plan 1 "${RESULTS[0]}"
-  PLANS+=("$BUILT_PLAN")
-  run_formal_benchmark repetition-2 \
-    hard-case-dataset-v2-formal-valkyrie-repetition-2 \
-    "$OUTPUT_DIR/generated/hard-case-candidates.xml" \
+  RECOVERY_COPY="$OUTPUT_DIR/input/recovery-r8"
+  mkdir -p \
+    "$OUTPUT_DIR/results/repetition-1" \
+    "$OUTPUT_DIR/results/repetition-1-replacement-attempt-1" \
     "$OUTPUT_DIR/results/repetition-2"
-  RESULTS+=("$(single_formal_result "$OUTPUT_DIR/results/repetition-2")")
+  cp "$RECOVERY_COPY/results/repetition-1/"*.official.xml.bz2 \
+    "$OUTPUT_DIR/results/repetition-1/"
+  cp \
+    "$RECOVERY_COPY/results/repetition-1-replacement-attempt-1/"*.official.xml.bz2 \
+    "$OUTPUT_DIR/results/repetition-1-replacement-attempt-1/"
+  cp "$RECOVERY_COPY/results/repetition-2/"*.official.xml \
+    "$OUTPUT_DIR/results/repetition-2/"
+  cp "$RECOVERY_COPY/repetition-1-taint.json" \
+    "$OUTPUT_DIR/repetition-1-taint.json"
+  cp "$RECOVERY_COPY/provenance/repetition-2-benchexec.log" \
+    "$OUTPUT_DIR/provenance/repetition-2-benchexec.log"
+  cp "$RECOVERY_COPY/provenance/repetition-2-load-monitor.jsonl" \
+    "$OUTPUT_DIR/provenance/repetition-2-load-monitor.jsonl"
+
+  RESULTS=(
+    "$(single_formal_result "$OUTPUT_DIR/results/repetition-1")"
+    "$(single_formal_result "$OUTPUT_DIR/results/repetition-2")"
+  )
+  run_python_script "$DATASET_PY" render-formal-replacement \
+    "${PHASE_ARGS[@]}" \
+    --manifest "$FORMAL_MANIFEST" \
+    --primary-result "${RESULTS[0]}" \
+    --taint-manifest "$OUTPUT_DIR/repetition-1-taint.json" \
+    --property-file "$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp" \
+    --output-dir "$OUTPUT_DIR/generated/repetition-1-replacement"
+  run_python_script "$DATASET_PY" repetition-plan \
+    --manifest "$FORMAL_MANIFEST" \
+    --repetition 1 \
+    --primary-result "${RESULTS[0]}" \
+    --taint-manifest "$OUTPUT_DIR/repetition-1-taint.json" \
+    --replacement-result \
+      "$(single_formal_result \
+        "$OUTPUT_DIR/results/repetition-1-replacement-attempt-1")" \
+    --replacement-definition \
+      "$OUTPUT_DIR/generated/repetition-1-replacement/hard-case-candidates.xml" \
+    --output "$OUTPUT_DIR/repetition-1-plan.json"
+  PLANS=("$OUTPUT_DIR/repetition-1-plan.json")
   build_repetition_plan 2 "${RESULTS[1]}"
   PLANS+=("$BUILT_PLAN")
 
@@ -925,12 +1000,19 @@ main() {
 
   verify_research_provenance "$OUTPUT_DIR/input/research" \
     >"$OUTPUT_DIR/provenance/research-verification-final.log" 2>&1
+  run_python_script "$DATASET_PY" validate-cap8-r8-recovery \
+    --root "$OUTPUT_DIR/input/recovery-r8" \
+    --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+    >"$OUTPUT_DIR/provenance/r8-recovery-verification-final.json"
   verify_runtime_closure true \
     >"$OUTPUT_DIR/provenance/runtime-verification-final.log" 2>&1
   run_python_script "$BASELINE_PY" artifact-manifest \
     --root "$OUTPUT_DIR" \
     --output "$OUTPUT_DIR/provenance/artifact-manifest.json"
   verify_research_provenance "$OUTPUT_DIR/input/research" >/dev/null
+  run_python_script "$DATASET_PY" validate-cap8-r8-recovery \
+    --root "$OUTPUT_DIR/input/recovery-r8" \
+    --sv-benchmarks "$SV_BENCHMARKS_DIR" >/dev/null
   verify_runtime_closure true >/dev/null
   trap - EXIT
 }

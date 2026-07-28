@@ -55,6 +55,11 @@ Dataset v1 executed the stock `svcomp27` full portfolio twice with two four-core
 
 BenchExec emits both combined and per-source-group result XML files; only the combined XML is an input to repeated classification.
 
+Formal result validation accepts the exact absolute corpus path, the exact
+path relative to the generated definition, and BenchExec's exact
+`../../../../<corpus-name>/...` spelling from the stock-checkout working
+directory. Normalized aliases and other relative spellings remain rejected.
+
 Dataset v2 tightens `stable_unsolved` to repetitions classified as timeout,
 out-of-memory, or UNKNOWN. Verifier errors, exceptions, segmentation faults,
 and other non-analysis failures are written to
@@ -225,7 +230,8 @@ self-referential. The publication release or tag must externally pin the
 final research commit.
 
 Arguments six through fourteen are grouped as manifest, raw result, and
-survivor for the original Valkyrie shard, r4 reroute, and r5 recovery:
+survivor for the original Valkyrie shard, r4 reroute, and r5 recovery.
+Argument fifteen is the exact frozen r8 failure root:
 
 ```bash
 env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
@@ -246,6 +252,7 @@ env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
   /path/to/r5-recovery/candidate-manifest-valkyrie.json \
   /path/to/r5-recovery-result.xml.bz2 \
   /path/to/r5-recovery-survivor.json \
+  /path/to/phase-b-formal-valkyrie-r8-attempt2 \
   /path/to/formal-output
 ```
 
@@ -295,15 +302,33 @@ processor reported by its `/proc` stat record at the sample boundary. A
 foreign process is sustained contention only when it consumes at least 50% of
 one logical CPU in every sample for at least 10 consecutive seconds. The
 JSON-lines evidence records the fixed policy, timestamps, process identity,
-measured percentage, and streak duration. Monitor death, an unclean stop, no
-sample, malformed evidence, or a mismatch between the BenchExec event log and
-result rows fails closed. Before each primary or replacement run, launch waits
+measured percentage, and streak duration. Processes that disappear between
+`/proc` enumeration and reading are a normal race and are skipped. Sample
+wall-clock deltas must agree with their monotonic elapsed intervals within one
+millisecond. A monitor watchdog stops the active BenchExec scope when the
+monitor dies instead of allowing an unobserved run to continue. Monitor death,
+an unclean stop, no sample, malformed evidence, or a mismatch between the
+BenchExec event log and result rows fails closed. Before each primary or
+replacement run, launch waits
 until the monitor has ten samples and its latest sample contains no sustained
 contender; brief activity below the frozen threshold does not block launch.
 
-The runner builds stock CPAchecker, performs the ten-second machine preflight,
-generates the fixed 900/910/920 definition with `render-formal`, and executes
-two sequential `-N 2 -c 4` BenchExec repetitions with distinct fixed names.
+The r9 runner is the exact recovery for the interrupted r8 Valkyrie output. It
+requires the frozen r8 failure tree whose 146-file aggregate is
+`5d36fc0fe6a867ec93b8bb437ede510c26279e66029de22dd68625ed8eacdf2c`
+and whose manifest hash is
+`6f737f3c48f9632a844367c3f3c4f9286150f520756ce5e09423f73b9ca00ecb`.
+It retains that tree as immutable input evidence, rederives the first
+repetition's 18 contaminated rows and clean 18-row replacement, and preserves
+all 270 accepted first-repetition rows. For the interrupted second repetition,
+strict monitor coverage accepts 13 completed rows and taints 253 incomplete
+plus four completed-but-uncovered rows; only those 257 tasks are replaced.
+The old results remain byte-identical, while a new plan binds them to a
+definition regenerated at the recovery output path. The runner builds stock
+CPAchecker, performs the ten-second machine preflight, generates the fixed
+900/910/920 definitions, and executes replacement attempts with `-N 2 -c 4`.
+The copied r8 tree is reauthenticated before measurement and twice during
+successful final closure, including once after the final artifact inventory.
 Raw JAR bytes are not reproducible because ZIP metadata changes: two clean
 rebuilds produced raw hashes
 `424710996a6b93a6a23e73c35f55a33cb13f058f1dab3342598a30a0021e7b9c`
@@ -322,14 +347,17 @@ Each repetition has independent machine snapshots and a counter check.
 The runner correlates each sustained-contention interval with the two
 BenchExec task timelines and taints only tasks active during the interval.
 It also taints every missing row in an `error="incomplete"` primary result.
-Completed untainted primary rows remain accepted. Tainted tasks are rerun with
-the unchanged formal protocol; a completed but contaminated replacement is
-retained as evidence and retried in a new directory until a clean replacement
-exists. An external interruption still stops the process fail-closed; the same
-plan commands can resume from its incomplete primary without discarding
-completed untainted rows. The runner then writes a hashed repetition plan before
-`summarize --hard-threshold 200`. Every missing primary row must be tainted,
-only tainted rows may be replaced, replacement definitions must contain
+Completed primary rows remain accepted only when valid monitor samples cover
+their complete logged execution interval; rows that extend outside that
+coverage are tainted. Completed untainted primary rows remain accepted. Tainted
+tasks are rerun with the unchanged formal protocol; a completed but
+contaminated replacement is retained as evidence and retried in a new
+directory until a clean replacement exists. An external interruption still
+stops the process fail-closed; the same plan commands can resume from its
+incomplete primary without discarding completed untainted rows. The runner
+then writes a hashed repetition plan before `summarize --hard-threshold 200`.
+Every missing primary row must be tainted, only tainted rows may be replaced,
+replacement definitions must contain
 exactly their declared tasks, and no accepted result artifact may be reused
 across repetitions.
 `summarize` emits `row-provenance.json`, which binds every accepted row to its

@@ -19,6 +19,7 @@ import os
 import re
 import signal
 import shutil
+import stat
 import statistics
 import subprocess
 import time
@@ -121,12 +122,32 @@ FORMAL_TAINT_SCHEMA = "hard-case-formal-taint-v1"
 FORMAL_TAINT_REASONS = {
     "foreign_p_core_contention",
     "interrupted_incomplete",
+    "missing_load_monitor_coverage",
 }
 FORMAL_P_CORE_CPUS = tuple(range(16))
 FORMAL_FOREIGN_CPU_PERCENT = 50.0
 FORMAL_FOREIGN_CPU_SECONDS = 10.0
 FORMAL_LOAD_SAMPLE_SECONDS = 1.0
+FORMAL_LOAD_CLOCK_TOLERANCE_SECONDS = 0.001
 FORMAL_LOAD_MONITOR_SCHEMA = "formal-p-core-load-monitor-v1"
+FROZEN_CAP8_R8_FAILURE_MANIFEST_SHA256 = (
+    "6f737f3c48f9632a844367c3f3c4f9286150f520756ce5e09423f73b9ca00ecb"
+)
+FROZEN_CAP8_R8_FAILURE_AGGREGATE_SHA256 = (
+    "5d36fc0fe6a867ec93b8bb437ede510c26279e66029de22dd68625ed8eacdf2c"
+)
+FROZEN_CAP8_R8_FAILURE_ROOT = (
+    "/var/tmp/swear01-cpachecker-paper/hard-case-dataset-v2-discovery/"
+    "phase-b-formal-valkyrie-r8-attempt2"
+)
+FROZEN_CAP8_R8_REP1_PLAN_SHA256 = (
+    "618c6acc62214ad480579bb034d015c1369a2ab476ea2ffd189cc48ae611ae5c"
+)
+FROZEN_CAP8_R8_REP2_RESULT = (
+    "results/repetition-2/"
+    "hard-case-candidates.hard-case-dataset-v2-formal-valkyrie-repetition-2."
+    "2026-07-29_05-24-53.results.hard-case-candidates.official.xml"
+)
 
 
 def sha256_text(value):
@@ -796,16 +817,15 @@ def benchexec_path_representations(
   expected = Path(expected_path).resolve()
   sv_benchmarks = Path(sv_benchmarks).resolve()
   representations = {expected.as_posix()}
+  relative = expected.relative_to(sv_benchmarks).as_posix()
+  representations.add(f"../../../../{sv_benchmarks.name}/{relative}")
   if benchmark_definition:
     relative = os.path.relpath(
         expected, Path(benchmark_definition).resolve().parent
     ).replace("\\", "/")
     representations.add(relative)
   else:
-    relative = expected.relative_to(sv_benchmarks).as_posix()
-    representations.add(
-        f"../../../../{sv_benchmarks.name}/{relative}"
-    )
+    representations.add(relative)
   return representations
 
 
@@ -2203,7 +2223,13 @@ def command_monitor_formal_load(args):
           status = (proc / "status").read_text(encoding="utf-8")
           parent = int(re.search(r"^PPid:\s+(\d+)$", status, re.MULTILINE).group(1))
           parents[int(proc.name)] = parent
-        except (FileNotFoundError, PermissionError, AttributeError, ValueError):
+        except (
+            FileNotFoundError,
+            PermissionError,
+            ProcessLookupError,
+            AttributeError,
+            ValueError,
+        ):
           continue
       excluded = {args.exclude_root}
       changed = True
@@ -2288,6 +2314,7 @@ def load_formal_contention_intervals(path):
     raise RuntimeError("formal load-monitor policy does not match")
   intervals = []
   previous = None
+  coverage_start = None
   for line in lines[1:]:
     sample = json.loads(line)
     if (
@@ -2298,8 +2325,23 @@ def load_formal_contention_intervals(path):
     ):
       raise RuntimeError("formal load-monitor sample topology is not exact")
     timestamp = datetime.datetime.fromisoformat(sample["timestamp"])
-    if timestamp.tzinfo is None or (previous is not None and timestamp <= previous):
+    if (
+        timestamp.tzinfo is None
+        or (previous is not None and timestamp <= previous)
+        or (
+            previous is not None
+            and abs(
+                (timestamp - previous).total_seconds()
+                - sample["elapsed_seconds"]
+            )
+            > FORMAL_LOAD_CLOCK_TOLERANCE_SECONDS
+        )
+    ):
       raise RuntimeError("formal load-monitor timestamps are invalid")
+    if coverage_start is None:
+      coverage_start = timestamp - datetime.timedelta(
+          seconds=sample["elapsed_seconds"]
+      )
     previous = timestamp
     if not isinstance(sample["offenders"], list):
       raise RuntimeError("formal load-monitor offenders are invalid")
@@ -2333,7 +2375,7 @@ def load_formal_contention_intervals(path):
         raise RuntimeError("formal load-monitor offender is inconsistent")
       if offender["contended"]:
         intervals.append((since, timestamp))
-  return intervals, previous
+  return intervals, coverage_start, previous
 
 
 def match_benchexec_log_task(name, manifest):
@@ -2352,8 +2394,15 @@ def formal_run_taints(result, log, load_monitor, manifest):
       row["task"]: row
       for row in baseline.parse_result_rows(result, subset, 200)
   }
-  intervals, monitor_end = load_formal_contention_intervals(load_monitor)
+  intervals, monitor_start, monitor_end = load_formal_contention_intervals(
+      load_monitor
+  )
   start_date = datetime.datetime.fromisoformat(metadata["starttime"])
+  result_end = (
+      datetime.datetime.fromisoformat(metadata["endtime"])
+      if metadata["endtime"]
+      else None
+  )
   day = start_date.date()
   previous_clock = start_date.timetz().replace(tzinfo=None)
   starts = {}
@@ -2396,7 +2445,18 @@ def formal_run_taints(result, log, load_monitor, manifest):
     ended = ends.get(task, monitor_end)
     if ended is None:
       raise RuntimeError("load monitor ended before an active task could be bounded")
+    if (task in ends and ended < started) or (
+        task in complete and result_end is not None and ended > result_end
+    ):
+      raise RuntimeError("BenchExec task timeline is invalid")
     ended += datetime.timedelta(seconds=1)
+    if result_end is not None:
+      ended = min(ended, result_end)
+    if (
+        task in complete
+        and (started < monitor_start or ended > monitor_end)
+    ):
+      tainted.setdefault(task, "missing_load_monitor_coverage")
     if any(started <= stop and ended >= begin for begin, stop in intervals):
       tainted.setdefault(task, "foreign_p_core_contention")
   return tainted
@@ -2425,6 +2485,153 @@ def command_formal_taint(args):
       ],
   }, indent=2) + "\n", encoding="utf-8")
   print(output)
+
+
+def validate_frozen_artifact_manifest(root, manifest_hash, aggregate_hash):
+  declared_root = Path(root)
+  if declared_root.is_symlink():
+    raise RuntimeError("frozen recovery root must not be a symlink")
+  root = declared_root.resolve()
+  manifest_path = root / "provenance/artifact-manifest.json"
+  if (
+      not root.is_dir()
+      or root.is_symlink()
+      or not manifest_path.is_file()
+      or manifest_path.is_symlink()
+      or baseline.sha256_file(manifest_path) != manifest_hash
+  ):
+    raise RuntimeError("frozen recovery artifact manifest does not match")
+  manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+  if (
+      not isinstance(manifest, dict)
+      or set(manifest) != {"root", "file_count", "aggregate_sha256", "files"}
+      or not isinstance(manifest["root"], str)
+      or not isinstance(manifest["file_count"], int)
+      or not isinstance(manifest["aggregate_sha256"], str)
+      or not isinstance(manifest["files"], list)
+      or manifest["root"] != FROZEN_CAP8_R8_FAILURE_ROOT
+      or manifest["aggregate_sha256"] != aggregate_hash
+      or manifest["file_count"] != len(manifest["files"])
+  ):
+    raise RuntimeError("frozen recovery artifact identity does not match")
+  actual = []
+  for path in root.rglob("*"):
+    mode = path.lstat().st_mode
+    if stat.S_ISDIR(mode):
+      continue
+    if not stat.S_ISREG(mode):
+      raise RuntimeError(f"unsupported frozen recovery artifact node: {path}")
+    if path != manifest_path:
+      actual.append(path)
+  entries = []
+  aggregate = hashlib.sha256()
+  for path in sorted(actual):
+    relative = path.relative_to(root).as_posix()
+    digest = baseline.sha256_file(path)
+    entries.append({
+        "path": relative,
+        "size_bytes": path.stat().st_size,
+        "sha256": digest,
+    })
+    aggregate.update(relative.encode("utf-8"))
+    aggregate.update(b"\0")
+    aggregate.update(bytes.fromhex(digest))
+  if (
+      entries != manifest["files"]
+      or aggregate.hexdigest() != aggregate_hash
+  ):
+    raise RuntimeError("frozen recovery artifact tree does not match")
+  return root
+
+
+def command_validate_cap8_r8_recovery(args):
+  root = validate_frozen_artifact_manifest(
+      args.root,
+      FROZEN_CAP8_R8_FAILURE_MANIFEST_SHA256,
+      FROZEN_CAP8_R8_FAILURE_AGGREGATE_SHA256,
+  )
+  manifest_path = root / "input/formal/candidate-manifest-valkyrie-formal.json"
+  if baseline.sha256_file(manifest_path) != FROZEN_FORMAL_MANIFEST_SHA256:
+    raise RuntimeError("frozen recovery formal manifest does not match")
+  manifest = baseline.load_task_manifest(manifest_path)
+  rep1_plan = root / "repetition-1-plan.json"
+  if baseline.sha256_file(rep1_plan) != FROZEN_CAP8_R8_REP1_PLAN_SHA256:
+    raise RuntimeError("frozen recovery repetition-1 plan does not match")
+  accepted_count = 270
+  if root == Path(FROZEN_CAP8_R8_FAILURE_ROOT):
+    accepted = load_repetition_plan(
+        rep1_plan,
+        manifest,
+        manifest_path,
+        "valkyrie",
+        args.sv_benchmarks,
+        root / "generated/hard-case-candidates.xml",
+        200,
+    )
+    accepted_count = len(accepted["rows"])
+  if accepted_count != 270:
+    raise RuntimeError("frozen recovery repetition-1 is not complete")
+
+  plan = json.loads(rep1_plan.read_text(encoding="utf-8"))
+  primary = root / plan["primary"]["path"]
+  rep1_taint = validate_taint_manifest(
+      json.loads((root / plan["taint"]["path"]).read_text(encoding="utf-8")),
+      1,
+      plan["primary"]["sha256"],
+      manifest,
+  )
+  observed_rep1_taint = formal_run_taints(
+      primary,
+      root / "provenance/repetition-1-benchexec.log",
+      root / "provenance/repetition-1-load-monitor.jsonl",
+      manifest,
+  )
+  replacement = root / plan["replacements"][0]["path"]
+  observed_replacement_taint = formal_run_taints(
+      replacement,
+      root / "provenance/repetition-1-replacement-attempt-1-benchexec.log",
+      root / "provenance/repetition-1-replacement-attempt-1-load-monitor.jsonl",
+      manifest,
+  )
+  if (
+      observed_rep1_taint != rep1_taint
+      or len(rep1_taint) != 18
+      or observed_replacement_taint
+      or not (
+          root / "provenance/repetition-1-load-monitor.jsonl.stopped"
+      ).is_file()
+      or not (
+          root
+          / "provenance/"
+          "repetition-1-replacement-attempt-1-load-monitor.jsonl.stopped"
+      ).is_file()
+  ):
+    raise RuntimeError("frozen recovery repetition-1 monitor evidence does not match")
+
+  rep2_result = root / FROZEN_CAP8_R8_REP2_RESULT
+  rep2_taint = formal_run_taints(
+      rep2_result,
+      root / "provenance/repetition-2-benchexec.log",
+      root / "provenance/repetition-2-load-monitor.jsonl",
+      manifest,
+  )
+  reasons = collections.Counter(rep2_taint.values())
+  if (
+      len(rep2_taint) != 257
+      or reasons != {
+          "interrupted_incomplete": 253,
+          "missing_load_monitor_coverage": 4,
+      }
+      or (root / "provenance/repetition-2-load-monitor.jsonl.stopped").exists()
+  ):
+    raise RuntimeError("frozen recovery repetition-2 coverage does not match")
+  print(json.dumps({
+      "artifact_manifest_sha256": FROZEN_CAP8_R8_FAILURE_MANIFEST_SHA256,
+      "artifact_aggregate_sha256": FROZEN_CAP8_R8_FAILURE_AGGREGATE_SHA256,
+      "repetition_1_accepted": accepted_count,
+      "repetition_2_accepted": len(manifest) - len(rep2_taint),
+      "repetition_2_tainted": len(rep2_taint),
+  }, sort_keys=True))
 
 
 def row_is_complete(row):
@@ -2996,6 +3203,14 @@ def main():
   formal_taint.add_argument("--load-monitor", required=True)
   formal_taint.add_argument("--output", required=True)
   formal_taint.set_defaults(function=command_formal_taint)
+  validate_cap8_recovery = commands.add_parser(
+      "validate-cap8-r8-recovery"
+  )
+  validate_cap8_recovery.add_argument("--root", required=True)
+  validate_cap8_recovery.add_argument("--sv-benchmarks", required=True)
+  validate_cap8_recovery.set_defaults(
+      function=command_validate_cap8_r8_recovery
+  )
   summarize = commands.add_parser("summarize")
   add_phase_b_inputs(summarize)
   summarize.add_argument("--manifest", required=True)
