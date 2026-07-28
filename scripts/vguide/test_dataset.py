@@ -35,26 +35,51 @@ dataset = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(dataset)
 
 
-def write_stock_result(path, tasks, host, formal=False, omit=None, marker=""):
-  limit = "900s" if formal else "120s"
+def write_stock_result(
+    path, tasks, host, formal=False, omit=None, marker="", probe=False
+):
+  limit = "900s" if formal or probe else "120s"
   root = ET.Element(
       "result",
       {
-          "benchmarkname": f"hard-case-candidates.{marker}",
+          "benchmarkname": (
+              "cegar-eligibility.probe"
+              if probe
+              else f"hard-case-candidates.{marker}"
+          ),
           "starttime": f"2026-07-27T00:00:{marker or '00'}+08:00",
           "endtime": f"2026-07-27T00:01:{marker or '00'}+08:00",
           "tool": "CPAchecker",
           "version": dataset.FROZEN_CPACHECKER_VERSION,
           "toolmodule": dataset.FROZEN_TOOLMODULE,
           "generator": dataset.FROZEN_BENCHEXEC_GENERATOR,
-          "displayName": dataset.FORMAL_DISPLAY if formal else dataset.DISCOVERY_DISPLAY,
+          "displayName": (
+              dataset.PROBE_DISPLAY
+              if probe
+              else dataset.FORMAL_DISPLAY
+              if formal
+              else dataset.DISCOVERY_DISPLAY
+          ),
           "memlimit": "15000000000B",
           "timelimit": limit,
-          "cpuCores": "4",
+          "cpuCores": "1" if probe else "4",
           "block": "official",
-          "name": "hard-case-candidates.official",
+          "name": (
+              "cegar-eligibility.official"
+              if probe
+              else "hard-case-candidates.official"
+          ),
           "options": (
-              f"--svcomp27 --heap 10000M --benchmark --timelimit {limit[:-1]} s"
+              (
+                  "--predicateAnalysis-vguide --heap 10000M "
+                  "--timelimit 900 s --option vguide.enable=true "
+                  "--option vguide.provider=EMPTY"
+              )
+              if probe
+              else (
+                  f"--svcomp27 --heap 10000M --benchmark "
+                  f"--timelimit {limit[:-1]} s"
+              )
           ),
       },
   )
@@ -5995,6 +6020,54 @@ copy_phase_evidence "$2"
             paths,
             identities,
         )
+  def test_cap16_probe_plan_authenticates_one_core_primary(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root)
+      manifest_path = Path(fixture.parent_manifest)
+      manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+      definition_dir = root / "probe-definition"
+      dataset.render_probe(
+          manifest_path,
+          manifest,
+          manifest["tasks"],
+          root,
+          root / "c/properties/unreach-call.prp",
+          definition_dir,
+      )
+      primary = root / "probe-primary.xml"
+      write_stock_result(
+          primary, manifest["tasks"], "athena", probe=True
+      )
+      plan_path = root / "probe-plan.json"
+      dataset.command_cap16_probe_plan(
+          SimpleNamespace(
+              manifest=str(manifest_path),
+              repetition=1,
+              primary_result=str(primary),
+              taint_manifest=None,
+              replacement_result=None,
+              replacement_definition=None,
+              replacement_taint_manifest=None,
+              output=str(plan_path),
+          )
+      )
+
+      loaded = dataset.load_screen_plan(
+          plan_path,
+          dataset.baseline.load_task_manifest(manifest_path),
+          manifest_path,
+          "athena",
+          root,
+          definition_dir / "cegar-eligibility.xml",
+          plan_schema=dataset.CAP16_PROBE_PLAN_SCHEMA,
+          display=dataset.PROBE_DISPLAY,
+          time_limit="900 s",
+          taint_schema=dataset.CAP16_PROBE_TAINT_SCHEMA,
+          definition_validator=dataset.validate_probe_definition,
+      )
+
+      self.assertEqual(len(loaded["rows"]), len(manifest["tasks"]))
 
   def test_frozen_attempt_2_recovery_is_exact_and_has_no_log_exception(self):
     frozen = dataset.FROZEN_CAP16_ATHENA_ATTEMPT_2_V2_RECOVERY_SELECTION
@@ -7994,18 +8067,268 @@ test "$(cat "$root/partial-summary/new")" = new
         "cegar_eligible",
     )
 
+  def test_probe_telemetry_requires_exact_empty_provider_events(self):
+    events = [
+        {
+            "schema_version": "vguide-telemetry-v1",
+            "refinement": 1,
+            "counterexample_visits_loop_head": True,
+            "provider_calls": [
+                {
+                    "agent_role": role,
+                    "model": "deterministic-empty-provider",
+                    "response_sha256":
+                        "950ec9013b84aed3afe9761427511822630e80cd5f009e837389312830deba94",
+                }
+                for role in ("invariant", "counterexample", "refinement")
+            ],
+            "activated_candidates": [],
+            "rejected_candidates": 0,
+        }
+    ]
+
+    self.assertEqual(
+        dataset.validate_probe_events(events), "cegar_eligible"
+    )
+    for mutate in (
+        lambda event: event.update(extra=True),
+        lambda event: event["provider_calls"].append(
+            event["provider_calls"][0]
+        ),
+        lambda event: event["activated_candidates"].append(
+            {"predicate": "x"}
+        ),
+        lambda event: event.update(rejected_candidates=1),
+        lambda event: event.update(rejected_candidates=False),
+        lambda event: event.update(refinement=True),
+        lambda event: event.update(refinement=1.0),
+        lambda event: event["provider_calls"][0].update(model="remote"),
+    ):
+      changed = json.loads(json.dumps(events))
+      mutate(changed[0])
+      with self.assertRaises(RuntimeError):
+        dataset.validate_probe_events(changed)
+
+  def test_probe_telemetry_requires_sequential_refinements(self):
+    event = {
+        "schema_version": "vguide-telemetry-v1",
+        "refinement": 2,
+        "counterexample_visits_loop_head": False,
+        "provider_calls": [
+            {
+                "agent_role": role,
+                "model": "deterministic-empty-provider",
+                "response_sha256":
+                    "950ec9013b84aed3afe9761427511822630e80cd5f009e837389312830deba94",
+            }
+            for role in ("invariant", "counterexample", "refinement")
+        ],
+        "activated_candidates": [],
+        "rejected_candidates": 0,
+    }
+
+    with self.assertRaises(RuntimeError):
+      dataset.validate_probe_events([event])
+
+  def test_probe_telemetry_mapping_rejects_ambiguous_and_unknown_tasks(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      result = root / "run.results.cegar-eligibility.official.xml"
+      xml = ET.Element("result")
+      for name in ("a/same.yml", "b/same.yml"):
+        ET.SubElement(xml, "run", {"name": name})
+      ET.ElementTree(xml).write(result, encoding="unicode")
+      manifest = {
+          name: {"task_path": name}
+          for name in ("a/same.yml", "b/same.yml")
+      }
+      with self.assertRaisesRegex(RuntimeError, "ambiguous"):
+        dataset.probe_result_telemetry(result, manifest)
+
+      xml.remove(xml.findall("run")[1])
+      ET.ElementTree(xml).write(result, encoding="unicode")
+      manifest = {"a/same.yml": {"task_path": "a/same.yml"}}
+      misplaced = root / "vguide-telemetry.json"
+      misplaced.write_text("[]\n", encoding="utf-8")
+      with self.assertRaisesRegex(RuntimeError, "misplaced telemetry"):
+        dataset.probe_result_telemetry(result, manifest)
+      misplaced.unlink()
+      self.assertEqual(
+          dataset.probe_result_telemetry(result, manifest),
+          {"a/same.yml": None},
+      )
+      files = root / "run.files/cegar-eligibility"
+      unknown = files / "unknown.yml/output/vguide-telemetry.json"
+      unknown.parent.mkdir(parents=True)
+      unknown.write_text("[]\n", encoding="utf-8")
+      with self.assertRaisesRegex(RuntimeError, "unknown telemetry"):
+        dataset.probe_result_telemetry(result, manifest)
+
+  def test_probe_summary_accepts_no_files_for_explicit_verifier_failure(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      manifest_path = root / "manifest.json"
+      manifest_data = {
+          "task_count": 1,
+          "tasks": [{
+              "task": "a.yml",
+              "task_path": "a.yml",
+              "expected_verdict": "true",
+              "benchmark_set": "Loops",
+          }],
+      }
+      manifest_path.write_text(
+          json.dumps(manifest_data), encoding="utf-8"
+      )
+      result = root / "run.results.cegar-eligibility.official.xml"
+      xml = ET.Element("result")
+      ET.SubElement(xml, "run", {"name": "a.yml"})
+      ET.ElementTree(xml).write(result, encoding="unicode")
+      plan = {
+          "row_sources": [{
+              "task": "a.yml",
+              "result_path": result.name,
+              "result_sha256": dataset.baseline.sha256_file(result),
+              "source": "primary",
+          }],
+          "rows": {
+              "a.yml": {
+                  "task": "a.yml",
+                  "classification": "verifier_or_resource_error",
+                  "status": "ERROR",
+                  "category": "error",
+              }
+          },
+      }
+      with (
+          mock.patch.object(
+              dataset,
+              "validate_cap16_probe_input",
+              return_value=(
+                  root,
+                  manifest_path,
+                  manifest_data,
+                  [{"task": "a.yml"}],
+                  {},
+              ),
+          ),
+          mock.patch.object(dataset, "validate_probe_definition"),
+          mock.patch.object(dataset, "load_screen_plan", return_value=plan),
+          mock.patch.object(
+              dataset, "declared_plan_file", return_value=result
+          ),
+      ):
+        rows, _, _ = dataset.cap16_probe_summary_rows(
+            SimpleNamespace(
+                probe_input=str(root),
+                sv_benchmarks=str(root),
+                benchmark_definition=str(root / "probe.xml"),
+                probe_plan=str(root / "plan.json"),
+            )
+        )
+
+      self.assertEqual(
+          rows[0]["probe_classification"], "infrastructure_failure"
+      )
+
+  def test_cap16_probe_runner_has_no_arbitrary_hard_csv_input(self):
+    runner = Path(__file__).with_name(
+        "run-cap16-cegar-probe.sh"
+    ).read_text(encoding="utf-8")
+    self.assertIn("CAP16_FORMAL_OUTPUT OUTPUT_DIR", runner)
+    self.assertNotIn("HARD_PORTFOLIO_CSV", runner)
+    self.assertIn("validate-formal-closure", runner)
+    self.assertIn(
+        'diff -r -- "$EXPECTED_INPUT" "$OUTPUT_DIR/input/formal"', runner
+    )
+    self.assertIn("require-formal-process-gone", runner)
+    self.assertIn("missing-atomic-attempt-completion", runner)
+    self.assertIn('-L "$OUTPUT_DIR/summary/.complete"', runner)
+    self.assertIn("--mode cap16-probe", runner)
+    self.assertIn("-N 8 -c 1", runner)
+    self.assertIn("vguide.provider=EMPTY", Path(__file__).with_name(
+        "dataset.py"
+    ).read_text(encoding="utf-8"))
+
+  def test_cap16_probe_summary_writes_all_four_strata(self):
+    with tempfile.TemporaryDirectory() as temp:
+      rows = [
+          {
+              "task": f"task-{index}",
+              "probe_classification": classification,
+          }
+          for index, classification in enumerate((
+              "cegar_eligible",
+              "structurally_unreachable",
+              "hook_reached_without_loop_head",
+              "infrastructure_failure",
+          ))
+      ]
+      plan = {
+          "plan_sha256": "a" * 64,
+          "primary_sha256": "b" * 64,
+          "replacement_sha256": [],
+          "row_sources": [],
+      }
+      identity = {
+          "formal_artifact_aggregate_sha256": "c" * 64,
+          "probe_manifest_sha256": "d" * 64,
+      }
+      with mock.patch.object(
+          dataset,
+          "cap16_probe_summary_rows",
+          return_value=(rows, plan, identity),
+      ):
+        summary = dataset.write_cap16_probe_summary(
+            SimpleNamespace(output_dir=temp)
+        )
+      self.assertEqual(
+          summary["classifications"],
+          {
+              "cegar_eligible": 1,
+              "hook_reached_without_loop_head": 1,
+              "infrastructure_failure": 1,
+              "structurally_unreachable": 1,
+          },
+      )
+      for filename in (
+          "cegar-eligible.csv",
+          "structurally-unreachable.csv",
+          "hook-reached-without-loop-head.csv",
+          "infrastructure-failure.csv",
+      ):
+        with (Path(temp) / filename).open(
+            newline="", encoding="utf-8"
+        ) as source:
+          self.assertEqual(len(list(csv.DictReader(source))), 1)
+
   def test_probe_uses_one_core_per_single_threaded_predicate_run(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
       manifest = root / "manifest.json"
+      task = root / "example.yml"
+      source = root / "example.c"
+      task.write_text("task\n", encoding="utf-8")
+      source.write_text("int main(void) {}\n", encoding="utf-8")
+      property_file = root / "c/properties/unreach-call.prp"
+      property_file.parent.mkdir(parents=True)
+      property_file.write_text("CHECK\n", encoding="utf-8")
       manifest.write_text(
           json.dumps(
               {
+                  "task_count": 1,
                   "tasks": [
                       {
                           "task": "c/example.yml",
-                          "task_path": "c/example.yml",
+                          "task_path": "example.yml",
+                          "task_sha256": dataset.baseline.sha256_file(task),
                           "source": "sv-benchmarks",
+                          "source_paths": ["example.c"],
+                          "source_sha256": [
+                              dataset.baseline.sha256_file(source)
+                          ],
+                          "expected_verdict": "true",
+                          "benchmark_set": "Loops",
                       }
                   ]
               }
@@ -8024,7 +8347,7 @@ test "$(cat "$root/partial-summary/new")" = new
               manifest=str(manifest),
               hard_portfolio=str(hard),
               sv_benchmarks=str(root),
-              property_file=str(root / "unreach-call.prp"),
+              property_file=str(property_file),
               output_dir=str(output),
           )
       )
@@ -8032,6 +8355,22 @@ test "$(cat "$root/partial-summary/new")" = new
       self.assertEqual(
           ET.parse(output / "cegar-eligibility.xml").getroot().get("cpuCores"), "1"
       )
+      benchmark = output / "cegar-eligibility.xml"
+      tree = ET.parse(benchmark)
+      provider = next(
+          option
+          for option in tree.getroot().findall("option")
+          if option.text == "vguide.provider=EMPTY"
+      )
+      provider.text = "vguide.provider=REMOTE"
+      tree.write(benchmark, encoding="unicode")
+      with self.assertRaisesRegex(RuntimeError, "topology is not frozen"):
+        dataset.validate_probe_definition(
+            benchmark,
+            manifest,
+            json.loads(manifest.read_text(encoding="utf-8")),
+            root,
+        )
 
   def test_license_evidence_uses_headers_or_same_directory_license(self):
     with tempfile.TemporaryDirectory() as temp:
