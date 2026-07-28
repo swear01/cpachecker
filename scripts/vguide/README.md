@@ -208,11 +208,14 @@ definitively inactive/not found. If either the exact owned process or unit is
 still alive, resume fails closed and never signals it. For an authenticated
 markerless incomplete attempt, resume atomically records an unobserved monitor
 stop, a recovery machine snapshot/check, and reserved exit `125`, then validates
-the BenchExec log against every complete XML row. Only missing/in-flight or
-sustained-contention rows enter the taint/replacement plan; the completed
-untainted rows and original result remain in place. Forged, overlapping,
-inconsistent, or insufficient evidence fails closed instead of abandoning the
-whole attempt.
+the BenchExec log against every complete XML row. Authenticated structured XML
+is the only reusable-completion oracle. If the recovered load monitor has valid
+trailing NUL padding, exactly one final console-log completion that is absent
+from the incomplete XML is treated as interrupted; every other XML/log
+mismatch fails closed. Only missing/in-flight or sustained-contention rows
+enter the taint/replacement plan; the completed untainted rows and original
+result remain in place. Forged, overlapping, inconsistent, or insufficient
+evidence fails closed instead of abandoning the whole attempt.
 Recovery evidence is revision-addressed at
 `provenance/recoveries/<attempt-label>/<full-research-head>/` with exactly
 `monitor-stopped`, `machine-after.json`, and `machine-check.json`. The runner
@@ -239,11 +242,16 @@ interrupted move only when each selected and displaced object exists in exactly
 one expected location. Both ledgers and directory renames are fsynced. The
 legacy version-1 PID identities are accepted only through that pinned selection
 and must prove a reboot because their recorded `/proc` start ticks exceed the
-recovery boot uptime. New identities include the kernel boot UUID and exact
-positive type/range checks for normal attempts; they are not accepted by the
-markerless recovery path. That path is deliberately limited to the exact pinned
-legacy selection instead of trusting owner-writable PID evidence as a general
-oracle. Only a proven reboot records machine counters as unavailable. Recovered
+recovery boot uptime. General new identities, which include the kernel boot UUID
+and exact positive type/range checks, are not accepted by the markerless
+recovery path. Its one frozen version-2 selection pins the exact replacement
+label, role, repetition, captured boot UUID, result-directory digest, and every
+definition, result, console, load-monitor, process, machine, task-set, and prior
+taint input. Every other version-2 attempt remains rejected; mixed schemas or
+any drift fail closed. The result-directory digest uses the production helper's
+Python `Path` part ordering; reproduce it with that helper or `PurePosixPath`,
+not a plain sort of relative strings. Only a proven reboot records machine
+counters as unavailable. Recovered
 snapshots still require identical host, platform, kernel, CPU model,
 online/P-core sets, and Java identity; recorded `/proc/meminfo` `MemTotal` is
 not an identity field because its reported byte count can change across boots.
@@ -516,10 +524,11 @@ foreign process is sustained contention only when it consumes at least 50% of
 one logical CPU in every sample for at least 10 consecutive seconds. The
 JSON-lines evidence records the fixed policy, timestamps, process identity,
 measured percentage, and streak duration. Monitor death, an unclean stop, no
-sample, malformed evidence, or a mismatch between the BenchExec event log and
-result rows fails closed. Before each primary or replacement run, launch waits
-until the monitor has ten samples and its latest sample contains no sustained
-contender; brief activity below the frozen threshold does not block launch.
+sample, malformed evidence, or an event-log/result mismatch outside the exact
+authenticated abrupt-recovery case above fails closed. Before each primary or
+replacement run, launch waits until the monitor has ten samples and its latest
+sample contains no sustained contender; brief activity below the frozen
+threshold does not block launch.
 
 The runner builds stock CPAchecker, performs the ten-second machine preflight,
 generates the fixed 900/910/920 definition with `render-formal`, and executes

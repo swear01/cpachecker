@@ -231,6 +231,109 @@ LEGACY_CAP16_ATHENA_REPETITION_1 = {
         ),
     },
 }
+FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION = {
+    "label": "repetition-1-replacement-attempt-1",
+    "role": "replacement",
+    "repetition": 1,
+    "captured_boot_id": "4e287d3c-8495-4da6-a0dd-b0b7de2b58d8",
+    "result_directory": "results/repetition-1-replacement-attempt-1",
+    "result_directory_digest": (
+        "e2180b2dd7a9826616cc55455542add6f0694120bf99642a60019008e6ff5155"
+    ),
+    "files": {
+        "definition": {
+            "path": (
+                "generated/repetition-1-replacement-attempt-1/"
+                "hard-case-candidates.xml"
+            ),
+            "sha256": (
+                "34e96a54f23ac11a5d82aac84a9db72432ebb1c59e05ef5dbe274771b2fc8766"
+            ),
+        },
+        "result": {
+            "path": (
+                "results/repetition-1-replacement-attempt-1/"
+                "hard-case-candidates.hard-case-dataset-v2-cap16-formal-"
+                "athena-repetition-1-replacement-attempt-1."
+                "2026-07-29_04-46-16.results.hard-case-candidates.official.xml"
+            ),
+            "sha256": (
+                "06b98488f825be43a0fde6f4dc81993f3bafcd8459daaea316bd97c266aa0040"
+            ),
+        },
+        "benchexec_log": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-1-benchexec.log"
+            ),
+            "sha256": (
+                "46bb63eae4354f786e26d54eea8275adde32e2ac229275540f99ac28e2d96b84"
+            ),
+        },
+        "benchexec_process": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-1-"
+                "benchexec.process.json"
+            ),
+            "sha256": (
+                "5c0f0d475c6b7267b91059c48b180e3983e89bce1d6d6af241063dff2fab3112"
+            ),
+        },
+        "process_descriptor": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-1-"
+                "process-descriptor.json"
+            ),
+            "sha256": (
+                "ae49183bb0e334399748e27ac41c206335d4633af2cffc96e0c93a792441dda3"
+            ),
+        },
+        "load_monitor": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-1-"
+                "load-monitor.jsonl"
+            ),
+            "sha256": (
+                "8639dfcee19656b22a4b2309d8061778a67523410b4a796f40d2f9f691aa278b"
+            ),
+        },
+        "monitor_pid": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-1-"
+                "load-monitor.jsonl.pid"
+            ),
+            "sha256": (
+                "ecc33d65a19e02feeb1c4b8cbbdb042c147c56ecbfa9709b74cc13af2c55fe23"
+            ),
+        },
+        "monitor_process": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-1-"
+                "load-monitor.jsonl.process.json"
+            ),
+            "sha256": (
+                "7c35eab1704cc6ce530ad6c009d0e77ccc1252559d4bd819253687e7d6517642"
+            ),
+        },
+        "machine_before": {
+            "path": (
+                "provenance/machine-before-repetition-1-"
+                "replacement-attempt-1.json"
+            ),
+            "sha256": (
+                "f7e1206c6189c22a9602610ae1cb5e57c59187c4d22c34e528920b4bd31b1d3f"
+            ),
+        },
+    },
+    "closure_files": {
+        (
+            "generated/repetition-1-replacement-attempt-1/"
+            "hard-case-candidates-official.set"
+        ): "ac0c97d6ddd04ee815339e7fb8610c26fa44dd55ea16e0695b203923b2c50869",
+        "repetition-1-taint.json": (
+            "ed9c66b357231bf3dc1769d53bab67a4b34f97446604151626350bbf8d3c6f38"
+        ),
+    },
+}
 
 
 def sha256_text(value):
@@ -3642,13 +3745,18 @@ def formal_attempt_record(args):
   if recovered:
     if not metadata["incomplete"]:
       raise RuntimeError("recovered formal attempt result is not incomplete")
-    if {
-        benchexec_identity["schema_version"],
-        process_identity["schema_version"],
-    } != {LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA}:
-      raise RuntimeError(
-          "formal recovery requires an exact frozen legacy selection"
-      )
+    identities = {
+        "benchexec-launcher": benchexec_identity,
+        "load-monitor": process_identity,
+    }
+    validate_markerless_recovery_identity_selection(
+        root,
+        args.label,
+        args.role,
+        args.repetition,
+        {name: path for name, (path, _) in paths.items()},
+        identities,
+    )
     run_taints(
         paths["result"][0],
         paths["benchexec_log"][0],
@@ -3656,10 +3764,6 @@ def formal_attempt_record(args):
         manifest,
         allow_trailing_nul=True,
     )
-    identities = {
-        "benchexec-launcher": benchexec_identity,
-        "load-monitor": process_identity,
-    }
     binding = actual_check.get("process_boot_binding")
     if not isinstance(binding, dict):
       raise RuntimeError("formal recovery boot binding is missing")
@@ -4308,6 +4412,58 @@ def formal_result_directory_digest(directory):
   return hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
 
 
+def validate_markerless_recovery_identity_selection(
+    root, label, role, repetition, paths, identities
+):
+  schemas = {identity["schema_version"] for identity in identities.values()}
+  if schemas == {LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA}:
+    return
+  if schemas != {FORMAL_PROCESS_IDENTITY_SCHEMA}:
+    raise RuntimeError("formal process identity schemas do not match")
+  selection = FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION
+  if (
+      label != selection["label"]
+      or role != selection["role"]
+      or repetition != selection["repetition"]
+      or set(identities) != {"benchexec-launcher", "load-monitor"}
+  ):
+    raise RuntimeError(
+        "formal recovery requires an exact frozen v2 selection"
+    )
+  root = Path(root).resolve()
+  for name, expected in selection["files"].items():
+    path = Path(paths[name])
+    expected_path = root / expected["path"]
+    if (
+        path != expected_path
+        or path.is_symlink()
+        or not path.is_file()
+        or baseline.sha256_file(path) != expected["sha256"]
+    ):
+      raise RuntimeError("frozen v2 recovery selection differs")
+  for relative, expected_hash in selection["closure_files"].items():
+    path = root / relative
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or baseline.sha256_file(path) != expected_hash
+    ):
+      raise RuntimeError("frozen v2 recovery selection differs")
+  result_directory = root / selection["result_directory"]
+  if (
+      result_directory.is_symlink()
+      or not result_directory.is_dir()
+      or formal_result_directory_digest(result_directory)
+      != selection["result_directory_digest"]
+  ):
+    raise RuntimeError("frozen v2 recovery selection differs")
+  captured = {identity["boot_id"] for identity in identities.values()}
+  if captured != {selection["captured_boot_id"]}:
+    raise RuntimeError("frozen v2 recovery boot identity differs")
+  if read_boot_id() == selection["captured_boot_id"]:
+    raise RuntimeError("frozen v2 recovery is not bound across reboot")
+
+
 def validate_recovery_result(directory, expected_hash, rows, complete):
   candidates = sorted(Path(directory).glob("*.xml"))
   if len(candidates) != 1:
@@ -4645,12 +4801,14 @@ def command_recover_formal_attempt(args):
     )
     validate_formal_process_identity(identity, expected)
     identities[role] = identity
-  if {
-      identity["schema_version"] for identity in identities.values()
-  } != {LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA}:
-    raise RuntimeError(
-        "formal recovery requires an exact frozen legacy selection"
-    )
+  validate_markerless_recovery_identity_selection(
+      root,
+      args.label,
+      args.role,
+      args.repetition,
+      inputs,
+      identities,
+  )
   canonical_label = (
       f"repetition-{args.repetition}"
       if args.role == "primary"
@@ -5065,7 +5223,10 @@ def run_taints(
   pattern = re.compile(
       r"^(\d{2}:\d{2}:\d{2})\s+(?:(starting)\s+)?(\S+\.yml)(?:\s+.*)?$"
   )
-  for line in Path(log).read_text(encoding="utf-8").splitlines():
+  log_bytes = Path(log).read_bytes()
+  if b"\0" in log_bytes:
+    raise RuntimeError("BenchExec log contains NUL bytes")
+  for line in log_bytes.decode("utf-8").splitlines():
     match = pattern.match(line)
     if not match:
       continue
@@ -5088,8 +5249,25 @@ def run_taints(
     target[task] = timestamp
   if set(ends) - set(starts):
     raise RuntimeError("BenchExec log completes a task that it never started")
+  if any(ended < starts[task] for task, ended in ends.items()):
+    raise RuntimeError("BenchExec log completes a task before it starts")
+  if monitor_end is not None and any(
+      timestamp > monitor_end
+      for timestamp in (*starts.values(), *ends.values())
+  ):
+    raise RuntimeError("BenchExec log event occurs after load monitor ended")
   complete = {task for task, row in rows.items() if row_is_complete(row)}
-  if complete != set(ends):
+  logged_complete = set(ends)
+  extra_logged_complete = logged_complete - complete
+  recovered_trailing_completion = (
+      allow_trailing_nul
+      and metadata["incomplete"]
+      and Path(load_monitor).read_bytes().endswith(b"\0")
+      and complete <= logged_complete
+      and len(extra_logged_complete) == 1
+      and next(reversed(ends)) in extra_logged_complete
+  )
+  if complete != logged_complete and not recovered_trailing_completion:
     raise RuntimeError("BenchExec log and complete result rows do not match")
   tainted = {
       task: "interrupted_incomplete"

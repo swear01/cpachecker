@@ -3085,6 +3085,11 @@ copy_phase_evidence "$2"
                       "contended": True,
                   }],
               }),
+              json.dumps({
+                  "timestamp": "2026-07-27T00:00:31+08:00",
+                  "elapsed_seconds": 17.0,
+                  "offenders": [],
+              }),
           ]) + "\n",
           encoding="utf-8",
       )
@@ -3104,6 +3109,172 @@ copy_phase_evidence "$2"
           [row["task"] for row in tainted],
           ["c/t0.yml", "c/t1.yml"],
       )
+
+  def test_recovered_taint_uses_xml_for_one_trailing_log_completion(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      tasks = [
+          {
+              "task": f"c/t{index}.yml",
+              "task_path": f"c/t{index}.yml",
+              "source_paths": [f"c/s{index}.c"],
+              "expected_verdict": "true",
+              "benchmark_set": "Loops",
+          }
+          for index in range(5)
+      ]
+      manifest = {task["task"]: task for task in tasks}
+      result = root / "result.xml"
+      write_stock_result(result, tasks, "athena", formal=True, marker="01")
+      result_root = ET.parse(result).getroot()
+      result_root.set("error", "incomplete")
+      result_root.attrib.pop("endtime")
+      for run in result_root.findall("run")[3:]:
+        for column in list(run):
+          run.remove(column)
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      monitor = root / "load.jsonl"
+      monitor.write_bytes(
+          (
+              json.dumps({
+                  "schema_version": dataset.FORMAL_LOAD_MONITOR_SCHEMA,
+                  "p_core_cpus": list(dataset.FORMAL_P_CORE_CPUS),
+                  "foreign_process_cpu_percent": 50.0,
+                  "minimum_consecutive_seconds": 10.0,
+                  "sample_interval_seconds": 1.0,
+                  "excluded_process_root": 123,
+              })
+              + "\n"
+              + json.dumps({
+                  "timestamp": "2026-07-27T00:00:30+08:00",
+                  "elapsed_seconds": 1.0,
+                  "offenders": [],
+              })
+              + "\n"
+          ).encode()
+          + (b"\0" * 16)
+      )
+      log = root / "benchexec.log"
+
+      def write_log(completed):
+        lines = []
+        for index, task in enumerate(tasks):
+          lines.append(f"00:00:0{index + 1}   starting   {task['task']}")
+        for index in completed:
+          lines.append(
+              f"00:00:{10 + index}              "
+              f"{tasks[index]['task']}   TIMEOUT 900 1"
+          )
+        log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+      write_log([0, 1, 2, 3])
+      tainted = dataset.run_taints(
+          result, log, monitor, manifest, allow_trailing_nul=True
+      )
+      self.assertEqual(
+          tainted,
+          {
+              "c/t3.yml": "interrupted_incomplete",
+              "c/t4.yml": "interrupted_incomplete",
+          },
+      )
+
+      unpadded_monitor = root / "unpadded-load.jsonl"
+      unpadded_monitor.write_bytes(monitor.read_bytes().rstrip(b"\0"))
+      with self.assertRaisesRegex(RuntimeError, "log and complete"):
+        dataset.run_taints(
+            result,
+            log,
+            unpadded_monitor,
+            manifest,
+            allow_trailing_nul=True,
+        )
+      with self.assertRaisesRegex(RuntimeError, "log and complete"):
+        dataset.run_taints(
+            result,
+            log,
+            unpadded_monitor,
+            manifest,
+            allow_trailing_nul=False,
+        )
+
+      write_log([0, 1, 2, 3, 4])
+      with self.assertRaisesRegex(RuntimeError, "log and complete"):
+        dataset.run_taints(
+            result, log, monitor, manifest, allow_trailing_nul=True
+        )
+
+      write_log([0, 1, 3, 2])
+      with self.assertRaisesRegex(RuntimeError, "log and complete"):
+        dataset.run_taints(
+            result, log, monitor, manifest, allow_trailing_nul=True
+        )
+
+      write_log([0, 1, 3])
+      with self.assertRaisesRegex(RuntimeError, "log and complete"):
+        dataset.run_taints(
+            result, log, monitor, manifest, allow_trailing_nul=True
+        )
+
+      log.write_text(
+          "00:00:01   starting   c/t0.yml\n"
+          "00:00:10              c/t0.yml   TIMEOUT 900 1\n"
+          "00:00:11              c/t3.yml   TIMEOUT 900 1\n",
+          encoding="utf-8",
+      )
+      with self.assertRaisesRegex(RuntimeError, "never started"):
+        dataset.run_taints(
+            result, log, monitor, manifest, allow_trailing_nul=True
+        )
+
+      log.write_text(
+          "00:00:01   starting   c/t0.yml\n"
+          "00:00:10              c/t0.yml   TIMEOUT 900 1\n"
+          "00:00:11              c/t0.yml   TIMEOUT 900 1\n",
+          encoding="utf-8",
+      )
+      with self.assertRaisesRegex(RuntimeError, "duplicate"):
+        dataset.run_taints(
+            result, log, monitor, manifest, allow_trailing_nul=True
+        )
+
+      log.write_text(
+          "00:00:01   starting   c/unknown.yml\n",
+          encoding="utf-8",
+      )
+      with self.assertRaisesRegex(RuntimeError, "exactly one manifest"):
+        dataset.run_taints(
+            result, log, monitor, manifest, allow_trailing_nul=True
+        )
+
+      log.write_bytes(
+          b"00:00:01   starting   c/t0.yml\n"
+          b"00:00:10              c/t0.yml   TIMEOUT 900 1\n\0"
+      )
+      with self.assertRaisesRegex(RuntimeError, "NUL bytes"):
+        dataset.run_taints(
+            result, log, monitor, manifest, allow_trailing_nul=True
+        )
+
+      log.write_text(
+          "00:00:10   starting   c/t0.yml\n"
+          "00:00:09              c/t0.yml   TIMEOUT 900 1\n",
+          encoding="utf-8",
+      )
+      with self.assertRaisesRegex(RuntimeError, "before it starts"):
+        dataset.run_taints(
+            result, log, monitor, manifest, allow_trailing_nul=True
+        )
+
+      log.write_text(
+          "00:00:01   starting   c/t0.yml\n"
+          "00:00:31              c/t0.yml   TIMEOUT 900 1\n",
+          encoding="utf-8",
+      )
+      with self.assertRaisesRegex(RuntimeError, "after load monitor ended"):
+        dataset.run_taints(
+            result, log, monitor, manifest, allow_trailing_nul=True
+        )
 
   def test_phase_b_zero_survivors_are_preserved_and_skip_formal(self):
     with tempfile.TemporaryDirectory() as temp:
@@ -3956,6 +4127,191 @@ copy_phase_evidence "$2"
         ):
           dataset.recovered_machine_check_record(before, after, binding)
 
+  def test_frozen_v2_markerless_recovery_selection_is_exact(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      paths = {}
+      for name in (
+          "definition",
+          "benchexec_log",
+          "benchexec_process",
+          "process_descriptor",
+          "load_monitor",
+          "monitor_pid",
+          "monitor_process",
+          "machine_before",
+      ):
+        path = root / f"evidence/{name}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{name}\n", encoding="utf-8")
+        paths[name] = path
+      result_directory = root / "results/replacement"
+      result_directory.mkdir(parents=True)
+      result = result_directory / "result.xml"
+      result.write_text("result\n", encoding="utf-8")
+      partial = result_directory / "partial.log"
+      partial.write_text("partial\n", encoding="utf-8")
+      paths["result"] = result
+      closure = root / "generated/tasks.set"
+      closure.parent.mkdir()
+      closure.write_text("task\n", encoding="utf-8")
+      captured_boot = "11111111-1111-1111-1111-111111111111"
+      recovery_boot = "22222222-2222-2222-2222-222222222222"
+      identities = {
+          role: {
+              "schema_version": dataset.FORMAL_PROCESS_IDENTITY_SCHEMA,
+              "boot_id": captured_boot,
+          }
+          for role in ("benchexec-launcher", "load-monitor")
+      }
+      selection = {
+          "label": "repetition-1-replacement-attempt-1",
+          "role": "replacement",
+          "repetition": 1,
+          "captured_boot_id": captured_boot,
+          "result_directory": result_directory.relative_to(root).as_posix(),
+          "result_directory_digest": (
+              dataset.formal_result_directory_digest(result_directory)
+          ),
+          "files": {
+              name: {
+                  "path": path.relative_to(root).as_posix(),
+                  "sha256": dataset.baseline.sha256_file(path),
+              }
+              for name, path in paths.items()
+          },
+          "closure_files": {
+              closure.relative_to(root).as_posix(): (
+                  dataset.baseline.sha256_file(closure)
+              ),
+          },
+      }
+      selection_patch = mock.patch.object(
+          dataset,
+          "FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION",
+          selection,
+      )
+      boot_patch = mock.patch.object(
+          dataset, "read_boot_id", return_value=recovery_boot
+      )
+      selection_patch.start()
+      boot_mock = boot_patch.start()
+      self.addCleanup(selection_patch.stop)
+      self.addCleanup(boot_patch.stop)
+
+      dataset.validate_markerless_recovery_identity_selection(
+          root,
+          selection["label"],
+          selection["role"],
+          selection["repetition"],
+          paths,
+          identities,
+      )
+
+      for label, role, repetition in (
+          ("repetition-1", selection["role"], selection["repetition"]),
+          (selection["label"], "primary", selection["repetition"]),
+          (selection["label"], selection["role"], 2),
+      ):
+        with self.subTest(
+            label=label, role=role, repetition=repetition
+        ), self.assertRaisesRegex(RuntimeError, "exact frozen v2"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, label, role, repetition, paths, identities
+          )
+
+      for name, path in paths.items():
+        original = path.read_bytes()
+        path.write_bytes(original + b"x")
+        with self.subTest(file=name), self.assertRaisesRegex(
+            RuntimeError, "selection differs"
+        ):
+          dataset.validate_markerless_recovery_identity_selection(
+              root,
+              selection["label"],
+              selection["role"],
+              selection["repetition"],
+              paths,
+              identities,
+          )
+        path.write_bytes(original)
+
+      for relative in selection["closure_files"]:
+        path = root / relative
+        original = path.read_bytes()
+        path.write_bytes(original + b"x")
+        with self.subTest(closure=relative), self.assertRaisesRegex(
+            RuntimeError, "selection differs"
+        ):
+          dataset.validate_markerless_recovery_identity_selection(
+              root,
+              selection["label"],
+              selection["role"],
+              selection["repetition"],
+              paths,
+              identities,
+          )
+        path.write_bytes(original)
+
+      for path in result_directory.iterdir():
+        original = path.read_bytes()
+        path.write_bytes(original + b"x")
+        with self.subTest(result_member=path.name), self.assertRaisesRegex(
+            RuntimeError, "selection differs"
+        ):
+          dataset.validate_markerless_recovery_identity_selection(
+              root,
+              selection["label"],
+              selection["role"],
+              selection["repetition"],
+              paths,
+              identities,
+          )
+        path.write_bytes(original)
+
+      mixed = {
+          **identities,
+          "load-monitor": {
+              "schema_version": (
+                  dataset.LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA
+              ),
+          },
+      }
+      with self.assertRaisesRegex(RuntimeError, "schemas do not match"):
+        dataset.validate_markerless_recovery_identity_selection(
+            root,
+            selection["label"],
+            selection["role"],
+            selection["repetition"],
+            paths,
+            mixed,
+        )
+
+      boot_mismatch = {
+          role: {**identity} for role, identity in identities.items()
+      }
+      boot_mismatch["load-monitor"]["boot_id"] = recovery_boot
+      with self.assertRaisesRegex(RuntimeError, "boot identity differs"):
+        dataset.validate_markerless_recovery_identity_selection(
+            root,
+            selection["label"],
+            selection["role"],
+            selection["repetition"],
+            paths,
+            boot_mismatch,
+        )
+
+      boot_mock.return_value = captured_boot
+      with self.assertRaisesRegex(RuntimeError, "not bound across reboot"):
+        dataset.validate_markerless_recovery_identity_selection(
+            root,
+            selection["label"],
+            selection["role"],
+            selection["repetition"],
+            paths,
+            identities,
+        )
+
   def test_formal_attempt_marker_requires_atomic_teardown_closure(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
@@ -3998,7 +4354,7 @@ copy_phase_evidence "$2"
           })
           + "\n"
           + json.dumps({
-              "timestamp": "2026-07-27T00:00:01+08:00",
+              "timestamp": "2026-07-27T00:00:30+08:00",
               "elapsed_seconds": 1,
               "offenders": [],
           })
@@ -4293,7 +4649,7 @@ copy_phase_evidence "$2"
       process_identity.write_bytes(normal_process_identity)
       benchexec_identity.write_bytes(normal_benchexec_identity)
       marker.write_bytes(normal_marker)
-      with self.assertRaisesRegex(RuntimeError, "exact frozen legacy"):
+      with self.assertRaisesRegex(RuntimeError, "exact frozen v2"):
         dataset.command_recover_formal_attempt(args)
       normal_result = result.read_bytes()
       normal_before = before.read_bytes()
@@ -4318,6 +4674,10 @@ copy_phase_evidence "$2"
                       )
                   ),
                   f"00:00:03   starting   {fixture.rows[-1]['task']}",
+                  (
+                      f"00:00:04              {fixture.rows[-1]['task']}   "
+                      "TIMEOUT 900 1"
+                  ),
               ]
           )
           + "\n",
