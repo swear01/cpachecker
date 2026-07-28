@@ -891,7 +891,9 @@ def benchexec_path_representations(
   sv_benchmarks = Path(sv_benchmarks).resolve()
   representations = {expected.as_posix()}
   try:
-    representations.add(expected.relative_to(sv_benchmarks).as_posix())
+    relative = expected.relative_to(sv_benchmarks).as_posix()
+    representations.add(relative)
+    representations.add(f"../../../../{sv_benchmarks.name}/{relative}")
   except ValueError:
     pass
   if benchmark_definition:
@@ -899,11 +901,6 @@ def benchexec_path_representations(
         expected, Path(benchmark_definition).resolve().parent
     ).replace("\\", "/")
     representations.add(relative)
-  else:
-    relative = expected.relative_to(sv_benchmarks).as_posix()
-    representations.add(
-        f"../../../../{sv_benchmarks.name}/{relative}"
-    )
   return representations
 
 
