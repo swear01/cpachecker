@@ -1073,6 +1073,8 @@ class DatasetTest(unittest.TestCase):
     self.assertIn('start_process_monitor "$OUTPUT_DIR/provenance/$label-', runner)
     self.assertIn("wait_for_process_monitor", runner)
     self.assertIn("wait_for_benchmark_with_monitor", runner)
+    self.assertIn("terminate_owned_session", runner)
+    self.assertIn("os.setsid()", runner)
     self.assertIn('systemctl --user stop "$scope"', runner)
     self.assertGreaterEqual(
         Path(__file__).with_name("dataset.py").read_text().count(
@@ -1550,25 +1552,55 @@ fi
 
       command = """
 source "$1"
+child_file=$2
 sleep 0.2 &
 MONITOR_PID=$!
-sleep 60 &
+setsid bash -c '
+  exec python3 -c '"'"'
+import os
+import signal
+import sys
+import time
+
+child = os.fork()
+if child == 0:
+  os.setpgrp()
+  signal.signal(signal.SIGTERM, signal.SIG_IGN)
+  with open(sys.argv[1], "w") as output:
+    output.write(str(os.getpid()))
+  time.sleep(60)
+else:
+  signal.signal(signal.SIGTERM, signal.SIG_IGN)
+  os.wait()
+'"'"' "$1"
+' bash "$child_file" &
 benchmark=$!
+while [[ ! -s "$child_file" ]]; do sleep 0.01; done
+child=$(cat "$child_file")
 systemctl() {
-  kill "$benchmark"
+  return 1
 }
 if wait_for_benchmark_with_monitor test.scope "$benchmark"; then
   exit 1
 fi
 ! kill -0 "$benchmark" 2>/dev/null
+for _ in {1..40}; do
+  if ! kill -0 "$child" 2>/dev/null; then
+    exit 0
+  fi
+  sleep 0.05
+done
+exit 1
 """
+      child_file = root / "benchmark-child.pid"
       stopped = subprocess.run(
-          ["bash", "-c", command, "bash", str(runner)],
+          ["bash", "-c", command, "bash", str(runner), str(child_file)],
           capture_output=True,
           text=True,
           timeout=5,
       )
       self.assertEqual(stopped.returncode, 0, stopped.stderr)
+      self.assertIn("terminating owned session", stopped.stderr)
       self.assertIn("process monitor died during BenchExec", stopped.stderr)
 
   def test_formal_runner_reverifies_runtime_closure(self):
@@ -2640,6 +2672,24 @@ copy_phase_evidence "$2"
             dataset.baseline.sha256_file(artifact),
             aggregate.hexdigest(),
         )
+        empty = root / "empty"
+        empty.mkdir()
+        with self.assertRaisesRegex(RuntimeError, "tree does not match"):
+          dataset.validate_frozen_artifact_manifest(
+              root,
+              dataset.baseline.sha256_file(artifact),
+              aggregate.hexdigest(),
+          )
+        empty.rmdir()
+        alias = root / "directory-alias"
+        alias.symlink_to(root / "provenance", target_is_directory=True)
+        with self.assertRaisesRegex(RuntimeError, "unsupported"):
+          dataset.validate_frozen_artifact_manifest(
+              root,
+              dataset.baseline.sha256_file(artifact),
+              aggregate.hexdigest(),
+          )
+        alias.unlink()
         fifo = root / "fifo"
         os.mkfifo(fifo)
         with self.assertRaisesRegex(RuntimeError, "unsupported"):

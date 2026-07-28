@@ -312,6 +312,9 @@ BenchExec event log and result rows fails closed. Before each primary or
 replacement run, launch waits
 until the monitor has ten samples and its latest sample contains no sustained
 contender; brief activity below the frozen threshold does not block launch.
+Each BenchExec launcher also owns a separate session. If stopping its exact
+systemd scope fails, teardown terminates every process group in that owned
+session, escalates to `SIGKILL`, and verifies that no descendant remains.
 
 The r9 runner is the exact recovery for the interrupted r8 Valkyrie output. It
 requires the frozen r8 failure tree whose 146-file aggregate is
@@ -329,6 +332,9 @@ CPAchecker, performs the ten-second machine preflight, generates the fixed
 900/910/920 definitions, and executes replacement attempts with `-N 2 -c 4`.
 The copied r8 tree is reauthenticated before measurement and twice during
 successful final closure, including once after the final artifact inventory.
+Authentication derives the only permitted directory set from the pinned file
+manifest plus the manifest file itself, so extra empty directories, symlinks,
+and other special nodes fail closed.
 Raw JAR bytes are not reproducible because ZIP metadata changes: two clean
 rebuilds produced raw hashes
 `424710996a6b93a6a23e73c35f55a33cb13f058f1dab3342598a30a0021e7b9c`

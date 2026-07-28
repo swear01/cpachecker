@@ -2515,16 +2515,26 @@ def validate_frozen_artifact_manifest(root, manifest_hash, aggregate_hash):
   ):
     raise RuntimeError("frozen recovery artifact identity does not match")
   actual = []
+  actual_directories = set()
   for path in root.rglob("*"):
     mode = path.lstat().st_mode
     if stat.S_ISDIR(mode):
+      actual_directories.add(path.relative_to(root).as_posix())
       continue
     if not stat.S_ISREG(mode):
       raise RuntimeError(f"unsupported frozen recovery artifact node: {path}")
     if path != manifest_path:
       actual.append(path)
   entries = []
+  expected_directories = set()
   aggregate = hashlib.sha256()
+  for relative in [
+      *(entry["path"] for entry in manifest["files"]),
+      "provenance/artifact-manifest.json",
+  ]:
+    for parent in Path(relative).parents:
+      if parent != Path("."):
+        expected_directories.add(parent.as_posix())
   for path in sorted(actual):
     relative = path.relative_to(root).as_posix()
     digest = baseline.sha256_file(path)
@@ -2539,6 +2549,7 @@ def validate_frozen_artifact_manifest(root, manifest_hash, aggregate_hash):
   if (
       entries != manifest["files"]
       or aggregate.hexdigest() != aggregate_hash
+      or actual_directories != expected_directories
   ):
     raise RuntimeError("frozen recovery artifact tree does not match")
   return root

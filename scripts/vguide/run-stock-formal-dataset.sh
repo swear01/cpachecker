@@ -511,18 +511,120 @@ wait_for_process_monitor() {
   done
 }
 
+owned_session_pids() {
+  local session=$1
+  local processes
+  if ! processes=$(ps -e -o pid=,sid=); then
+    echo "could not inspect benchmark session: $session" >&2
+    return 1
+  fi
+  awk -v session="$session" '$2 == session { print $1 }' <<<"$processes"
+}
+
+load_owned_session_pids() {
+  local session=$1
+  local processes
+  OWNED_SESSION_PIDS=()
+  if ! processes=$(owned_session_pids "$session"); then
+    return 1
+  fi
+  if [[ -n "$processes" ]]; then
+    mapfile -t OWNED_SESSION_PIDS <<<"$processes"
+  fi
+}
+
+terminate_owned_session() {
+  local leader=$1
+  local session
+  if ! session=$(ps -o sid= -p "$leader" | tr -d ' '); then
+    session=
+  fi
+  if [[ -n "$session" && "$session" != "$leader" ]]; then
+    echo "benchmark launcher does not own its session: $leader/$session" >&2
+    return 1
+  fi
+
+  for _ in {1..20}; do
+    if ! load_owned_session_pids "$leader"; then
+      return 1
+    fi
+    if [[ ${#OWNED_SESSION_PIDS[@]} -eq 0 ]]; then
+      return
+    fi
+    kill -TERM -- "${OWNED_SESSION_PIDS[@]}" 2>/dev/null || :
+    sleep 0.05
+  done
+
+  for _ in {1..20}; do
+    if ! load_owned_session_pids "$leader"; then
+      return 1
+    fi
+    if [[ ${#OWNED_SESSION_PIDS[@]} -eq 0 ]]; then
+      return
+    fi
+    kill -KILL -- "${OWNED_SESSION_PIDS[@]}" 2>/dev/null || :
+    sleep 0.05
+  done
+}
+
+wait_for_owned_session_exit() {
+  local leader=$1
+  for _ in {1..40}; do
+    if ! load_owned_session_pids "$leader"; then
+      return 1
+    fi
+    if [[ ${#OWNED_SESSION_PIDS[@]} -eq 0 ]]; then
+      return
+    fi
+    sleep 0.05
+  done
+  if ! load_owned_session_pids "$leader"; then
+    return 1
+  fi
+  echo "benchmark session survived monitor-failure teardown: ${OWNED_SESSION_PIDS[*]}" >&2
+  return 1
+}
+
 wait_for_benchmark_with_monitor() {
   local scope=$1
   local benchmark_pid=$2
   local benchmark_exit
+  local benchmark_session
+  for _ in {1..20}; do
+    if ! benchmark_session=$(ps -o sid= -p "$benchmark_pid" | tr -d ' '); then
+      benchmark_session=
+    fi
+    if [[ -z "$benchmark_session" || "$benchmark_session" == "$benchmark_pid" ]]; then
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ -n "$benchmark_session" && "$benchmark_session" != "$benchmark_pid" ]]; then
+    echo "benchmark launcher failed to establish an owned session" >&2
+    kill "$benchmark_pid"
+    wait "$benchmark_pid" 2>/dev/null || :
+    return 1
+  fi
   while kill -0 "$benchmark_pid" 2>/dev/null; do
     if ! kill -0 "$MONITOR_PID" 2>/dev/null; then
       if ! systemctl --user stop "$scope"; then
-        echo "could not stop $scope through systemd; terminating launcher" >&2
-        kill "$benchmark_pid" 2>/dev/null || :
+        echo "could not stop $scope through systemd; terminating owned session" >&2
+      fi
+      if ! terminate_owned_session "$benchmark_pid"; then
+        echo "owned-session termination reported an error" >&2
       fi
       wait "$benchmark_pid" 2>/dev/null || :
-      echo "process monitor died during BenchExec; stopped $scope" >&2
+      if ! wait_for_owned_session_exit "$benchmark_pid"; then
+        if ! terminate_owned_session "$benchmark_pid"; then
+          echo "owned-session termination retry reported an error" >&2
+        fi
+        if wait_for_owned_session_exit "$benchmark_pid"; then
+          echo "owned session required post-wait termination" >&2
+        else
+          return 1
+        fi
+      fi
+      echo "process monitor died during BenchExec; benchmark teardown complete" >&2
       return 1
     fi
     sleep 0.2
@@ -836,9 +938,10 @@ main() {
       --output "$OUTPUT_DIR/provenance/machine-before-$label.json"
     start_process_monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl"
     wait_for_process_monitor
-    (
-      cd "$CPACHECKER_DIR"
-      exec systemd-run --user --quiet --scope --collect \
+    "$PYTHON_BIN" -I -c \
+      'import os,sys; os.setsid(); os.chdir(sys.argv.pop(1)); os.execvp(sys.argv[1],sys.argv[1:])' \
+      "$CPACHECKER_DIR" \
+      systemd-run --user --quiet --scope --collect \
         --unit="${scope%.scope}" --slice=benchexec -p Delegate=yes \
         taskset -c "$P_CORES" env -i \
         HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
@@ -856,8 +959,8 @@ main() {
         --hidden-dir /home \
         --overlay-dir "$CPACHECKER_DIR" \
         -N 2 -c 4 \
-        "$definition"
-    ) >"$OUTPUT_DIR/provenance/$label-benchexec.log" 2>&1 &
+        "$definition" \
+      >"$OUTPUT_DIR/provenance/$label-benchexec.log" 2>&1 &
     benchmark_pid=$!
     wait_for_benchmark_with_monitor "$scope" "$benchmark_pid"
     stop_process_monitor
