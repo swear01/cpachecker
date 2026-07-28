@@ -312,9 +312,15 @@ BenchExec event log and result rows fails closed. Before each primary or
 replacement run, launch waits
 until the monitor has ten samples and its latest sample contains no sustained
 contender; brief activity below the frozen threshold does not block launch.
-Each BenchExec launcher also owns a separate session. If stopping its exact
-systemd scope fails, teardown terminates every process group in that owned
-session, escalates to `SIGKILL`, and verifies that no descendant remains.
+Each BenchExec launcher also owns a separate session, but teardown authority is
+the exact named systemd scope. The runner authenticates that scope's
+`ControlGroup` under `benchexec.slice`, recursively enumerates its
+`cgroup.procs`, and requires the preserved launcher PID to be a member. It then
+sends `SIGTERM` and repeated `SIGKILL`, reaps the launcher, and verifies that
+the cgroup is empty. Session inspection is only a secondary check, so a
+descendant that creates a new session still cannot escape. If the named cgroup
+cannot be authenticated, bound to that launcher, or read, the run fails without
+claiming successful termination.
 
 The r9 runner is the exact recovery for the interrupted r8 Valkyrie output. It
 requires the frozen r8 failure tree whose 146-file aggregate is

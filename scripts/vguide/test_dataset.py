@@ -1073,7 +1073,10 @@ class DatasetTest(unittest.TestCase):
     self.assertIn('start_process_monitor "$OUTPUT_DIR/provenance/$label-', runner)
     self.assertIn("wait_for_process_monitor", runner)
     self.assertIn("wait_for_benchmark_with_monitor", runner)
-    self.assertIn("terminate_owned_session", runner)
+    self.assertIn("authenticate_scope_cgroup", runner)
+    self.assertIn("cgroup_contains_pid", runner)
+    self.assertIn("terminate_owned_cgroup", runner)
+    self.assertIn('"$path/cgroup.procs"', runner)
     self.assertIn("os.setsid()", runner)
     self.assertIn('systemctl --user stop "$scope"', runner)
     self.assertGreaterEqual(
@@ -1550,9 +1553,121 @@ fi
       )
       self.assertFalse(Path(f"{killed_monitor}.stopped").exists())
 
+      fake_cgroup = root / "fake-cgroup"
+      nested_cgroup = fake_cgroup / "nested"
+      nested_cgroup.mkdir(parents=True)
+      (fake_cgroup / "cgroup.procs").write_text("22\n", encoding="ascii")
+      (nested_cgroup / "cgroup.procs").write_text("11\n22\n", encoding="ascii")
+      enumerated = subprocess.run(
+          [
+              "bash",
+              "-c",
+              """
+source "$1"
+load_owned_cgroup_pids "$2"
+printf '%s\\n' "${OWNED_CGROUP_PIDS[@]}"
+""",
+              "bash",
+              str(runner),
+              str(fake_cgroup),
+          ],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      self.assertEqual(enumerated.stdout.splitlines(), ["11", "22"])
+
+      unverified = subprocess.run(
+          [
+              "bash",
+              "-c",
+              """
+source "$1"
+sleep 0.2 &
+MONITOR_PID=$!
+setsid sleep 60 &
+benchmark=$!
+authenticate_scope_cgroup() {
+  return 1
+}
+systemctl() {
+  return 1
+}
+if wait_for_benchmark_with_monitor \
+  missing.scope "$benchmark" /missing.scope /missing.scope; then
+  exit 1
+fi
+! kill -0 "$benchmark" 2>/dev/null
+""",
+              "bash",
+              str(runner),
+          ],
+          capture_output=True,
+          text=True,
+          timeout=3,
+      )
+      self.assertEqual(unverified.returncode, 0, unverified.stderr)
+      self.assertIn("termination is unverified", unverified.stderr)
+
+      runtime_cgroup = root / "runtime-cgroup"
+      runtime_cgroup.mkdir()
+      unbound_scope = subprocess.run(
+          [
+              "bash",
+              "-c",
+              """
+source "$1"
+runtime_cgroup=$2
+stop_marker=$3
+sleep 0.2 &
+MONITOR_PID=$!
+setsid sleep 60 &
+benchmark=$!
+sleep 60 &
+unrelated=$!
+cleanup() {
+  kill "$unrelated" 2>/dev/null || :
+  wait "$unrelated" 2>/dev/null || :
+}
+trap cleanup EXIT
+load_owned_cgroup_pids() {
+  OWNED_CGROUP_PIDS=("$unrelated")
+}
+authenticate_scope_cgroup() {
+  if ! cgroup_contains_pid "$runtime_cgroup" "$benchmark"; then
+    return 1
+  fi
+  AUTHENTICATED_CONTROL_GROUP=/test.scope
+  AUTHENTICATED_CGROUP_PATH=$runtime_cgroup
+}
+systemctl() {
+  printf 'called\\n' >"$stop_marker"
+  return 1
+}
+if wait_for_benchmark_with_monitor \
+  test.scope "$benchmark" /test.scope "$runtime_cgroup"; then
+  exit 1
+fi
+! kill -0 "$benchmark" 2>/dev/null
+kill -0 "$unrelated" 2>/dev/null
+[[ ! -e "$stop_marker" ]]
+""",
+              "bash",
+              str(runner),
+              str(runtime_cgroup),
+              str(root / "unexpected-systemctl-stop"),
+          ],
+          capture_output=True,
+          text=True,
+          timeout=3,
+      )
+      self.assertEqual(unbound_scope.returncode, 0, unbound_scope.stderr)
+      self.assertIn("termination is unverified", unbound_scope.stderr)
+
       command = """
 source "$1"
 child_file=$2
+runtime_cgroup=$3
 sleep 0.2 &
 MONITOR_PID=$!
 setsid bash -c '
@@ -1564,7 +1679,7 @@ import time
 
 child = os.fork()
 if child == 0:
-  os.setpgrp()
+  os.setsid()
   signal.signal(signal.SIGTERM, signal.SIG_IGN)
   with open(sys.argv[1], "w") as output:
     output.write(str(os.getpid()))
@@ -1575,32 +1690,75 @@ else:
 '"'"' "$1"
 ' bash "$child_file" &
 benchmark=$!
+sleep 60 &
+unrelated=$!
+cleanup() {
+  kill "$unrelated" 2>/dev/null || :
+  wait "$unrelated" 2>/dev/null || :
+}
+trap cleanup EXIT
 while [[ ! -s "$child_file" ]]; do sleep 0.01; done
 child=$(cat "$child_file")
+authenticate_scope_cgroup() {
+  [[ ${2:-/test.scope} == /test.scope ]]
+  [[ ${3:-$runtime_cgroup} == "$runtime_cgroup" ]]
+  [[ ${4:-$benchmark} == "$benchmark" ]]
+  AUTHENTICATED_CONTROL_GROUP=/test.scope
+  AUTHENTICATED_CGROUP_PATH=$runtime_cgroup
+}
+load_owned_cgroup_pids() {
+  load_attempts=$((${load_attempts:-0} + 1))
+  if [[ $load_attempts -eq 1 ]]; then
+    return 3
+  fi
+  OWNED_CGROUP_PIDS=()
+  local pid
+  local state
+  for pid in "$benchmark" "$child"; do
+    state=$(ps -o stat= -p "$pid" 2>/dev/null || :)
+    if [[ -n "$state" && "$state" != Z* ]]; then
+      OWNED_CGROUP_PIDS+=("$pid")
+    fi
+  done
+}
+owned_cgroup_is_empty() {
+  [[ ${#OWNED_CGROUP_PIDS[@]} -eq 0 ]]
+}
 systemctl() {
   return 1
 }
-if wait_for_benchmark_with_monitor test.scope "$benchmark"; then
+if wait_for_benchmark_with_monitor \
+  test.scope "$benchmark" /test.scope "$runtime_cgroup"; then
   exit 1
 fi
 ! kill -0 "$benchmark" 2>/dev/null
 for _ in {1..40}; do
   if ! kill -0 "$child" 2>/dev/null; then
+    kill -0 "$unrelated" 2>/dev/null
     exit 0
   fi
   sleep 0.05
 done
-exit 1
+exit 2
 """
       child_file = root / "benchmark-child.pid"
       stopped = subprocess.run(
-          ["bash", "-c", command, "bash", str(runner), str(child_file)],
+          [
+              "bash",
+              "-c",
+              command,
+              "bash",
+              str(runner),
+              str(child_file),
+              str(runtime_cgroup),
+          ],
           capture_output=True,
           text=True,
-          timeout=5,
+          timeout=8,
       )
       self.assertEqual(stopped.returncode, 0, stopped.stderr)
-      self.assertIn("terminating owned session", stopped.stderr)
+      self.assertIn("terminating authenticated cgroup", stopped.stderr)
+      self.assertIn("authenticated cgroup teardown complete", stopped.stderr)
       self.assertIn("process monitor died during BenchExec", stopped.stderr)
 
   def test_formal_runner_reverifies_runtime_closure(self):
