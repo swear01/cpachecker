@@ -866,16 +866,13 @@ def benchexec_path_representations(
   expected = Path(expected_path).resolve()
   sv_benchmarks = Path(sv_benchmarks).resolve()
   representations = {expected.as_posix()}
+  relative = expected.relative_to(sv_benchmarks).as_posix()
+  representations.add(f"../../../../{sv_benchmarks.name}/{relative}")
   if benchmark_definition:
     relative = os.path.relpath(
         expected, Path(benchmark_definition).resolve().parent
     ).replace("\\", "/")
     representations.add(relative)
-  else:
-    relative = expected.relative_to(sv_benchmarks).as_posix()
-    representations.add(
-        f"../../../../{sv_benchmarks.name}/{relative}"
-    )
   return representations
 
 

@@ -274,6 +274,35 @@ def zero_phase_a_survivors(fixture):
 
 
 class DatasetTest(unittest.TestCase):
+  def test_benchexec_paths_preserve_working_directory_representation(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      sv_benchmarks = root / "sv-benchmarks-cap16-athena-r2-20260728"
+      task = sv_benchmarks / "c/loops/task.yml"
+      definition = root / "generated/hard-case-candidates.xml"
+      task.parent.mkdir(parents=True)
+      definition.parent.mkdir(parents=True)
+      task.write_text("format_version: '2.0'\n", encoding="utf-8")
+
+      representations = dataset.benchexec_path_representations(
+          task, sv_benchmarks, definition
+      )
+
+      self.assertIn(
+          "../../../../sv-benchmarks-cap16-athena-r2-20260728/"
+          "c/loops/task.yml",
+          representations,
+      )
+      self.assertIn(
+          os.path.relpath(task, definition.parent).replace("\\", "/"),
+          representations,
+      )
+      self.assertNotIn(
+          "../../evil/../../../../sv-benchmarks-cap16-athena-r2-20260728/"
+          "c/loops/task.yml",
+          representations,
+      )
+
 
   def test_family_cap_is_deterministic_and_stratified(self):
     candidates = [

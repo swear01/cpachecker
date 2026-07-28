@@ -55,6 +55,12 @@ Dataset v1 executed the stock `svcomp27` full portfolio twice with two four-core
 
 BenchExec emits both combined and per-source-group result XML files; only the combined XML is an input to repeated classification.
 
+Result validation accepts only the exact absolute corpus path, BenchExec's
+canonical working-directory-relative corpus path, and, when applicable, the
+exact benchmark-definition-relative path. Supplying a benchmark definition
+does not remove the canonical representation recorded by an earlier BenchExec
+run; traversal-prefixed and other decoy paths remain rejected.
+
 Dataset v2 tightens `stable_unsolved` to repetitions classified as timeout,
 out-of-memory, or UNKNOWN. Verifier errors, exceptions, segmentation faults,
 and other non-analysis failures are written to
