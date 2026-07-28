@@ -243,6 +243,9 @@ capture_research_provenance() {
   if [[ ${FORMAL_MODE:-cap8} == cap16 ]]; then
     cp -- "$SCRIPT_DIR/run-stock-cap16-formal-dataset.sh" \
       "$destination/scripts/run-stock-cap16-formal-dataset.sh"
+  elif [[ ${FORMAL_MODE:-cap8} == cap16-probe ]]; then
+    cp -- "$SCRIPT_DIR/run-cap16-cegar-probe.sh" \
+      "$destination/scripts/run-cap16-cegar-probe.sh"
   fi
   cp -- "$SCRIPT_DIR/dataset.py" "$destination/scripts/dataset.py"
   cp -- "$SCRIPT_DIR/baseline.py" "$destination/scripts/baseline.py"
@@ -286,6 +289,9 @@ verify_research_provenance() {
   if [[ ${FORMAL_MODE:-cap8} == cap16 ]]; then
     cmp -- "$SCRIPT_DIR/run-stock-cap16-formal-dataset.sh" \
       "$destination/scripts/run-stock-cap16-formal-dataset.sh"
+  elif [[ ${FORMAL_MODE:-cap8} == cap16-probe ]]; then
+    cmp -- "$SCRIPT_DIR/run-cap16-cegar-probe.sh" \
+      "$destination/scripts/run-cap16-cegar-probe.sh"
   fi
   cmp -- "$SCRIPT_DIR/dataset.py" "$destination/scripts/dataset.py"
   cmp -- "$SCRIPT_DIR/baseline.py" "$destination/scripts/baseline.py"
