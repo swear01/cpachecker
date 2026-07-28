@@ -52,9 +52,11 @@ EXPECTED_BENCHEXEC_VERSION="benchexec 3.35-dev"
 EXPECTED_CPACHECKER_JAR_CONTENT=49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3
 EXPECTED_MANIFEST=16e5f9ff04ed08ef9c29d8674021c11de3eed87b9da6a8c1e2ef68c6847ec0bb
 EXPECTED_R2_RUNNER=95b9250ab84014fec9fceb2e1805c0e0912bc395bbccd9c2e586031cec4a0480
+EXPECTED_R2_DATASET=42dfec90d8fba702f5700cdde16c9bbd1b42d137a7d1ee58a9d335e7b2024d65
 P_CORES=0,2,4,6,8,10,12,14
 HOST=$(hostname -s)
 SAVED_R2_RUNNER=
+SAVED_R2_DATASET=
 
 [[ "$HOST" == athena ]] || {
   echo "cap-16 Phase A is Athena-only; refusing host: $HOST" >&2
@@ -123,10 +125,20 @@ authenticate_saved_package_script() {
   if cmp --silent "$current" "$saved"; then
     return
   fi
-  [[ "$name" == run-stock-cap16-dataset.sh ]] || return 1
   saved_hash=$(sha256sum "$saved" | cut -d' ' -f1) || return
-  [[ "$saved_hash" == "$EXPECTED_R2_RUNNER" ]] || return 1
-  SAVED_R2_RUNNER=$saved_hash
+  case "$name" in
+    run-stock-cap16-dataset.sh)
+      [[ "$saved_hash" == "$EXPECTED_R2_RUNNER" ]] || return 1
+      SAVED_R2_RUNNER=$saved_hash
+      ;;
+    dataset.py)
+      [[ "$saved_hash" == "$EXPECTED_R2_DATASET" ]] || return 1
+      SAVED_R2_DATASET=$saved_hash
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 SAVED_INPUT="$OUTPUT_DIR/input"
@@ -177,12 +189,14 @@ INVOCATION_NUMBER=$(find "$OUTPUT_DIR/provenance" -maxdepth 1 -type d \
 printf -v INVOCATION 'invocation-%03d' "$INVOCATION_NUMBER"
 INVOCATION_DIR="$OUTPUT_DIR/provenance/$INVOCATION"
 mkdir "$INVOCATION_DIR"
-if [[ -n "$SAVED_R2_RUNNER" ]]; then
+if [[ -n "$SAVED_R2_RUNNER" || -n "$SAVED_R2_DATASET" ]]; then
   cp "$SCRIPT_DIR/run-stock-cap16-dataset.sh" \
     "$INVOCATION_DIR/recovery-runner.sh"
-  printf 'saved_runner_sha256=%s\nrecovery_runner_sha256=%s\n' \
-    "$SAVED_R2_RUNNER" \
-    "$(sha256sum "$INVOCATION_DIR/recovery-runner.sh" | cut -d' ' -f1)" \
+  printf 'saved_runner_sha256=%s\nrecovery_runner_sha256=%s\nsaved_dataset_sha256=%s\nrecovery_dataset_sha256=%s\n' \
+    "$(sha256sum "$SAVED_INPUT/scripts/run-stock-cap16-dataset.sh" | cut -d' ' -f1)" \
+    "$(sha256sum "$SCRIPT_DIR/run-stock-cap16-dataset.sh" | cut -d' ' -f1)" \
+    "$(sha256sum "$SAVED_INPUT/scripts/dataset.py" | cut -d' ' -f1)" \
+    "$(sha256sum "$SCRIPT_DIR/dataset.py" | cut -d' ' -f1)" \
     >"$INVOCATION_DIR/runner-compatibility.txt"
 fi
 verify_runtime_closure false

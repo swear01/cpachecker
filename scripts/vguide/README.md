@@ -61,6 +61,12 @@ exact benchmark-definition-relative path. Supplying a benchmark definition
 does not remove the canonical representation recorded by an earlier BenchExec
 run; traversal-prefixed and other decoy paths remain rejected.
 
+Evidence-preserving cap-16 recovery accepts saved-script drift only for the
+exact archived r2 hashes of `run-stock-cap16-dataset.sh` and `dataset.py`.
+Either or both exact legacy files may be present; every other changed or
+missing package script is rejected. Recovery invocation evidence records the
+saved and current hashes of both compatibility files.
+
 Dataset v2 tightens `stable_unsolved` to repetitions classified as timeout,
 out-of-memory, or UNKNOWN. Verifier errors, exceptions, segmentation faults,
 and other non-analysis failures are written to

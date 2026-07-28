@@ -274,6 +274,70 @@ def zero_phase_a_survivors(fixture):
 
 
 class DatasetTest(unittest.TestCase):
+  def test_saved_package_script_compatibility_matrix(self):
+    runner = Path(__file__).with_name(
+        "run-stock-cap16-dataset.sh"
+    ).read_text(encoding="utf-8")
+    start = runner.index("authenticate_saved_package_script() {")
+    end = runner.index("\nSAVED_INPUT=", start)
+    function = runner[start:end]
+
+    def accepted(name, current, saved):
+      with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        current_path = root / "current"
+        saved_path = root / "saved"
+        if current is not None:
+          current_path.write_text(current, encoding="utf-8")
+        if saved is not None:
+          saved_path.write_text(saved, encoding="utf-8")
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                """
+set -u
+EXPECTED_R2_RUNNER=95b9250ab84014fec9fceb2e1805c0e0912bc395bbccd9c2e586031cec4a0480
+EXPECTED_R2_DATASET=42dfec90d8fba702f5700cdde16c9bbd1b42d137a7d1ee58a9d335e7b2024d65
+SAVED_R2_RUNNER=
+SAVED_R2_DATASET=
+sha256sum() {
+  case "$(cat "$1" 2>/dev/null)" in
+    archived-r2-runner) echo "$EXPECTED_R2_RUNNER  $1" ;;
+    archived-r2-dataset) echo "$EXPECTED_R2_DATASET  $1" ;;
+    *) echo "wrong  $1" ;;
+  esac
+}
+"""
+                + function
+                + '\nauthenticate_saved_package_script "$1" "$2" "$3"\n',
+                "bash",
+                name,
+                str(current_path),
+                str(saved_path),
+            ],
+            check=False,
+        )
+        return result.returncode == 0
+
+    self.assertTrue(accepted("baseline.py", "same", "same"))
+    self.assertTrue(
+        accepted(
+            "run-stock-cap16-dataset.sh",
+            "current-runner",
+            "archived-r2-runner",
+        )
+    )
+    self.assertTrue(
+        accepted("dataset.py", "current-dataset", "archived-r2-dataset")
+    )
+    self.assertFalse(
+        accepted("run-stock-cap16-dataset.sh", "current-runner", "wrong")
+    )
+    self.assertFalse(accepted("dataset.py", "current-dataset", "wrong"))
+    self.assertFalse(accepted("baseline.py", "current", "changed"))
+    self.assertFalse(accepted("baseline.py", "current", None))
+
   def test_benchexec_paths_preserve_working_directory_representation(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
@@ -3091,7 +3155,8 @@ copy_phase_evidence "$2"
         runner,
     )
     self.assertIn(
-        '[[ "$name" == run-stock-cap16-dataset.sh ]] || return 1',
+        "EXPECTED_R2_DATASET="
+        "42dfec90d8fba702f5700cdde16c9bbd1b42d137a7d1ee58a9d335e7b2024d65",
         runner,
     )
     self.assertIn(
@@ -3099,9 +3164,20 @@ copy_phase_evidence "$2"
         runner,
     )
     self.assertIn(
+        '[[ "$saved_hash" == "$EXPECTED_R2_DATASET" ]] || return 1',
+        runner,
+    )
+    self.assertIn(
         '"$INVOCATION_DIR/runner-compatibility.txt"',
         runner,
     )
+    for field in (
+        "saved_runner_sha256",
+        "recovery_runner_sha256",
+        "saved_dataset_sha256",
+        "recovery_dataset_sha256",
+    ):
+      self.assertIn(field, runner)
     self.assertLess(
         runner.rindex("--output \"$ARTIFACT_CANDIDATE\""),
         runner.rindex('write_atomic complete "$OUTPUT_DIR/summary/.complete"'),
