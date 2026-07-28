@@ -401,7 +401,286 @@ def package_cap16_fixture(fixture, output):
   )
 
 
+def phase_d_source_fixture(cohort, rows):
+  property_sha256 = hashlib.sha256(b"unreach-call").hexdigest()
+  records = []
+  for index, (task, source, family) in enumerate(rows):
+    records.append(
+        {
+            "task": task,
+            "task_path": f"{task}.yml",
+            "source_paths": [f"{task}.c"],
+            "source_sha256": [
+                hashlib.sha256(f"{cohort}-{index}".encode()).hexdigest()
+            ],
+            "expected_verdict": "true",
+            "data_model": "ILP32",
+            "source": source,
+            "family": family,
+            "license": "Apache-2.0",
+            "license_evidence": [
+                {
+                    "path": f"licenses/{task}.txt",
+                    "sha256": hashlib.sha256(task.encode()).hexdigest(),
+                }
+            ],
+        }
+    )
+  manifest = {
+      "corpus_files": [
+          {
+              "path": "corpus/properties/unreach-call.prp",
+              "sha256": property_sha256,
+          }
+      ],
+      "parent_license_audit": {
+          "cohort": cohort,
+          "task_count": len(records),
+      },
+      "tasks": records,
+  }
+  return {
+      "cohort": cohort,
+      "aggregate_sha256": hashlib.sha256(
+          f"{cohort}-aggregate".encode()
+      ).hexdigest(),
+      "manifest_sha256": hashlib.sha256(
+          f"{cohort}-manifest".encode()
+      ).hexdigest(),
+      "eligible_sha256": hashlib.sha256(
+          f"{cohort}-eligible".encode()
+      ).hexdigest(),
+      "manifest": manifest,
+      "eligible": [
+          {
+              "task": record["task"],
+              "probe_classification": "cegar_eligible",
+          }
+          for record in records
+      ],
+      "details": {record["task"]: record for record in records},
+  }
+
+
 class DatasetTest(unittest.TestCase):
+  def test_phase_d_pending_pins_fail_before_output_creation(self):
+    with tempfile.TemporaryDirectory() as temp:
+      output = Path(temp) / "phase-d"
+      with self.assertRaisesRegex(RuntimeError, "pin is pending"):
+        dataset.command_finalize_phase_d(
+            SimpleNamespace(
+                cap8_probe_output="/absent/cap8",
+                cap16_probe_output="/absent/cap16",
+                sv_benchmarks="/absent/sv-benchmarks",
+                output_dir=str(output),
+            )
+        )
+      self.assertFalse(output.exists())
+
+  def test_phase_d_rejects_canonical_duplicates_without_output(self):
+    with tempfile.TemporaryDirectory() as temp:
+      output = Path(temp) / "phase-d"
+      cap8 = phase_d_source_fixture(
+          "cap8", [("cap8-task", "sv-benchmarks", "Loops")]
+      )
+      cap16 = phase_d_source_fixture(
+          "cap16", [("cap16-task", "sv-benchmarks", "LoopsOther")]
+      )
+      cap16_record = cap16["details"]["cap16-task"]
+      cap16_record["source_sha256"] = cap8["details"]["cap8-task"][
+          "source_sha256"
+      ]
+      with self.assertRaisesRegex(RuntimeError, "canonical duplicate"):
+        dataset.write_phase_d_output(output, cap8, cap16)
+      self.assertFalse(output.exists())
+
+  def test_phase_d_accepts_empty_cap8_eligible_stratum(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      cap8_root = root / "cap8"
+      manifest_path = cap8_root / "input/formal/manifest.json"
+      eligible_path = cap8_root / "summary/cegar-eligible.csv"
+      manifest_path.parent.mkdir(parents=True)
+      eligible_path.parent.mkdir(parents=True)
+      manifest_path.write_text("{}\n", encoding="utf-8")
+      eligible_path.write_text(
+          "task,probe_classification\n", encoding="utf-8"
+      )
+      manifest = {
+          "corpus_files": [
+              {
+                  "path": "corpus/properties/unreach-call.prp",
+                  "sha256": hashlib.sha256(b"unreach-call").hexdigest(),
+              }
+          ],
+          "parent_license_audit": {"cohort": "cap8", "task_count": 0},
+          "tasks": [],
+      }
+      aggregate = hashlib.sha256(b"cap8-closure").hexdigest()
+      with (
+          mock.patch.object(
+              dataset,
+              "FROZEN_CAP8_PHASE_C_ARTIFACT_AGGREGATE_SHA256",
+              aggregate,
+          ),
+          mock.patch.object(
+              dataset,
+              "validate_cap8_probe_closure",
+              return_value={"artifact_aggregate_sha256": aggregate},
+          ),
+          mock.patch.object(
+              dataset,
+              "strict_probe_profile",
+              return_value={"manifest_name": "manifest.json"},
+          ),
+          mock.patch.object(dataset, "validate_manifest", return_value=manifest),
+      ):
+        cap8 = dataset.authenticate_phase_d_probe(
+            cap8_root, root / "sv-benchmarks", "cap8"
+        )
+      cap16 = phase_d_source_fixture(
+          "cap16", [("cap16-task", "sv-benchmarks", "Loops")]
+      )
+      output = root / "phase-d"
+      summary = dataset.write_phase_d_output(output, cap8, cap16)
+      self.assertEqual(summary["task_count"], 1)
+
+  def test_phase_d_rejects_output_overlap_in_both_directions(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      cap8 = phase_d_source_fixture("cap8", [])
+      cap16 = phase_d_source_fixture("cap16", [])
+      cap8["root"] = root / "inputs/cap8"
+      cap16["root"] = root / "inputs/cap16"
+      sv_benchmarks = root / "sv-benchmarks"
+      for path in (cap8["root"], cap16["root"], sv_benchmarks):
+        path.mkdir(parents=True)
+      nested_output = cap8["root"] / "phase-d"
+      nested_args = SimpleNamespace(
+          output_dir=str(nested_output),
+          sv_benchmarks=str(sv_benchmarks),
+      )
+      with (
+          mock.patch.object(
+              dataset, "phase_d_sources", return_value=(cap8, cap16)
+          ),
+          self.assertRaisesRegex(RuntimeError, "overlaps"),
+      ):
+        dataset.command_finalize_phase_d(nested_args)
+      self.assertFalse(nested_output.exists())
+      with self.assertRaisesRegex(RuntimeError, "overlaps"):
+        dataset.validate_phase_d_output_path(
+            SimpleNamespace(
+                output_dir=str(root),
+                sv_benchmarks=str(sv_benchmarks),
+            ),
+            cap8,
+            cap16,
+        )
+
+  def test_phase_d_split_is_exact_disjoint_and_reproducible(self):
+    families = {}
+    candidate = 0
+    while set(families) != {"development", "validation", "heldout"}:
+      family = f"family-{candidate}"
+      split = dataset.split_for_family(f"sv-benchmarks:{family}")
+      families.setdefault(split, family)
+      candidate += 1
+    cap8 = phase_d_source_fixture(
+        "cap8",
+        [
+            ("task-a", "sv-benchmarks", families["development"]),
+            ("task-b", "sv-benchmarks", families["validation"]),
+        ],
+    )
+    cap16 = phase_d_source_fixture(
+        "cap16",
+        [
+            ("task-c", "sv-benchmarks", families["heldout"]),
+            ("task-d", "sv-benchmarks", families["development"]),
+        ],
+    )
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      cap8["root"] = root / "cap8"
+      cap16["root"] = root / "cap16"
+      sv_benchmarks = root / "sv-benchmarks"
+      for path in (cap8["root"], cap16["root"], sv_benchmarks):
+        path.mkdir()
+      output = root / "phase-d"
+      summary = dataset.write_phase_d_output(output, cap8, cap16)
+      expected_topology = {
+          ".complete",
+          "artifact-manifest.json",
+          "dedup-audit.csv",
+          "development-manifest.json",
+          "heldout-manifest.json",
+          "row-provenance.json",
+          "summary.json",
+          "validation-manifest.json",
+      }
+      self.assertEqual({path.name for path in output.iterdir()}, expected_topology)
+      source_records = {
+          task: record
+          for source in (cap8, cap16)
+          for task, record in source["details"].items()
+      }
+      emitted = {}
+      task_splits = {}
+      family_splits = {}
+      for split in ("development", "validation", "heldout"):
+        manifest = json.loads(
+            (output / f"{split}-manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            manifest["parent_license_audit"],
+            {
+                "cap8": cap8["manifest"]["parent_license_audit"],
+                "cap16": cap16["manifest"]["parent_license_audit"],
+            },
+        )
+        for record in manifest["tasks"]:
+          emitted[record["task"]] = record
+          task_splits[record["task"]] = split
+          family_key = f"{record['source']}:{record['family']}"
+          if family_key in family_splits:
+            self.assertEqual(family_splits[family_key], split)
+          family_splits[family_key] = split
+      self.assertEqual(emitted, source_records)
+      self.assertEqual(
+          set(task_splits), {"task-a", "task-b", "task-c", "task-d"}
+      )
+      self.assertEqual(summary["heldout_outcome_adjustment"], False)
+      with (output / "dedup-audit.csv").open(
+          newline="", encoding="utf-8"
+      ) as source:
+        audit = list(csv.DictReader(source))
+      self.assertEqual({row["status"] for row in audit}, {"unique"})
+      self.assertEqual(
+          {
+              row["task"]: row["split"]
+              for row in audit
+          },
+          task_splits,
+      )
+      args = SimpleNamespace(
+          output_dir=str(output),
+          sv_benchmarks=str(sv_benchmarks),
+      )
+      with mock.patch.object(
+          dataset, "phase_d_sources", return_value=(cap8, cap16)
+      ):
+        self.assertTrue(dataset.validate_phase_d_output(args)["valid"])
+        (output / "summary.json").write_text("{}\n", encoding="utf-8")
+        (output / ".complete").unlink()
+        (output / "artifact-manifest.json").unlink()
+        dataset.write_phase_b_artifact_manifest(output)
+        dataset.command_write_complete_sentinel(
+            SimpleNamespace(output=str(output / ".complete"))
+        )
+        with self.assertRaisesRegex(RuntimeError, "reproduce exactly"):
+          dataset.validate_phase_d_output(args)
+
   def test_benchexec_paths_preserve_working_directory_representation(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)

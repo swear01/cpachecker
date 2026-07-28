@@ -129,6 +129,12 @@ FROZEN_CAP16_FORMAL_ARTIFACT_AGGREGATE_SHA256 = (
 FROZEN_CAP8_FORMAL_ARTIFACT_AGGREGATE_SHA256 = (
     "PENDING_AFTER_CAP8_R8_FORMAL_COMPLETION"
 )
+FROZEN_CAP8_PHASE_C_ARTIFACT_AGGREGATE_SHA256 = (
+    "PENDING_AFTER_CAP8_PHASE_C_COMPLETION"
+)
+FROZEN_CAP16_PHASE_C_ARTIFACT_AGGREGATE_SHA256 = (
+    "PENDING_AFTER_CAP16_PHASE_C_COMPLETION"
+)
 FROZEN_CAP8_FORMAL_PACKAGE_MANIFEST_SHA256 = (
     "a20797345df1bef6d5be5356906ee106b75b374b0d6cd2adfbc56cc5c3e65fef"
 )
@@ -7500,6 +7506,331 @@ def command_validate_cap16_probe_closure(args):
   print(json.dumps(validate_cap16_probe_closure(args), sort_keys=True))
 
 
+def frozen_phase_c_artifact_aggregate(cohort):
+  frozen = (
+      FROZEN_CAP8_PHASE_C_ARTIFACT_AGGREGATE_SHA256
+      if cohort == "cap8"
+      else FROZEN_CAP16_PHASE_C_ARTIFACT_AGGREGATE_SHA256
+  )
+  if re.fullmatch(r"[0-9a-f]{64}", frozen) is None:
+    raise RuntimeError(f"{cohort} Phase-C artifact aggregate pin is pending")
+  return frozen
+
+
+def authenticate_phase_d_probe(probe_output, sv_benchmarks, cohort):
+  root = Path(probe_output).resolve()
+  validator = (
+      validate_cap8_probe_closure
+      if cohort == "cap8"
+      else validate_cap16_probe_closure
+  )
+  closure = validator(argparse.Namespace(
+      output_root=str(root),
+      sv_benchmarks=str(Path(sv_benchmarks).resolve()),
+      require_complete=True,
+  ))
+  frozen = frozen_phase_c_artifact_aggregate(cohort)
+  if closure["artifact_aggregate_sha256"] != frozen:
+    raise RuntimeError(f"{cohort} Phase-C artifact aggregate is not frozen")
+  profile = strict_probe_profile(cohort)
+  manifest_path = root / "input/formal" / profile["manifest_name"]
+  manifest = validate_manifest(manifest_path, sv_benchmarks)
+  eligible_path = root / "summary/cegar-eligible.csv"
+  with eligible_path.open(newline="", encoding="utf-8") as source:
+    eligible = list(csv.DictReader(source))
+  tasks = [row.get("task") for row in eligible]
+  details = {row["task"]: row for row in manifest["tasks"]}
+  if (
+      tasks != sorted(tasks)
+      or len(tasks) != len(set(tasks))
+      or any(task not in details for task in tasks)
+      or any(
+          row.get("probe_classification") != "cegar_eligible"
+          for row in eligible
+      )
+  ):
+    raise RuntimeError(f"{cohort} eligible stratum is invalid")
+  return {
+      "cohort": cohort,
+      "root": root,
+      "aggregate_sha256": frozen,
+      "manifest_path": manifest_path,
+      "manifest_sha256": baseline.sha256_file(manifest_path),
+      "manifest": manifest,
+      "eligible_path": eligible_path,
+      "eligible_sha256": baseline.sha256_file(eligible_path),
+      "eligible": eligible,
+      "details": details,
+  }
+
+
+def phase_d_property_sha256(manifest):
+  matches = [
+      row["sha256"] for row in manifest.get("corpus_files", [])
+      if row.get("path") == "corpus/properties/unreach-call.prp"
+  ]
+  if len(matches) != 1 or re.fullmatch(r"[0-9a-f]{64}", matches[0]) is None:
+    raise RuntimeError("Phase-D source lacks one frozen unreach-call property")
+  return matches[0]
+
+
+def phase_d_rows(cap8, cap16):
+  rows = []
+  dedup = {}
+  for source in (cap8, cap16):
+    property_sha256 = phase_d_property_sha256(source["manifest"])
+    for eligible in source["eligible"]:
+      task = eligible["task"]
+      record = source["details"][task]
+      source_sha256 = record.get("source_sha256")
+      if (
+          not isinstance(source_sha256, list)
+          or not source_sha256
+          or any(
+              re.fullmatch(r"[0-9a-f]{64}", value) is None
+              for value in source_sha256
+          )
+          or not record.get("expected_verdict")
+          or not record.get("data_model")
+      ):
+        raise RuntimeError(f"Phase-D task identity is invalid: {task}")
+      key = (
+          tuple(source_sha256),
+          property_sha256,
+          record["expected_verdict"],
+          record["data_model"],
+      )
+      if key in dedup:
+        raise RuntimeError(
+            f"Phase-D canonical duplicate: {dedup[key]} and {task}"
+        )
+      dedup[key] = task
+      family_key = f"{record['source']}:{record['family']}"
+      rows.append({
+          "cohort": source["cohort"],
+          "task": task,
+          "record": record,
+          "dedup_key": json.dumps(key, separators=(",", ":")),
+          "dedup_sha256": sha256_text(
+              json.dumps(key, separators=(",", ":"))
+          ),
+          "property_sha256": property_sha256,
+          "family_key": family_key,
+          "split": split_for_family(family_key),
+      })
+  tasks = [row["task"] for row in rows]
+  if len(tasks) != len(set(tasks)):
+    raise RuntimeError("Phase-D task names overlap across cohorts")
+  return sorted(rows, key=lambda row: row["task"])
+
+
+def write_phase_d_output(output_dir, cap8, cap16):
+  output = Path(output_dir).resolve()
+  require_absent_or_empty_output(output)
+  rows = phase_d_rows(cap8, cap16)
+  parent_audit = {
+      source["cohort"]: source["manifest"].get("parent_license_audit")
+      for source in (cap8, cap16)
+  }
+  if any(value is None for value in parent_audit.values()):
+    raise RuntimeError("Phase-D source lacks parent license audit")
+  output.mkdir(parents=True, exist_ok=True)
+  backlinks = {
+      source["cohort"]: {
+          "probe_artifact_aggregate_sha256": source["aggregate_sha256"],
+          "probe_manifest_sha256": source["manifest_sha256"],
+          "cegar_eligible_sha256": source["eligible_sha256"],
+      }
+      for source in (cap8, cap16)
+  }
+  audit_fields = (
+      "cohort", "task", "source", "family", "source_sha256",
+      "property_sha256", "expected_verdict", "data_model",
+      "dedup_key", "dedup_sha256", "split", "status",
+  )
+  with (output / "dedup-audit.csv").open(
+      "w", newline="", encoding="utf-8"
+  ) as target:
+    writer = csv.DictWriter(target, fieldnames=audit_fields)
+    writer.writeheader()
+    for row in rows:
+      record = row["record"]
+      writer.writerow({
+          "cohort": row["cohort"],
+          "task": row["task"],
+          "source": record["source"],
+          "family": record["family"],
+          "source_sha256": json.dumps(
+              record["source_sha256"], separators=(",", ":")
+          ),
+          "property_sha256": row["property_sha256"],
+          "expected_verdict": record["expected_verdict"],
+          "data_model": record["data_model"],
+          "dedup_key": row["dedup_key"],
+          "dedup_sha256": row["dedup_sha256"],
+          "split": row["split"],
+          "status": "unique",
+      })
+  split_tasks = {}
+  for split in ("development", "validation", "heldout"):
+    selected = [row for row in rows if row["split"] == split]
+    split_tasks[split] = [row["task"] for row in selected]
+    manifest = {
+        "schema_version": "hard-case-phase-d-split-v1",
+        "split": split,
+        "task_count": len(selected),
+        "tasks": [row["record"] for row in selected],
+        "parent_license_audit": parent_audit,
+        "source_backlinks": backlinks,
+    }
+    (output / f"{split}-manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+  family_sets = {
+      split: {
+          row["family_key"] for row in rows if row["split"] == split
+      }
+      for split in split_tasks
+  }
+  if (
+      set().union(*(set(tasks) for tasks in split_tasks.values()))
+      != {row["task"] for row in rows}
+      or any(
+          set(split_tasks[left]) & set(split_tasks[right])
+          or family_sets[left] & family_sets[right]
+          for index, left in enumerate(split_tasks)
+          for right in tuple(split_tasks)[index + 1:]
+      )
+  ):
+    raise RuntimeError("Phase-D split union or disjointness is invalid")
+  provenance = {
+      "schema_version": "hard-case-phase-d-row-provenance-v1",
+      "source_backlinks": backlinks,
+      "rows": [
+          {
+              key: row[key] for key in (
+                  "cohort", "task", "dedup_key", "dedup_sha256",
+                  "family_key", "split",
+              )
+          }
+          for row in rows
+      ],
+  }
+  provenance_path = output / "row-provenance.json"
+  provenance_path.write_text(
+      json.dumps(provenance, indent=2) + "\n", encoding="utf-8"
+  )
+  summary = {
+      "schema_version": "hard-case-phase-d-summary-v1",
+      "task_count": len(rows),
+      "split_counts": {
+          split: len(tasks) for split, tasks in split_tasks.items()
+      },
+      "source_backlinks": backlinks,
+      "dedup_audit_sha256": baseline.sha256_file(
+          output / "dedup-audit.csv"
+      ),
+      "row_provenance_sha256": baseline.sha256_file(provenance_path),
+      "heldout_outcome_adjustment": False,
+  }
+  (output / "summary.json").write_text(
+      json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+  )
+  write_phase_b_artifact_manifest(output)
+  command_write_complete_sentinel(
+      argparse.Namespace(output=str(output / ".complete"))
+  )
+  return summary
+
+
+def phase_d_sources(args):
+  frozen_phase_c_artifact_aggregate("cap8")
+  frozen_phase_c_artifact_aggregate("cap16")
+  return (
+      authenticate_phase_d_probe(
+          args.cap8_probe_output, args.sv_benchmarks, "cap8"
+      ),
+      authenticate_phase_d_probe(
+          args.cap16_probe_output, args.sv_benchmarks, "cap16"
+      ),
+  )
+
+
+def validate_phase_d_output_path(args, cap8, cap16):
+  output = Path(args.output_dir).resolve()
+  inputs = (
+      Path(cap8["root"]).resolve(),
+      Path(cap16["root"]).resolve(),
+      Path(args.sv_benchmarks).resolve(),
+  )
+  if any(
+      output == source
+      or source in output.parents
+      or output in source.parents
+      for source in inputs
+  ):
+    raise RuntimeError("Phase-D output overlaps an authenticated input tree")
+
+
+def validate_phase_d_output(args, reproduce=True):
+  cap8, cap16 = phase_d_sources(args)
+  validate_phase_d_output_path(args, cap8, cap16)
+  root = Path(args.output_dir).resolve()
+  expected_topology = {
+      ".complete",
+      "artifact-manifest.json",
+      "dedup-audit.csv",
+      "development-manifest.json",
+      "heldout-manifest.json",
+      "row-provenance.json",
+      "summary.json",
+      "validation-manifest.json",
+  }
+  if (
+      not root.is_dir()
+      or {path.name for path in root.iterdir()} != expected_topology
+      or (root / ".complete").is_symlink()
+      or not (root / ".complete").is_file()
+      or (root / ".complete").read_text(encoding="utf-8") != "complete\n"
+  ):
+    raise RuntimeError("Phase-D output topology or completion is invalid")
+  validate_artifact_manifest(
+      root,
+      root / "artifact-manifest.json",
+      {".complete"},
+      expected_root=".",
+  )
+  if reproduce:
+    with tempfile.TemporaryDirectory(
+        prefix="vguide-phase-d-check."
+    ) as temporary:
+      write_phase_d_output(temporary, cap8, cap16)
+      for name in expected_topology:
+        if (root / name).read_bytes() != (Path(temporary) / name).read_bytes():
+          raise RuntimeError("Phase-D output does not reproduce exactly")
+  return {
+      "artifact_aggregate_sha256": json.loads(
+          (root / "artifact-manifest.json").read_text(encoding="utf-8")
+      )["aggregate_sha256"],
+      "task_count": json.loads(
+          (root / "summary.json").read_text(encoding="utf-8")
+      )["task_count"],
+      "valid": True,
+  }
+
+
+def command_finalize_phase_d(args):
+  cap8, cap16 = phase_d_sources(args)
+  validate_phase_d_output_path(args, cap8, cap16)
+  summary = write_phase_d_output(args.output_dir, cap8, cap16)
+  validate_phase_d_output(args, reproduce=False)
+  print(json.dumps(summary, sort_keys=True))
+
+
+def command_validate_phase_d(args):
+  print(json.dumps(validate_phase_d_output(args), sort_keys=True))
+
+
 def command_write_complete_sentinel(args):
   output = Path(args.output)
   if output.exists() or output.is_symlink():
@@ -11517,6 +11848,15 @@ def main():
   cap8_probe_closure.set_defaults(
       function=command_validate_cap8_probe_closure
   )
+  finalize_phase_d = commands.add_parser("finalize-phase-d")
+  validate_phase_d = commands.add_parser("validate-phase-d")
+  for phase_d_command in (finalize_phase_d, validate_phase_d):
+    phase_d_command.add_argument("--cap8-probe-output", required=True)
+    phase_d_command.add_argument("--cap16-probe-output", required=True)
+    phase_d_command.add_argument("--sv-benchmarks", required=True)
+    phase_d_command.add_argument("--output-dir", required=True)
+  finalize_phase_d.set_defaults(function=command_finalize_phase_d)
+  validate_phase_d.set_defaults(function=command_validate_phase_d)
   complete_sentinel = commands.add_parser("write-complete-sentinel")
   complete_sentinel.add_argument("--output", required=True)
   complete_sentinel.set_defaults(function=command_write_complete_sentinel)

@@ -846,6 +846,46 @@ write `no-event.csv`; the legacy `command_probe_summary` naming remains
 unchanged. The summary is reproduced during closure validation before
 `.complete` is written.
 
+## Phase-D split finalization
+
+Phase D is a standalone, non-executing finalizer. It accepts only completed,
+authenticated cap-8 and cap-16 strict probe closures and uses only each saved
+formal manifest and `summary/cegar-eligible.csv`. Both external Phase-C
+artifact aggregate pins remain `PENDING_AFTER_CAP8_PHASE_C_COMPLETION` and
+`PENDING_AFTER_CAP16_PHASE_C_COMPLETION` until the completed closures are
+reviewed. A pending pin or any overlap between the output and either probe or
+SV-Benchmarks input tree fails before the Phase-D output path is created. An
+authenticated cohort with zero eligible rows remains a valid input.
+
+```bash
+scripts/vguide/dataset.py finalize-phase-d \
+  --cap8-probe-output /path/to/completed-cap8-probe \
+  --cap16-probe-output /path/to/completed-cap16-probe \
+  --sv-benchmarks /path/to/sv-benchmarks \
+  --output-dir /path/to/phase-d
+
+scripts/vguide/dataset.py validate-phase-d \
+  --cap8-probe-output /path/to/completed-cap8-probe \
+  --cap16-probe-output /path/to/completed-cap16-probe \
+  --sv-benchmarks /path/to/sv-benchmarks \
+  --output-dir /path/to/phase-d
+```
+
+The canonical deduplication key is the ordered source SHA-256 tuple, the
+unreach-call property SHA-256, expected verdict, and data model. Any duplicate
+fails closed; no representative is selected. The finalizer preserves every
+selected manifest task record, including license evidence, and both parent
+license audits. It assigns `source:family` through the fixed
+`split_for_family` function, writes exact task- and family-disjoint
+development, validation, and heldout manifests, and never adjusts the heldout
+set using augmented outcomes.
+
+The exact output topology is `dedup-audit.csv`, the three split manifests,
+`row-provenance.json`, `summary.json`, `artifact-manifest.json`, and
+`.complete`. Validation reauthenticates both probe closures, checks the
+artifact hashes and backlinks, regenerates the complete output in a temporary
+directory, and requires every output byte to match.
+
 ## Wiki integrity
 
 ```bash
