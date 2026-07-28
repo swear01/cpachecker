@@ -262,10 +262,9 @@ and Ant 1.10.12, `/usr/bin/python3.10` digest
 and Python 3.10.12, and BenchExec archive digest
 `75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737c143ba018bc`
 and version 3.35-dev. The Valkyrie P-core lock is cooperative and prevents
-only another compliant runner from overlapping. A non-root runner cannot
-reserve the P-cores against unrelated users or processes, so a dedicated host
-with no foreign load is an operational prerequisite, not a property enforced
-by this script.
+only another compliant runner from overlapping. Unrelated work is handled by
+the frozen per-case contention policy below; a completely idle host is not a
+formal prerequisite.
 
 The exact isolated Python environment used to start BenchExec is also part of
 the runtime closure. The runner pins `/usr/lib/python3.10` at
@@ -287,13 +286,20 @@ saved `dataset.py` and `baseline.py` commands use this same pinned interpreter
 and are therefore covered by the same binary, standard-library, and installed
 package closure.
 
-The runner records a startup process/load snapshot and appends the top
-CPU-consuming threads' PID, TID, PSR, CPU percentage, command, load, and
-timestamp every 60 seconds. The record-only monitor itself is restricted to
-E-core logical CPUs 16–23. Teardown fails if the monitor died, its termination
-is not clean, or it produced no timestamped sample. These process records and
-the machine counters can reveal interference after the fact; they contain no
-claimed process affinity and neither guarantee nor certify exclusive CPU use.
+The runner records a startup process/load snapshot. During each BenchExec run,
+an isolated standard-library monitor samples `/proc` once per second from
+E-core logical CPUs 16–23. It excludes the runner process tree, groups all
+other thread CPU-time deltas by process, and observes both hardware threads of
+every P-core (logical CPUs 0–15); each thread delta is attributed to the
+processor reported by its `/proc` stat record at the sample boundary. A
+foreign process is sustained contention only when it consumes at least 50% of
+one logical CPU in every sample for at least 10 consecutive seconds. The
+JSON-lines evidence records the fixed policy, timestamps, process identity,
+measured percentage, and streak duration. Monitor death, an unclean stop, no
+sample, malformed evidence, or a mismatch between the BenchExec event log and
+result rows fails closed. Before each primary or replacement run, launch waits
+until the monitor has ten samples and its latest sample contains no sustained
+contender; brief activity below the frozen threshold does not block launch.
 
 The runner builds stock CPAchecker, performs the ten-second machine preflight,
 generates the fixed 900/910/920 definition with `render-formal`, and executes
@@ -313,13 +319,19 @@ the JAR semantic digest passes. It then requires `classes/` to remain absent
 before measurement and throughout success or failure teardown. Consequently,
 an injected loose class cannot shadow the pinned JAR.
 Each repetition has independent machine snapshots and a counter check.
-The runner writes a hashed repetition plan for each clean primary result before
-`summarize --hard-threshold 200`. A recovery plan may instead bind an
-`error="incomplete"` primary result, a sorted taint manifest, and one or more
-complete subset replacement results. Every missing primary row must be
-tainted, only tainted rows may be replaced, replacement definitions must
-contain exactly their declared tasks, and no result artifact may be reused
-across repetitions. Completed untainted primary rows remain accepted.
+The runner correlates each sustained-contention interval with the two
+BenchExec task timelines and taints only tasks active during the interval.
+It also taints every missing row in an `error="incomplete"` primary result.
+Completed untainted primary rows remain accepted. Tainted tasks are rerun with
+the unchanged formal protocol; a completed but contaminated replacement is
+retained as evidence and retried in a new directory until a clean replacement
+exists. An external interruption still stops the process fail-closed; the same
+plan commands can resume from its incomplete primary without discarding
+completed untainted rows. The runner then writes a hashed repetition plan before
+`summarize --hard-threshold 200`. Every missing primary row must be tainted,
+only tainted rows may be replaced, replacement definitions must contain
+exactly their declared tasks, and no accepted result artifact may be reused
+across repetitions.
 `summarize` emits `row-provenance.json`, which binds every accepted row to its
 primary or replacement result hash and records the replacement reason.
 

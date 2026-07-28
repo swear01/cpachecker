@@ -427,42 +427,41 @@ record_process_snapshot() {
 }
 
 start_process_monitor() {
-  local destination=$1
-  local interval=${2:-60}
-  taskset -c 16-23 "$PYTHON_BIN" -I -u - \
-    "$destination/process-monitor.log" "$interval" <<'PY' &
-import datetime
-import signal
-import subprocess
+  local output=$1
+  taskset -c 16-23 "$PYTHON_BIN" -I -u -c '
+import runpy
 import sys
-import time
 from pathlib import Path
 
-signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-output = Path(sys.argv[1])
-interval = float(sys.argv[2])
-while True:
-  processes = subprocess.check_output(
-      ["ps", "-eLo", "pid,tid,psr,pcpu,comm", "--sort=-pcpu"],
-      text=True,
-  ).splitlines()[:41]
-  with output.open("a", encoding="utf-8") as target:
-    target.write(f"timestamp={datetime.datetime.now().astimezone().isoformat()}\n")
-    target.write(f"load={Path('/proc/loadavg').read_text().strip()}\n")
-    target.write("\n".join(processes) + "\n")
-    target.write("\n")
-  time.sleep(interval)
-PY
+script = Path(sys.argv.pop(1)).resolve()
+sys.argv[0] = str(script)
+sys.dont_write_bytecode = True
+sys.pycache_prefix = "/dev/null"
+sys.path.insert(0, str(script.parent))
+runpy.run_path(str(script), run_name="__main__")
+' "$DATASET_PY" monitor-formal-load \
+    --output "$output" --exclude-root "$$" &
   MONITOR_PID=$!
   MONITOR_ACTIVE=true
-  printf '%s\n' "$MONITOR_PID" >"$destination/process-monitor.pid"
+  MONITOR_OUTPUT=$output
+  printf '%s\n' "$MONITOR_PID" >"$output.pid"
+  for _ in {1..40}; do
+    if [[ -s "$output" ]]; then
+      return
+    fi
+    if ! kill -0 "$MONITOR_PID" 2>/dev/null; then
+      echo "process monitor failed before measurement" >&2
+      return 1
+    fi
+    sleep 0.05
+  done
+  echo "process monitor did not initialize before measurement" >&2
+  return 1
 }
 
 stop_process_monitor() {
-  local destination=$1
   local monitor_exit
   local samples
-  local last_timestamp
   if [[ -z ${MONITOR_PID:-} ]] || ! kill -0 "$MONITOR_PID" 2>/dev/null; then
     echo "process monitor is not alive at teardown" >&2
     return 1
@@ -474,28 +473,42 @@ stop_process_monitor() {
     monitor_exit=$?
   fi
   [[ "$monitor_exit" -eq 0 ]]
-  [[ -s "$destination/process-monitor.log" ]]
-  samples=$(grep -c '^timestamp=' "$destination/process-monitor.log")
+  [[ -s "$MONITOR_OUTPUT" ]]
+  samples=$(($(wc -l <"$MONITOR_OUTPUT") - 1))
   [[ "$samples" -gt 0 ]]
-  last_timestamp=$(grep '^timestamp=' "$destination/process-monitor.log" | tail -1)
-  [[ -n "$last_timestamp" ]]
-  printf 'pid=%s\nexit=%s\nsamples=%s\nlast_%s\n' \
-    "$MONITOR_PID" "$monitor_exit" "$samples" "$last_timestamp" \
-    >"$destination/process-monitor-stopped.txt"
+  printf 'pid=%s\nexit=%s\nsamples=%s\n' \
+    "$MONITOR_PID" "$monitor_exit" "$samples" \
+    >"$MONITOR_OUTPUT.stopped"
   MONITOR_ACTIVE=false
   MONITOR_PID=
+  MONITOR_OUTPUT=
 }
 
 stop_process_monitor_for_teardown() {
-  local destination=$1
   if [[ ${MONITOR_ACTIVE:-false} == true ]]; then
-    stop_process_monitor "$destination"
-  elif [[ -s "$destination/process-monitor-stopped.txt" ]]; then
-    return 0
-  else
-    echo "process monitor was not started or cleanly stopped" >&2
-    return 1
+    stop_process_monitor
   fi
+}
+
+wait_for_process_monitor() {
+  local samples
+  local contended
+  while true; do
+    if ! kill -0 "$MONITOR_PID" 2>/dev/null; then
+      echo "process monitor died during the prelaunch window" >&2
+      return 1
+    fi
+    samples=$(($(wc -l <"$MONITOR_OUTPUT") - 1))
+    if [[ "$samples" -ge 10 ]]; then
+      contended=$("$PYTHON_BIN" -I -c \
+        'import json,sys; print(any(row["contended"] for row in json.loads(open(sys.argv[1]).read().splitlines()[-1])["offenders"]))' \
+        "$MONITOR_OUTPUT")
+      if [[ "$contended" == False ]]; then
+        return
+      fi
+    fi
+    sleep 1
+  done
 }
 
 single_formal_result() {
@@ -653,7 +666,7 @@ main() {
     trap - EXIT
     if ((status != 0)); then
       set +e
-      stop_process_monitor_for_teardown "$OUTPUT_DIR/provenance"
+      stop_process_monitor_for_teardown
       monitor_status=$?
       verify_research_provenance "$OUTPUT_DIR/input/research" \
         >"$OUTPUT_DIR/provenance/research-verification-failure.log" 2>&1
@@ -697,7 +710,6 @@ main() {
   }
   trap capture_failure EXIT
   record_process_snapshot "$OUTPUT_DIR/provenance"
-  start_process_monitor "$OUTPUT_DIR/provenance"
 
   systemd-run --user --quiet --scope --slice=benchexec -p Delegate=yes \
     taskset -c "$P_CORES" \
@@ -770,13 +782,16 @@ main() {
     --output-dir "$OUTPUT_DIR/generated" |
     tee "$OUTPUT_DIR/provenance/render-formal.log"
 
-  run_repetition() {
-    local repetition=$1
+  run_formal_benchmark() {
+    local label=$1
     local name=$2
-    local output="$OUTPUT_DIR/results/repetition-$repetition"
+    local definition=$3
+    local output=$4
     mkdir -p "$output"
     JAVA_HOME="$JAVA_HOME" run_python_script "$BASELINE_PY" machine \
-      --output "$OUTPUT_DIR/provenance/machine-before-repetition-$repetition.json"
+      --output "$OUTPUT_DIR/provenance/machine-before-$label.json"
+    start_process_monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl"
+    wait_for_process_monitor
     (
       cd "$CPACHECKER_DIR"
       systemd-run --user --quiet --scope --slice=benchexec -p Delegate=yes \
@@ -796,34 +811,107 @@ main() {
         --hidden-dir /home \
         --overlay-dir "$CPACHECKER_DIR" \
         -N 2 -c 4 \
-        "$OUTPUT_DIR/generated/hard-case-candidates.xml"
-    ) 2>&1 | tee "$OUTPUT_DIR/provenance/repetition-$repetition-benchexec.log"
+        "$definition"
+    ) 2>&1 | tee "$OUTPUT_DIR/provenance/$label-benchexec.log"
+    stop_process_monitor
     JAVA_HOME="$JAVA_HOME" run_python_script "$BASELINE_PY" machine \
-      --output "$OUTPUT_DIR/provenance/machine-after-repetition-$repetition.json"
+      --output "$OUTPUT_DIR/provenance/machine-after-$label.json"
     run_python_script "$BASELINE_PY" machine-check \
-      --before "$OUTPUT_DIR/provenance/machine-before-repetition-$repetition.json" \
-      --after "$OUTPUT_DIR/provenance/machine-after-repetition-$repetition.json" |
-      tee "$OUTPUT_DIR/provenance/machine-check-repetition-$repetition.json"
+      --before "$OUTPUT_DIR/provenance/machine-before-$label.json" \
+      --after "$OUTPUT_DIR/provenance/machine-after-$label.json" |
+      tee "$OUTPUT_DIR/provenance/machine-check-$label.json"
+  }
+
+  build_repetition_plan() {
+    local repetition=$1
+    local primary=$2
+    local label="repetition-$repetition"
+    local taint="$OUTPUT_DIR/$label-taint.json"
+    local plan="$OUTPUT_DIR/$label-plan.json"
+    local taint_count
+    run_python_script "$DATASET_PY" formal-taint \
+      --manifest "$FORMAL_MANIFEST" \
+      --repetition "$repetition" \
+      --result "$primary" \
+      --benchexec-log "$OUTPUT_DIR/provenance/$label-benchexec.log" \
+      --load-monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
+      --output "$taint"
+    taint_count=$("$PYTHON_BIN" -I -c \
+      'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' "$taint")
+    if [[ "$taint_count" -eq 0 ]]; then
+      run_python_script "$DATASET_PY" repetition-plan \
+        --manifest "$FORMAL_MANIFEST" \
+        --repetition "$repetition" \
+        --primary-result "$primary" \
+        --output "$plan"
+      BUILT_PLAN=$plan
+      return
+    fi
+
+    local definition_dir="$OUTPUT_DIR/generated/$label-replacement"
+    local definition="$definition_dir/hard-case-candidates.xml"
+    local attempt=1
+    local replacement
+    local replacement_taint
+    local replacement_taint_count
+    run_python_script "$DATASET_PY" render-formal-replacement \
+      "${PHASE_ARGS[@]}" \
+      --manifest "$FORMAL_MANIFEST" \
+      --primary-result "$primary" \
+      --taint-manifest "$taint" \
+      --property-file "$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp" \
+      --output-dir "$definition_dir"
+    while true; do
+      local attempt_label="$label-replacement-attempt-$attempt"
+      local attempt_output="$OUTPUT_DIR/results/$attempt_label"
+      run_formal_benchmark "$attempt_label" \
+        "hard-case-dataset-v2-formal-valkyrie-$attempt_label" \
+        "$definition" "$attempt_output"
+      replacement=$(single_formal_result "$attempt_output")
+      replacement_taint="$OUTPUT_DIR/$attempt_label-taint.json"
+      run_python_script "$DATASET_PY" formal-taint \
+        --manifest "$FORMAL_MANIFEST" \
+        --repetition "$repetition" \
+        --result "$replacement" \
+        --benchexec-log "$OUTPUT_DIR/provenance/$attempt_label-benchexec.log" \
+        --load-monitor "$OUTPUT_DIR/provenance/$attempt_label-load-monitor.jsonl" \
+        --output "$replacement_taint"
+      replacement_taint_count=$("$PYTHON_BIN" -I -c \
+        'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
+        "$replacement_taint")
+      if [[ "$replacement_taint_count" -eq 0 ]]; then
+        break
+      fi
+      attempt=$((attempt + 1))
+      sleep 10
+    done
+    run_python_script "$DATASET_PY" repetition-plan \
+      --manifest "$FORMAL_MANIFEST" \
+      --repetition "$repetition" \
+      --primary-result "$primary" \
+      --taint-manifest "$taint" \
+      --replacement-result "$replacement" \
+      --replacement-definition "$definition" \
+      --output "$plan"
+    BUILT_PLAN=$plan
   }
 
   RESULTS=()
   PLANS=()
-  run_repetition 1 hard-case-dataset-v2-formal-valkyrie-repetition-1
+  run_formal_benchmark repetition-1 \
+    hard-case-dataset-v2-formal-valkyrie-repetition-1 \
+    "$OUTPUT_DIR/generated/hard-case-candidates.xml" \
+    "$OUTPUT_DIR/results/repetition-1"
   RESULTS+=("$(single_formal_result "$OUTPUT_DIR/results/repetition-1")")
-  run_python_script "$DATASET_PY" repetition-plan \
-    --manifest "$FORMAL_MANIFEST" \
-    --repetition 1 \
-    --primary-result "${RESULTS[0]}" \
-    --output "$OUTPUT_DIR/repetition-1-plan.json"
-  PLANS+=("$OUTPUT_DIR/repetition-1-plan.json")
-  run_repetition 2 hard-case-dataset-v2-formal-valkyrie-repetition-2
+  build_repetition_plan 1 "${RESULTS[0]}"
+  PLANS+=("$BUILT_PLAN")
+  run_formal_benchmark repetition-2 \
+    hard-case-dataset-v2-formal-valkyrie-repetition-2 \
+    "$OUTPUT_DIR/generated/hard-case-candidates.xml" \
+    "$OUTPUT_DIR/results/repetition-2"
   RESULTS+=("$(single_formal_result "$OUTPUT_DIR/results/repetition-2")")
-  run_python_script "$DATASET_PY" repetition-plan \
-    --manifest "$FORMAL_MANIFEST" \
-    --repetition 2 \
-    --primary-result "${RESULTS[1]}" \
-    --output "$OUTPUT_DIR/repetition-2-plan.json"
-  PLANS+=("$OUTPUT_DIR/repetition-2-plan.json")
+  build_repetition_plan 2 "${RESULTS[1]}"
+  PLANS+=("$BUILT_PLAN")
 
   run_python_script "$DATASET_PY" summarize \
     "${PHASE_ARGS[@]}" \
@@ -835,7 +923,6 @@ main() {
     --hard-threshold 200 \
     2>&1 | tee "$OUTPUT_DIR/provenance/summarize.log"
 
-  stop_process_monitor "$OUTPUT_DIR/provenance"
   verify_research_provenance "$OUTPUT_DIR/input/research" \
     >"$OUTPUT_DIR/provenance/research-verification-final.log" 2>&1
   verify_runtime_closure true \

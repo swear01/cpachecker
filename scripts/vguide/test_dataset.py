@@ -1066,11 +1066,11 @@ class DatasetTest(unittest.TestCase):
     )
     self.assertIn('activate_saved_scripts "$OUTPUT_DIR/input/research"', runner)
     self.assertIn('record_process_snapshot "$OUTPUT_DIR/provenance"', runner)
-    self.assertIn('start_process_monitor "$OUTPUT_DIR/provenance"', runner)
-    self.assertIn(
-        'stop_process_monitor_for_teardown "$OUTPUT_DIR/provenance"', runner
-    )
-    self.assertIn('stop_process_monitor "$OUTPUT_DIR/provenance"', runner)
+    self.assertIn('start_process_monitor "$OUTPUT_DIR/provenance/$label-', runner)
+    self.assertIn("wait_for_process_monitor", runner)
+    self.assertIn('[[ "$samples" -ge 10 ]]', runner)
+    self.assertIn("stop_process_monitor_for_teardown", runner)
+    self.assertIn("stop_process_monitor", runner)
     captured = runner.index(
         'capture_research_provenance "$OUTPUT_DIR/input/research"'
     )
@@ -1089,22 +1089,22 @@ class DatasetTest(unittest.TestCase):
     self.assertIn("--hard-threshold 200", runner)
     self.assertNotIn("44ec679a56d3", runner)
     first = runner.index(
-        "run_repetition 1 hard-case-dataset-v2-formal-valkyrie-repetition-1"
+        "run_formal_benchmark repetition-1"
     )
     first_result = runner.index(
         'single_formal_result "$OUTPUT_DIR/results/repetition-1"', first
     )
     first_plan = runner.index(
-        '--output "$OUTPUT_DIR/repetition-1-plan.json"', first_result
+        'build_repetition_plan 1 "${RESULTS[0]}"', first_result
     )
     second = runner.index(
-        "run_repetition 2 hard-case-dataset-v2-formal-valkyrie-repetition-2"
+        "run_formal_benchmark repetition-2"
     )
     second_result = runner.index(
         'single_formal_result "$OUTPUT_DIR/results/repetition-2"', second
     )
     second_plan = runner.index(
-        '--output "$OUTPUT_DIR/repetition-2-plan.json"', second_result
+        'build_repetition_plan 2 "${RESULTS[1]}"', second_result
     )
     summarize = runner.index('"$DATASET_PY" summarize', second)
     self.assertLess(first, first_result)
@@ -1465,32 +1465,47 @@ verify_research_provenance "$4"
 
       provenance = root / "monitor"
       provenance.mkdir()
+      monitor = provenance / "load-monitor.jsonl"
       command = """
 source "$1"
+DATASET_PY=$3
+P_CORES=0,2,4,6,8,10,12,14
 record_process_snapshot "$2"
-start_process_monitor "$2" 0.1
+start_process_monitor "$4"
 pid=$MONITOR_PID
 taskset -pc "$pid" | grep -q '16-23'
-sleep 0.25
-stop_process_monitor "$2"
+sleep 1.25
+stop_process_monitor
 ! kill -0 "$pid" 2>/dev/null
 """
       subprocess.run(
-          ["bash", "-c", command, "bash", str(runner), str(provenance)],
+          [
+              "bash",
+              "-c",
+              command,
+              "bash",
+              str(runner),
+              str(provenance),
+              str(Path(__file__).with_name("dataset.py")),
+              str(monitor),
+          ],
           check=True,
       )
       self.assertIn("PID", (provenance / "process-start.txt").read_text())
       self.assertIn("PSR", (provenance / "process-start.txt").read_text())
-      self.assertIn("timestamp=", (provenance / "process-monitor.log").read_text())
-      stopped = (provenance / "process-monitor-stopped.txt").read_text()
+      samples = monitor.read_text(encoding="utf-8").splitlines()
+      self.assertEqual(
+          json.loads(samples[0])["foreign_process_cpu_percent"], 50.0
+      )
+      self.assertIn("timestamp", json.loads(samples[1]))
+      stopped = Path(f"{monitor}.stopped").read_text()
       self.assertIn("exit=0", stopped)
       self.assertIn("samples=", stopped)
-      self.assertIn("last_timestamp=", stopped)
       command = """
 source "$1"
 MONITOR_ACTIVE=false
 MONITOR_PID=
-stop_process_monitor_for_teardown "$2"
+stop_process_monitor_for_teardown
 """
       subprocess.run(
           ["bash", "-c", command, "bash", str(runner), str(provenance)],
@@ -1499,22 +1514,33 @@ stop_process_monitor_for_teardown "$2"
 
       killed = root / "killed-monitor"
       killed.mkdir()
+      killed_monitor = killed / "load-monitor.jsonl"
       command = """
 source "$1"
-start_process_monitor "$2" 60
+DATASET_PY=$2
+P_CORES=0,2,4,6,8,10,12,14
+start_process_monitor "$3"
 pid=$MONITOR_PID
 sleep 0.1
 kill -9 "$pid"
 wait "$pid" 2>/dev/null || :
-if stop_process_monitor "$2"; then
+if stop_process_monitor; then
   exit 1
 fi
 """
       subprocess.run(
-          ["bash", "-c", command, "bash", str(runner), str(killed)],
+          [
+              "bash",
+              "-c",
+              command,
+              "bash",
+              str(runner),
+              str(Path(__file__).with_name("dataset.py")),
+              str(killed_monitor),
+          ],
           check=True,
       )
-      self.assertFalse((killed / "process-monitor-stopped.txt").exists())
+      self.assertFalse(Path(f"{killed_monitor}.stopped").exists())
 
   def test_formal_runner_reverifies_runtime_closure(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
@@ -2464,6 +2490,82 @@ copy_phase_evidence "$2"
                 output=str(invalid_plan),
             )
         )
+
+  def test_formal_taint_marks_only_tasks_overlapping_sustained_contention(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      tasks = [
+          {
+              "task": f"c/t{index}.yml",
+              "task_path": f"c/t{index}.yml",
+              "source_paths": [f"c/s{index}.c"],
+              "expected_verdict": "true",
+              "benchmark_set": "Loops",
+          }
+          for index in range(3)
+      ]
+      manifest = root / "manifest.json"
+      manifest.write_text(
+          json.dumps({"task_count": len(tasks), "tasks": tasks}),
+          encoding="utf-8",
+      )
+      result = root / "result.xml"
+      write_stock_result(result, tasks, "valkyrie", formal=True, marker="01")
+      log = root / "benchexec.log"
+      log.write_text(
+          "\n".join([
+              "00:00:02   starting   t0.yml",
+              "00:00:02   starting   t1.yml",
+              "00:00:20              t0.yml   TIMEOUT 900 18",
+              "00:00:20   starting   t2.yml",
+              "00:00:21              t1.yml   TIMEOUT 900 19",
+              "00:00:30              t2.yml   TIMEOUT 900 10",
+          ]) + "\n",
+          encoding="utf-8",
+      )
+      monitor = root / "load.jsonl"
+      monitor.write_text(
+          "\n".join([
+              json.dumps({
+                  "schema_version": dataset.FORMAL_LOAD_MONITOR_SCHEMA,
+                  "p_core_cpus": list(dataset.FORMAL_P_CORE_CPUS),
+                  "foreign_process_cpu_percent": 50.0,
+                  "minimum_consecutive_seconds": 10.0,
+                  "sample_interval_seconds": 1.0,
+                  "excluded_process_root": 123,
+              }),
+              json.dumps({
+                  "timestamp": "2026-07-27T00:00:15+08:00",
+                  "elapsed_seconds": 1.0,
+                  "offenders": [{
+                      "pid": 456,
+                      "uid": 1000,
+                      "comm": "foreign",
+                      "cpu_percent": 75.0,
+                      "duration_seconds": 10.0,
+                      "since": "2026-07-27T00:00:05+08:00",
+                      "contended": True,
+                  }],
+              }),
+          ]) + "\n",
+          encoding="utf-8",
+      )
+      output = root / "taint.json"
+      dataset.command_formal_taint(
+          SimpleNamespace(
+              manifest=str(manifest),
+              repetition=1,
+              result=str(result),
+              benchexec_log=str(log),
+              load_monitor=str(monitor),
+              output=str(output),
+          )
+      )
+      tainted = json.loads(output.read_text(encoding="utf-8"))["tasks"]
+      self.assertEqual(
+          [row["task"] for row in tainted],
+          ["c/t0.yml", "c/t1.yml"],
+      )
 
   def test_phase_b_zero_survivors_are_preserved_and_skip_formal(self):
     with tempfile.TemporaryDirectory() as temp:

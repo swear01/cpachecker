@@ -11,14 +11,17 @@
 import argparse
 import collections
 import csv
+import datetime
 import hashlib
 import importlib.util
 import json
 import os
 import re
+import signal
 import shutil
 import statistics
 import subprocess
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -119,6 +122,11 @@ FORMAL_TAINT_REASONS = {
     "foreign_p_core_contention",
     "interrupted_incomplete",
 }
+FORMAL_P_CORE_CPUS = tuple(range(16))
+FORMAL_FOREIGN_CPU_PERCENT = 50.0
+FORMAL_FOREIGN_CPU_SECONDS = 10.0
+FORMAL_LOAD_SAMPLE_SECONDS = 1.0
+FORMAL_LOAD_MONITOR_SCHEMA = "formal-p-core-load-monitor-v1"
 
 
 def sha256_text(value):
@@ -2145,6 +2153,280 @@ def validate_taint_manifest(data, repetition, primary_hash, manifest):
   return tasks
 
 
+def read_proc_thread_stat(path):
+  text = path.read_text(encoding="utf-8")
+  fields = text[text.rfind(")") + 2 :].split()
+  return (
+      int(fields[11]) + int(fields[12]),
+      int(fields[19]),
+      int(fields[36]),
+  )
+
+
+def command_monitor_formal_load(args):
+  output = Path(args.output).resolve()
+  if output.exists():
+    raise RuntimeError(f"load-monitor output already exists: {output}")
+  output.parent.mkdir(parents=True, exist_ok=True)
+  clock_ticks = os.sysconf("SC_CLK_TCK")
+  running = True
+
+  def stop(*_):
+    nonlocal running
+    running = False
+
+  signal.signal(signal.SIGTERM, stop)
+  signal.signal(signal.SIGINT, stop)
+  previous = {}
+  previous_monotonic = time.monotonic()
+  streaks = {}
+  with output.open("x", encoding="utf-8", buffering=1) as target:
+    target.write(json.dumps({
+        "schema_version": FORMAL_LOAD_MONITOR_SCHEMA,
+        "p_core_cpus": list(FORMAL_P_CORE_CPUS),
+        "foreign_process_cpu_percent": FORMAL_FOREIGN_CPU_PERCENT,
+        "minimum_consecutive_seconds": FORMAL_FOREIGN_CPU_SECONDS,
+        "sample_interval_seconds": FORMAL_LOAD_SAMPLE_SECONDS,
+        "excluded_process_root": args.exclude_root,
+    }, sort_keys=True) + "\n")
+    while running:
+      time.sleep(FORMAL_LOAD_SAMPLE_SECONDS)
+      now_monotonic = time.monotonic()
+      elapsed = now_monotonic - previous_monotonic
+      now = datetime.datetime.now().astimezone()
+      processes = {}
+      parents = {}
+      for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit():
+          continue
+        try:
+          status = (proc / "status").read_text(encoding="utf-8")
+          parent = int(re.search(r"^PPid:\s+(\d+)$", status, re.MULTILINE).group(1))
+          parents[int(proc.name)] = parent
+        except (FileNotFoundError, PermissionError, AttributeError, ValueError):
+          continue
+      excluded = {args.exclude_root}
+      changed = True
+      while changed:
+        before = len(excluded)
+        excluded.update(pid for pid, parent in parents.items() if parent in excluded)
+        changed = len(excluded) != before
+      current = {}
+      for pid in parents:
+        if pid in excluded:
+          continue
+        proc = Path("/proc") / str(pid)
+        try:
+          comm = (proc / "comm").read_text(encoding="utf-8").strip()
+          uid = proc.stat().st_uid
+          _, process_started, _ = read_proc_thread_stat(proc / "stat")
+          for thread in (proc / "task").iterdir():
+            ticks, thread_started, processor = read_proc_thread_stat(
+                thread / "stat"
+            )
+            key = (pid, int(thread.name), thread_started)
+            current[key] = ticks
+            if key in previous and processor in FORMAL_P_CORE_CPUS:
+              delta = ticks - previous[key]
+              if delta >= 0:
+                processes.setdefault(
+                    pid, [0, uid, comm, process_started]
+                )[0] += delta
+        except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
+          continue
+      qualifying = {}
+      for pid, (ticks, uid, comm, started) in processes.items():
+        percent = ticks / clock_ticks / elapsed * 100
+        if percent >= FORMAL_FOREIGN_CPU_PERCENT:
+          qualifying[(pid, started)] = (percent, uid, comm)
+      for key in set(streaks) - set(qualifying):
+        del streaks[key]
+      offenders = []
+      for key, (percent, uid, comm) in sorted(qualifying.items()):
+        if key not in streaks:
+          streaks[key] = (
+              previous_monotonic,
+              now - datetime.timedelta(seconds=elapsed),
+          )
+        since_monotonic, since = streaks[key]
+        duration = now_monotonic - since_monotonic
+        offenders.append({
+            "pid": key[0],
+            "uid": uid,
+            "comm": comm,
+            "cpu_percent": round(percent, 3),
+            "duration_seconds": round(duration, 3),
+            "since": since.isoformat(),
+            "contended": duration >= FORMAL_FOREIGN_CPU_SECONDS,
+        })
+      target.write(json.dumps({
+          "timestamp": now.isoformat(),
+          "elapsed_seconds": round(elapsed, 6),
+          "offenders": offenders,
+      }, sort_keys=True) + "\n")
+      previous = current
+      previous_monotonic = now_monotonic
+
+
+def load_formal_contention_intervals(path):
+  lines = Path(path).read_text(encoding="utf-8").splitlines()
+  if len(lines) < 2:
+    raise RuntimeError("formal load monitor has no samples")
+  header = json.loads(lines[0])
+  if not isinstance(header, dict) or header != {
+      "schema_version": FORMAL_LOAD_MONITOR_SCHEMA,
+      "p_core_cpus": list(FORMAL_P_CORE_CPUS),
+      "foreign_process_cpu_percent": FORMAL_FOREIGN_CPU_PERCENT,
+      "minimum_consecutive_seconds": FORMAL_FOREIGN_CPU_SECONDS,
+      "sample_interval_seconds": FORMAL_LOAD_SAMPLE_SECONDS,
+      "excluded_process_root": (
+          header.get("excluded_process_root")
+          if isinstance(header, dict)
+          else None
+      ),
+  } or not isinstance(header.get("excluded_process_root"), int):
+    raise RuntimeError("formal load-monitor policy does not match")
+  intervals = []
+  previous = None
+  for line in lines[1:]:
+    sample = json.loads(line)
+    if (
+        not isinstance(sample, dict)
+        or set(sample) != {"timestamp", "elapsed_seconds", "offenders"}
+        or not isinstance(sample["elapsed_seconds"], (int, float))
+        or sample["elapsed_seconds"] <= 0
+    ):
+      raise RuntimeError("formal load-monitor sample topology is not exact")
+    timestamp = datetime.datetime.fromisoformat(sample["timestamp"])
+    if timestamp.tzinfo is None or (previous is not None and timestamp <= previous):
+      raise RuntimeError("formal load-monitor timestamps are invalid")
+    previous = timestamp
+    if not isinstance(sample["offenders"], list):
+      raise RuntimeError("formal load-monitor offenders are invalid")
+    for offender in sample["offenders"]:
+      if (
+          set(offender) != {
+              "pid",
+              "uid",
+              "comm",
+              "cpu_percent",
+              "duration_seconds",
+              "since",
+              "contended",
+          }
+          or not isinstance(offender["pid"], int)
+          or not isinstance(offender["uid"], int)
+          or not isinstance(offender["comm"], str)
+          or not isinstance(offender["cpu_percent"], (int, float))
+          or not isinstance(offender["duration_seconds"], (int, float))
+          or not isinstance(offender["contended"], bool)
+      ):
+        raise RuntimeError("formal load-monitor offender topology is not exact")
+      since = datetime.datetime.fromisoformat(offender["since"])
+      expected = offender["duration_seconds"] >= FORMAL_FOREIGN_CPU_SECONDS
+      if (
+          since.tzinfo is None
+          or since > timestamp
+          or offender["cpu_percent"] < FORMAL_FOREIGN_CPU_PERCENT
+          or offender["contended"] != expected
+      ):
+        raise RuntimeError("formal load-monitor offender is inconsistent")
+      if offender["contended"]:
+        intervals.append((since, timestamp))
+  return intervals, previous
+
+
+def match_benchexec_log_task(name, manifest):
+  try:
+    return baseline.match_result_task(name, manifest)
+  except RuntimeError:
+    return baseline.match_result_task(f"c/{name}", manifest)
+
+
+def formal_run_taints(result, log, load_monitor, manifest):
+  result = Path(result).resolve()
+  metadata = result_metadata(result, FORMAL_DISPLAY, "900 s", allow_incomplete=True)
+  result_tasks = result_task_names(result, manifest)
+  subset = {task: manifest[task] for task in result_tasks}
+  rows = {
+      row["task"]: row
+      for row in baseline.parse_result_rows(result, subset, 200)
+  }
+  intervals, monitor_end = load_formal_contention_intervals(load_monitor)
+  start_date = datetime.datetime.fromisoformat(metadata["starttime"])
+  day = start_date.date()
+  previous_clock = start_date.timetz().replace(tzinfo=None)
+  starts = {}
+  ends = {}
+  pattern = re.compile(
+      r"^(\d{2}:\d{2}:\d{2})\s+(?:(starting)\s+)?(\S+\.yml)(?:\s+.*)?$"
+  )
+  for line in Path(log).read_text(encoding="utf-8").splitlines():
+    match = pattern.match(line)
+    if not match:
+      continue
+    clock = datetime.time.fromisoformat(match.group(1))
+    if (
+        clock < previous_clock
+        and (
+            datetime.datetime.combine(day, previous_clock)
+            - datetime.datetime.combine(day, clock)
+        ).total_seconds()
+        > 12 * 60 * 60
+    ):
+      day += datetime.timedelta(days=1)
+    previous_clock = clock
+    timestamp = datetime.datetime.combine(day, clock, start_date.tzinfo)
+    task = match_benchexec_log_task(match.group(3), subset)
+    target = starts if match.group(2) else ends
+    if task in target:
+      raise RuntimeError(f"duplicate BenchExec log event for {task}")
+    target[task] = timestamp
+  if set(ends) - set(starts):
+    raise RuntimeError("BenchExec log completes a task that it never started")
+  complete = {task for task, row in rows.items() if row_is_complete(row)}
+  if complete != set(ends):
+    raise RuntimeError("BenchExec log and complete result rows do not match")
+  tainted = {
+      task: "interrupted_incomplete"
+      for task, row in rows.items()
+      if not row_is_complete(row)
+  }
+  for task, started in starts.items():
+    ended = ends.get(task, monitor_end)
+    if ended is None:
+      raise RuntimeError("load monitor ended before an active task could be bounded")
+    ended += datetime.timedelta(seconds=1)
+    if any(started <= stop and ended >= begin for begin, stop in intervals):
+      tainted.setdefault(task, "foreign_p_core_contention")
+  return tainted
+
+
+def command_formal_taint(args):
+  output = Path(args.output).resolve()
+  if output.exists():
+    raise RuntimeError(f"formal taint output already exists: {output}")
+  manifest = baseline.load_task_manifest(args.manifest)
+  primary_hash = baseline.sha256_file(Path(args.result))
+  tainted = formal_run_taints(
+      args.result,
+      args.benchexec_log,
+      args.load_monitor,
+      manifest,
+  )
+  output.parent.mkdir(parents=True, exist_ok=True)
+  output.write_text(json.dumps({
+      "schema_version": FORMAL_TAINT_SCHEMA,
+      "repetition": args.repetition,
+      "primary_result_sha256": primary_hash,
+      "tasks": [
+          {"task": task, "reason": tainted[task]}
+          for task in sorted(tainted)
+      ],
+  }, indent=2) + "\n", encoding="utf-8")
+  print(output)
+
+
 def row_is_complete(row):
   return (
       bool(row["status"])
@@ -2702,6 +2984,18 @@ def main():
   repetition_plan.add_argument("--replacement-definition", action="append")
   repetition_plan.add_argument("--output", required=True)
   repetition_plan.set_defaults(function=command_repetition_plan)
+  monitor_formal_load = commands.add_parser("monitor-formal-load")
+  monitor_formal_load.add_argument("--output", required=True)
+  monitor_formal_load.add_argument("--exclude-root", type=int, required=True)
+  monitor_formal_load.set_defaults(function=command_monitor_formal_load)
+  formal_taint = commands.add_parser("formal-taint")
+  formal_taint.add_argument("--manifest", required=True)
+  formal_taint.add_argument("--repetition", type=int, choices=(1, 2), required=True)
+  formal_taint.add_argument("--result", required=True)
+  formal_taint.add_argument("--benchexec-log", required=True)
+  formal_taint.add_argument("--load-monitor", required=True)
+  formal_taint.add_argument("--output", required=True)
+  formal_taint.set_defaults(function=command_formal_taint)
   summarize = commands.add_parser("summarize")
   add_phase_b_inputs(summarize)
   summarize.add_argument("--manifest", required=True)
