@@ -4460,12 +4460,21 @@ def validate_markerless_recovery_identity_selection(
   if (
       result_directory.is_symlink()
       or not result_directory.is_dir()
-      or formal_result_directory_digest(result_directory)
+  ):
+    raise RuntimeError("frozen v2 recovery selection differs")
+  result_entries = list(result_directory.rglob("*"))
+  if any(
+      path.is_symlink() or not (path.is_file() or path.is_dir())
+      for path in result_entries
+  ):
+    raise RuntimeError("frozen v2 recovery selection differs")
+  if (
+      formal_result_directory_digest(result_directory)
       != selection["result_directory_digest"]
       or {
           path.relative_to(result_directory).as_posix()
-          for path in result_directory.rglob("*")
-          if path.is_dir() and not path.is_symlink()
+          for path in result_entries
+          if path.is_dir()
       }
       != set(selection["result_directories"])
   ):

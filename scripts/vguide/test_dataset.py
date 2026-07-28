@@ -4371,6 +4371,21 @@ copy_phase_evidence "$2"
         )
       extra_directory.rmdir()
 
+      fifo = result_directory / "extra.fifo"
+      os.mkfifo(fifo)
+      try:
+        with self.assertRaisesRegex(RuntimeError, "selection differs"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root,
+              selection["label"],
+              selection["role"],
+              selection["repetition"],
+              paths,
+              identities,
+          )
+      finally:
+        fifo.unlink()
+
       nested_directory = required_directory / "nested"
       nested_directory.mkdir()
       with self.assertRaisesRegex(RuntimeError, "selection differs"):

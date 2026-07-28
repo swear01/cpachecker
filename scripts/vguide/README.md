@@ -248,12 +248,13 @@ recovery boot uptime. General new identities, which include the kernel boot UUID
 and exact positive type/range checks, are not accepted by the markerless
 recovery path. Its one frozen version-2 selection pins the exact replacement
 label, role, repetition, captured boot UUID, result-directory digest and exact
-directory topology, and every definition, result, console, load-monitor,
-process, machine, task-set, and prior taint input. Every other version-2 attempt
-remains rejected; mixed schemas or any drift fail closed. The result-directory
-digest uses the production helper's Python `Path` part ordering; reproduce it
-with that helper or `PurePosixPath`, not a plain sort of relative strings. Only
-a proven reboot records machine counters as unavailable. Recovered
+regular-file/directory topology, and every definition, result, console,
+load-monitor, process, machine, task-set, and prior taint input. Symlinks and
+special filesystem nodes fail closed. Every other version-2 attempt remains
+rejected; mixed schemas or any drift fail closed. The result-directory digest
+uses the production helper's Python `Path` part ordering; reproduce it with that
+helper or `PurePosixPath`, not a plain sort of relative strings. Only a proven
+reboot records machine counters as unavailable. Recovered
 snapshots still require identical host, platform, kernel, CPU model,
 online/P-core sets, and Java identity; recorded `/proc/meminfo` `MemTotal` is
 not an identity field because its reported byte count can change across boots.
