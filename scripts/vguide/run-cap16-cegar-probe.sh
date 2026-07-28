@@ -27,10 +27,12 @@ FORMAL_MODE=cap16-probe
 FORMAL_HOST=athena
 P_CORES=0,2,4,6,8,10,12,14
 RESEARCH_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
-EXPECTED_CPACHECKER=$(git -C "$RESEARCH_ROOT" rev-parse HEAD)
+EXPECTED_CPACHECKER=a80db518765174c582e2574eee1f527eff18c910
 EXPECTED_SV_BENCHMARKS=9cf9198156e4c8a6c517e474770158e1bb0b566d
 EXPECTED_BENCHEXEC=edb95ed3a8478366b8bb89f8cdd1d9a6c5fa8c84
 EXPECTED_JDK=867ff62e01a0936fc0a90ceae27338be1973559767ef0717896f8d64f780ece6
+EXPECTED_STOCK_LIB_JAVA=eea0df062de5c8e3febe0d96b583741c140e79d3ae41a87a56d7be365b876f9d
+EXPECTED_CPACHECKER_JAR_CONTENT=34953059634f4a708ef0fc9f9bd288d6d4f0172c980b95033fd8d75229535a69
 EXPECTED_ANT_INSTALL=52772e241e78a875fa00dea891eac2023d4f2be639a5f28a17dca81580f75e5b
 EXPECTED_ANT_VERSION="Apache Ant(TM) version 1.10.12 compiled on January 17 1970"
 EXPECTED_PYTHON_REAL=/usr/bin/python3.12
@@ -52,10 +54,6 @@ EXPECTED_BENCHEXEC_VERSION="benchexec 3.35-dev"
   echo "cap-16 CEGAR probe is Athena-only; refusing host: $(hostname -s)" >&2
   exit 1
 }
-[[ "$CPACHECKER_DIR" == "$RESEARCH_ROOT" ]] || {
-  echo "probe CPAchecker and research checkout must be identical" >&2
-  exit 1
-}
 if env | grep -Eq '^(VGUIDE_|DEEPSEEK_API_KEY=|OPENAI_API_KEY=)'; then
   echo "LLM credentials and VGuide environment are forbidden" >&2
   exit 1
@@ -68,13 +66,13 @@ ANT_BIN="$ANT_HOME/bin/ant"
 PYTHON_STDLIB=$(realpath "$EXPECTED_PYTHON_STDLIB")
 PYTHON_DIST_PACKAGES=$(realpath "$EXPECTED_PYTHON_DIST_PACKAGES")
 PYTHON_LOCAL_DIST_PACKAGES=$(realpath "$EXPECTED_PYTHON_LOCAL_DIST_PACKAGES")
-EXPECTED_STOCK_LIB_JAVA=$(directory_digest_value "$CPACHECKER_DIR/lib/java")
 
 require_clean_repo "$RESEARCH_ROOT" research
+require_clean_repo "$CPACHECKER_DIR" "Phase-C CPAchecker runtime"
 require_clean_repo "$SV_BENCHMARKS_DIR" SV-Benchmarks true
 require_clean_repo "$BENCHEXEC_DIR" BenchExec
 reject_output_overlap \
-  "$OUTPUT_DIR" "$RESEARCH_ROOT" "$SV_BENCHMARKS_DIR" \
+  "$OUTPUT_DIR" "$RESEARCH_ROOT" "$CPACHECKER_DIR" "$SV_BENCHMARKS_DIR" \
   "$BENCHEXEC_DIR" "$FORMAL_OUTPUT" "$JAVA_HOME" "$ANT_INSTALL"
 
 FORMAL_DATASET="$FORMAL_OUTPUT/input/research/scripts/dataset.py"
@@ -162,7 +160,6 @@ if [[ -e "$OUTPUT_DIR/summary/.complete" ||
   exit 0
 fi
 
-EXPECTED_CPACHECKER_JAR_CONTENT=
 BUILD_COMPLETED=false
 MONITOR_ACTIVE=false
 capture_failure() {
@@ -174,9 +171,6 @@ capture_failure() {
     verify_research_provenance "$OUTPUT_DIR/input/research" \
       >"$OUTPUT_DIR/provenance/research-verification-failure.log" 2>&1
     if [[ "$BUILD_COMPLETED" == true ]]; then
-      EXPECTED_CPACHECKER_JAR_CONTENT=$(
-        cat "$OUTPUT_DIR/provenance/cpachecker-jar-content.sha256"
-      )
       verify_runtime_closure true \
         >"$OUTPUT_DIR/provenance/runtime-verification-failure.log" 2>&1
     fi
@@ -197,14 +191,9 @@ trap capture_failure EXIT
     "$ANT_BIN" -Divy.disable=true clean jar
 ) 2>&1 | tee "$OUTPUT_DIR/provenance/build.log"
 CURRENT_JAR_CONTENT=$(jar_content_digest_value "$CPACHECKER_DIR/cpachecker.jar")
-if [[ -f "$OUTPUT_DIR/provenance/cpachecker-jar-content.sha256" ]]; then
-  [[ $(cat "$OUTPUT_DIR/provenance/cpachecker-jar-content.sha256") == \
-    "$CURRENT_JAR_CONTENT" ]]
-else
-  printf '%s\n' "$CURRENT_JAR_CONTENT" \
-    >"$OUTPUT_DIR/provenance/cpachecker-jar-content.sha256"
-fi
-EXPECTED_CPACHECKER_JAR_CONTENT=$CURRENT_JAR_CONTENT
+[[ "$CURRENT_JAR_CONTENT" == "$EXPECTED_CPACHECKER_JAR_CONTENT" ]]
+printf '%s\n' "$CURRENT_JAR_CONTENT" \
+  >"$OUTPUT_DIR/provenance/cpachecker-jar-content.sha256"
 BUILD_COMPLETED=true
 remove_compiled_classes
 assert_no_compiled_classes
@@ -237,9 +226,12 @@ authenticate_probe_definition() {
   local -a actual_files=()
   local -a expected_files=()
   expected=$(mktemp -d /var/tmp/vguide-cap16-probe-definition.XXXXXX)
-  set +e
-  run_python_script "$DATASET_PY" "$@" --output-dir "$expected" >/dev/null
-  status=$?
+  if run_python_script "$DATASET_PY" "$@" \
+    --output-dir "$expected" >/dev/null; then
+    status=0
+  else
+    status=$?
+  fi
   if ((status == 0)); then
     if [[ ! -d "$actual" || -L "$actual" ]] ||
       [[ -n $(find -P "$actual" -mindepth 1 -maxdepth 1 \
@@ -259,16 +251,17 @@ authenticate_probe_definition() {
         status=1
       else
         for name in "${expected_files[@]}"; do
-          cmp -- "$expected/$name" "$actual/$name" || {
+          if cmp -- "$expected/$name" "$actual/$name"; then
+            :
+          else
             status=$?
             break
-          }
+          fi
         done
       fi
     fi
   fi
   rm -rf -- "$expected"
-  set -e
   return "$status"
 }
 
@@ -297,6 +290,39 @@ single_probe_result() {
     return 1
   fi
   printf '%s\n' "${matches[0]}"
+}
+
+capture_attempt_machine_evidence() {
+  local before=$1
+  local after=$2
+  local check=$3
+  local after_tmp
+  local check_tmp
+  for target in "$after" "$check"; do
+    if [[ -L "$target" || -e "$target" && ! -f "$target" ]]; then
+      echo "probe machine evidence is not regular: $target" >&2
+      return 1
+    fi
+  done
+  if [[ ! -e "$after" ]]; then
+    after_tmp=$(mktemp "$after.tmp.XXXXXX")
+    if ! JAVA_HOME="$JAVA_HOME" run_python_script "$BASELINE_PY" machine \
+      --output "$after_tmp"; then
+      rm -f -- "$after_tmp"
+      return 1
+    fi
+    mv -- "$after_tmp" "$after"
+  fi
+  if [[ ! -e "$check" ]]; then
+    check_tmp=$(mktemp "$check.tmp.XXXXXX")
+    if ! run_python_script "$BASELINE_PY" machine-check \
+      --before "$before" --after "$after" >"$check_tmp"; then
+      rm -f -- "$check_tmp"
+      return 1
+    fi
+    mv -- "$check_tmp" "$check"
+    cat "$check"
+  fi
 }
 
 run_probe_attempt() {
@@ -339,49 +365,50 @@ run_probe_attempt() {
   fi
   if [[ -n $(find "$output" -mindepth 1 -print -quit) ||
     -e "$monitor.process.json" || -e "$process" || -e "$descriptor" ]]; then
-    local abandoned="$OUTPUT_DIR/provenance/abandoned/$label-$(date +%s%N)"
-    local abandoned_result
-    abandoned_result=$(single_probe_result "$output" 2>/dev/null || printf none)
-    if [[ ! -f "$descriptor" ]]; then
-      echo "unclosed probe attempt lacks its process descriptor" >&2
-      return 1
-    fi
-    if [[ ! -f "$monitor.process.json" &&
-      ( -e "$monitor.pid" || -e "$monitor" ) ]]; then
-      echo "unclosed probe monitor lacks authenticated process identity" >&2
-      return 1
-    fi
-    if [[ ! -f "$process" &&
-      ( -s "$OUTPUT_DIR/provenance/$label-benchexec.log" ||
-        -n $(find "$output" -mindepth 1 -print -quit) ) ]]; then
-      echo "unclosed probe BenchExec lacks authenticated process identity" >&2
-      return 1
-    fi
-    if [[ -f "$monitor.process.json" ]]; then
-      run_python_script "$DATASET_PY" require-formal-process-gone \
-        --descriptor "$descriptor" --identity "$monitor.process.json" \
-        --output-root "$OUTPUT_DIR" --mode cap16-probe --label "$label" \
-        --host athena --role load-monitor
-    fi
-    if [[ -f "$process" ]]; then
-      run_python_script "$DATASET_PY" require-formal-process-gone \
-        --descriptor "$descriptor" --identity "$process" \
-        --output-root "$OUTPUT_DIR" --mode cap16-probe --label "$label" \
-        --host athena --role benchexec-launcher
-    fi
-    mkdir -p "$abandoned/provenance"
-    mv -- "$output" "$abandoned/results"
-    mkdir -p "$output"
-    for candidate in \
-      "$OUTPUT_DIR/provenance/$label-"* \
-      "$OUTPUT_DIR/provenance/machine-before-$label.json" \
-      "$OUTPUT_DIR/provenance/machine-after-$label.json" \
-      "$OUTPUT_DIR/provenance/machine-check-$label.json"; do
-      [[ -e "$candidate" ]] || continue
-      mv -- "$candidate" "$abandoned/provenance/"
+    local before="$OUTPUT_DIR/provenance/machine-before-$label.json"
+    local after="$OUTPUT_DIR/provenance/machine-after-$label.json"
+    local check="$OUTPUT_DIR/provenance/machine-check-$label.json"
+    local log="$OUTPUT_DIR/provenance/$label-benchexec.log"
+    for required in "$descriptor" "$monitor.process.json" "$monitor.pid" \
+      "$monitor" "$process" "$before" "$log"; do
+      if [[ -L "$required" || ! -f "$required" ]]; then
+        echo "unclosed probe attempt lacks regular evidence: $required" >&2
+        return 1
+      fi
     done
-    printf 'reason=missing-atomic-attempt-completion\nresult=%s\n' \
-      "$abandoned_result" >"$abandoned/ABANDONED"
+    result=$(single_probe_result "$output")
+    run_python_script "$DATASET_PY" require-formal-process-gone \
+      --descriptor "$descriptor" --identity "$monitor.process.json" \
+      --output-root "$OUTPUT_DIR" --mode cap16-probe --label "$label" \
+      --host athena --role load-monitor
+    run_python_script "$DATASET_PY" require-formal-process-gone \
+      --descriptor "$descriptor" --identity "$process" \
+      --output-root "$OUTPUT_DIR" --mode cap16-probe --label "$label" \
+      --host athena --role benchexec-launcher
+    local recovery_exit=125
+    if [[ -L "$monitor.stopped" ]]; then
+      echo "unclosed probe monitor stop evidence is a symlink" >&2
+      return 1
+    elif [[ -e "$monitor.stopped" && ! -f "$monitor.stopped" ]]; then
+      echo "unclosed probe monitor stop evidence is not regular" >&2
+      return 1
+    elif [[ ! -e "$monitor.stopped" ]]; then
+      local samples
+      local recovered_stop
+      samples=$(($(wc -l <"$monitor") - 1))
+      [[ "$samples" -gt 0 ]]
+      recovered_stop=$(mktemp "$monitor.stopped.tmp.XXXXXX")
+      if ! printf 'pid=%s\nexit=unobserved\nsamples=%s\nrecovery=authenticated-process-gone\n' \
+        "$(cat "$monitor.pid")" "$samples" >"$recovered_stop"; then
+        rm -f -- "$recovered_stop"
+        return 1
+      fi
+      mv -- "$recovered_stop" "$monitor.stopped"
+    fi
+    capture_attempt_machine_evidence "$before" "$after" "$check"
+    run_python_script "$DATASET_PY" formal-attempt-complete \
+      "${evidence[@]}" --benchexec-exit "$recovery_exit" --result "$result"
+    return
   fi
   run_python_script "$DATASET_PY" write-formal-process-descriptor \
     --output-root "$OUTPUT_DIR" --mode cap16-probe --label "$label" \
@@ -437,16 +464,47 @@ PY
   status=${PIPESTATUS[0]}
   set -e
   stop_process_monitor
-  JAVA_HOME="$JAVA_HOME" run_python_script "$BASELINE_PY" machine \
-    --output "$OUTPUT_DIR/provenance/machine-after-$label.json"
-  run_python_script "$BASELINE_PY" machine-check \
-    --before "$OUTPUT_DIR/provenance/machine-before-$label.json" \
-    --after "$OUTPUT_DIR/provenance/machine-after-$label.json" |
-    tee "$OUTPUT_DIR/provenance/machine-check-$label.json"
+  capture_attempt_machine_evidence \
+    "$OUTPUT_DIR/provenance/machine-before-$label.json" \
+    "$OUTPUT_DIR/provenance/machine-after-$label.json" \
+    "$OUTPUT_DIR/provenance/machine-check-$label.json"
   [[ "$status" -eq 0 || "$status" -eq 130 ]]
   result=$(single_probe_result "$output")
   run_python_script "$DATASET_PY" formal-attempt-complete \
     "${evidence[@]}" --benchexec-exit "$status" --result "$result"
+}
+
+authenticate_probe_taint() {
+  local output=$1
+  local result=$2
+  local log=$3
+  local monitor=$4
+  local temporary
+  local expected
+  temporary=$(mktemp -d /var/tmp/vguide-cap16-probe-taint.XXXXXX)
+  expected="$temporary/taint.json"
+  if ! run_python_script "$DATASET_PY" probe-taint \
+    --manifest "$PROBE_MANIFEST" --result "$result" \
+    --benchexec-log "$log" --load-monitor "$monitor" \
+    --output "$expected"; then
+    rm -rf -- "$temporary"
+    return 1
+  fi
+  if [[ -L "$output" ]]; then
+    rm -rf -- "$temporary"
+    echo "probe taint evidence is a symlink: $output" >&2
+    return 1
+  elif [[ -e "$output" ]]; then
+    if cmp -- "$expected" "$output"; then
+      rm -rf -- "$temporary"
+    else
+      rm -rf -- "$temporary"
+      return 1
+    fi
+  else
+    mv -- "$expected" "$output"
+    rmdir -- "$temporary"
+  fi
 }
 
 primary_label=repetition-1
@@ -455,13 +513,9 @@ run_probe_attempt "$primary_label" primary \
   "$OUTPUT_DIR/generated/cegar-eligibility.xml" "$primary_output"
 primary=$(single_probe_result "$primary_output")
 primary_taint="$OUTPUT_DIR/$primary_label-taint.json"
-if [[ ! -f "$primary_taint" ]]; then
-  run_python_script "$DATASET_PY" probe-taint \
-    --manifest "$PROBE_MANIFEST" --result "$primary" \
-    --benchexec-log "$OUTPUT_DIR/provenance/$primary_label-benchexec.log" \
-    --load-monitor "$OUTPUT_DIR/provenance/$primary_label-load-monitor.jsonl" \
-    --output "$primary_taint"
-fi
+authenticate_probe_taint "$primary_taint" "$primary" \
+  "$OUTPUT_DIR/provenance/$primary_label-benchexec.log" \
+  "$OUTPUT_DIR/provenance/$primary_label-load-monitor.jsonl"
 
 current_result=$primary
 current_taint=$primary_taint
@@ -491,13 +545,9 @@ while [[ $("$PYTHON_BIN" -I -c \
   run_probe_attempt "$label" replacement "$definition" "$attempt_output"
   replacement=$(single_probe_result "$attempt_output")
   replacement_taint="$OUTPUT_DIR/$label-taint.json"
-  if [[ ! -f "$replacement_taint" ]]; then
-    run_python_script "$DATASET_PY" probe-taint \
-      --manifest "$PROBE_MANIFEST" --result "$replacement" \
-      --benchexec-log "$OUTPUT_DIR/provenance/$label-benchexec.log" \
-      --load-monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
-      --output "$replacement_taint"
-  fi
+  authenticate_probe_taint "$replacement_taint" "$replacement" \
+    "$OUTPUT_DIR/provenance/$label-benchexec.log" \
+    "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl"
   replacement_args+=(
     --replacement-result "$replacement"
     --replacement-definition "$definition"
