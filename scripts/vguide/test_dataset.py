@@ -381,12 +381,13 @@ class DatasetTest(unittest.TestCase):
       sv_benchmarks = root / "sv-benchmarks-cap16-athena-r2-20260728"
       task = sv_benchmarks / "c/loops/task.yml"
       definition = root / "generated/hard-case-candidates.xml"
+      result = root / "results/repetition-1/result.xml"
       task.parent.mkdir(parents=True)
       definition.parent.mkdir(parents=True)
       task.write_text("format_version: '2.0'\n", encoding="utf-8")
 
       representations = dataset.benchexec_path_representations(
-          task, sv_benchmarks, definition
+          task, sv_benchmarks, definition, result
       )
 
       self.assertIn(
@@ -404,6 +405,88 @@ class DatasetTest(unittest.TestCase):
           representations,
       )
 
+  def test_result_topology_accepts_only_exact_result_relative_paths(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      sv_benchmarks = root / "sv-benchmarks-cap16-athena-r2-20260728"
+      task_path = Path("c/loops/task.yml")
+      source_path = Path("c/loops/task.c")
+      property_path = Path("c/properties/unreach-call.prp")
+      for path in (task_path, source_path, property_path):
+        target = sv_benchmarks / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{path}\n", encoding="utf-8")
+      task = {
+          "task": task_path.as_posix(),
+          "task_path": task_path.as_posix(),
+          "source": "sv-benchmarks",
+          "source_paths": [source_path.as_posix()],
+          "expected_verdict": "true",
+      }
+      result = root / "output/results/repetition-1/result.xml"
+      result.parent.mkdir(parents=True)
+      write_stock_result(result, [task], "athena", formal=True)
+      definition = root / "output/generated/hard-case-candidates.xml"
+      definition.parent.mkdir(parents=True)
+      definition.write_text("<benchmark/>\n", encoding="utf-8")
+      result_prefix = "../../../sv-benchmarks-cap16-athena-r2-20260728"
+      xml = ET.parse(result)
+      run = xml.getroot().find("run")
+      run.set("name", f"{result_prefix}/{task_path.as_posix()}")
+      run.set("files", f"[{result_prefix}/{source_path.as_posix()}]")
+      run.set("propertyFile", f"{result_prefix}/{property_path.as_posix()}")
+      xml.write(result, encoding="unicode")
+      manifest = {task["task"]: task}
+
+      dataset.validate_result_run_topology(
+          result, manifest, sv_benchmarks, definition
+      )
+
+      alias = root / "sv-benchmarks-alias"
+      alias.symlink_to(sv_benchmarks, target_is_directory=True)
+      rejected = (
+          "../sv-benchmarks-cap16-athena-r2-20260728/c/loops/task.yml",
+          "../../../../../sv-benchmarks-cap16-athena-r2-20260728/"
+          "c/loops/task.yml",
+          "../../../sv-benchmarks-cap16-athena-r2-20260728/"
+          "c/decoy/../loops/task.yml",
+          "../../../sv-benchmarks-alias/c/loops/task.yml",
+          "../../../wrong-corpus/c/loops/task.yml",
+      )
+      for value in rejected:
+        run.set("name", value)
+        xml.write(result, encoding="unicode")
+        with self.subTest(value=value), self.assertRaisesRegex(
+            RuntimeError, "result task path is not exact"
+        ):
+          dataset.validate_result_run_topology(
+              result, manifest, sv_benchmarks, definition
+          )
+
+      run.set("name", f"{result_prefix}/{task_path.as_posix()}")
+      run.set(
+          "files",
+          f"[{result_prefix}/c/decoy/../loops/{source_path.name}]",
+      )
+      xml.write(result, encoding="unicode")
+      with self.assertRaisesRegex(
+          RuntimeError, "source files do not match manifest"
+      ):
+        dataset.validate_result_run_topology(
+            result, manifest, sv_benchmarks, definition
+        )
+      run.set("files", f"[{result_prefix}/{source_path.as_posix()}]")
+      run.set(
+          "propertyFile",
+          "../../../sv-benchmarks-alias/c/properties/unreach-call.prp",
+      )
+      xml.write(result, encoding="unicode")
+      with self.assertRaisesRegex(
+          RuntimeError, "result property file is not exact"
+      ):
+        dataset.validate_result_run_topology(
+            result, manifest, sv_benchmarks, definition
+        )
 
   def test_family_cap_is_deterministic_and_stratified(self):
     candidates = [

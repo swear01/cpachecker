@@ -57,10 +57,11 @@ BenchExec emits both combined and per-source-group result XML files; only the co
 
 Result validation accepts only the exact absolute corpus path, the exact
 corpus-relative path used by portable evidence, BenchExec's canonical
-working-directory-relative corpus path, and, when applicable, the exact
-benchmark-definition-relative path. Supplying a benchmark definition does not
-remove the canonical representation recorded by an earlier BenchExec run;
-traversal-prefixed and other decoy paths remain rejected.
+working-directory-relative corpus path, the exact path relative to the actual
+result XML's parent, and, when applicable, the exact benchmark-definition-
+relative path. Every relative form is derived from the resolved frozen task;
+traversal-prefixed, wrong-depth, wrong-corpus, symlink and other decoy paths
+remain rejected.
 
 Dataset v2 names the strict stratum `stable_analysis_unsolved` and limits it
 to repetitions classified as timeout, out-of-memory, or UNKNOWN. Verifier

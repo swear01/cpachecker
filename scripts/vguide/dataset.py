@@ -963,7 +963,7 @@ def result_metadata(path, display, time_limit, allow_incomplete=False):
 
 
 def benchexec_path_representations(
-    expected_path, sv_benchmarks, benchmark_definition
+    expected_path, sv_benchmarks, benchmark_definition, result_file
 ):
   expected = Path(expected_path).resolve()
   sv_benchmarks = Path(sv_benchmarks).resolve()
@@ -979,13 +979,18 @@ def benchexec_path_representations(
         expected, Path(benchmark_definition).resolve().parent
     ).replace("\\", "/")
     representations.add(relative)
+  relative = os.path.relpath(
+      expected, Path(result_file).resolve().parent
+  ).replace("\\", "/")
+  representations.add(relative)
   return representations
 
 
 def validate_result_run_topology(
     path, manifest, sv_benchmarks, benchmark_definition=None
 ):
-  with baseline.open_result(Path(path)) as source:
+  result_file = Path(path).resolve()
+  with baseline.open_result(result_file) as source:
     root = ET.parse(source).getroot()
   expected_attributes = {
       "name",
@@ -997,7 +1002,7 @@ def validate_result_run_topology(
   sv_benchmarks = Path(sv_benchmarks).resolve()
   official_property = sv_benchmarks / "c/properties/unreach-call.prp"
   property_representations = benchexec_path_representations(
-      official_property, sv_benchmarks, benchmark_definition
+      official_property, sv_benchmarks, benchmark_definition, result_file
   )
   for run in root.findall("run"):
     run_name = run.get("name", "").replace("\\", "/")
@@ -1010,6 +1015,7 @@ def validate_result_run_topology(
             sv_benchmarks / candidate["task_path"],
             sv_benchmarks,
             benchmark_definition,
+            result_file,
         )
     ]
     if len(matching_tasks) != 1:
@@ -1041,6 +1047,7 @@ def validate_result_run_topology(
             sv_benchmarks / source_path,
             sv_benchmarks,
             benchmark_definition,
+            result_file,
         )
         for source_path in task["source_paths"]
     ]
