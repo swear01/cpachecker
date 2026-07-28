@@ -262,7 +262,16 @@ Fully authenticated legacy version-3 completion markers remain immutable and are
 validated read-only; new recovery markers use version 4.
 Its runtime
 closure is the cap-16 Athena Python 3.12/PyYAML 6.0.1 closure, not the older
-Valkyrie Python 3.10 closure. Before any rendering or measurement it copies
+Valkyrie Python 3.10 closure. It pins the Python executable, version and exact
+isolated `sys.path`; the non-cache standard-library closure at
+`a0c9c33e4f5b6c4e8e921598ec1c7273341cf2e8f2c74d7a348d6a3584a2c325`;
+the exact `yaml`, `_yaml` and `PyYAML-6.0.1.dist-info` package closure at
+`9148a8dc1759caac2f87132749a8f29de2cf8ee71b6ddead932d027613045627`;
+and an empty non-cache local distribution closure. Only real `__pycache__`
+directories and regular `.pyc` or `.pyo` files are excluded. Source,
+extension, metadata, unknown non-cache, symlink and special-node drift remains
+fail-closed, and PyYAML must still resolve to its pinned module path and
+version. Before any rendering or measurement it copies
 the portable package under `input/evidence/`, reauthenticates that saved copy,
 and uses only saved-copy paths for all later render, validate and summarize
 operations.
@@ -498,12 +507,16 @@ the frozen per-case contention policy below; a completely idle host is not a
 formal prerequisite.
 
 The exact isolated Python environment used to start BenchExec is also part of
-the runtime closure. The runner pins `/usr/lib/python3.10` at
-`eef7994f6b57cb0bbdb803ef6aadc0c1afbe61d444932eeef5dc5c114b6cf27b`,
-`/usr/lib/python3/dist-packages` at
-`0970024a48206a1937b5bfbf889335525b769b89a27ca7df25d793d7727b909c`,
-and the empty `/usr/local/lib/python3.10/dist-packages` at
+the runtime closure. The runner pins the non-cache `/usr/lib/python3.10`
+closure at
+`c9af63c831839af73b709cf538807f9ea989c834d635526875a03787c29247cc`,
+the exact `yaml`, `_yaml` and `PyYAML-5.4.1.egg-info` closure at
+`9dd464e236b90eaa25fc9576bb22442b07817d16e086f9e3754d61c3328d9bbd`,
+and the empty non-cache `/usr/local/lib/python3.10/dist-packages` closure at
 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+Only real `__pycache__` directories and regular `.pyc` or `.pyo` files are
+excluded; every other selected-package, standard-library or local-distribution
+node remains authenticated.
 Under the actual `env -i HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8
 PATH=/usr/bin:/bin JAVA=<pinned-jdk>/bin/java` invocation, it requires the
 BenchExec checkout followed by `/usr/lib/python310.zip`, `/usr/lib/python3.10`,
@@ -511,7 +524,7 @@ BenchExec checkout followed by `/usr/lib/python310.zip`, `/usr/lib/python3.10`,
 `/usr/local/lib/python3.10/dist-packages`, and
 `/usr/lib/python3/dist-packages` as the exact `sys.path`. PyYAML must resolve
 to `/usr/lib/python3/dist-packages/yaml/__init__.py` at version 5.4.1. These
-paths, versions, module location, and directory hashes are recorded before
+paths, versions, module location, and filtered closure hashes are recorded before
 measurement and reverified during both success and failure teardown. The
 saved `dataset.py` and `baseline.py` commands use this same pinned interpreter
 and are therefore covered by the same binary, standard-library, and installed

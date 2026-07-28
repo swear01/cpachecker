@@ -192,6 +192,58 @@ def directory_digest(root):
   return {"entry_count": len(entries), "sha256": digest.hexdigest()}
 
 
+def python_runtime_digest(root, selected_paths=()):
+  root = Path(root).resolve()
+  if not root.is_dir():
+    raise RuntimeError(f"Python runtime root is not a directory: {root}")
+  selected = tuple(Path(path) for path in selected_paths)
+  if len(selected) != len(set(selected)):
+    raise RuntimeError("Python runtime paths contain duplicates")
+  for path in selected:
+    if path.is_absolute() or not path.parts or "." in path.parts or ".." in path.parts:
+      raise RuntimeError(f"Invalid Python runtime path: {path}")
+
+  entries = []
+
+  def collect(path):
+    mode = path.lstat().st_mode
+    if stat.S_ISDIR(mode) and path.name == "__pycache__":
+      return
+    if stat.S_ISREG(mode) and path.suffix in (".pyc", ".pyo"):
+      return
+    entries.append(path)
+    if stat.S_ISDIR(mode):
+      for child in sorted(path.iterdir(), key=lambda item: item.name):
+        collect(child)
+
+  if selected:
+    for relative in sorted(selected, key=lambda path: path.as_posix()):
+      path = root / relative
+      if not path.is_dir() or path.is_symlink():
+        raise RuntimeError(f"Python runtime path is not a directory: {path}")
+      collect(path)
+  else:
+    for path in sorted(root.iterdir(), key=lambda item: item.name):
+      collect(path)
+
+  digest = hashlib.sha256()
+  for path in sorted(entries, key=lambda item: item.relative_to(root).as_posix()):
+    digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+    digest.update(b"\0")
+    mode = path.lstat().st_mode
+    if stat.S_ISLNK(mode):
+      digest.update(b"link\0")
+      digest.update(os.readlink(path).encode("utf-8"))
+    elif stat.S_ISREG(mode):
+      digest.update(b"file\0")
+      digest.update(bytes.fromhex(sha256_file(path)))
+    elif stat.S_ISDIR(mode):
+      digest.update(b"directory\0")
+    else:
+      raise RuntimeError(f"Unsupported filesystem entry in {root}: {path}")
+  return {"entry_count": len(entries), "sha256": digest.hexdigest()}
+
+
 def logical_lines(path):
   pending = ""
   for raw_line in path.read_text(encoding="utf-8").splitlines():
@@ -1037,6 +1089,10 @@ def command_directory_digest(args):
   print(json.dumps(directory_digest(args.root), sort_keys=True))
 
 
+def command_python_runtime_digest(args):
+  print(json.dumps(python_runtime_digest(args.root, args.path), sort_keys=True))
+
+
 def command_jar_content_digest(args):
   digest = hashlib.sha256()
   with zipfile.ZipFile(args.jar) as jar:
@@ -1118,6 +1174,10 @@ def main():
   directory = subparsers.add_parser("directory-digest")
   directory.add_argument("--root", required=True)
   directory.set_defaults(function=command_directory_digest)
+  python_runtime = subparsers.add_parser("python-runtime-digest")
+  python_runtime.add_argument("--root", required=True)
+  python_runtime.add_argument("--path", action="append", default=[])
+  python_runtime.set_defaults(function=command_python_runtime_digest)
   jar_content = subparsers.add_parser("jar-content-digest")
   jar_content.add_argument("--jar", required=True)
   jar_content.set_defaults(function=command_jar_content_digest)

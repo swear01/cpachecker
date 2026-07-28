@@ -421,6 +421,24 @@ directory_digest_value() {
     "$PYTHON_BIN" -I -c 'import json,sys; print(json.load(sys.stdin)["sha256"])'
 }
 
+python_runtime_digest_value() {
+  local root=$1
+  shift
+  local arguments=()
+  local path
+  for path in "$@"; do
+    arguments+=(--path "$path")
+  done
+  run_python_script "${BASELINE_PY:-$SCRIPT_DIR/baseline.py}" \
+    python-runtime-digest --root "$root" "${arguments[@]}" |
+    "$PYTHON_BIN" -I -c 'import json,sys; print(json.load(sys.stdin)["sha256"])'
+}
+
+pyyaml_package_digest_value() {
+  python_runtime_digest_value \
+    "$PYTHON_DIST_PACKAGES" "${EXPECTED_PYYAML_PACKAGE_PATHS[@]}"
+}
+
 jar_content_digest_value() {
   run_python_script "${BASELINE_PY:-$SCRIPT_DIR/baseline.py}" \
     jar-content-digest --jar "$1" |
@@ -517,11 +535,10 @@ verify_runtime_closure() {
   [[ "$PYTHON_STDLIB" == "$EXPECTED_PYTHON_STDLIB" ]]
   [[ "$PYTHON_DIST_PACKAGES" == "$EXPECTED_PYTHON_DIST_PACKAGES" ]]
   [[ "$PYTHON_LOCAL_DIST_PACKAGES" == "$EXPECTED_PYTHON_LOCAL_DIST_PACKAGES" ]]
-  [[ $(directory_digest_value "$PYTHON_STDLIB") == \
+  [[ $(python_runtime_digest_value "$PYTHON_STDLIB") == \
     "$EXPECTED_PYTHON_STDLIB_DIGEST" ]]
-  [[ $(directory_digest_value "$PYTHON_DIST_PACKAGES") == \
-    "$EXPECTED_PYTHON_DIST_PACKAGES_DIGEST" ]]
-  [[ $(directory_digest_value "$PYTHON_LOCAL_DIST_PACKAGES") == \
+  [[ $(pyyaml_package_digest_value) == "$EXPECTED_PYYAML_PACKAGE_DIGEST" ]]
+  [[ $(python_runtime_digest_value "$PYTHON_LOCAL_DIST_PACKAGES") == \
     "$EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST" ]]
   verify_python_runtime
   [[ $(benchexec_archive_digest) == "$EXPECTED_BENCHEXEC_ARCHIVE" ]]
@@ -546,11 +563,12 @@ write_runtime_provenance() {
     "python_sha256=$(sha256sum "$PYTHON_BIN" | cut -d' ' -f1)" \
     "python_version=$("$PYTHON_BIN" --version)" \
     "python_stdlib=$PYTHON_STDLIB" \
-    "python_stdlib_sha256=$(directory_digest_value "$PYTHON_STDLIB")" \
+    "python_stdlib_non_cache_sha256=$(python_runtime_digest_value "$PYTHON_STDLIB")" \
     "python_dist_packages=$PYTHON_DIST_PACKAGES" \
-    "python_dist_packages_sha256=$(directory_digest_value "$PYTHON_DIST_PACKAGES")" \
+    "pyyaml_package_paths=${EXPECTED_PYYAML_PACKAGE_PATHS[*]}" \
+    "pyyaml_package_non_cache_sha256=$(pyyaml_package_digest_value)" \
     "python_local_dist_packages=$PYTHON_LOCAL_DIST_PACKAGES" \
-    "python_local_dist_packages_sha256=$(directory_digest_value "$PYTHON_LOCAL_DIST_PACKAGES")" \
+    "python_local_dist_packages_non_cache_sha256=$(python_runtime_digest_value "$PYTHON_LOCAL_DIST_PACKAGES")" \
     "python_environment=$(python_runtime_evidence)" \
     "benchexec_archive_sha256=$(benchexec_archive_digest)" \
     "benchexec_version=$(benchexec_version)" \
@@ -727,11 +745,16 @@ main() {
     EXPECTED_PYTHON_SHA256=1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118
     EXPECTED_PYTHON_VERSION="Python 3.12.3"
     EXPECTED_PYTHON_STDLIB=/usr/lib/python3.12
-    EXPECTED_PYTHON_STDLIB_DIGEST=a3940bab942bcff9bf32ed7b81f7f71e0cd506166aec5c156c5058bf4f337d16
-    EXPECTED_PYTHON_DIST_PACKAGES_DIGEST=c7831aae147cc850f67958d070d122bf9e3c72c31a090fd497ff50177b84d189
+    EXPECTED_PYTHON_STDLIB_DIGEST=a0c9c33e4f5b6c4e8e921598ec1c7273341cf2e8f2c74d7a348d6a3584a2c325
     EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=/usr/local/lib/python3.12/dist-packages
     EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python312.zip:/usr/lib/python3.12:/usr/lib/python3.12/lib-dynload:/usr/local/lib/python3.12/dist-packages:/usr/lib/python3/dist-packages
     EXPECTED_PYYAML_VERSION=6.0.1
+    EXPECTED_PYYAML_PACKAGE_PATHS=(
+      yaml
+      _yaml
+      PyYAML-6.0.1.dist-info
+    )
+    EXPECTED_PYYAML_PACKAGE_DIGEST=9148a8dc1759caac2f87132749a8f29de2cf8ee71b6ddead932d027613045627
     FORMAL_HOST=athena
     FORMAL_BENCHMARK_SCOPE=-cap16
   else
@@ -739,11 +762,16 @@ main() {
     EXPECTED_PYTHON_SHA256=7d51cd6b48b521277f5caa4610a82126e315fa2be4df069823a8b1eeb5bd4a86
     EXPECTED_PYTHON_VERSION="Python 3.10.12"
     EXPECTED_PYTHON_STDLIB=/usr/lib/python3.10
-    EXPECTED_PYTHON_STDLIB_DIGEST=eef7994f6b57cb0bbdb803ef6aadc0c1afbe61d444932eeef5dc5c114b6cf27b
-    EXPECTED_PYTHON_DIST_PACKAGES_DIGEST=0970024a48206a1937b5bfbf889335525b769b89a27ca7df25d793d7727b909c
+    EXPECTED_PYTHON_STDLIB_DIGEST=c9af63c831839af73b709cf538807f9ea989c834d635526875a03787c29247cc
     EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=/usr/local/lib/python3.10/dist-packages
     EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python310.zip:/usr/lib/python3.10:/usr/lib/python3.10/lib-dynload:/usr/local/lib/python3.10/dist-packages:/usr/lib/python3/dist-packages
     EXPECTED_PYYAML_VERSION=5.4.1
+    EXPECTED_PYYAML_PACKAGE_PATHS=(
+      yaml
+      _yaml
+      PyYAML-5.4.1.egg-info
+    )
+    EXPECTED_PYYAML_PACKAGE_DIGEST=9dd464e236b90eaa25fc9576bb22442b07817d16e086f9e3754d61c3328d9bbd
     FORMAL_HOST=valkyrie
     FORMAL_BENCHMARK_SCOPE=
   fi

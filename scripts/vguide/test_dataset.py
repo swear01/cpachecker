@@ -1252,8 +1252,8 @@ class DatasetTest(unittest.TestCase):
         "eea0df062de5c8e3febe0d96b583741c140e79d3ae41a87a56d7be365b876f9d",
         "52772e241e78a875fa00dea891eac2023d4f2be639a5f28a17dca81580f75e5b",
         "7d51cd6b48b521277f5caa4610a82126e315fa2be4df069823a8b1eeb5bd4a86",
-        "eef7994f6b57cb0bbdb803ef6aadc0c1afbe61d444932eeef5dc5c114b6cf27b",
-        "0970024a48206a1937b5bfbf889335525b769b89a27ca7df25d793d7727b909c",
+        "c9af63c831839af73b709cf538807f9ea989c834d635526875a03787c29247cc",
+        "9dd464e236b90eaa25fc9576bb22442b07817d16e086f9e3754d61c3328d9bbd",
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737c143ba018bc",
         "49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3",
@@ -1286,6 +1286,13 @@ class DatasetTest(unittest.TestCase):
         "EXPECTED_PYYAML_FILE=/usr/lib/python3/dist-packages/yaml/__init__.py",
         runner,
     )
+    for path in (
+        "yaml",
+        "_yaml",
+        "PyYAML-5.4.1.egg-info",
+        "PyYAML-6.0.1.dist-info",
+    ):
+      self.assertIn(path, runner)
     self.assertIn('EXPECTED_ANT_VERSION="Apache Ant(TM) version 1.10.12', runner)
     self.assertIn("jar_content_digest_value", runner)
     self.assertIn("remove_compiled_classes", runner)
@@ -2131,13 +2138,19 @@ capture_research_provenance "$4"
       python_stdlib = root / "python-stdlib"
       python_dist_packages = root / "python-dist-packages"
       python_local_dist_packages = root / "python-local-dist-packages"
-      for path, content in (
-          (python_stdlib, b"stdlib"),
-          (python_dist_packages, b"dist-packages"),
-          (python_local_dist_packages, b"local-dist-packages"),
-      ):
-        path.mkdir()
-        (path / "closure").write_bytes(content)
+      python_stdlib.mkdir()
+      (python_stdlib / "runtime.py").write_bytes(b"stdlib")
+      python_dist_packages.mkdir()
+      (python_dist_packages / "yaml").mkdir()
+      (python_dist_packages / "yaml/__init__.py").write_bytes(b"source")
+      (python_dist_packages / "yaml/_yaml.so").write_bytes(b"extension")
+      (python_dist_packages / "_yaml").mkdir()
+      (python_dist_packages / "_yaml/__init__.py").write_bytes(b"source")
+      (python_dist_packages / "PyYAML-test.dist-info").mkdir()
+      (python_dist_packages / "PyYAML-test.dist-info/METADATA").write_bytes(
+          b"metadata"
+      )
+      python_local_dist_packages.mkdir()
 
       setup = """
 source "$1"
@@ -2164,11 +2177,12 @@ EXPECTED_PYTHON_REAL=$PYTHON_BIN
 EXPECTED_PYTHON_SHA256=$(sha256sum "$PYTHON_BIN" | cut -d' ' -f1)
 EXPECTED_PYTHON_VERSION=$("$PYTHON_BIN" --version)
 EXPECTED_PYTHON_STDLIB=$PYTHON_STDLIB
-EXPECTED_PYTHON_STDLIB_DIGEST=$(directory_digest_value "$PYTHON_STDLIB")
+EXPECTED_PYTHON_STDLIB_DIGEST=$(python_runtime_digest_value "$PYTHON_STDLIB")
 EXPECTED_PYTHON_DIST_PACKAGES=$PYTHON_DIST_PACKAGES
-EXPECTED_PYTHON_DIST_PACKAGES_DIGEST=$(directory_digest_value "$PYTHON_DIST_PACKAGES")
+EXPECTED_PYYAML_PACKAGE_PATHS=(yaml _yaml PyYAML-test.dist-info)
+EXPECTED_PYYAML_PACKAGE_DIGEST=$(pyyaml_package_digest_value)
 EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=$PYTHON_LOCAL_DIST_PACKAGES
-EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=$(directory_digest_value "$PYTHON_LOCAL_DIST_PACKAGES")
+EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=$(python_runtime_digest_value "$PYTHON_LOCAL_DIST_PACKAGES")
 EXPECTED_PYTHON_SYSTEM_PATH=$("$PYTHON_BIN" -I -c 'import sys; print(":".join(sys.path))')
 EXPECTED_PYYAML_FILE=$("$PYTHON_BIN" -I -c 'import yaml; print(yaml.__file__)')
 EXPECTED_PYYAML_VERSION=$("$PYTHON_BIN" -I -c 'import yaml; print(yaml.__version__)')
@@ -2212,34 +2226,99 @@ benchexec_version() { printf 'test-benchexec\\n'; }
       self.assertNotEqual(rejected.returncode, 0)
       (stock / "lib/java/runtime.jar").write_bytes(original_runtime)
 
-      for closure_dir, expected_variable, original in (
-          (python_stdlib, "EXPECTED_PYTHON_STDLIB_DIGEST", b"stdlib"),
-          (
-              python_dist_packages,
-              "EXPECTED_PYTHON_DIST_PACKAGES_DIGEST",
-              b"dist-packages",
-          ),
-          (
-              python_local_dist_packages,
-              "EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST",
-              b"local-dist-packages",
-          ),
+      stdlib_digest = dataset.baseline.python_runtime_digest(python_stdlib)[
+          "sha256"
+      ]
+      (python_stdlib / "runtime.py").write_bytes(b"changed")
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + f"\nEXPECTED_PYTHON_STDLIB_DIGEST={stdlib_digest}\n"
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      (python_stdlib / "runtime.py").write_bytes(b"stdlib")
+
+      package_paths = ("yaml", "_yaml", "PyYAML-test.dist-info")
+      package_digest = dataset.baseline.python_runtime_digest(
+          python_dist_packages, package_paths
+      )["sha256"]
+      local_digest = dataset.baseline.python_runtime_digest(
+          python_local_dist_packages
+      )["sha256"]
+      for relative in (
+          "yaml/__init__.py",
+          "yaml/_yaml.so",
+          "PyYAML-test.dist-info/METADATA",
+          "yaml/unknown",
       ):
-        original_digest = dataset.baseline.directory_digest(closure_dir)["sha256"]
-        (closure_dir / "closure").write_bytes(b"changed")
+        path = python_dist_packages / relative
+        original = path.read_bytes() if path.exists() else None
+        path.write_bytes(b"changed")
         rejected = subprocess.run(
             [
                 "bash",
                 "-c",
                 setup
-                + f"\n{expected_variable}={original_digest}\n"
+                + f"\nEXPECTED_PYYAML_PACKAGE_DIGEST={package_digest}\n"
                 + "verify_runtime_closure true",
                 "bash",
                 *arguments,
             ],
         )
         self.assertNotEqual(rejected.returncode, 0)
-        (closure_dir / "closure").write_bytes(original)
+        if original is None:
+          path.unlink()
+        else:
+          path.write_bytes(original)
+
+      for cache in (
+          python_stdlib / "__pycache__/runtime.cpython-312.pyc",
+          python_dist_packages / "yaml/__pycache__/loader.cpython-312.pyc",
+          python_dist_packages / "yaml/ignored.pyc",
+          python_local_dist_packages / "__pycache__/shadow.cpython-312.pyc",
+      ):
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(b"cache")
+      subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + f"\nEXPECTED_PYTHON_STDLIB_DIGEST={stdlib_digest}\n"
+              + f"EXPECTED_PYYAML_PACKAGE_DIGEST={package_digest}\n"
+              + (
+                  "EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST="
+                  f"{local_digest}\n"
+              )
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+          check=True,
+      )
+
+      shadow = python_local_dist_packages / "yaml"
+      shadow.mkdir()
+      (shadow / "__init__.py").write_bytes(b"shadow")
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + f"\nEXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST={local_digest}\n"
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      shutil.rmtree(shadow)
 
       original_ant = ant.read_text(encoding="utf-8")
       ant_digest = dataset.baseline.directory_digest(ant_install)["sha256"]
@@ -5613,10 +5692,10 @@ copy_phase_evidence "$2"
         'EXPECTED_PYTHON_VERSION="Python 3.12.3"',
         "EXPECTED_PYTHON_STDLIB=/usr/lib/python3.12",
         "EXPECTED_PYTHON_STDLIB_DIGEST="
-        "a3940bab942bcff9bf32ed7b81f7f71e0cd506166aec5c156c5058bf4f337d16",
+        "a0c9c33e4f5b6c4e8e921598ec1c7273341cf2e8f2c74d7a348d6a3584a2c325",
         "EXPECTED_PYTHON_DIST_PACKAGES=/usr/lib/python3/dist-packages",
-        "EXPECTED_PYTHON_DIST_PACKAGES_DIGEST="
-        "c7831aae147cc850f67958d070d122bf9e3c72c31a090fd497ff50177b84d189",
+        "EXPECTED_PYYAML_PACKAGE_DIGEST="
+        "9148a8dc1759caac2f87132749a8f29de2cf8ee71b6ddead932d027613045627",
         "EXPECTED_PYTHON_LOCAL_DIST_PACKAGES="
         "/usr/local/lib/python3.12/dist-packages",
         "EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST="
@@ -5636,6 +5715,8 @@ copy_phase_evidence "$2"
         "49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3",
     ):
       self.assertIn(assignment, runner)
+    for path in ("yaml", "_yaml", "PyYAML-6.0.1.dist-info"):
+      self.assertIn(path, runner)
     self.assertGreaterEqual(runner.count("verify_runtime_closure"), 4)
     self.assertIn("jar_content_digest_value", runner)
     self.assertIn("EXPECTED_CPACHECKER_JAR_CONTENT=", runner)
