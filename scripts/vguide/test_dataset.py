@@ -6957,6 +6957,38 @@ test "$(cat "$root/partial-summary/new")" = new
       self.assertEqual(
           rows[0]["probe_classification"], "infrastructure_failure"
       )
+      plan["rows"]["a.yml"].update(
+          classification="timeout",
+          status="TIMEOUT",
+          category="error",
+      )
+      with (
+          mock.patch.object(
+              dataset,
+              "validate_cap16_probe_input",
+              return_value=(
+                  root,
+                  manifest_path,
+                  manifest_data,
+                  [{"task": "a.yml"}],
+                  {},
+              ),
+          ),
+          mock.patch.object(dataset, "validate_probe_definition"),
+          mock.patch.object(dataset, "load_screen_plan", return_value=plan),
+          mock.patch.object(
+              dataset, "declared_plan_file", return_value=result
+          ),
+      ):
+        rows, _, _ = dataset.cap16_probe_summary_rows(
+            SimpleNamespace(
+                probe_input=str(root),
+                sv_benchmarks=str(root),
+                benchmark_definition=str(root / "probe.xml"),
+                probe_plan=str(root / "plan.json"),
+            )
+        )
+      self.assertEqual(rows[0]["probe_classification"], "no_event")
 
   def test_cap16_probe_input_authenticates_saved_formal_backlink(self):
     with tempfile.TemporaryDirectory() as temp:
@@ -7260,6 +7292,18 @@ test "$(cat "$root/partial-summary/new")" = new
 
   def test_cap16_probe_summary_writes_all_four_strata(self):
     with tempfile.TemporaryDirectory() as temp:
+      self.assertEqual(
+          dataset.CAP16_PROBE_STRATA,
+          (
+              ("cegar-eligible.csv", "cegar_eligible"),
+              ("no-event.csv", "no_event"),
+              (
+                  "hook-reached-without-loop-head.csv",
+                  "hook_reached_without_loop_head",
+              ),
+              ("infrastructure-failure.csv", "infrastructure_failure"),
+          ),
+      )
       rows = [
           {
               "task": f"task-{index}",
@@ -7267,7 +7311,7 @@ test "$(cat "$root/partial-summary/new")" = new
           }
           for index, classification in enumerate((
               "cegar_eligible",
-              "structurally_unreachable",
+              "no_event",
               "hook_reached_without_loop_head",
               "infrastructure_failure",
           ))
@@ -7296,12 +7340,12 @@ test "$(cat "$root/partial-summary/new")" = new
               "cegar_eligible": 1,
               "hook_reached_without_loop_head": 1,
               "infrastructure_failure": 1,
-              "structurally_unreachable": 1,
+              "no_event": 1,
           },
       )
       for filename in (
           "cegar-eligible.csv",
-          "structurally-unreachable.csv",
+          "no-event.csv",
           "hook-reached-without-loop-head.csv",
           "infrastructure-failure.csv",
       ):
@@ -7309,6 +7353,9 @@ test "$(cat "$root/partial-summary/new")" = new
             newline="", encoding="utf-8"
         ) as source:
           self.assertEqual(len(list(csv.DictReader(source))), 1)
+      self.assertFalse(
+          (Path(temp) / "structurally-unreachable.csv").exists()
+      )
 
   def test_probe_uses_one_core_per_single_threaded_predicate_run(self):
     with tempfile.TemporaryDirectory() as temp:

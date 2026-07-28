@@ -145,6 +145,12 @@ CAP16_PROBE_TAINT_SCHEMA = "hard-case-cap16-cegar-probe-taint-v1"
 CAP16_PROBE_PLAN_SCHEMA = "hard-case-cap16-cegar-probe-plan-v1"
 CAP16_PROBE_INPUT_SCHEMA = "hard-case-cap16-cegar-probe-input-v1"
 CAP16_PROBE_SUMMARY_SCHEMA = "hard-case-cap16-cegar-probe-summary-v1"
+CAP16_PROBE_STRATA = (
+    ("cegar-eligible.csv", "cegar_eligible"),
+    ("no-event.csv", "no_event"),
+    ("hook-reached-without-loop-head.csv", "hook_reached_without_loop_head"),
+    ("infrastructure-failure.csv", "infrastructure_failure"),
+)
 SCREEN_REPETITION_PLAN_SCHEMA = "hard-case-screen-repetition-plan-v1"
 SCREEN_TAINT_SCHEMA = "hard-case-screen-taint-v1"
 FORMAL_TAINT_REASONS = {
@@ -3040,7 +3046,11 @@ def cap16_probe_summary_rows(args):
             f"category={result_row['category']}"
         )
       else:
-        classification = event_classification
+        classification = (
+            "no_event"
+            if event_classification == "structurally_unreachable"
+            else event_classification
+        )
         infrastructure_reason = ""
     else:
       if not explicit_failure:
@@ -3072,18 +3082,9 @@ def write_cap16_probe_summary(args):
   output = Path(args.output_dir).resolve()
   output.mkdir(parents=True, exist_ok=True)
   fieldnames = list(rows[0])
-  strata = (
-      ("cegar-eligible.csv", "cegar_eligible"),
-      ("structurally-unreachable.csv", "structurally_unreachable"),
-      (
-          "hook-reached-without-loop-head.csv",
-          "hook_reached_without_loop_head",
-      ),
-      ("infrastructure-failure.csv", "infrastructure_failure"),
-  )
   for filename, classification in (
       ("cegar-eligibility.csv", None),
-      *strata,
+      *CAP16_PROBE_STRATA,
   ):
     with (output / filename).open(
         "w", newline="", encoding="utf-8"
@@ -6022,12 +6023,9 @@ def validate_cap16_probe_closure(args):
     raise RuntimeError("probe output completed before closure validation")
   expected_summary = {
       "cegar-eligibility.csv",
-      "cegar-eligible.csv",
-      "hook-reached-without-loop-head.csv",
-      "infrastructure-failure.csv",
       "row-provenance.json",
-      "structurally-unreachable.csv",
       "summary.json",
+      *(filename for filename, _ in CAP16_PROBE_STRATA),
   }
   actual_summary = {
       path.name

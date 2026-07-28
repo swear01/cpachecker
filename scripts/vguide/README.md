@@ -706,9 +706,11 @@ candidates, and an empty activated-candidate list. Unexpected, duplicate, or
 ambiguous telemetry fails closure. A missing file is an infrastructure row
 only for an explicit resource/verifier/infrastructure result; otherwise it
 fails. The authenticated summary contains the complete census plus separate
-eligible, no-event, hook-without-loop-head, and infrastructure CSVs. The
-summary is reproduced during closure validation before `.complete` is
-written.
+eligible, no-event, hook-without-loop-head, and infrastructure CSVs. The strict
+cap-16 contract names an empty clean telemetry trace `no_event` and
+writes `no-event.csv`; the legacy `command_probe_summary` naming remains
+unchanged. The summary is reproduced during closure validation before
+`.complete` is written.
 
 ## Wiki integrity
 
