@@ -1700,6 +1700,9 @@ class DatasetTest(unittest.TestCase):
       script_dir.mkdir(parents=True)
       for name, content in (
           ("run-stock-formal-dataset.sh", "#!/usr/bin/env bash\n"),
+          ("run-cap8-cegar-probe.sh", "#!/usr/bin/env bash\n"),
+          ("run-cap16-cegar-probe.sh", "#!/usr/bin/env bash\n"),
+          ("run-strict-cegar-probe.sh", "#!/usr/bin/env bash\n"),
           ("dataset.py", "#!/usr/bin/env python3\n"),
           (
               "baseline.py",
@@ -1731,6 +1734,7 @@ class DatasetTest(unittest.TestCase):
 source "$1"
 SCRIPT_DIR=$2
 RESEARCH_ROOT=$3
+FORMAL_MODE=cap8-probe
 capture_research_provenance "$4"
 activate_saved_scripts "$4"
 run_python_script "$BASELINE_PY" "$5"
@@ -1751,6 +1755,10 @@ verify_research_provenance "$4"
           check=True,
       )
       self.assertEqual(marker.read_text(encoding="utf-8"), "saved\n")
+      self.assertTrue(
+          (saved / "scripts/run-strict-cegar-probe.sh").is_file()
+      )
+
       frozen_head = subprocess.check_output(
           ["git", "-C", research, "rev-parse", "HEAD"], text=True
       ).strip()
@@ -5359,6 +5367,11 @@ copy_phase_evidence "$2"
               stopped, 123, "cap16-probe", 125
           )
       )
+      self.assertTrue(
+          dataset.validate_monitor_stop_evidence(
+              stopped, 123, "cap8-probe", 125
+          )
+      )
       stopped.write_text(
           "pid=123\nexit=0\nsamples=4\n", encoding="utf-8"
       )
@@ -5378,12 +5391,60 @@ copy_phase_evidence "$2"
       )
       for mode, status in (
           ("cap16", 125),
+          ("cap8", 125),
           ("cap16-probe", 130),
+          ("cap8-probe", 130),
       ):
         with self.assertRaisesRegex(RuntimeError, "stop evidence"):
           dataset.validate_monitor_stop_evidence(
               stopped, 123, mode, status
           )
+
+  def test_cap8_probe_process_descriptor_is_fixed_to_valkyrie_one_core(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      label = "repetition-1"
+      descriptor = dataset.formal_process_descriptor(SimpleNamespace(
+          output_root=str(root),
+          mode="cap8-probe",
+          label=label,
+          host="valkyrie",
+          name=(
+              "hard-case-dataset-v2-cap8-cegar-probe-valkyrie-"
+              + label
+          ),
+          definition=str(root / "generated/cegar-eligibility.xml"),
+          result_output=str(root / "results/repetition-1"),
+          monitor_output=str(root / "provenance/load.jsonl"),
+          monitor_exclude_root=123,
+          dataset_py=str(root / "input/research/scripts/dataset.py"),
+          cpachecker_dir=str(root / "cpachecker"),
+          benchexec_dir=str(root / "benchexec"),
+          python_bin="/usr/bin/python3.10",
+          java_home=str(root / "jdk"),
+          p_cores=dataset.FORMAL_P_CORE_LIST,
+      ))
+      argv = descriptor["identities"]["benchexec-launcher"]["argv"]
+      self.assertEqual(descriptor["host"], "valkyrie")
+      self.assertEqual(argv[argv.index("-N") + 1], "8")
+      self.assertEqual(argv[argv.index("-c", argv.index("-N")) + 1], "1")
+
+  def test_probe_result_metadata_preserves_one_fixed_profile_host(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      tasks = phase_b_fixture(root).rows
+      for host in ("valkyrie", "athena"):
+        result = root / f"{host}.xml"
+        write_stock_result(result, tasks, host, probe=True)
+        self.assertEqual(
+            dataset.probe_result_metadata(result)["host"], host
+        )
+      result = root / "athena.xml"
+      xml = ET.parse(result)
+      ET.SubElement(xml.getroot(), "systeminfo", {"hostname": "valkyrie"})
+      xml.write(result, encoding="unicode")
+      with self.assertRaisesRegex(RuntimeError, "exactly one"):
+        dataset.probe_result_metadata(result)
 
   def test_formal_attempt_marker_requires_atomic_teardown_closure(self):
     with tempfile.TemporaryDirectory() as temp:
@@ -7238,13 +7299,22 @@ test "$(cat "$root/partial-summary/new")" = new
         with self.assertRaisesRegex(RuntimeError, "backlink"):
           dataset.validate_cap16_probe_input(probe, root)
 
-  def test_cap16_probe_runner_has_no_arbitrary_hard_csv_input(self):
-    runner = Path(__file__).with_name(
+  def test_strict_probe_runner_has_fixed_thin_wrappers(self):
+    cap8_wrapper = Path(__file__).with_name(
+        "run-cap8-cegar-probe.sh"
+    ).read_text(encoding="utf-8")
+    cap16_wrapper = Path(__file__).with_name(
         "run-cap16-cegar-probe.sh"
     ).read_text(encoding="utf-8")
-    self.assertIn("CAP16_FORMAL_OUTPUT OUTPUT_DIR", runner)
+    runner = Path(__file__).with_name(
+        "run-strict-cegar-probe.sh"
+    ).read_text(encoding="utf-8")
+    self.assertIn('run-strict-cegar-probe.sh" cap8 "$@"', cap8_wrapper)
+    self.assertIn('run-strict-cegar-probe.sh" cap16 "$@"', cap16_wrapper)
+    self.assertLess(len(cap8_wrapper.splitlines()), 20)
+    self.assertLess(len(cap16_wrapper.splitlines()), 20)
     self.assertNotIn("HARD_PORTFOLIO_CSV", runner)
-    self.assertIn("validate-formal-closure", runner)
+    self.assertIn('"$AUTH_FORMAL_COMMAND"', runner)
     self.assertIn(
         'diff -r -- "$EXPECTED_INPUT" "$OUTPUT_DIR/input/formal"', runner
     )
@@ -7267,8 +7337,13 @@ test "$(cat "$root/partial-summary/new")" = new
     self.assertLess(recovered_marker, recovered_return)
     self.assertLess(recovered_return, new_descriptor)
     self.assertIn('-L "$OUTPUT_DIR/summary/.complete"', runner)
-    self.assertIn("--mode cap16-probe", runner)
+    self.assertIn('--mode "$FORMAL_MODE"', runner)
     self.assertIn("-N 8 -c 1", runner)
+    self.assertIn("EXPECTED_PYTHON_REAL=/usr/bin/python3.10", runner)
+    self.assertIn('P_CORE_LOCK="/var/tmp/vguide-$FORMAL_HOST-pcores.lock"', runner)
+    auth = runner.index('"$AUTH_FORMAL_COMMAND"')
+    self.assertLess(auth, runner.index("RESUMING=false"))
+    self.assertLess(auth, runner.index("-Divy.disable=true clean jar"))
     self.assertIn(
         "EXPECTED_STOCK_LIB_JAVA="
         "eea0df062de5c8e3febe0d96b583741c140e79d3ae41a87a56d7be365b876f9d",
@@ -7289,6 +7364,217 @@ test "$(cat "$root/partial-summary/new")" = new
     self.assertIn("vguide.provider=EMPTY", Path(__file__).with_name(
         "dataset.py"
     ).read_text(encoding="utf-8"))
+
+  def test_cap8_probe_pending_pin_fails_before_output_creation(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      output = root / "probe-input"
+      args = SimpleNamespace(
+          formal_output=str(root / "formal"),
+          sv_benchmarks=str(root / "sv-benchmarks"),
+          output_dir=str(output),
+      )
+      with self.assertRaisesRegex(RuntimeError, "pin is pending"):
+        dataset.command_package_cap8_probe_input(args)
+      self.assertFalse(output.exists())
+
+  def test_cap8_r8_summary_reproduction_uses_saved_three_phase_evidence(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      paths = dataset.cap8_formal_probe_paths(root)
+      paths["evidence"].mkdir(parents=True)
+      for role in ("original", "reroute", "recovery"):
+        (paths["evidence"] / f"{role}-result.xml.bz2").write_bytes(b"x")
+      arguments = dataset.cap8_summary_reproduction_arguments(
+          paths, root / "sv-benchmarks", root / "reproduced"
+      )
+      self.assertEqual(arguments[0], "summarize")
+      self.assertEqual(arguments.count("--phase-a-manifest"), 3)
+      self.assertEqual(arguments.count("--phase-a-result"), 3)
+      self.assertEqual(arguments.count("--survivor-manifest"), 3)
+      self.assertIn(str(paths["manifest"]), arguments)
+      self.assertIn(str(paths["plan_1"]), arguments)
+      self.assertIn(str(paths["plan_2"]), arguments)
+      self.assertEqual(arguments[-2:], ["--hard-threshold", "200"])
+
+  def test_cap8_r8_adapter_authenticates_full_legacy_closure(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fixture = phase_b_fixture(root)
+      formal = root / "formal"
+      paths = dataset.cap8_formal_probe_paths(formal)
+      paths["manifest"].parent.mkdir(parents=True)
+      manifest = json.loads(
+          Path(fixture.parent_manifest).read_text(encoding="utf-8")
+      )
+      paths["manifest"].write_text(
+          json.dumps(manifest), encoding="utf-8"
+      )
+      shutil.copytree(
+          root / "corpus", paths["manifest"].parent / "corpus"
+      )
+      package = dataset.write_phase_b_artifact_manifest(
+          paths["manifest"].parent
+      )[0]
+
+      paths["evidence"].mkdir(parents=True)
+      shutil.copyfile(
+          fixture.parent_manifest,
+          paths["evidence"] / "parent-manifest.json",
+      )
+      (paths["evidence"] / "corpus/properties").mkdir(parents=True)
+      shutil.copyfile(
+          root / "corpus/properties/unreach-call.prp",
+          paths["evidence"] / "corpus/properties/unreach-call.prp",
+      )
+      for role in ("original", "reroute", "recovery"):
+        for kind in ("manifest", "survivor"):
+          (paths["evidence"] / f"{role}-{kind}.json").write_text(
+              "{}\n", encoding="utf-8"
+          )
+        (paths["evidence"] / f"{role}-result.xml.bz2").write_bytes(b"x")
+
+      paths["research"].mkdir(parents=True)
+      research_files = (
+          "research-diff.patch",
+          "research-head.txt",
+          "research-index-flags.txt",
+          "research-state.json",
+          "research-status.porcelain",
+          "scripts/baseline.py",
+          "scripts/dataset.py",
+          "scripts/run-stock-formal-dataset.sh",
+      )
+      for relative in research_files:
+        path = paths["research"] / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            (
+                dataset.FROZEN_CAP8_RESEARCH_HEAD + "\n"
+                if relative == "research-head.txt"
+                else f"{relative}\n"
+            ),
+            encoding="utf-8",
+        )
+
+      def write_inventory(directory):
+        files = sorted(
+            path for path in directory.rglob("*")
+            if path.is_file() and path.name != "inventory.sha256"
+        )
+        (directory / "inventory.sha256").write_text(
+            "".join(
+                f"{dataset.baseline.sha256_file(path)}  "
+                f"{path.relative_to(directory).as_posix()}\n"
+                for path in files
+            ),
+            encoding="utf-8",
+        )
+
+      write_inventory(paths["evidence"])
+      write_inventory(paths["research"])
+
+      paths["definition"].parent.mkdir(parents=True)
+      paths["definition"].write_text("<benchmark/>\n", encoding="utf-8")
+      paths["plan_1"].write_text("{}\n", encoding="utf-8")
+      paths["plan_2"].write_text('{"repetition": 2}\n', encoding="utf-8")
+      paths["summary"].parent.mkdir(parents=True)
+      classification = [
+          {
+              "task": row["task"],
+              "classification": (
+                  "stable_hard_solved"
+                  if index == 0
+                  else "stable_unsolved"
+                  if index == 1
+                  else "mixed"
+              ),
+          }
+          for index, row in enumerate(manifest["tasks"])
+      ]
+      for path, rows in (
+          (paths["classification"], classification),
+          (paths["hard"], classification[:2]),
+      ):
+        with path.open("w", newline="", encoding="utf-8") as target:
+          writer = csv.DictWriter(
+              target, fieldnames=("task", "classification")
+          )
+          writer.writeheader()
+          writer.writerows(rows)
+      for name in (
+          "mixed.csv",
+          "row-provenance.json",
+          "summary.json",
+          "verifier-failure-quarantine.csv",
+          "wrong-quarantine.csv",
+      ):
+        (paths["summary"].parent / name).write_text(
+            f"{name}\n", encoding="utf-8"
+        )
+      for relative in (
+          "provenance/build.log",
+          "provenance/cgroup-check.log",
+          "provenance/machine-preflight-start.json",
+          "provenance/machine-preflight-end.json",
+          "provenance/machine-preflight-check.json",
+          "provenance/research-verification-final.log",
+          "provenance/runtime-verification-final.log",
+          "provenance/runtime-closure.txt",
+      ):
+        path = formal / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("evidence\n", encoding="utf-8")
+      runtime = {"runtime": "fixture"}
+      (formal / "provenance/runtime-closure.txt").write_text(
+          "runtime=fixture\n", encoding="utf-8"
+      )
+      dataset.baseline.write_artifact_manifest(
+          formal, paths["artifact"]
+      )
+      artifact = json.loads(paths["artifact"].read_text(encoding="utf-8"))
+
+      def reproduce(_, arguments, python_bin=None):
+        self.assertEqual(python_bin, "/usr/bin/python3.10")
+        output = Path(arguments[arguments.index("--output-dir") + 1])
+        for source in paths["summary"].parent.iterdir():
+          shutil.copyfile(source, output / source.name)
+
+      with (
+          mock.patch.object(dataset, "run_saved_dataset", reproduce),
+          mock.patch.multiple(
+              dataset,
+              FROZEN_CAP8_FORMAL_ARTIFACT_AGGREGATE_SHA256=artifact[
+                  "aggregate_sha256"
+              ],
+              FROZEN_CAP8_FORMAL_PACKAGE_MANIFEST_SHA256=(
+                  dataset.baseline.sha256_file(
+                      paths["formal_package_artifact"]
+                  )
+              ),
+              FROZEN_CAP8_FORMAL_PACKAGE_AGGREGATE_SHA256=package[
+                  "aggregate_sha256"
+              ],
+              FROZEN_FORMAL_MANIFEST_SHA256=dataset.baseline.sha256_file(
+                  paths["manifest"]
+              ),
+              FROZEN_CAP8_FORMAL_TASK_COUNT=manifest["task_count"],
+              FROZEN_CAP8_RESEARCH_INVENTORY_SHA256=(
+                  dataset.baseline.sha256_file(
+                      paths["research_inventory"]
+                  )
+              ),
+              FROZEN_CAP8_RUNTIME_CLOSURE=runtime,
+          ),
+      ):
+        _, _, hard, closure = dataset.authenticate_cap8_formal_for_probe(
+            formal, root
+        )
+      self.assertEqual(len(hard), 2)
+      self.assertEqual(
+          closure["artifact_aggregate_sha256"],
+          artifact["aggregate_sha256"],
+      )
 
   def test_cap16_probe_summary_writes_all_four_strata(self):
     with tempfile.TemporaryDirectory() as temp:

@@ -663,31 +663,58 @@ scripts/vguide/dataset.py license-audit \
 The audit accepts an official task only when each source has an inline license statement or a license file in the same directory, and hashes the frozen root license for each redistributed external source. It emits a license-audited manifest plus full and quarantined audit CSV files. License-unresolved tasks remain in the original screen evidence but are excluded from the paper dataset independently of all stock and augmented results.
 
 `run-cegar-probe.sh` runs the resulting hard-portfolio manifest with the matched PredicateCPA configuration and a local deterministic provider that always returns zero candidates. This cannot augment precision. PredicateCPA is single-threaded, so the probe runs eight simultaneous one-core jobs on the eight physical P-cores. An empty telemetry file is created before analysis and atomically replaced after each refinement so BenchExec can retrieve zero-event or partial evidence from timeout runs. The probe intentionally does not pass CPAchecker's `--benchmark` shortcut because that shortcut disables all output files. A task is CEGAR-eligible only after native refinement produces a spurious counterexample whose path visits a loop head. No refinement event is the structurally-unreachable census; a refinement event without a loop-head visit and missing infrastructure output remain separate strata.
+This generic script is retained only for the legacy exploratory workflow; it
+is not an accepted paper Phase-C entry point.
 
-`run-cap16-cegar-probe.sh` is the fail-closed Phase-C entry point for the
-cap-16 dataset. It accepts the completed cap-16 formal output rather than an
-arbitrary hard-case CSV. Before creating probe output it uses the formal
-output's saved scripts to reproduce the formal summary byte for byte and
-validates the complete formal closure. It then derives and saves a hard-only
-manifest together with the formal manifest, classification, summary, and
-artifact-manifest backlink. The saved closure independently pins the source
-survivor manifest to `7ad21cb5...ab49f`, validates every formal identity as an
-exact SHA-256 value, and binds the derived task rows and derivation hashes to
-that source. The Phase-C gate remains closed at
-`PENDING_AFTER_CAP16_FORMAL_COMPLETION` until the completed formal artifact
-aggregate is reviewed and frozen; after that pin, classification and hard-set
-substitution cannot self-authenticate through the adjacent identity file. It
-runs only on Athena with the pinned eight physical P-cores and
-runtime closure, and uses the formal load-monitor, taint, iterative
-replacement-plan, process-identity, attempt-marker, artifact-manifest, and
-completion-sentinel contracts. Completed uncontaminated cases remain in the
-plan while interrupted or contended cases alone are retried.
+`run-cap8-cegar-probe.sh` and `run-cap16-cegar-probe.sh` are thin,
+fixed-profile Phase-C entry points over one shared strict runner. Neither
+accepts an arbitrary hard-case CSV or host/runtime/profile option. Cap-8 is
+fixed to Valkyrie, `/usr/bin/python3.10`, PyYAML 5.4.1 and
+`/var/tmp/vguide-valkyrie-pcores.lock`; cap-16 is fixed to Athena,
+`/usr/bin/python3.12`, PyYAML 6.0.1 and the Athena lock. Both use physical
+P-cores `0,2,4,6,8,10,12,14` with BenchExec `-N 8 -c 1`.
+
+Before creating probe output, packaging input, building CPAchecker, or
+launching BenchExec, each wrapper authenticates its completed stock formal
+source. The cap-16 adapter validates the current completion-sentinel,
+attempt-marker, saved-summary, and artifact closure. The cap-8 adapter
+deliberately does not invent those records for the frozen r8 runner at
+`558e54c5da5982db46ffb8fbca4704f4b6e03f21`, which predates them. Instead it
+authenticates the frozen 270-task formal input package, all three saved Phase-A
+manifest/result/survivor triples and their inventory, the saved research
+inventory and head, the fixed Valkyrie Python 3.10 runtime closure, final
+research/runtime/machine evidence, both repetition plans, and the complete
+artifact inventory. It invokes the saved r8 `dataset.py summarize` command and
+requires all seven summary files to reproduce byte-identically. The historical
+cap-8 label `stable_unsolved` remains unchanged; cap-16 uses
+`stable_analysis_unsolved`.
+
+The adapters derive and save a hard-only manifest together with the formal
+manifest, classification, summary, and artifact-manifest backlink. The cap-16
+source survivor manifest remains pinned to `7ad21cb5...ab49f`. Both Phase-C
+gates remain closed at `PENDING_AFTER_CAP8_R8_FORMAL_COMPLETION` and
+`PENDING_AFTER_CAP16_FORMAL_COMPLETION` respectively until each completed
+external formal artifact aggregate is reviewed and frozen. A pending pin
+fails before any Phase-C output directory is created. After freezing,
+classification and hard-set substitution cannot self-authenticate through the
+adjacent identity file.
+
+Both profiles use the formal load-monitor, taint, iterative replacement-plan,
+process-identity, attempt-marker, artifact-manifest, and completion-sentinel
+contracts. Markerless recovery exit `125` is valid only for the two probe
+modes. Completed uncontaminated cases remain in the plan while interrupted or
+contended cases alone are retried.
 
 The measured Phase-C CPAchecker runtime is a separate clean checkout at
 `a80db518765174c582e2574eee1f527eff18c910`. The ignored `lib/java` tree is
 frozen at `eea0df06...6f9d`, and two clean pinned-JDK/Ant builds produced the
 same JAR-content digest `34953059...5a69`; the runner verifies both constants
 before accepting any attempt instead of self-baselining the live tree.
+The Valkyrie audit was repeated from the clean detached a80 checkout using the
+pinned JDK, Ant, and eight P-cores. Both clean builds succeeded and reproduced
+that digest; the external evidence directory
+`phase-c-a80-valkyrie-two-build-20260728` has inventory SHA-256
+`ea8ba08067541f7f0b4c55c9e8abbede560d5ea6af7dca40a25f1faf286b004b`.
 If the launcher exits before writing its attempt marker, resume first proves
 the saved BenchExec and monitor identities are gone, authenticates the
 incomplete result and all surviving evidence, and then builds the same taint
@@ -707,8 +734,8 @@ ambiguous telemetry fails closure. A missing file is an infrastructure row
 only for an explicit resource/verifier/infrastructure result; otherwise it
 fails. The authenticated summary contains the complete census plus separate
 eligible, no-event, hook-without-loop-head, and infrastructure CSVs. The strict
-cap-16 contract names an empty clean telemetry trace `no_event` and
-writes `no-event.csv`; the legacy `command_probe_summary` naming remains
+cap-8 and cap-16 contracts name an empty clean telemetry trace `no_event` and
+write `no-event.csv`; the legacy `command_probe_summary` naming remains
 unchanged. The summary is reproduced during closure validation before
 `.complete` is written.
 

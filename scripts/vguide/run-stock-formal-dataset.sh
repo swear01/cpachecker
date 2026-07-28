@@ -261,9 +261,12 @@ capture_research_provenance() {
   if [[ ${FORMAL_MODE:-cap8} == cap16 ]]; then
     cp -- "$SCRIPT_DIR/run-stock-cap16-formal-dataset.sh" \
       "$destination/scripts/run-stock-cap16-formal-dataset.sh"
-  elif [[ ${FORMAL_MODE:-cap8} == cap16-probe ]]; then
-    cp -- "$SCRIPT_DIR/run-cap16-cegar-probe.sh" \
-      "$destination/scripts/run-cap16-cegar-probe.sh"
+  elif [[ ${FORMAL_MODE:-cap8} == cap8-probe ||
+    ${FORMAL_MODE:-cap8} == cap16-probe ]]; then
+    for script in run-cap8-cegar-probe.sh run-cap16-cegar-probe.sh \
+      run-strict-cegar-probe.sh; do
+      cp -- "$SCRIPT_DIR/$script" "$destination/scripts/$script"
+    done
   fi
   cp -- "$SCRIPT_DIR/dataset.py" "$destination/scripts/dataset.py"
   cp -- "$SCRIPT_DIR/baseline.py" "$destination/scripts/baseline.py"
@@ -328,10 +331,13 @@ verify_frozen_research_provenance() {
     path=run-stock-cap16-formal-dataset.sh
     cmp -- "$destination/scripts/$path" \
       <(git -C "$RESEARCH_ROOT" show "$expected_head:scripts/vguide/$path")
-  elif [[ ${FORMAL_MODE:-cap8} == cap16-probe ]]; then
-    path=run-cap16-cegar-probe.sh
-    cmp -- "$destination/scripts/$path" \
-      <(git -C "$RESEARCH_ROOT" show "$expected_head:scripts/vguide/$path")
+  elif [[ ${FORMAL_MODE:-cap8} == cap8-probe ||
+    ${FORMAL_MODE:-cap8} == cap16-probe ]]; then
+    for path in run-cap8-cegar-probe.sh run-cap16-cegar-probe.sh \
+      run-strict-cegar-probe.sh; do
+      cmp -- "$destination/scripts/$path" \
+        <(git -C "$RESEARCH_ROOT" show "$expected_head:scripts/vguide/$path")
+    done
   fi
   actual_topology=$(find -P "$destination" -mindepth 1 -printf '%y %P\n' | sort)
   expected_topology=$(
@@ -349,8 +355,12 @@ verify_frozen_research_provenance() {
         "f scripts/run-stock-formal-dataset.sh"
       if [[ ${FORMAL_MODE:-cap8} == cap16 ]]; then
         printf '%s\n' "f scripts/run-stock-cap16-formal-dataset.sh"
-      elif [[ ${FORMAL_MODE:-cap8} == cap16-probe ]]; then
-        printf '%s\n' "f scripts/run-cap16-cegar-probe.sh"
+      elif [[ ${FORMAL_MODE:-cap8} == cap8-probe ||
+        ${FORMAL_MODE:-cap8} == cap16-probe ]]; then
+        printf '%s\n' \
+          "f scripts/run-cap8-cegar-probe.sh" \
+          "f scripts/run-cap16-cegar-probe.sh" \
+          "f scripts/run-strict-cegar-probe.sh"
       fi
     } | sort
   )
