@@ -217,9 +217,9 @@ is the only reusable-completion oracle. Only the first frozen version-2
 selection may treat exactly one final console-log completion absent from
 incomplete XML as interrupted; its recovered load monitor must also have valid
 trailing NUL padding. The second frozen selection never enables that exception.
-The third frozen selection also never enables that exception. Padding alone,
-including on legacy recovery, never authorizes a mismatch. Every other XML/log
-mismatch fails closed. Only missing/in-flight or
+The third and fourth frozen selections also never enable that exception.
+Padding alone, including on legacy recovery, never authorizes a mismatch.
+Every other XML/log mismatch fails closed. Only missing/in-flight or
 sustained-contention rows enter the taint/replacement plan; the completed
 untainted rows and original result remain in place. Forged, overlapping,
 inconsistent, or insufficient evidence fails closed instead of abandoning the
@@ -252,7 +252,7 @@ legacy version-1 PID identities are accepted only through that pinned selection
 and must prove a reboot because their recorded `/proc` start ticks exceed the
 recovery boot uptime. General new identities, which include the kernel boot UUID
 and exact positive type/range checks, are not accepted by the markerless
-recovery path. Its three frozen version-2 selections pin the exact replacement
+recovery path. Its four frozen version-2 selections pin the exact replacement
 label, role, repetition, captured boot UUID, result-directory digest and exact
 regular-file/directory topology, and every definition, result, console,
 load-monitor, process, machine, task-set, prior taint, and prior marker input.
@@ -269,7 +269,19 @@ uncontended. That row is a `SEGMENTATION FAULT` in category `error`, so it is an
 unsolved observation, not a correctness proof. Recovery retains it and renders
 only the other 158 interrupted rows as
 `repetition-1-replacement-attempt-4`, without enabling the first selection's
-log-only exception. Every other version-2 attempt remains rejected; mixed
+log-only exception. The fourth selection is exactly
+`repetition-1-replacement-attempt-4`; its canonical frozen-selector SHA-256 is
+`f12f124b59c926ecdeabc0c3ec1b687f5dea37e4642a0752132f831dcddafa82`.
+Its authenticated incomplete result has 158 rows, of which 31 are structurally
+complete and uncontended. Those 31 join the 66 reusable rows from prior
+attempts, yielding 97 cumulative reusable tasks with newline-sorted task-set
+SHA-256
+`29ea3a0b691b5cea021f49472078f74f0b29b0fd0fbc96cb10cb4e19f1b684bc`.
+Recovery retains those rows and renders only the 127 pending tasks as
+`repetition-1-replacement-attempt-5`; that newline-sorted task set has SHA-256
+`05a7d3db63d4d55979d226fcf1f51fbbf533a371d377a99a43d3f1aaa6d2cf5d`.
+It does not enable the first selection's log-only exception. Every other
+version-2 attempt remains rejected; mixed
 schemas or any drift fail closed. The
 result-directory digest uses the production helper's Python `Path` part
 ordering; reproduce it with that helper or `PurePosixPath`, not a plain sort of
