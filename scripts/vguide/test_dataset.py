@@ -3243,6 +3243,32 @@ copy_phase_evidence "$2"
 
       loaded = load(data)
       self.assertEqual(len(loaded["rows"]), 3)
+      zero_progress_plan = copy.deepcopy(data)
+      zero_progress_plan["replacements"] = zero_progress_plan[
+          "replacements"
+      ][:1]
+      zero_progress_plan["replacements"][0]["taint"] = {
+          "path": zero_taint.name,
+          "sha256": dataset.baseline.sha256_file(zero_taint),
+      }
+      zero_progress_path = root / "zero-progress-loader-plan.json"
+      zero_progress_path.write_text(json.dumps(zero_progress_plan))
+      with mock.patch.object(
+          dataset, "formal_run_taints", return_value=zero_tasks
+      ), mock.patch.object(
+          dataset, "validate_result_run_topology"
+      ), mock.patch.object(
+          dataset, "validate_formal_definition"
+      ), self.assertRaisesRegex(RuntimeError, "partition is not exact"):
+        dataset.load_repetition_plan(
+            zero_progress_path,
+            manifest,
+            manifest_path,
+            "valkyrie",
+            root,
+            root / "benchmark.xml",
+            200,
+        )
       sources = {row["task"]: row["source"] for row in loaded["row_sources"]}
       self.assertEqual(
           sources,
