@@ -744,6 +744,20 @@ single_formal_result() {
   printf '%s\n' "${matches[0]}"
 }
 
+formal_benchexec_workers() {
+  case "$1" in
+    cap8)
+      printf '2\n'
+      ;;
+    cap16)
+      printf '1\n'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 main() {
   FORMAL_MODE=$1
   shift
@@ -1312,7 +1326,7 @@ main() {
         --read-only-dir / \
         --hidden-dir /home \
         --overlay-dir "$CPACHECKER_DIR" \
-        -N 2 -c 4 \
+        -N "$(formal_benchexec_workers "$FORMAL_MODE")" -c 4 \
         "$definition" <<'PY'
 import json
 import os

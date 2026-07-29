@@ -807,6 +807,128 @@ FROZEN_CAP16_ATHENA_ATTEMPT_4_V2_RECOVERY_SELECTION = {
 }
 
 
+FROZEN_CAP16_ATHENA_ATTEMPT_5_V2_RECOVERY_SELECTION = {
+    "captured_boot_id": "81ffe4f0-858e-4028-983b-242c16b56907",
+    "closure_files": {
+        (
+            "generated/repetition-1-replacement-attempt-5/"
+            "hard-case-candidates-official.set"
+        ): "03c1a920701f134c21c35e46d09abd430d01898cf2d4bf24b3684f6237cd9281",
+        (
+            "provenance/attempts/repetition-1-replacement-attempt-3.json"
+        ): "97a3b0faba2d3b91d2db8baf1cc4fd4820f5c83fb9c26ca1c2238ab59f72f10f",
+        (
+            "repetition-1-replacement-attempt-3-taint.json"
+        ): "d1a1f009f747b508ca4098c75278908203f8ed2560c09d50174edfbd33321492",
+    },
+    "files": {
+        "benchexec_log": {
+            "path": (
+                "provenance/"
+                "repetition-1-replacement-attempt-5-benchexec.log"
+            ),
+            "sha256": (
+                "3593207d0594ce3b789c2de9a792c26fb34d94f6c7190fa0d23390042c53c098"
+            ),
+        },
+        "benchexec_process": {
+            "path": (
+                "provenance/"
+                "repetition-1-replacement-attempt-5-benchexec.process.json"
+            ),
+            "sha256": (
+                "f846602ac45577ccfc0897b513e7296b3e105e5176a628d3d8fe914b88a4a51b"
+            ),
+        },
+        "definition": {
+            "path": (
+                "generated/repetition-1-replacement-attempt-5/"
+                "hard-case-candidates.xml"
+            ),
+            "sha256": (
+                "756a5f79a309d804310a36a7eee8d5d70d6148ea52324e5005159e1bb7738285"
+            ),
+        },
+        "load_monitor": {
+            "path": (
+                "provenance/"
+                "repetition-1-replacement-attempt-5-load-monitor.jsonl"
+            ),
+            "sha256": (
+                "a204371d08f485482007faa99a33afacf84aa390cfbb98d0db2522a335248b84"
+            ),
+        },
+        "machine_before": {
+            "path": (
+                "provenance/"
+                "machine-before-repetition-1-replacement-attempt-5.json"
+            ),
+            "sha256": (
+                "eab9d3388f97e8c15295bc2758835f832bfdc3b11a8b8ef95184979812114b45"
+            ),
+        },
+        "monitor_pid": {
+            "path": (
+                "provenance/"
+                "repetition-1-replacement-attempt-5-load-monitor.jsonl.pid"
+            ),
+            "sha256": (
+                "e58b794fb0a1043d32eea1d57a9b870318ab1ff8ee6e91bcdbb17f67d60ccdc7"
+            ),
+        },
+        "monitor_process": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-5-"
+                "load-monitor.jsonl.process.json"
+            ),
+            "sha256": (
+                "d807e523511a0270f840c551b94fc3ac2461743a8a49221aa3748bbee267f791"
+            ),
+        },
+        "process_descriptor": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-5-"
+                "process-descriptor.json"
+            ),
+            "sha256": (
+                "ad635af266491065409d26a2e996e88c1b6db6f6e826260ea337ac83098bf833"
+            ),
+        },
+        "result": {
+            "path": (
+                "results/repetition-1-replacement-attempt-5/"
+                "hard-case-candidates.hard-case-dataset-v2-cap16-formal-"
+                "athena-repetition-1-replacement-attempt-5."
+                "2026-07-29_22-07-48.results.hard-case-candidates."
+                "official.xml"
+            ),
+            "sha256": (
+                "2f01f7fc7e724999a1a1de06c2d46626c79e5af87e370815b5c06ee6650b2efd"
+            ),
+        },
+    },
+    "label": "repetition-1-replacement-attempt-5",
+    "repetition": 1,
+    "result_directories": [
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-5.2026-07-29_22-07-48.logfiles"
+        ),
+    ],
+    "result_directory": "results/repetition-1-replacement-attempt-5",
+    "result_directory_digest": (
+        "eacc6d142d200749b01dac8796692d2fadb3c3c25a4859fa81fb6dfc9306e88b"
+    ),
+    "role": "replacement",
+}
+FROZEN_CAP16_ATHENA_ATTEMPT_5_V2_RECOVERY_SELECTION_SHA256 = (
+    "97c6a7e4bcf013eef8ddc855b939f28ba223f630d2e088654f1eda533770ac54"
+)
+FROZEN_CAP16_ATHENA_ATTEMPT_5_FINAL_LOG_ONLY_PENDING_TASK = (
+    "c/eca-programs/Problem102_label23.yml"
+)
+
+
 def sha256_text(value):
   return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -5002,6 +5124,7 @@ def validate_markerless_recovery_identity_selection(
       (FROZEN_CAP16_ATHENA_ATTEMPT_2_V2_RECOVERY_SELECTION, False),
       (FROZEN_CAP16_ATHENA_ATTEMPT_3_V2_RECOVERY_SELECTION, False),
       (FROZEN_CAP16_ATHENA_ATTEMPT_4_V2_RECOVERY_SELECTION, False),
+      (FROZEN_CAP16_ATHENA_ATTEMPT_5_V2_RECOVERY_SELECTION, False),
   )
   matches = [
       item for item in selections
@@ -5084,6 +5207,27 @@ def marker_authorizes_final_log_only_completion(record):
   return all(
       record["files"].get(name) == expected
       for name, expected in selection["files"].items()
+  )
+
+
+def frozen_attempt_5_final_log_only_pending(result, log, load_monitor):
+  selection = FROZEN_CAP16_ATHENA_ATTEMPT_5_V2_RECOVERY_SELECTION
+  selection_sha256 = sha256_text(
+      json.dumps(selection, sort_keys=True, separators=(",", ":"))
+  )
+  if (
+      selection_sha256
+      != FROZEN_CAP16_ATHENA_ATTEMPT_5_V2_RECOVERY_SELECTION_SHA256
+  ):
+    raise RuntimeError("frozen attempt-5 recovery selector differs")
+  return all(
+      baseline.sha256_file(Path(actual))
+      == selection["files"][name]["sha256"]
+      for name, actual in (
+          ("result", result),
+          ("benchexec_log", log),
+          ("load_monitor", load_monitor),
+      )
   )
 
 
@@ -5892,7 +6036,23 @@ def run_taints(
       and len(extra_logged_complete) == 1
       and next(reversed(ends)) in extra_logged_complete
   )
-  if complete != logged_complete and not recovered_trailing_completion:
+  recovered_attempt_5_final_log_only_pending = (
+      not allow_final_log_only_completion
+      and allow_trailing_nul
+      and metadata["incomplete"]
+      and Path(load_monitor).read_bytes().endswith(b"\0")
+      and complete <= logged_complete
+      and extra_logged_complete
+      == {FROZEN_CAP16_ATHENA_ATTEMPT_5_FINAL_LOG_ONLY_PENDING_TASK}
+      and next(reversed(ends))
+      == FROZEN_CAP16_ATHENA_ATTEMPT_5_FINAL_LOG_ONLY_PENDING_TASK
+      and frozen_attempt_5_final_log_only_pending(result, log, load_monitor)
+  )
+  if (
+      complete != logged_complete
+      and not recovered_trailing_completion
+      and not recovered_attempt_5_final_log_only_pending
+  ):
     raise RuntimeError("BenchExec log and complete result rows do not match")
   tainted = {
       task: "interrupted_incomplete"

@@ -1313,7 +1313,25 @@ class DatasetTest(unittest.TestCase):
     self.assertIn("--read-only-dir /", runner)
     self.assertIn("--hidden-dir /home", runner)
     self.assertIn("--overlay-dir", runner)
-    self.assertIn("-N 2 -c 4", runner)
+    self.assertEqual(
+        subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$1"; formal_benchexec_workers cap8',
+                "bash",
+                Path(__file__).with_name("run-stock-formal-dataset.sh"),
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout,
+        "2\n",
+    )
+    self.assertIn(
+        '-N "$(formal_benchexec_workers "$FORMAL_MODE")" -c 4',
+        runner,
+    )
     self.assertIn("machine-after-failure.json", runner)
     self.assertIn("failure-capture-status.txt", runner)
     self.assertIn("trap capture_failure EXIT", runner)
@@ -3815,6 +3833,110 @@ copy_phase_evidence "$2"
           ["c/t3.yml", "c/t4.yml"],
       )
 
+  def test_attempt_5_final_log_only_row_stays_pending(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      tasks = [
+          {
+              "task": "c/t0.yml",
+              "task_path": "c/t0.yml",
+              "source_paths": ["c/s0.c"],
+              "expected_verdict": "true",
+              "benchmark_set": "Loops",
+          },
+          {
+              "task": (
+                  dataset.FROZEN_CAP16_ATHENA_ATTEMPT_5_FINAL_LOG_ONLY_PENDING_TASK
+              ),
+              "task_path": (
+                  dataset.FROZEN_CAP16_ATHENA_ATTEMPT_5_FINAL_LOG_ONLY_PENDING_TASK
+              ),
+              "source_paths": ["c/s1.c"],
+              "expected_verdict": "true",
+              "benchmark_set": "Loops",
+          },
+      ]
+      manifest = {task["task"]: task for task in tasks}
+      result = root / "result.xml"
+      write_stock_result(result, tasks, "athena", formal=True, marker="01")
+      result_root = ET.parse(result).getroot()
+      result_root.set("error", "incomplete")
+      result_root.attrib.pop("endtime")
+      for column in list(result_root.findall("run")[1]):
+        result_root.findall("run")[1].remove(column)
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      monitor = root / "load.jsonl"
+      monitor.write_bytes(
+          (
+              json.dumps({
+                  "schema_version": dataset.FORMAL_LOAD_MONITOR_SCHEMA,
+                  "p_core_cpus": list(dataset.FORMAL_P_CORE_CPUS),
+                  "foreign_process_cpu_percent": 50.0,
+                  "minimum_consecutive_seconds": 10.0,
+                  "sample_interval_seconds": 1.0,
+                  "excluded_process_root": 123,
+              })
+              + "\n"
+              + json.dumps({
+                  "timestamp": "2026-07-27T00:00:30+08:00",
+                  "elapsed_seconds": 1.0,
+                  "offenders": [],
+              })
+              + "\n"
+          ).encode()
+          + (b"\0" * 16)
+      )
+      log = root / "benchexec.log"
+      log.write_text(
+          "\n".join([
+              "00:00:01   starting   c/t0.yml",
+              (
+                  "00:00:02   starting   "
+                  + dataset.FROZEN_CAP16_ATHENA_ATTEMPT_5_FINAL_LOG_ONLY_PENDING_TASK
+              ),
+              "00:00:10              c/t0.yml   TIMEOUT 900 1",
+              (
+                  "00:00:11              "
+                  + dataset.FROZEN_CAP16_ATHENA_ATTEMPT_5_FINAL_LOG_ONLY_PENDING_TASK
+                  + "   TIMEOUT 900 1"
+              ),
+          ])
+          + "\n",
+          encoding="utf-8",
+      )
+
+      with mock.patch.object(
+          dataset,
+          "frozen_attempt_5_final_log_only_pending",
+          return_value=True,
+      ):
+        self.assertEqual(
+            dataset.run_taints(
+                result,
+                log,
+                monitor,
+                manifest,
+                allow_trailing_nul=True,
+            ),
+            {
+                dataset.FROZEN_CAP16_ATHENA_ATTEMPT_5_FINAL_LOG_ONLY_PENDING_TASK:
+                "interrupted_incomplete",
+            },
+        )
+
+      with mock.patch.object(
+          dataset,
+          "frozen_attempt_5_final_log_only_pending",
+          return_value=False,
+      ), self.assertRaisesRegex(RuntimeError, "log and complete"):
+        dataset.run_taints(
+            result,
+            log,
+            monitor,
+            manifest,
+            allow_trailing_nul=True,
+        )
+
   def test_phase_b_zero_survivors_are_preserved_and_skip_formal(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
@@ -5725,6 +5847,193 @@ copy_phase_evidence "$2"
         with self.assertRaisesRegex(RuntimeError, "not bound across reboot"):
           validate()
 
+  def test_frozen_attempt_5_recovery_is_exact_and_log_row_stays_pending(self):
+    frozen = dataset.FROZEN_CAP16_ATHENA_ATTEMPT_5_V2_RECOVERY_SELECTION
+    self.assertEqual(
+        (
+            frozen["label"],
+            frozen["role"],
+            frozen["repetition"],
+            frozen["captured_boot_id"],
+            frozen["result_directory_digest"],
+        ),
+        (
+            "repetition-1-replacement-attempt-5",
+            "replacement",
+            1,
+            "81ffe4f0-858e-4028-983b-242c16b56907",
+            "eacc6d142d200749b01dac8796692d2fadb3c3c25a4859fa81fb6dfc9306e88b",
+        ),
+    )
+    self.assertEqual(
+        hashlib.sha256(json.dumps(
+            frozen, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")).hexdigest(),
+        dataset.FROZEN_CAP16_ATHENA_ATTEMPT_5_V2_RECOVERY_SELECTION_SHA256,
+    )
+    self.assertEqual(
+        dataset.FROZEN_CAP16_ATHENA_ATTEMPT_5_V2_RECOVERY_SELECTION_SHA256,
+        "97c6a7e4bcf013eef8ddc855b939f28ba223f630d2e088654f1eda533770ac54",
+    )
+    self.assertEqual(
+        frozen["files"]["result"]["sha256"],
+        "2f01f7fc7e724999a1a1de06c2d46626c79e5af87e370815b5c06ee6650b2efd",
+    )
+    self.assertEqual(
+        set(frozen["closure_files"]),
+        {
+            (
+                "generated/repetition-1-replacement-attempt-5/"
+                "hard-case-candidates-official.set"
+            ),
+            "repetition-1-replacement-attempt-3-taint.json",
+            (
+                "provenance/attempts/"
+                "repetition-1-replacement-attempt-3.json"
+            ),
+        },
+    )
+    self.assertFalse(
+        dataset.marker_authorizes_final_log_only_completion({
+            "schema_version": dataset.FORMAL_ATTEMPT_SCHEMA,
+            "benchexec_exit": 125,
+            "result_incomplete": True,
+            "label": frozen["label"],
+            "role": frozen["role"],
+            "repetition": frozen["repetition"],
+            "files": frozen["files"],
+        })
+    )
+
+    expected_hashes = [
+        frozen["files"][name]["sha256"]
+        for name in ("result", "benchexec_log", "load_monitor")
+    ]
+    with mock.patch.object(
+        dataset.baseline, "sha256_file", side_effect=expected_hashes
+    ):
+      self.assertTrue(
+          dataset.frozen_attempt_5_final_log_only_pending(
+              "result", "log", "monitor"
+          )
+      )
+    with mock.patch.object(
+        dataset.baseline,
+        "sha256_file",
+        side_effect=[expected_hashes[0], "forged", expected_hashes[2]],
+    ):
+      self.assertFalse(
+          dataset.frozen_attempt_5_final_log_only_pending(
+              "result", "log", "monitor"
+          )
+      )
+    changed = copy.deepcopy(frozen)
+    changed["role"] = "primary"
+    with mock.patch.object(
+        dataset,
+        "FROZEN_CAP16_ATHENA_ATTEMPT_5_V2_RECOVERY_SELECTION",
+        changed,
+    ), self.assertRaisesRegex(RuntimeError, "selector differs"):
+      dataset.frozen_attempt_5_final_log_only_pending(
+          "result", "log", "monitor"
+      )
+
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      paths = {}
+      for name in (
+          "definition",
+          "benchexec_log",
+          "benchexec_process",
+          "process_descriptor",
+          "load_monitor",
+          "monitor_pid",
+          "monitor_process",
+          "machine_before",
+      ):
+        path = root / f"evidence/{name}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{name}\n", encoding="utf-8")
+        paths[name] = path
+      result_directory = root / "results/replacement-attempt-5"
+      result_directory.mkdir(parents=True)
+      result = result_directory / "result.xml"
+      result.write_text("result\n", encoding="utf-8")
+      (result_directory / "result.logfiles").mkdir()
+      paths["result"] = result
+      closure_paths = []
+      for index in range(3):
+        path = root / f"closure/input-{index}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"closure-{index}\n", encoding="utf-8")
+        closure_paths.append(path)
+      captured_boot = "11111111-1111-1111-1111-111111111111"
+      recovery_boot = "22222222-2222-2222-2222-222222222222"
+      identities = {
+          role: {
+              "schema_version": dataset.FORMAL_PROCESS_IDENTITY_SCHEMA,
+              "boot_id": captured_boot,
+          }
+          for role in ("benchexec-launcher", "load-monitor")
+      }
+      selection = {
+          "label": "repetition-1-replacement-attempt-5",
+          "role": "replacement",
+          "repetition": 1,
+          "captured_boot_id": captured_boot,
+          "result_directory": result_directory.relative_to(root).as_posix(),
+          "result_directory_digest": (
+              dataset.formal_result_directory_digest(result_directory)
+          ),
+          "result_directories": ("result.logfiles",),
+          "files": {
+              name: {
+                  "path": path.relative_to(root).as_posix(),
+                  "sha256": dataset.baseline.sha256_file(path),
+              }
+              for name, path in paths.items()
+          },
+          "closure_files": {
+              path.relative_to(root).as_posix(): (
+                  dataset.baseline.sha256_file(path)
+              )
+              for path in closure_paths
+          },
+      }
+      with mock.patch.object(
+          dataset,
+          "FROZEN_CAP16_ATHENA_ATTEMPT_5_V2_RECOVERY_SELECTION",
+          selection,
+      ), mock.patch.object(
+          dataset, "read_boot_id", return_value=recovery_boot
+      ):
+        def validate(label=selection["label"]):
+          return dataset.validate_markerless_recovery_identity_selection(
+              root,
+              label,
+              selection["role"],
+              selection["repetition"],
+              paths,
+              identities,
+          )
+
+        self.assertFalse(validate())
+
+        original = paths["result"].read_bytes()
+        paths["result"].write_bytes(original + b"mutation")
+        with self.assertRaisesRegex(RuntimeError, "selection differs"):
+          validate()
+        paths["result"].write_bytes(original)
+
+        original = closure_paths[0].read_bytes()
+        closure_paths[0].write_bytes(original + b"mutation")
+        with self.assertRaisesRegex(RuntimeError, "selection differs"):
+          validate()
+        closure_paths[0].write_bytes(original)
+
+        with self.assertRaisesRegex(RuntimeError, "exact frozen"):
+          validate("other")
+
   def test_formal_attempt_marker_requires_atomic_teardown_closure(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
@@ -6728,7 +7037,21 @@ copy_phase_evidence "$2"
     self.assertIn("render-cap16-formal", runner)
     self.assertIn("render-cap16-formal-replacement", runner)
     self.assertIn("summarize-cap16-formal", runner)
-    self.assertIn("-N 2 -c 4", runner)
+    self.assertEqual(
+        subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$1"; formal_benchexec_workers cap16',
+                "bash",
+                wrapper_path.parent / "run-stock-formal-dataset.sh",
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout,
+        "1\n",
+    )
     self.assertIn("formal-taint", runner)
     self.assertIn("cap16-repetition-plan", runner)
     self.assertIn('CAP16_PHASE_A_OUTPUT="$OUTPUT_DIR/input/evidence"', runner)

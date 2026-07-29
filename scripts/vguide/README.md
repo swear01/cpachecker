@@ -252,7 +252,7 @@ legacy version-1 PID identities are accepted only through that pinned selection
 and must prove a reboot because their recorded `/proc` start ticks exceed the
 recovery boot uptime. General new identities, which include the kernel boot UUID
 and exact positive type/range checks, are not accepted by the markerless
-recovery path. Its four frozen version-2 selections pin the exact replacement
+recovery path. Its five frozen version-2 selections pin the exact replacement
 label, role, repetition, captured boot UUID, result-directory digest and exact
 regular-file/directory topology, and every definition, result, console,
 load-monitor, process, machine, task-set, prior taint, and prior marker input.
@@ -281,7 +281,22 @@ Recovery retains those rows and renders only the 127 pending tasks as
 `repetition-1-replacement-attempt-5`; that newline-sorted task set has SHA-256
 `05a7d3db63d4d55979d226fcf1f51fbbf533a371d377a99a43d3f1aaa6d2cf5d`.
 It does not enable the first selection's log-only exception. Every other
-version-2 attempt remains rejected; mixed
+version-2 attempt remains rejected. The fifth selection is exactly
+`repetition-1-replacement-attempt-5`; its canonical frozen-selector SHA-256 is
+`97c6a7e4bcf013eef8ddc855b939f28ba223f630d2e088654f1eda533770ac54`.
+Its authenticated incomplete result has 127 rows. Six structurally complete
+and uncontended rows are retained: five out-of-memory observations and one
+segmentation-fault observation. The final BenchExec log event for
+`c/eca-programs/Problem102_label23.yml` has no complete XML row. An
+attempt-5-only policy authenticates the exact result, log, and load-monitor
+hashes, accepts that single mismatch, and keeps the row interrupted and
+pending; it never promotes the log event to a completion. The six reusable
+rows join the prior 97, yielding 103 cumulative reusable tasks. Recovery
+renders the other 121 tasks as `repetition-1-replacement-attempt-6`; that
+newline-sorted task set has SHA-256
+`ea0f93cf8bac65eaa03b3f4ebfec6e3a46181e21ffffc2aa5a8ae9782d8186e8`.
+The fifth selection does not enable the first selection's log-only completion
+exception. Every other version-2 attempt remains rejected; mixed
 schemas or any drift fail closed. The
 result-directory digest uses the production helper's Python `Path` part
 ordering; reproduce it with that helper or `PurePosixPath`, not a plain sort of
@@ -596,7 +611,11 @@ threshold does not block launch.
 
 The runner builds stock CPAchecker, performs the ten-second machine preflight,
 generates the fixed 900/910/920 definition with `render-formal`, and executes
-two sequential `-N 2 -c 4` BenchExec repetitions with distinct fixed names.
+two sequential BenchExec repetitions with distinct fixed names. The shared
+runner fixes parallelism internally by mode: cap-8 remains `-N 2 -c 4`, while
+cap-16 uses `-N 1 -c 4` after repeated Athena reboots correlated with load.
+This is a scheduling-only change and does not select tasks or outcomes; there
+is no user-controlled parallelism option.
 Raw JAR bytes are not reproducible because ZIP metadata changes: two clean
 rebuilds produced raw hashes
 `424710996a6b93a6a23e73c35f55a33cb13f058f1dab3342598a30a0021e7b9c`
