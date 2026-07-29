@@ -395,8 +395,11 @@ are applied sequentially to exactly the preceding tainted set; accepted rows
 are derived as attempted tasks minus that entry's taint. Accepted sets must be
 disjoint and the final taint must be empty. The runner therefore renders only
 the current remainder after every attempt instead of restarting completed
-cases. Symlinks, special nodes, path escapes, topology drift, task drift, hash
-drift, non-exact coverage, or unauthenticated interrupted XML fail closed.
+cases. If an authenticated attempt leaves that remainder unchanged, its raw
+result, log, monitor, and taint remain in the output and the run fails closed
+instead of retrying forever. Symlinks, special nodes, path escapes, topology
+drift, task drift, hash drift, non-exact coverage, or unauthenticated
+interrupted XML fail closed.
 
 `render-formal-replacement` authenticates the full Phase-B inputs, incomplete
 primary and taint manifest, then renders the unchanged 900/910/920 protocol for

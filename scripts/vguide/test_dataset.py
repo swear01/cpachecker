@@ -17,8 +17,10 @@ import importlib.util
 import json
 import os
 import random
+import shutil
 import subprocess
 import tempfile
+import textwrap
 import unittest
 import xml.etree.ElementTree as ET
 import zipfile
@@ -1017,7 +1019,8 @@ class DatasetTest(unittest.TestCase):
     self.assertIn('if [[ $# -ne 16 && $# -ne 18 ]]', runner)
     self.assertIn("validate-cap8-r9-recovery", runner)
     self.assertIn('--replacement-taint "$current_taint"', runner)
-    self.assertIn('if [[ $# -eq 6 ]]', runner)
+    self.assertIn("build_partial_repetition_plan()", runner)
+    self.assertIn("build_normal_repetition_plan()", runner)
     self.assertIn(
         'cp -a "$RECOVERY_ROOT" "$OUTPUT_DIR/input/recovery-r9"', runner
     )
@@ -1121,7 +1124,9 @@ class DatasetTest(unittest.TestCase):
     first_plan = runner.index(
         '--output "$OUTPUT_DIR/repetition-1-plan.json"', first_result
     )
-    second = runner.index('build_repetition_plan 2 "${RESULTS[1]}"')
+    second = runner.index(
+        'build_normal_repetition_plan 2 "${RESULTS[1]}"'
+    )
     second_result = runner.index(
         'single_formal_result "$OUTPUT_DIR/results/repetition-2"', first
     )
@@ -1177,6 +1182,134 @@ class DatasetTest(unittest.TestCase):
       )
       self.assertNotEqual(missing.returncode, 0)
       self.assertIn("found 0", missing.stderr)
+
+  def test_partial_runner_orchestration_progress_and_zero_progress_guard(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    harness = textwrap.dedent(r"""
+        source "$1"
+        root=$2
+        mode=$3
+        OUTPUT_DIR="$root/output"
+        RECOVERY_COPY="$root/recovery"
+        FORMAL_MANIFEST="$root/manifest.json"
+        SV_BENCHMARKS_DIR="$root/sv-benchmarks"
+        DATASET_PY="$root/dataset.py"
+        PHASE_ARGS=()
+        mkdir -p \
+          "$OUTPUT_DIR/input/recovery-r9-external" \
+          "$OUTPUT_DIR/provenance" "$OUTPUT_DIR/results" \
+          "$RECOVERY_COPY" "$SV_BENCHMARKS_DIR/c/properties"
+        printf '{"tasks":[{"task":"a"},{"task":"b"}]}\n' \
+          >"$RECOVERY_COPY/repetition-2-taint.json"
+        : >"$OUTPUT_DIR/input/recovery-r9-external/launch.log"
+        printf '1\n' \
+          >"$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt"
+        : >"$FORMAL_MANIFEST"
+        : >"$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp"
+        recovery_result="$root/recovery-result.xml"
+        recovery_definition="$root/recovery-definition.xml"
+        recovery_log="$root/recovery.log"
+        recovery_monitor="$root/recovery-monitor.jsonl"
+        : >"$recovery_result"
+        : >"$recovery_definition"
+        : >"$recovery_log"
+        : >"$recovery_monitor"
+
+        run_python_script() {
+          local command=$2
+          shift 2
+          local arguments=("$@")
+          local output=""
+          local output_dir=""
+          local result=""
+          while [[ $# -gt 0 ]]; do
+            case "$1" in
+              --output)
+                output=$2
+                shift 2
+                ;;
+              --output-dir)
+                output_dir=$2
+                shift 2
+                ;;
+              --result)
+                result=$2
+                shift 2
+                ;;
+              *)
+                shift
+                ;;
+            esac
+          done
+          printf '%s\n' "$command" >>"$root/calls"
+          case "$command" in
+            formal-taint)
+              mkdir -p "$(dirname "$output")"
+              if [[ "$result" == "$recovery_result" || "$mode" == zero ]]; then
+                printf '{"tasks":[{"task":"b"}]}\n' >"$output"
+              else
+                printf '{"tasks":[]}\n' >"$output"
+              fi
+              ;;
+            render-formal-replacement)
+              mkdir -p "$output_dir"
+              : >"$output_dir/hard-case-candidates.xml"
+              ;;
+            repetition-plan)
+              printf '%s\n' "${arguments[@]}" >"$root/plan-args"
+              : >"$output"
+              ;;
+            *)
+              return 90
+              ;;
+          esac
+        }
+        run_formal_benchmark() {
+          local label=$1
+          local output=$4
+          printf 'benchmark\n' >>"$root/calls"
+          mkdir -p "$output"
+          : >"$output/result.xml"
+          : >"$OUTPUT_DIR/provenance/$label-benchexec.log"
+          : >"$OUTPUT_DIR/provenance/$label-load-monitor.jsonl"
+        }
+        single_formal_result() {
+          printf '%s/result.xml\n' "$1"
+        }
+
+        if [[ "$mode" == progress ]]; then
+          build_partial_repetition_plan \
+            2 "$root/primary.xml" "$recovery_result" \
+            "$recovery_definition" "$recovery_log" "$recovery_monitor"
+          test -f "$OUTPUT_DIR/repetition-2-plan.json"
+          test "$(grep -c '^--replacement-result$' "$root/plan-args")" -eq 2
+          test "$(paste -sd, "$root/calls")" = \
+            "formal-taint,render-formal-replacement,benchmark,formal-taint,repetition-plan"
+        else
+          if build_partial_repetition_plan \
+              2 "$root/primary.xml" "$recovery_result" \
+              "$recovery_definition" "$recovery_log" "$recovery_monitor"; then
+            exit 91
+          fi
+          test -f \
+            "$OUTPUT_DIR/results/repetition-2-replacement-attempt-2/result.xml"
+          test -f \
+            "$OUTPUT_DIR/repetition-2-replacement-attempt-2-taint.json"
+          test ! -e "$OUTPUT_DIR/repetition-2-plan.json"
+          test "$(paste -sd, "$root/calls")" = \
+            "formal-taint,render-formal-replacement,benchmark,formal-taint"
+        fi
+    """)
+    for mode in ("progress", "zero"):
+      with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+        completed = subprocess.run(
+            ["bash", "-c", harness, "bash", str(runner), temp, mode],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if mode == "zero":
+          self.assertIn("made no progress", completed.stderr)
 
   def test_formal_runner_rejects_dirty_benchexec_checkout(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
@@ -2866,9 +2999,7 @@ copy_phase_evidence "$2"
 
   def test_interrupted_result_is_partial_only(self):
     with self.assertRaisesRegex(RuntimeError, "supplied together"):
-      dataset.cap8_r9_recovery_requested(SimpleNamespace(
-          recovery_root="/tmp/recovery",
-      ))
+      dataset.validate_cap8_r9_recovery(root="/tmp/recovery")
     with tempfile.TemporaryDirectory() as temp:
       result = Path(temp) / "result.xml"
       tasks = [{
@@ -2894,6 +3025,73 @@ copy_phase_evidence "$2"
           allow_interrupted=True,
       )
       self.assertTrue(metadata["interrupted"])
+
+  def test_real_frozen_r9_authentication_rejects_evidence_mutations(self):
+    root = Path(dataset.FROZEN_CAP8_R9["root"])
+    launch = Path(f"{root}-launch.log")
+    exit_status = Path(f"{root}-exit-status.txt")
+    sv_benchmarks = Path("/var/tmp/swear01-cpachecker-paper/sv-benchmarks")
+    if not all(path.exists() for path in (
+        root, launch, exit_status, sv_benchmarks
+    )):
+      self.skipTest("sealed cap-8 r9 evidence is not available")
+
+    authenticated = dataset.validate_cap8_r9_recovery(
+        root, launch, exit_status, sv_benchmarks
+    )
+    self.assertEqual(len(authenticated["attempt"]), 257)
+    self.assertEqual(len(authenticated["accepted"]), 67)
+    self.assertEqual(len(authenticated["pending"]), 190)
+
+    with tempfile.TemporaryDirectory() as temp:
+      temp = Path(temp)
+      bad_launch = temp / "launch.log"
+      bad_launch.write_bytes(launch.read_bytes() + b"mutation\n")
+      with self.assertRaisesRegex(RuntimeError, "launch log"):
+        dataset.validate_cap8_r9_recovery(
+            root, bad_launch, exit_status, sv_benchmarks
+        )
+      bad_exit = temp / "exit.txt"
+      bad_exit.write_bytes(exit_status.read_bytes() + b"mutation\n")
+      with self.assertRaisesRegex(RuntimeError, "exit status"):
+        dataset.validate_cap8_r9_recovery(
+            root, launch, bad_exit, sv_benchmarks
+        )
+
+      shadow = temp / "recovery"
+      shutil.copytree(root, shadow, copy_function=os.link)
+      mutated_paths = (
+          "provenance/failure-capture-status.txt",
+          dataset.FROZEN_CAP8_R9["result"],
+          dataset.FROZEN_CAP8_R9["log"],
+          dataset.FROZEN_CAP8_R9["monitor"],
+      )
+      for relative in mutated_paths:
+        with self.subTest(evidence=relative):
+          source = root / relative
+          target = shadow / relative
+          target.unlink()
+          target.write_bytes(source.read_bytes() + b"mutation\n")
+          with self.assertRaisesRegex(RuntimeError, "tree does not match"):
+            dataset.validate_cap8_r9_recovery(
+                shadow, launch, exit_status, sv_benchmarks
+            )
+          target.unlink()
+          os.link(source, target)
+
+    for field, message in (
+        ("artifact", "artifact manifest"),
+        ("failure", "failure status"),
+        ("result_hash", "partial result"),
+        ("attempt_hash", "partial partition"),
+    ):
+      with self.subTest(identity=field), mock.patch.dict(
+          dataset.FROZEN_CAP8_R9, {field: "0" * 64}
+      ):
+        with self.assertRaisesRegex(RuntimeError, message):
+          dataset.validate_cap8_r9_recovery(
+              root, launch, exit_status, sv_benchmarks
+          )
 
   def test_partial_replacement_plan_is_sequential_hashed_and_fail_closed(self):
     with tempfile.TemporaryDirectory() as temp:
@@ -2921,7 +3119,7 @@ copy_phase_evidence "$2"
       primary_root.set("error", "incomplete")
       ET.ElementTree(primary_root).write(primary, encoding="unicode")
       partial_root = ET.parse(partial).getroot()
-      partial_root.set("error", "interrupted")
+      partial_root.set("error", "incomplete")
       for column in list(partial_root.findall("run")[2]):
         partial_root.findall("run")[2].remove(column)
       ET.ElementTree(partial_root).write(partial, encoding="unicode")
@@ -2954,24 +3152,6 @@ copy_phase_evidence "$2"
       final_log, final_monitor = root / "final.log", root / "final.jsonl"
       for path in (partial_log, partial_monitor, final_log, final_monitor):
         path.write_text(f"{path.name}\n")
-      recovery = root / "recovery"
-      (recovery / "provenance").mkdir(parents=True)
-      artifact = recovery / "provenance/artifact-manifest.json"
-      artifact.write_text("{}")
-      launch, status = root / "launch.log", root / "exit.txt"
-      launch.write_text("launch\n")
-      status.write_text("1\n")
-      frozen = {
-          "root": recovery,
-          "launch": launch,
-          "exit": status,
-          "result": partial,
-          "definition": partial_definition,
-          "log": partial_log,
-          "monitor": partial_monitor,
-          "tainted": {tasks[2]["task"]: "interrupted_incomplete"},
-      }
-
       def observed(result, *_args, **_kwargs):
         return (
             {tasks[2]["task"]: "interrupted_incomplete"}
@@ -2991,16 +3171,14 @@ copy_phase_evidence "$2"
           replacement_taint=[str(partial_taint), str(final_taint)],
           replacement_log=[str(partial_log), str(final_log)],
           replacement_monitor=[str(partial_monitor), str(final_monitor)],
-          recovery_root=str(recovery),
-          launch_log=str(launch),
-          exit_status=str(status),
+          recovery_root=None,
+          launch_log=None,
+          exit_status=None,
           sv_benchmarks=str(root),
           output=str(plan),
       )
       with mock.patch.object(
           dataset, "formal_run_taints", side_effect=observed
-      ), mock.patch.object(
-          dataset, "validate_cap8_r9_failure", return_value=frozen
       ):
         dataset.command_repetition_plan(args)
       data = json.loads(plan.read_text())
@@ -3016,14 +3194,38 @@ copy_phase_evidence "$2"
           data["replacements"][0]["log"]["sha256"],
           dataset.baseline.sha256_file(partial_log),
       )
+      mismatched = SimpleNamespace(**vars(args))
+      mismatched.replacement_monitor = [str(partial_monitor)]
+      mismatched.output = str(root / "mismatched-plan.json")
+      with mock.patch.object(
+          dataset, "formal_run_taints", side_effect=observed
+      ), self.assertRaisesRegex(RuntimeError, "same count"):
+        dataset.command_repetition_plan(mismatched)
+      zero_taint = root / "zero-progress-taint.json"
+      zero_tasks = {
+          row["task"]: "interrupted_incomplete" for row in tasks
+      }
+      write_taint(zero_taint, partial, [
+          {"task": task, "reason": zero_tasks[task]}
+          for task in sorted(zero_tasks)
+      ])
+      zero_progress = SimpleNamespace(**vars(args))
+      zero_progress.replacement_result = [str(partial)]
+      zero_progress.replacement_definition = [str(partial_definition)]
+      zero_progress.replacement_taint = [str(zero_taint)]
+      zero_progress.replacement_log = [str(partial_log)]
+      zero_progress.replacement_monitor = [str(partial_monitor)]
+      zero_progress.output = str(root / "zero-progress-plan.json")
+      with mock.patch.object(
+          dataset, "formal_run_taints", return_value=zero_tasks
+      ), self.assertRaisesRegex(RuntimeError, "made no progress"):
+        dataset.command_repetition_plan(zero_progress)
 
       def load(candidate):
         candidate_path = root / "candidate-plan.json"
         candidate_path.write_text(json.dumps(candidate))
         with mock.patch.object(
             dataset, "formal_run_taints", side_effect=observed
-        ), mock.patch.object(
-            dataset, "validate_cap8_r9_failure", return_value=frozen
         ), mock.patch.object(
             dataset, "validate_result_run_topology"
         ), mock.patch.object(

@@ -680,14 +680,13 @@ def command_render_formal_replacement(args):
   manifest_rows = baseline.load_task_manifest(args.manifest)
   primary = Path(args.primary_result).resolve()
   primary_hash = baseline.sha256_file(primary)
-  recovery = None
-  if cap8_r9_recovery_requested(args):
-    recovery = validate_cap8_r9_failure(
-        args.recovery_root,
-        args.launch_log,
-        args.exit_status,
-        args.sv_benchmarks,
-    )
+  recovery = validate_cap8_r9_recovery(
+      getattr(args, "recovery_root", None),
+      getattr(args, "launch_log", None),
+      getattr(args, "exit_status", None),
+      args.sv_benchmarks,
+  )
+  if recovery is not None:
     if primary != recovery["result"]:
       raise RuntimeError("partial result is not frozen cap-8 r9 evidence")
   primary_metadata = result_metadata(
@@ -2520,21 +2519,20 @@ def command_formal_taint(args):
     raise RuntimeError(f"formal taint output already exists: {output}")
   manifest = baseline.load_task_manifest(args.manifest)
   primary_hash = baseline.sha256_file(Path(args.result))
-  allow_interrupted = False
-  if cap8_r9_recovery_requested(args):
-    recovery = validate_cap8_r9_failure(
-        args.recovery_root,
-        args.launch_log,
-        args.exit_status,
-        args.sv_benchmarks,
-    )
+  recovery = validate_cap8_r9_recovery(
+      getattr(args, "recovery_root", None),
+      getattr(args, "launch_log", None),
+      getattr(args, "exit_status", None),
+      getattr(args, "sv_benchmarks", None),
+  )
+  allow_interrupted = recovery is not None
+  if recovery is not None:
     if (
         Path(args.result).resolve() != recovery["result"]
         or Path(args.benchexec_log).resolve() != recovery["log"]
         or Path(args.load_monitor).resolve() != recovery["monitor"]
     ):
       raise RuntimeError("partial taint inputs are not frozen cap-8 r9 evidence")
-    allow_interrupted = True
   tainted = formal_run_taints(
       args.result,
       args.benchexec_log,
@@ -2731,17 +2729,20 @@ def frozen_file(path, digest, label):
   return path
 
 
-def cap8_r9_recovery_requested(args):
-  values = (
-      getattr(args, "recovery_root", None),
-      getattr(args, "launch_log", None),
-      getattr(args, "exit_status", None),
-  )
-  if any(value is not None for value in values) and not all(
-      value is not None for value in values
+def validate_cap8_r9_recovery(
+    root=None, launch_log=None, exit_status=None, sv_benchmarks=None
+):
+  evidence = (root, launch_log, exit_status)
+  if any(value is not None for value in evidence) and (
+      not all(value is not None for value in evidence)
+      or sv_benchmarks is None
   ):
     raise RuntimeError("cap-8 r9 recovery inputs must be supplied together")
-  return values[0] is not None
+  if root is None:
+    return None
+  return validate_cap8_r9_failure(
+      root, launch_log, exit_status, sv_benchmarks
+  )
 
 
 def task_list_hash(tasks):
@@ -2813,13 +2814,10 @@ def validate_cap8_r9_failure(root, launch_log, exit_status, sv_benchmarks):
       "root": root,
       "launch": launch_log,
       "exit": exit_status,
-      "manifest": manifest,
       "result": result,
       "definition": root / frozen["definition"],
       "log": log,
       "monitor": monitor,
-      "primary_result": root / FROZEN_CAP8_R8_REP2_RESULT,
-      "primary_taint": root / frozen["primary_taint"],
       "attempt": attempt,
       "accepted": accepted,
       "pending": pending,
@@ -2828,7 +2826,7 @@ def validate_cap8_r9_failure(root, launch_log, exit_status, sv_benchmarks):
 
 
 def command_validate_cap8_r9_recovery(args):
-  run = validate_cap8_r9_failure(
+  run = validate_cap8_r9_recovery(
       args.root, args.launch_log, args.exit_status, args.sv_benchmarks
   )
   print(json.dumps({
@@ -3036,7 +3034,7 @@ def load_repetition_plan(
         exit_status = declared_plan_file(
             root, entry["recovery"]["exit"], "recovery exit status"
         )
-        frozen = validate_cap8_r9_failure(
+        frozen = validate_cap8_r9_recovery(
             artifact.parent.parent, launch, exit_status, sv_benchmarks
         )
         if (
@@ -3092,7 +3090,8 @@ def load_repetition_plan(
       }
     accepted_tasks = tasks - set(replacement_taint)
     if partial_plan and (
-        remaining != accepted_tasks | set(replacement_taint)
+        not accepted_tasks
+        or remaining != accepted_tasks | set(replacement_taint)
     ):
       raise RuntimeError("replacement partition is not exact")
     replacement_tasks.update(accepted_tasks if partial_plan else tasks)
@@ -3163,36 +3162,44 @@ def command_repetition_plan(args):
   replacement_logs = getattr(args, "replacement_log", None) or []
   replacement_monitors = getattr(args, "replacement_monitor", None) or []
   partial = bool(replacement_taints or replacement_logs or replacement_monitors)
-  recovery = cap8_r9_recovery_requested(args)
-  frozen = None
-  if recovery:
+  frozen = validate_cap8_r9_recovery(
+      getattr(args, "recovery_root", None),
+      getattr(args, "launch_log", None),
+      getattr(args, "exit_status", None),
+      getattr(args, "sv_benchmarks", None),
+  )
+  if frozen is not None:
     if not partial or not replacement_results:
       raise RuntimeError("cap-8 r9 recovery requires partial replacement evidence")
-    frozen = validate_cap8_r9_failure(
-        args.recovery_root,
-        args.launch_log,
-        args.exit_status,
-        args.sv_benchmarks,
-    )
-  if (
-      len(replacement_results) != len(replacement_definitions)
-      or (
-          partial
-          and len({
-              len(replacement_results),
-              len(replacement_taints),
-              len(replacement_logs),
-              len(replacement_monitors),
-          }) != 1
-      )
-  ):
+  try:
+    if partial:
+      attempts = list(zip(
+          replacement_results,
+          replacement_definitions,
+          replacement_taints,
+          replacement_logs,
+          replacement_monitors,
+          strict=True,
+      ))
+    else:
+      attempts = [
+          (*attempt, None, None, None)
+          for attempt in zip(
+              replacement_results, replacement_definitions, strict=True
+          )
+      ]
+  except ValueError as error:
     raise RuntimeError(
         "replacement result evidence must have the same count"
-    )
+    ) from error
   remaining = set(tainted)
-  for index, (replacement_path, definition_path) in enumerate(zip(
-      replacement_results, replacement_definitions, strict=True
-  )):
+  for index, (
+      replacement_path,
+      definition_path,
+      replacement_taint_path,
+      replacement_log,
+      replacement_monitor,
+  ) in enumerate(attempts):
     entry = plan_file_entry(replacement_path, output.parent)
     definition = plan_file_entry(definition_path, output.parent)
     tasks = sorted(result_task_names(replacement_path, manifest))
@@ -3216,37 +3223,40 @@ def command_repetition_plan(args):
     }
     if partial:
       evidence = [
-          plan_file_entry(paths[index], output.parent)
-          for paths in (
-              replacement_taints,
-              replacement_logs,
-              replacement_monitors,
+          plan_file_entry(path, output.parent)
+          for path in (
+              replacement_taint_path,
+              replacement_log,
+              replacement_monitor,
           )
       ]
       observed = formal_run_taints(
           replacement_path,
-          replacement_logs[index],
-          replacement_monitors[index],
+          replacement_log,
+          replacement_monitor,
           manifest,
-          allow_interrupted=(
-              index == 0 and recovery
-          ),
+          allow_interrupted=(index == 0 and frozen is not None),
       )
       recorded = validate_taint_manifest(
-          json.loads(Path(replacement_taints[index]).read_text()),
+          json.loads(Path(replacement_taint_path).read_text()),
           args.repetition,
           entry["sha256"],
           manifest,
       )
-      if recorded != observed or not set(recorded) <= set(tasks):
+      if (
+          recorded != observed
+          or not set(recorded) <= set(tasks)
+      ):
         raise RuntimeError("replacement taint does not match its evidence")
+      if set(recorded) == set(tasks):
+        raise RuntimeError("replacement made no progress")
       recovery_entry = None
-      if index == 0 and recovery:
+      if index == 0 and frozen is not None:
         if (
             Path(replacement_path).resolve() != frozen["result"]
             or Path(definition_path).resolve() != frozen["definition"]
-            or Path(replacement_logs[index]).resolve() != frozen["log"]
-            or Path(replacement_monitors[index]).resolve() != frozen["monitor"]
+            or Path(replacement_log).resolve() != frozen["log"]
+            or Path(replacement_monitor).resolve() != frozen["monitor"]
         ):
           raise RuntimeError("partial replacement is not frozen cap-8 r9 evidence")
         recovery_entry = {

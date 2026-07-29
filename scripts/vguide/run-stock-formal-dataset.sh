@@ -869,6 +869,179 @@ single_formal_result() {
   printf '%s\n' "${matches[0]}"
 }
 
+taint_task_sets_equal() {
+  "$PYTHON_BIN" -I - "$1" "$2" <<'PY'
+import json
+import sys
+
+def tasks(path):
+  with open(path, encoding="utf-8") as source:
+    return {row["task"] for row in json.load(source)["tasks"]}
+
+raise SystemExit(tasks(sys.argv[1]) != tasks(sys.argv[2]))
+PY
+}
+
+build_partial_repetition_plan() {
+  local repetition=$1
+  local primary=$2
+  local recovery_result=$3
+  local recovery_definition=$4
+  local recovery_log=$5
+  local recovery_monitor=$6
+  local label="repetition-$repetition"
+  local taint="$OUTPUT_DIR/$label-taint.json"
+  local plan="$OUTPUT_DIR/$label-plan.json"
+  local attempt=1
+  local current_result=$recovery_result
+  local current_taint="$OUTPUT_DIR/$label-replacement-attempt-1-taint.json"
+  local current_log=$recovery_log
+  local current_monitor=$recovery_monitor
+  local definition=$recovery_definition
+  local taint_count
+  local replacement_args=()
+  cp "$RECOVERY_COPY/repetition-2-taint.json" "$taint"
+  run_python_script "$DATASET_PY" formal-taint \
+    --manifest "$FORMAL_MANIFEST" --repetition "$repetition" \
+    --result "$current_result" --benchexec-log "$current_log" \
+    --load-monitor "$current_monitor" --output "$current_taint" \
+    --recovery-root "$RECOVERY_COPY" \
+    --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log" \
+    --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt" \
+    --sv-benchmarks "$SV_BENCHMARKS_DIR"
+  while true; do
+    replacement_args+=(
+      --replacement-result "$current_result"
+      --replacement-definition "$definition"
+      --replacement-taint "$current_taint"
+      --replacement-log "$current_log"
+      --replacement-monitor "$current_monitor"
+    )
+    taint_count=$("$PYTHON_BIN" -I -c \
+      'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
+      "$current_taint")
+    [[ "$taint_count" -ne 0 ]] || break
+    attempt=$((attempt + 1))
+    local attempt_label="$label-replacement-attempt-$attempt"
+    local definition_dir="$OUTPUT_DIR/generated/$attempt_label"
+    local previous_taint=$current_taint
+    definition="$definition_dir/hard-case-candidates.xml"
+    local render_recovery=()
+    if [[ "$attempt" -eq 2 ]]; then
+      render_recovery=(
+        --recovery-root "$RECOVERY_COPY"
+        --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log"
+        --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt"
+      )
+    fi
+    run_python_script "$DATASET_PY" render-formal-replacement \
+      "${PHASE_ARGS[@]}" --manifest "$FORMAL_MANIFEST" \
+      --primary-result "$current_result" --taint-manifest "$current_taint" \
+      "${render_recovery[@]}" \
+      --property-file "$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp" \
+      --output-dir "$definition_dir"
+    run_formal_benchmark "$attempt_label" \
+      "hard-case-dataset-v2-formal-valkyrie-$attempt_label" \
+      "$definition" "$OUTPUT_DIR/results/$attempt_label"
+    current_result=$(single_formal_result \
+      "$OUTPUT_DIR/results/$attempt_label")
+    current_taint="$OUTPUT_DIR/$attempt_label-taint.json"
+    current_log="$OUTPUT_DIR/provenance/$attempt_label-benchexec.log"
+    current_monitor="$OUTPUT_DIR/provenance/$attempt_label-load-monitor.jsonl"
+    run_python_script "$DATASET_PY" formal-taint \
+      --manifest "$FORMAL_MANIFEST" --repetition "$repetition" \
+      --result "$current_result" --benchexec-log "$current_log" \
+      --load-monitor "$current_monitor" --output "$current_taint"
+    if taint_task_sets_equal "$previous_taint" "$current_taint"; then
+      echo "partial replacement made no progress; authenticated attempt preserved at $current_result" >&2
+      return 1
+    fi
+  done
+  run_python_script "$DATASET_PY" repetition-plan \
+    --manifest "$FORMAL_MANIFEST" --repetition "$repetition" \
+    --primary-result "$primary" --taint-manifest "$taint" \
+    "${replacement_args[@]}" \
+    --recovery-root "$RECOVERY_COPY" \
+    --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log" \
+    --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt" \
+    --sv-benchmarks "$SV_BENCHMARKS_DIR" --output "$plan"
+  BUILT_PLAN=$plan
+}
+
+build_normal_repetition_plan() {
+  local repetition=$1
+  local primary=$2
+  local label="repetition-$repetition"
+  local taint="$OUTPUT_DIR/$label-taint.json"
+  local plan="$OUTPUT_DIR/$label-plan.json"
+  local taint_count
+  run_python_script "$DATASET_PY" formal-taint \
+    --manifest "$FORMAL_MANIFEST" \
+    --repetition "$repetition" \
+    --result "$primary" \
+    --benchexec-log "$OUTPUT_DIR/provenance/$label-benchexec.log" \
+    --load-monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
+    --output "$taint"
+  taint_count=$("$PYTHON_BIN" -I -c \
+    'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' "$taint")
+  if [[ "$taint_count" -eq 0 ]]; then
+    run_python_script "$DATASET_PY" repetition-plan \
+      --manifest "$FORMAL_MANIFEST" \
+      --repetition "$repetition" \
+      --primary-result "$primary" \
+      --output "$plan"
+    BUILT_PLAN=$plan
+    return
+  fi
+
+  local definition_dir="$OUTPUT_DIR/generated/$label-replacement"
+  local definition="$definition_dir/hard-case-candidates.xml"
+  local attempt=1
+  local replacement
+  local replacement_taint
+  local replacement_taint_count
+  run_python_script "$DATASET_PY" render-formal-replacement \
+    "${PHASE_ARGS[@]}" \
+    --manifest "$FORMAL_MANIFEST" \
+    --primary-result "$primary" \
+    --taint-manifest "$taint" \
+    --property-file "$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp" \
+    --output-dir "$definition_dir"
+  while true; do
+    local attempt_label="$label-replacement-attempt-$attempt"
+    local attempt_output="$OUTPUT_DIR/results/$attempt_label"
+    run_formal_benchmark "$attempt_label" \
+      "hard-case-dataset-v2-formal-valkyrie-$attempt_label" \
+      "$definition" "$attempt_output"
+    replacement=$(single_formal_result "$attempt_output")
+    replacement_taint="$OUTPUT_DIR/$attempt_label-taint.json"
+    run_python_script "$DATASET_PY" formal-taint \
+      --manifest "$FORMAL_MANIFEST" \
+      --repetition "$repetition" \
+      --result "$replacement" \
+      --benchexec-log "$OUTPUT_DIR/provenance/$attempt_label-benchexec.log" \
+      --load-monitor "$OUTPUT_DIR/provenance/$attempt_label-load-monitor.jsonl" \
+      --output "$replacement_taint"
+    replacement_taint_count=$("$PYTHON_BIN" -I -c \
+      'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
+      "$replacement_taint")
+    if [[ "$replacement_taint_count" -eq 0 ]]; then
+      break
+    fi
+    attempt=$((attempt + 1))
+    sleep 10
+  done
+  run_python_script "$DATASET_PY" repetition-plan \
+    --manifest "$FORMAL_MANIFEST" \
+    --repetition "$repetition" \
+    --primary-result "$primary" \
+    --taint-manifest "$taint" \
+    --replacement-result "$replacement" \
+    --replacement-definition "$definition" \
+    --output "$plan"
+  BUILT_PLAN=$plan
+}
+
 main() {
   if [[ $# -ne 16 && $# -ne 18 ]]; then
     echo "usage: $0 CPACHECKER_DIR SV_BENCHMARKS_DIR BENCHEXEC_DIR FORMAL_PACKAGE PARENT_MANIFEST ORIGINAL_MANIFEST ORIGINAL_RESULT ORIGINAL_SURVIVOR REROUTE_MANIFEST REROUTE_RESULT REROUTE_SURVIVOR RECOVERY_MANIFEST RECOVERY_RESULT RECOVERY_SURVIVOR RECOVERY_ROOT [R9_LAUNCH_LOG R9_EXIT_STATUS] OUTPUT_DIR" >&2
@@ -1227,155 +1400,6 @@ main() {
       tee "$OUTPUT_DIR/provenance/machine-check-$label.json"
   }
 
-  build_repetition_plan() {
-    local repetition=$1
-    local primary=$2
-    local label="repetition-$repetition"
-    local taint="$OUTPUT_DIR/$label-taint.json"
-    local plan="$OUTPUT_DIR/$label-plan.json"
-    local taint_count
-    if [[ $# -eq 6 ]]; then
-      local recovery_result=$3
-      local recovery_definition=$4
-      local recovery_log=$5
-      local recovery_monitor=$6
-      local attempt=1
-      local current_result=$recovery_result
-      local current_taint="$OUTPUT_DIR/$label-replacement-attempt-1-taint.json"
-      local current_log=$recovery_log
-      local current_monitor=$recovery_monitor
-      local definition=$recovery_definition
-      local replacement_args=()
-      cp "$RECOVERY_COPY/repetition-2-taint.json" "$taint"
-      run_python_script "$DATASET_PY" formal-taint \
-        --manifest "$FORMAL_MANIFEST" --repetition "$repetition" \
-        --result "$current_result" --benchexec-log "$current_log" \
-        --load-monitor "$current_monitor" --output "$current_taint" \
-        --recovery-root "$RECOVERY_COPY" \
-        --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log" \
-        --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt" \
-        --sv-benchmarks "$SV_BENCHMARKS_DIR"
-      while true; do
-        replacement_args+=(
-          --replacement-result "$current_result"
-          --replacement-definition "$definition"
-          --replacement-taint "$current_taint"
-          --replacement-log "$current_log"
-          --replacement-monitor "$current_monitor"
-        )
-        taint_count=$("$PYTHON_BIN" -I -c \
-          'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
-          "$current_taint")
-        [[ "$taint_count" -ne 0 ]] || break
-        attempt=$((attempt + 1))
-        local attempt_label="$label-replacement-attempt-$attempt"
-        local definition_dir="$OUTPUT_DIR/generated/$attempt_label"
-        definition="$definition_dir/hard-case-candidates.xml"
-        local render_recovery=()
-        if [[ "$attempt" -eq 2 ]]; then
-          render_recovery=(
-            --recovery-root "$RECOVERY_COPY"
-            --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log"
-            --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt"
-          )
-        fi
-        run_python_script "$DATASET_PY" render-formal-replacement \
-          "${PHASE_ARGS[@]}" --manifest "$FORMAL_MANIFEST" \
-          --primary-result "$current_result" --taint-manifest "$current_taint" \
-          "${render_recovery[@]}" \
-          --property-file "$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp" \
-          --output-dir "$definition_dir"
-        run_formal_benchmark "$attempt_label" \
-          "hard-case-dataset-v2-formal-valkyrie-$attempt_label" \
-          "$definition" "$OUTPUT_DIR/results/$attempt_label"
-        current_result=$(single_formal_result \
-          "$OUTPUT_DIR/results/$attempt_label")
-        current_taint="$OUTPUT_DIR/$attempt_label-taint.json"
-        current_log="$OUTPUT_DIR/provenance/$attempt_label-benchexec.log"
-        current_monitor="$OUTPUT_DIR/provenance/$attempt_label-load-monitor.jsonl"
-        run_python_script "$DATASET_PY" formal-taint \
-          --manifest "$FORMAL_MANIFEST" --repetition "$repetition" \
-          --result "$current_result" --benchexec-log "$current_log" \
-          --load-monitor "$current_monitor" --output "$current_taint"
-      done
-      run_python_script "$DATASET_PY" repetition-plan \
-        --manifest "$FORMAL_MANIFEST" --repetition "$repetition" \
-        --primary-result "$primary" --taint-manifest "$taint" \
-        "${replacement_args[@]}" \
-        --recovery-root "$RECOVERY_COPY" \
-        --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log" \
-        --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt" \
-        --sv-benchmarks "$SV_BENCHMARKS_DIR" --output "$plan"
-      BUILT_PLAN=$plan
-      return
-    fi
-    run_python_script "$DATASET_PY" formal-taint \
-      --manifest "$FORMAL_MANIFEST" \
-      --repetition "$repetition" \
-      --result "$primary" \
-      --benchexec-log "$OUTPUT_DIR/provenance/$label-benchexec.log" \
-      --load-monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
-      --output "$taint"
-    taint_count=$("$PYTHON_BIN" -I -c \
-      'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' "$taint")
-    if [[ "$taint_count" -eq 0 ]]; then
-      run_python_script "$DATASET_PY" repetition-plan \
-        --manifest "$FORMAL_MANIFEST" \
-        --repetition "$repetition" \
-        --primary-result "$primary" \
-        --output "$plan"
-      BUILT_PLAN=$plan
-      return
-    fi
-
-    local definition_dir="$OUTPUT_DIR/generated/$label-replacement"
-    local definition="$definition_dir/hard-case-candidates.xml"
-    local attempt=1
-    local replacement
-    local replacement_taint
-    local replacement_taint_count
-    run_python_script "$DATASET_PY" render-formal-replacement \
-      "${PHASE_ARGS[@]}" \
-      --manifest "$FORMAL_MANIFEST" \
-      --primary-result "$primary" \
-      --taint-manifest "$taint" \
-      --property-file "$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp" \
-      --output-dir "$definition_dir"
-    while true; do
-      local attempt_label="$label-replacement-attempt-$attempt"
-      local attempt_output="$OUTPUT_DIR/results/$attempt_label"
-      run_formal_benchmark "$attempt_label" \
-        "hard-case-dataset-v2-formal-valkyrie-$attempt_label" \
-        "$definition" "$attempt_output"
-      replacement=$(single_formal_result "$attempt_output")
-      replacement_taint="$OUTPUT_DIR/$attempt_label-taint.json"
-      run_python_script "$DATASET_PY" formal-taint \
-        --manifest "$FORMAL_MANIFEST" \
-        --repetition "$repetition" \
-        --result "$replacement" \
-        --benchexec-log "$OUTPUT_DIR/provenance/$attempt_label-benchexec.log" \
-        --load-monitor "$OUTPUT_DIR/provenance/$attempt_label-load-monitor.jsonl" \
-        --output "$replacement_taint"
-      replacement_taint_count=$("$PYTHON_BIN" -I -c \
-        'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
-        "$replacement_taint")
-      if [[ "$replacement_taint_count" -eq 0 ]]; then
-        break
-      fi
-      attempt=$((attempt + 1))
-      sleep 10
-    done
-    run_python_script "$DATASET_PY" repetition-plan \
-      --manifest "$FORMAL_MANIFEST" \
-      --repetition "$repetition" \
-      --primary-result "$primary" \
-      --taint-manifest "$taint" \
-      --replacement-result "$replacement" \
-      --replacement-definition "$definition" \
-      --output "$plan"
-    BUILT_PLAN=$plan
-  }
-
   if $R10; then
     RECOVERY_COPY="$OUTPUT_DIR/input/recovery-r9"
     cp -a "$RECOVERY_COPY/results/repetition-1" "$OUTPUT_DIR/results/"
@@ -1386,7 +1410,7 @@ main() {
     cp "$RECOVERY_COPY/repetition-1-taint.json" \
       "$RECOVERY_COPY/repetition-1-plan.json" "$OUTPUT_DIR/"
     PLANS=("$OUTPUT_DIR/repetition-1-plan.json")
-    build_repetition_plan 2 \
+    build_partial_repetition_plan 2 \
       "$(single_formal_result "$RECOVERY_COPY/results/repetition-2")" \
       "$(single_formal_result \
         "$RECOVERY_COPY/results/repetition-2-replacement-attempt-1")" \
@@ -1437,7 +1461,7 @@ main() {
       "$OUTPUT_DIR/generated/repetition-1-replacement/hard-case-candidates.xml" \
     --output "$OUTPUT_DIR/repetition-1-plan.json"
   PLANS=("$OUTPUT_DIR/repetition-1-plan.json")
-  build_repetition_plan 2 "${RESULTS[1]}"
+  build_normal_repetition_plan 2 "${RESULTS[1]}"
   PLANS+=("$BUILT_PLAN")
   fi
 
