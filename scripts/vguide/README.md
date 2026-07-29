@@ -673,6 +673,13 @@ fixed to Valkyrie, `/usr/bin/python3.10`, PyYAML 5.4.1 and
 `/var/tmp/vguide-valkyrie-pcores.lock`; cap-16 is fixed to Athena,
 `/usr/bin/python3.12`, PyYAML 6.0.1 and the Athena lock. Both use physical
 P-cores `0,2,4,6,8,10,12,14` with BenchExec `-N 8 -c 1`.
+Every Phase-C helper starts with
+`-I -S -B -X pycache_prefix=/dev/null`; the saved-script parent or BenchExec
+checkout is then inserted explicitly. PyYAML is loaded directly from the
+pinned `yaml/__init__.py`, and the runner authenticates only the source-only
+standard-library, exact PyYAML package, empty local-package, and BenchExec
+closures. Real `__pycache__` directories are ignored, while a `.pyc` or `.pyo`
+outside one is rejected before its root is executed.
 
 Before creating probe output, packaging input, building CPAchecker, or
 launching BenchExec, each wrapper authenticates its completed stock formal
@@ -704,6 +711,14 @@ process-identity, attempt-marker, artifact-manifest, and completion-sentinel
 contracts. Markerless recovery exit `125` is valid only for the two probe
 modes. Completed uncontaminated cases remain in the plan while interrupted or
 contended cases alone are retried.
+The monitor tolerates `/proc` disappearance races. During every one-core probe
+attempt, a watchdog authenticates the exact transient unit, cgroup-v2
+`ControlGroup`, canonical `benchexec.slice` path, and launcher membership. If
+the monitor dies, systemd stop is attempted first; any remaining descendants
+are enumerated recursively from that authenticated cgroup and terminated until
+`populated=0`. The launcher session is checked only as secondary evidence, so a
+descendant cannot escape teardown by creating a new session. Failure to
+authenticate or prove an empty cgroup fails the attempt closed.
 
 The measured Phase-C CPAchecker runtime is a separate clean checkout at
 `a80db518765174c582e2574eee1f527eff18c910`. The ignored `lib/java` tree is
