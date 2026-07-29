@@ -656,6 +656,9 @@ threshold does not block launch.
 BenchExec console logs may shorten a nested task to its basename; that token is
 accepted only when it resolves to exactly one task in the authenticated shard.
 Logged path tokens must still match the authenticated task identity exactly.
+For sequential `-N 1` output without explicit `starting` records, the logged
+timestamp is the start and the authenticated XML wall time bounds completion;
+concurrent output must retain its separate start and completion records.
 
 The runner builds stock CPAchecker, performs the ten-second machine preflight,
 generates the fixed 900/910/920 definition with `render-formal`, and executes

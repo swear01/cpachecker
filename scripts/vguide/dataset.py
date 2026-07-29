@@ -6141,8 +6141,8 @@ def run_taints(
   )
   day = start_date.date()
   previous_clock = start_date.timetz().replace(tzinfo=None)
-  starts = {}
-  ends = {}
+  explicit_starts = {}
+  unmarked_events = {}
   pattern = re.compile(
       r"^(\d{2}:\d{2}:\d{2})\s+(?:(starting)\s+)?(\S+\.yml)(?:\s+.*)?$"
   )
@@ -6166,12 +6166,23 @@ def run_taints(
     previous_clock = clock
     timestamp = datetime.datetime.combine(day, clock, start_date.tzinfo)
     task = match_benchexec_log_task(match.group(3), subset)
-    target = starts if match.group(2) else ends
+    target = explicit_starts if match.group(2) else unmarked_events
     if task in target:
       raise RuntimeError(f"duplicate BenchExec log event for {task}")
     target[task] = timestamp
-  if set(ends) - set(starts):
+  if explicit_starts and set(unmarked_events) - set(explicit_starts):
     raise RuntimeError("BenchExec log completes a task that it never started")
+  starts = dict(explicit_starts)
+  ends = {}
+  for task, timestamp in unmarked_events.items():
+    if explicit_starts:
+      ends[task] = timestamp
+    else:
+      starts[task] = timestamp
+      if row_is_complete(rows[task]):
+        ends[task] = timestamp + datetime.timedelta(
+            seconds=rows[task]["wall_time_seconds"]
+        )
   if any(ended < starts[task] for task, ended in ends.items()):
     raise RuntimeError("BenchExec log completes a task before it starts")
   if not allow_missing_monitor_coverage and monitor_end is not None and any(

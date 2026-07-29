@@ -4186,6 +4186,42 @@ copy_phase_evidence "$2"
           [row["task"] for row in tainted],
           ["c/eca-programs/t0.yml", "c/eca-programs/t1.yml"],
       )
+      result_root = ET.parse(result).getroot()
+      for run in result_root.findall("run"):
+        next(
+            column for column in run.findall("column")
+            if column.get("title") == "walltime"
+        ).set("value", "8s")
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      compact_log = root / "compact-benchexec.log"
+      compact_log.write_text(
+          "\n".join([
+              "00:00:02   t0.yml    2026-07-30 00:00:10 - WARNING",
+              "00:00:12   t1.yml    TIMEOUT 900 8",
+              "00:00:22   t2.yml    TIMEOUT 900 8",
+          ]) + "\n",
+          encoding="utf-8",
+      )
+      compact_output = root / "compact-taint.json"
+      dataset.command_formal_taint(
+          SimpleNamespace(
+              manifest=str(manifest),
+              repetition=1,
+              result=str(result),
+              benchexec_log=str(compact_log),
+              load_monitor=str(monitor),
+              output=str(compact_output),
+          )
+      )
+      self.assertEqual(
+          [
+              row["task"]
+              for row in json.loads(
+                  compact_output.read_text(encoding="utf-8")
+              )["tasks"]
+          ],
+          ["c/eca-programs/t0.yml", "c/eca-programs/t1.yml"],
+      )
       with self.assertRaisesRegex(RuntimeError, "exactly one"):
         dataset.match_benchexec_log_task(
             "t0.yml",

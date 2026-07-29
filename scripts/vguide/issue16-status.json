@@ -44,8 +44,8 @@
       "exit_status": 1
     }
   },
-  "blocker": "The generic taint parser rejected BenchExec basename-only log tokens for unique nested task identities; the fail-closed shard remains unaccepted and byte-preserved.",
-  "next_action": "Publish an immutable preregistration of the outcome-independent unique-basename correction, reauthenticate and accept attempt-6 without rerunning it, then resume the next frozen shard.",
+  "blocker": "The generic taint parser rejected BenchExec N1 compact log rows and basename-only nested task identities; the fail-closed shard remains unaccepted and byte-preserved.",
+  "next_action": "Publish an immutable preregistration of the outcome-independent N1 compact-log and unique-basename correction, reauthenticate and accept attempt-6 without rerunning it, then resume the next frozen shard.",
   "generic_recovery_prereg": {
     "code_commit": "6d35de92f6c9de65a4a9b72cf54228b5f652ff61",
     "generic_recovery_prereg_id": 361958562,
