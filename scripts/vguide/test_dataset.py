@@ -4111,9 +4111,9 @@ copy_phase_evidence "$2"
       root = Path(temp)
       tasks = [
           {
-              "task": f"c/t{index}.yml",
-              "task_path": f"c/t{index}.yml",
-              "source_paths": [f"c/s{index}.c"],
+              "task": f"c/eca-programs/t{index}.yml",
+              "task_path": f"c/eca-programs/t{index}.yml",
+              "source_paths": [f"c/eca-programs/s{index}.c"],
               "expected_verdict": "true",
               "benchmark_set": "Loops",
           }
@@ -4184,8 +4184,16 @@ copy_phase_evidence "$2"
       tainted = json.loads(output.read_text(encoding="utf-8"))["tasks"]
       self.assertEqual(
           [row["task"] for row in tainted],
-          ["c/t0.yml", "c/t1.yml"],
+          ["c/eca-programs/t0.yml", "c/eca-programs/t1.yml"],
       )
+      with self.assertRaisesRegex(RuntimeError, "exactly one"):
+        dataset.match_benchexec_log_task(
+            "t0.yml",
+            {
+                **{task["task"]: task for task in tasks},
+                "c/other/t0.yml": tasks[0],
+            },
+        )
 
   def test_recovered_taint_uses_xml_for_one_trailing_log_completion(self):
     with tempfile.TemporaryDirectory() as temp:

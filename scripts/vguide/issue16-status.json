@@ -1,8 +1,8 @@
 {
   "schema_version": "hard-case-dataset-v2-rolling-status-v1",
   "issue": 16,
-  "observed_at": "2026-07-30T02:37:08+08:00",
-  "authoritative_snapshot_sha256": "b1f0671c4874874fc4a4cd17777077d8ec8d88cfb8c42cd30664e95c20096a5f",
+  "observed_at": "2026-07-30T03:05:53+08:00",
+  "authoritative_snapshot_sha256": "48aa50815106f66e57c3153347d7a060e7bb72978323dc0e58c374dfeb1d8fa7",
   "phase": "phase_b_formal_recovery",
   "cap8": {
     "accepted": {
@@ -10,7 +10,7 @@
       "repetition_2": 80
     },
     "active_attempt": "repetition-2-replacement-attempt-2",
-    "active_structurally_complete_rows": 121,
+    "active_structurally_complete_rows": 125,
     "cohort": 270,
     "pending": {
       "repetition_1": 0,
@@ -22,7 +22,7 @@
       "repetition_1": 103,
       "repetition_2": 0
     },
-    "active_attempt": "repetition-1-replacement-attempt-6",
+    "active_attempt": null,
     "boot_id": "a381e032-eece-4387-bf89-0e885e152d16",
     "cohort": 224,
     "first_shard_tasks": 8,
@@ -33,10 +33,19 @@
     },
     "protocol_sha256": "959bd13a33b098dbbe218731b58bb3d38e16ae5fc7fe52d985418005e8211327",
     "seed_sha256": "76ecdeb5a793feb70a2c968eeab746ae3c36b68d0356b9a9acdb374b69f1f9a7",
-    "unit": "vguide-cap16-generic-recovery-v1-20260730.service"
+    "unit": "vguide-cap16-generic-recovery-v1-20260730.service",
+    "last_terminated_attempt": {
+      "label": "repetition-1-replacement-attempt-6",
+      "structurally_complete_rows": 8,
+      "accepted_rows": 0,
+      "marker_sha256": "bd50a24c660cd179866930af215eee6337e45431e51cffa864db8528ac1d777a",
+      "result_sha256": "655c3061ec3db6fe0f7bc5dd693ec1cc5b241facc69574f64d33da5dbfd00ee7",
+      "launch_log_sha256": "fc068c8d336f49e3f9697229ea796e7cc492579f67955e27e605f148ef95089d",
+      "exit_status": 1
+    }
   },
-  "blocker": null,
-  "next_action": "Preserve and monitor both healthy formal runs; atomically accept each completed cap16 micro-shard and prepare cap8 generic recovery after its legacy attempt stops.",
+  "blocker": "The generic taint parser rejected BenchExec basename-only log tokens for unique nested task identities; the fail-closed shard remains unaccepted and byte-preserved.",
+  "next_action": "Publish an immutable preregistration of the outcome-independent unique-basename correction, reauthenticate and accept attempt-6 without rerunning it, then resume the next frozen shard.",
   "generic_recovery_prereg": {
     "code_commit": "6d35de92f6c9de65a4a9b72cf54228b5f652ff61",
     "generic_recovery_prereg_id": 361958562,

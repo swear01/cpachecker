@@ -653,6 +653,9 @@ authenticated abrupt-recovery case above fails closed. Before each primary or
 replacement run, launch waits until the monitor has ten samples and its latest
 sample contains no sustained contender; brief activity below the frozen
 threshold does not block launch.
+BenchExec console logs may shorten a nested task to its basename; that token is
+accepted only when it resolves to exactly one task in the authenticated shard.
+Logged path tokens must still match the authenticated task identity exactly.
 
 The runner builds stock CPAchecker, performs the ten-second machine preflight,
 generates the fixed 900/910/920 definition with `render-formal`, and executes

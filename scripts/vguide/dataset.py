@@ -6095,10 +6095,18 @@ def load_formal_contention_intervals(path, allow_trailing_nul=False):
 
 
 def match_benchexec_log_task(name, manifest):
+  normalized = name.replace("\\", "/")
   try:
-    return baseline.match_result_task(name, manifest)
-  except RuntimeError:
-    return baseline.match_result_task(f"c/{name}", manifest)
+    return baseline.match_result_task(normalized, manifest)
+  except RuntimeError as error:
+    if "/" in normalized:
+      raise
+    matches = [
+        task for task in manifest if Path(task).name == normalized
+    ]
+    if len(matches) != 1:
+      raise error
+    return matches[0]
 
 
 def run_taints(
