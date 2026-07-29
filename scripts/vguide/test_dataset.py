@@ -4222,11 +4222,22 @@ copy_phase_evidence "$2"
           ],
           ["c/eca-programs/t0.yml", "c/eca-programs/t1.yml"],
       )
+      manifest_rows = {task["task"]: task for task in tasks}
+      self.assertEqual(
+          dataset.match_benchexec_log_task(
+              "eca-programs/t0.yml", manifest_rows
+          ),
+          "c/eca-programs/t0.yml",
+      )
+      with self.assertRaisesRegex(RuntimeError, "exactly one"):
+        dataset.match_benchexec_log_task(
+            "wrong/eca-programs/t0.yml", manifest_rows
+        )
       with self.assertRaisesRegex(RuntimeError, "exactly one"):
         dataset.match_benchexec_log_task(
             "t0.yml",
             {
-                **{task["task"]: task for task in tasks},
+                **manifest_rows,
                 "c/other/t0.yml": tasks[0],
             },
         )

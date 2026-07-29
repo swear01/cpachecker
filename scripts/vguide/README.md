@@ -653,9 +653,10 @@ authenticated abrupt-recovery case above fails closed. Before each primary or
 replacement run, launch waits until the monitor has ten samples and its latest
 sample contains no sustained contender; brief activity below the frozen
 threshold does not block launch.
-BenchExec console logs may shorten a nested task to its basename; that token is
-accepted only when it resolves to exactly one task in the authenticated shard.
-Logged path tokens must still match the authenticated task identity exactly.
+BenchExec console logs may omit the canonical leading `c/` from an otherwise
+exact task path. They may also shorten a nested task to its basename; that form
+is accepted only when it resolves to exactly one task in the authenticated
+shard. Every other path token must match the authenticated task identity.
 For sequential `-N 1` output without explicit `starting` records, the logged
 timestamp is the start and the authenticated XML wall time bounds completion;
 concurrent output must retain its separate start and completion records.

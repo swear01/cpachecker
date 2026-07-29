@@ -6100,7 +6100,10 @@ def match_benchexec_log_task(name, manifest):
     return baseline.match_result_task(normalized, manifest)
   except RuntimeError as error:
     if "/" in normalized:
-      raise
+      try:
+        return baseline.match_result_task(f"c/{normalized}", manifest)
+      except RuntimeError:
+        raise error
     matches = [
         task for task in manifest if Path(task).name == normalized
     ]
