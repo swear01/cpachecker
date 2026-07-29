@@ -541,10 +541,16 @@ hashes, or an unauthorized task fail closed. A launcher failure before any
 task starts is recorded as a checksummed pre-task abandonment and advances to
 a new attempt without changing the protocol. Same-boot abandonment requires
 an authenticated owned process that is proven gone; an authorization with no
-lifecycle evidence is reused rather than abandoned. Historical recovery selectors
-remain read-only migration evidence; future attempts do not require a new
-selector or code revision. Current accepted/pending counts and the next action
-are recorded in `issue16-status.json`.
+lifecycle evidence is reused rather than abandoned. Historical recovery
+selectors remain read-only migration evidence; future attempts do not require
+a new selector or code revision. Current accepted/pending counts and the next
+action are recorded in `issue16-status.json`.
+The protocol's `source_commit` authenticates the implementation that froze
+the protocol. A later externally preregistered recovery correction must be a
+Git descendant of that commit; requiring byte equality would prevent a
+published append-only correction from resuming the frozen protocol. The saved
+revision-addressed research provenance and immutable external release pin the
+exact later implementation.
 The environment-gated
 `test_formal_recovery_migration_against_actual_interrupted_trees` requires a
 JSON list at `VGUIDE_FORMAL_RECOVERY_ACTUAL_AUDITS`; each host-local entry

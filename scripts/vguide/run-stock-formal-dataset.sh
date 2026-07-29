@@ -410,6 +410,20 @@ activate_formal_research_provenance() {
   verify_all_research_provenance
 }
 
+verify_protocol_source_ancestry() {
+  local protocol_source
+  local active_head
+  protocol_source=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+    'import json,sys; print(json.load(open(sys.argv[1]))["source_commit"])' \
+    "$1")
+  active_head=$(cat "$ACTIVE_RESEARCH_PROVENANCE/research-head.txt")
+  if ! git -C "$RESEARCH_ROOT" merge-base --is-ancestor \
+    "$protocol_source" "$active_head"; then
+    echo "formal recovery implementation does not descend from protocol source" >&2
+    return 1
+  fi
+}
+
 verify_all_research_provenance() {
   local destination
   local original_head
@@ -998,10 +1012,7 @@ main() {
   cmp -- "$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp" \
     "$PROTOCOL_PROPERTY_COPY"
   activate_formal_research_provenance
-  [[ $("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
-    'import json,sys; print(json.load(open(sys.argv[1]))["source_commit"])' \
-    "$PROTOCOL_COPY") == \
-    "$(cat "$ACTIVE_RESEARCH_PROVENANCE/research-head.txt")" ]]
+  verify_protocol_source_ancestry "$PROTOCOL_COPY"
   verify_runtime_closure false
   COMPLETE_SENTINEL="$OUTPUT_DIR/summary/.complete"
   if [[ -e "$COMPLETE_SENTINEL" || -L "$COMPLETE_SENTINEL" ]]; then

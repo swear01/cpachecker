@@ -1,8 +1,8 @@
 {
   "schema_version": "hard-case-dataset-v2-rolling-status-v1",
   "issue": 16,
-  "observed_at": "2026-07-30T03:05:53+08:00",
-  "authoritative_snapshot_sha256": "48aa50815106f66e57c3153347d7a060e7bb72978323dc0e58c374dfeb1d8fa7",
+  "observed_at": "2026-07-30T03:37:59+08:00",
+  "authoritative_snapshot_sha256": "7dabd042313027a8188512769712cc0beb1dbd40b9343c0c707a02c60c0c7214",
   "phase": "phase_b_formal_recovery",
   "cap8": {
     "accepted": {
@@ -10,7 +10,7 @@
       "repetition_2": 80
     },
     "active_attempt": "repetition-2-replacement-attempt-2",
-    "active_structurally_complete_rows": 125,
+    "active_structurally_complete_rows": 129,
     "cohort": 270,
     "pending": {
       "repetition_1": 0,
@@ -26,14 +26,14 @@
     "boot_id": "a381e032-eece-4387-bf89-0e885e152d16",
     "cohort": 224,
     "first_shard_tasks": 8,
-    "invocation_id": "a5cec0143ffd4ea791cd4a6d2859191b",
+    "invocation_id": "f4064faeb16c489ba2f269117986b039",
     "pending": {
       "repetition_1": 121,
       "repetition_2": 224
     },
     "protocol_sha256": "959bd13a33b098dbbe218731b58bb3d38e16ae5fc7fe52d985418005e8211327",
     "seed_sha256": "76ecdeb5a793feb70a2c968eeab746ae3c36b68d0356b9a9acdb374b69f1f9a7",
-    "unit": "vguide-cap16-generic-recovery-v1-20260730.service",
+    "unit": "vguide-cap16-generic-recovery-v3-20260730.service",
     "last_terminated_attempt": {
       "label": "repetition-1-replacement-attempt-6",
       "structurally_complete_rows": 8,
@@ -42,15 +42,26 @@
       "result_sha256": "655c3061ec3db6fe0f7bc5dd693ec1cc5b241facc69574f64d33da5dbfd00ee7",
       "launch_log_sha256": "fc068c8d336f49e3f9697229ea796e7cc492579f67955e27e605f148ef95089d",
       "exit_status": 1
+    },
+    "last_pretask_launch": {
+      "label": "launch-002",
+      "benchmark_tasks_run": 0,
+      "exit_status": 1,
+      "launch_log_sha256": "df63b7d063db7c77f922b7344f7289eecc5998718d8b8ae272092956ba350d30",
+      "authorization_sha256": "8802c08e9390e78107c7a5634053b1f1419f337d86504ddd268f4ea96ca23a3e",
+      "live_gate_sha256": "09fa18021eeba6618649d09076e1e633c5a8359ba3ee494fdc5f42310388d090"
     }
   },
-  "blocker": "The generic taint parser rejected BenchExec N1 compact log rows and basename-only nested task identities; the fail-closed shard remains unaccepted and byte-preserved.",
-  "next_action": "Publish an immutable preregistration of the outcome-independent N1 compact-log and unique-basename correction, reauthenticate and accept attempt-6 without rerunning it, then resume the next frozen shard.",
+  "blocker": "The zero-task launch gate exposed an exact-equality check between the frozen protocol source commit and the externally preregistered descendant recovery implementation.",
+  "next_action": "Preregister and freshly verify the minimal fail-closed source-ancestry correction, then reauthenticate attempt-6 without rerunning it and resume the next frozen shard.",
   "generic_recovery_prereg": {
-    "code_commit": "6d35de92f6c9de65a4a9b72cf54228b5f652ff61",
-    "generic_recovery_prereg_id": 361958562,
+    "code_commit": "23b702d8186466b79331d523fbd96924cedbaefc",
+    "generic_recovery_prereg_id": 362002229,
     "immutable": true,
-    "tag": "hard-case-dataset-v2-generic-formal-recovery-prereg-v1-20260730",
-    "wiki_commit": "abfcaa8c5ec94e0875c1708e09d9ad8e2e99f73a"
+    "tag": "hard-case-dataset-v2-generic-formal-recovery-prereg-v3-20260730",
+    "wiki_commit": "42e9e5e858191dabc1b2fed2357f2cda386a412a",
+    "publication_wiki_commit": "c362ef7b36690249fb3e6a118d01c130640e3e71",
+    "archive_sha256": "c66847fdef40663ea272c190b573b28758ac4d4a2313ceb6a97b59904370519f",
+    "fresh_download_verification_sha256": "eefa2ddf3ae73520a48d6658aa15e2a074a889d68140ada93a25af87d2a2642b"
   }
 }

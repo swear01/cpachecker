@@ -2644,6 +2644,50 @@ capture_research_provenance "$4"
       self.assertEqual(file_bytes(prior), prior_bytes)
       self.assertEqual(file_bytes(current), current_bytes)
 
+      def check_protocol_source(source):
+        protocol = root / "protocol.json"
+        protocol.write_text(
+            json.dumps({"source_commit": source}), encoding="utf-8"
+        )
+        return subprocess.run(
+            [
+                "bash",
+                "-c",
+                """
+source "$1"
+RESEARCH_ROOT=$2
+ACTIVE_RESEARCH_PROVENANCE=$3
+verify_protocol_source_ancestry "$4"
+""",
+                "bash",
+                str(runner),
+                str(research),
+                str(current),
+                str(protocol),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+      accepted_source = check_protocol_source(original_head)
+      self.assertEqual(accepted_source.returncode, 0, accepted_source.stderr)
+      unrelated = subprocess.check_output(
+          [
+              "git",
+              "-C",
+              research,
+              "commit-tree",
+              f"{current_head}^{{tree}}",
+          ],
+          input="unrelated\n",
+          text=True,
+      ).strip()
+      rejected_source = check_protocol_source(unrelated)
+      self.assertNotEqual(rejected_source.returncode, 0)
+      self.assertIn(
+          "does not descend from protocol source", rejected_source.stderr
+      )
+
       descriptor = dataset.formal_process_descriptor(SimpleNamespace(
           output_root=str(output),
           mode="cap16",
