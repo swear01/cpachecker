@@ -1,34 +1,43 @@
 {
   "schema_version": "hard-case-dataset-v2-rolling-status-v1",
   "issue": 16,
-  "observed_at": "2026-07-30T01:12:50+08:00",
-  "authoritative_snapshot_sha256": "e48f57a1f70510adf68250e86805b4025a1b32d5c85397f8574bef1ee40ee5da",
+  "observed_at": "2026-07-30T02:14:46+08:00",
+  "authoritative_snapshot_sha256": "20a36675fa3ea35ec6d7a8213b6b9e93cd1dd11c10e3dd4ea0513c7c241648c0",
   "phase": "phase_b_formal_recovery",
   "cap8": {
-    "cohort": 270,
     "accepted": {
       "repetition_1": 270,
       "repetition_2": 80
     },
+    "active_attempt": "repetition-2-replacement-attempt-2",
+    "active_structurally_complete_rows": 118,
+    "cohort": 270,
+    "monitor_lines": 23466,
     "pending": {
       "repetition_1": 0,
       "repetition_2": 190
     },
-    "active_attempt": "repetition-2-replacement-attempt-2",
-    "active_structurally_complete_rows": 98
+    "result_root_error": "incomplete"
   },
   "cap16": {
-    "cohort": 224,
     "accepted": {
       "repetition_1": 103,
       "repetition_2": 0
     },
+    "active_attempt": null,
+    "cohort": 224,
     "pending": {
       "repetition_1": 121,
       "repetition_2": 224
-    },
-    "active_attempt": null
+    }
   },
-  "blocker": "Generic attempt-independent recovery amendment has not yet been preregistered; cap16 r13 is rejected because its N1 launch command and saved N2 descriptor disagree.",
-  "next_action": "Preserve cap8; finish and preregister the generic recovery amendment, migrate authenticated rows, then launch cap16 N1 eight-task microshards."
+  "blocker": null,
+  "next_action": "Preserve active cap8; authenticate cap16 attempt5 into the generic seed, freeze the N1 micro-shard protocol, pass clean-stage/live gates, and launch cap16.",
+  "generic_recovery_prereg": {
+    "code_commit": "6d35de92f6c9de65a4a9b72cf54228b5f652ff61",
+    "generic_recovery_prereg_id": 361958562,
+    "immutable": true,
+    "tag": "hard-case-dataset-v2-generic-formal-recovery-prereg-v1-20260730",
+    "wiki_commit": "abfcaa8c5ec94e0875c1708e09d9ad8e2e99f73a"
+  }
 }
