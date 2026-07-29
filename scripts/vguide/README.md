@@ -201,14 +201,34 @@ systemd-run/taskset/environment/Python/BenchExec argv, plus the exact load
 monitor script, output and excluded root argv. Resume authenticates an
 unfinished identity against that descriptor before checking it and queries the
 descriptor's expected unit rather than trusting the identity's recorded unit.
-It requires both the launcher identity
-to be gone and that expected unit to be definitively inactive/not found. If either the
+It requires both the launcher identity to be gone and that expected unit to be
+definitively inactive/not found. If either the
 exact owned process or unit is still alive, resume fails closed and never signals it.
 Only a gone or PID-reused/mismatched process allows the evidence to be moved to
 the abandoned archive and rerun; XML existence alone never authorizes reuse.
 Its runtime
 closure is the cap-16 Athena Python 3.12/PyYAML 6.0.1 closure, not the older
-Valkyrie Python 3.10 closure. Before any rendering or measurement it copies
+Valkyrie Python 3.10 closure. It pins the Python executable, version and exact
+isolated `sys.path`. Every helper starts with
+`-I -S -B -X pycache_prefix=/dev/null` before any import, so host bytecode,
+`site`, `.pth`, `sitecustomize`, user packages and Python environment variables
+cannot alter executed code. The default path is only the standard-library zip,
+standard library and `lib-dynload`; a saved-script parent or the exact BenchExec
+checkout is inserted only by the command that needs it. PyYAML is loaded
+directly from its pinned `yaml/__init__.py` with that one package search path,
+not by adding either distribution-packages root; the same explicit bootstrap
+preloads it before every BenchExec entry point. The runner pins the non-cache
+standard-library closure at
+`a0c9c33e4f5b6c4e8e921598ec1c7273341cf2e8f2c74d7a348d6a3584a2c325`;
+the exact `yaml`, `_yaml` and `PyYAML-6.0.1.dist-info` package closure at
+`9148a8dc1759caac2f87132749a8f29de2cf8ee71b6ddead932d027613045627`;
+and an empty non-cache local distribution closure. Only real `__pycache__`
+directories are excluded. A `.pyc` or `.pyo` outside one is authenticated by
+the closure and is also rejected from every explicitly inserted saved-script
+or BenchExec root, because Python can import such sourceless bytecode directly.
+Source, extension, metadata, unknown non-cache, symlink and special-node drift
+remains fail-closed, and PyYAML must still resolve to its pinned module path
+and version. Before any rendering or measurement it copies
 the portable package under `input/evidence/`, reauthenticates that saved copy,
 and uses only saved-copy paths for all later render, validate and summarize
 operations.
@@ -433,21 +453,30 @@ the frozen per-case contention policy below; a completely idle host is not a
 formal prerequisite.
 
 The exact isolated Python environment used to start BenchExec is also part of
-the runtime closure. The runner pins `/usr/lib/python3.10` at
-`eef7994f6b57cb0bbdb803ef6aadc0c1afbe61d444932eeef5dc5c114b6cf27b`,
-`/usr/lib/python3/dist-packages` at
-`0970024a48206a1937b5bfbf889335525b769b89a27ca7df25d793d7727b909c`,
-and the empty `/usr/local/lib/python3.10/dist-packages` at
+the runtime closure. The runner pins the non-cache `/usr/lib/python3.10`
+closure at
+`c9af63c831839af73b709cf538807f9ea989c834d635526875a03787c29247cc`,
+the exact `yaml`, `_yaml` and `PyYAML-5.4.1.egg-info` closure at
+`9dd464e236b90eaa25fc9576bb22442b07817d16e086f9e3754d61c3328d9bbd`,
+and the empty non-cache `/usr/local/lib/python3.10/dist-packages` closure at
 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+Only real `__pycache__` directories are excluded. Sourceless `.pyc`/`.pyo`
+outside one remains authenticated and is rejected from inserted saved-script
+and BenchExec roots; every other selected-package, standard-library or
+local-distribution node remains authenticated.
 Under the actual `env -i HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8
 PATH=/usr/bin:/bin JAVA=<pinned-jdk>/bin/java` invocation, it requires the
 BenchExec checkout followed by `/usr/lib/python310.zip`, `/usr/lib/python3.10`,
-`/usr/lib/python3.10/lib-dynload`,
-`/usr/local/lib/python3.10/dist-packages`, and
-`/usr/lib/python3/dist-packages` as the exact `sys.path`. PyYAML must resolve
-to `/usr/lib/python3/dist-packages/yaml/__init__.py` at version 5.4.1. These
-paths, versions, module location, and directory hashes are recorded before
+and `/usr/lib/python3.10/lib-dynload` as the exact `sys.path`. Every helper
+starts with `-I -S -B -X pycache_prefix=/dev/null` before imports. It never
+loads `site` or processes `.pth`/`sitecustomize`; saved-script and BenchExec
+paths are inserted explicitly. PyYAML is loaded directly from
+`/usr/lib/python3/dist-packages/yaml/__init__.py`, without adding either
+distribution-packages root, and must report version 5.4.1. These
+paths, versions, module location, and filtered closure hashes are recorded before
 measurement and reverified during both success and failure teardown. The
+Python 3.10 interpreter does not expose `sys.flags.safe_path`; its equivalent
+startup guarantee is authenticated by the exact `-I` argv and exact `sys.path`.
 saved `dataset.py` and `baseline.py` commands use this same pinned interpreter
 and are therefore covered by the same binary, standard-library, and installed
 package closure.
@@ -568,6 +597,13 @@ fixed to Valkyrie, `/usr/bin/python3.10`, PyYAML 5.4.1 and
 `/var/tmp/vguide-valkyrie-pcores.lock`; cap-16 is fixed to Athena,
 `/usr/bin/python3.12`, PyYAML 6.0.1 and the Athena lock. Both use physical
 P-cores `0,2,4,6,8,10,12,14` with BenchExec `-N 8 -c 1`.
+Every Phase-C helper starts with
+`-I -S -B -X pycache_prefix=/dev/null`; the saved-script parent or BenchExec
+checkout is then inserted explicitly. PyYAML is loaded directly from the
+pinned `yaml/__init__.py`, and the runner authenticates only the source-only
+standard-library, exact PyYAML package, empty local-package, and BenchExec
+closures. Real `__pycache__` directories are ignored, while a `.pyc` or `.pyo`
+outside one is rejected before its root is executed.
 
 Before creating probe output, packaging input, building CPAchecker, or
 launching BenchExec, each wrapper authenticates its completed stock formal
@@ -599,6 +635,14 @@ process-identity, attempt-marker, artifact-manifest, and completion-sentinel
 contracts. Markerless recovery exit `125` is valid only for the two probe
 modes. Completed uncontaminated cases remain in the plan while interrupted or
 contended cases alone are retried.
+The monitor tolerates `/proc` disappearance races. During every one-core probe
+attempt, a watchdog authenticates the exact transient unit, cgroup-v2
+`ControlGroup`, canonical `benchexec.slice` path, and launcher membership. If
+the monitor dies, systemd stop is attempted first; any remaining descendants
+are enumerated recursively from that authenticated cgroup and terminated until
+`populated=0`. The launcher session is checked only as secondary evidence, so a
+descendant cannot escape teardown by creating a new session. Failure to
+authenticate or prove an empty cgroup fails the attempt closed.
 
 The measured Phase-C CPAchecker runtime is a separate clean checkout at
 `a80db518765174c582e2574eee1f527eff18c910`. The ignored `lib/java` tree is

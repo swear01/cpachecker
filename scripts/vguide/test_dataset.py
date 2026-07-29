@@ -16,6 +16,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import py_compile
 import random
 import shutil
 import subprocess
@@ -1194,8 +1195,8 @@ class DatasetTest(unittest.TestCase):
         "eea0df062de5c8e3febe0d96b583741c140e79d3ae41a87a56d7be365b876f9d",
         "52772e241e78a875fa00dea891eac2023d4f2be639a5f28a17dca81580f75e5b",
         "7d51cd6b48b521277f5caa4610a82126e315fa2be4df069823a8b1eeb5bd4a86",
-        "eef7994f6b57cb0bbdb803ef6aadc0c1afbe61d444932eeef5dc5c114b6cf27b",
-        "0970024a48206a1937b5bfbf889335525b769b89a27ca7df25d793d7727b909c",
+        "c9af63c831839af73b709cf538807f9ea989c834d635526875a03787c29247cc",
+        "9dd464e236b90eaa25fc9576bb22442b07817d16e086f9e3754d61c3328d9bbd",
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737c143ba018bc",
         "49f95adc5255b89b1bb3edea81ab5f2f660364d36ffa69c3b12508d1e1943be3",
@@ -1228,6 +1229,13 @@ class DatasetTest(unittest.TestCase):
         "EXPECTED_PYYAML_FILE=/usr/lib/python3/dist-packages/yaml/__init__.py",
         runner,
     )
+    for path in (
+        "yaml",
+        "_yaml",
+        "PyYAML-5.4.1.egg-info",
+        "PyYAML-6.0.1.dist-info",
+    ):
+      self.assertIn(path, runner)
     self.assertIn('EXPECTED_ANT_VERSION="Apache Ant(TM) version 1.10.12', runner)
     self.assertIn("jar_content_digest_value", runner)
     self.assertIn("remove_compiled_classes", runner)
@@ -1793,6 +1801,218 @@ test ! -e "$MONITOR_OUTPUT.stopped"
             check=True,
         )
 
+  def test_formal_runner_authenticates_cgroup_watchdog_teardown(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      fake_cgroup = root / "fake-cgroup"
+      nested_cgroup = fake_cgroup / "nested"
+      nested_cgroup.mkdir(parents=True)
+      (fake_cgroup / "cgroup.procs").write_text("22\n", encoding="ascii")
+      (nested_cgroup / "cgroup.procs").write_text("11\n22\n", encoding="ascii")
+      enumerated = subprocess.run(
+          [
+              "bash",
+              "-c",
+              """
+source "$1"
+load_owned_cgroup_pids "$2"
+printf '%s\\n' "${OWNED_CGROUP_PIDS[@]}"
+""",
+              "bash",
+              str(runner),
+              str(fake_cgroup),
+          ],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      self.assertEqual(enumerated.stdout.splitlines(), ["11", "22"])
+
+      unverified = subprocess.run(
+          [
+              "bash",
+              "-c",
+              """
+source "$1"
+sleep 0.2 &
+MONITOR_PID=$!
+setsid sleep 60 &
+benchmark=$!
+authenticate_scope_cgroup() {
+  return 1
+}
+systemctl() {
+  return 1
+}
+if wait_for_benchmark_with_monitor \
+  missing.scope "$benchmark" /missing.scope /missing.scope; then
+  exit 1
+fi
+! kill -0 "$benchmark" 2>/dev/null
+""",
+              "bash",
+              str(runner),
+          ],
+          capture_output=True,
+          text=True,
+          timeout=3,
+      )
+      self.assertEqual(unverified.returncode, 0, unverified.stderr)
+      self.assertIn("termination is unverified", unverified.stderr)
+
+      runtime_cgroup = root / "runtime-cgroup"
+      runtime_cgroup.mkdir()
+      unbound_scope = subprocess.run(
+          [
+              "bash",
+              "-c",
+              """
+source "$1"
+runtime_cgroup=$2
+stop_marker=$3
+sleep 0.2 &
+MONITOR_PID=$!
+setsid sleep 60 &
+benchmark=$!
+sleep 60 &
+unrelated=$!
+cleanup() {
+  kill "$unrelated" 2>/dev/null || :
+  wait "$unrelated" 2>/dev/null || :
+}
+trap cleanup EXIT
+load_owned_cgroup_pids() {
+  OWNED_CGROUP_PIDS=("$unrelated")
+}
+authenticate_scope_cgroup() {
+  if ! cgroup_contains_pid "$runtime_cgroup" "$benchmark"; then
+    return 1
+  fi
+  AUTHENTICATED_CONTROL_GROUP=/test.scope
+  AUTHENTICATED_CGROUP_PATH=$runtime_cgroup
+}
+systemctl() {
+  printf 'called\\n' >"$stop_marker"
+  return 1
+}
+if wait_for_benchmark_with_monitor \
+  test.scope "$benchmark" /test.scope "$runtime_cgroup"; then
+  exit 1
+fi
+! kill -0 "$benchmark" 2>/dev/null
+kill -0 "$unrelated" 2>/dev/null
+[[ ! -e "$stop_marker" ]]
+""",
+              "bash",
+              str(runner),
+              str(runtime_cgroup),
+              str(root / "unexpected-systemctl-stop"),
+          ],
+          capture_output=True,
+          text=True,
+          timeout=3,
+      )
+      self.assertEqual(unbound_scope.returncode, 0, unbound_scope.stderr)
+      self.assertIn("termination is unverified", unbound_scope.stderr)
+
+      command = """
+source "$1"
+child_file=$2
+runtime_cgroup=$3
+sleep 0.2 &
+MONITOR_PID=$!
+setsid bash -c '
+  exec python3 -c '"'"'
+import os
+import signal
+import sys
+import time
+
+child = os.fork()
+if child == 0:
+  os.setsid()
+  signal.signal(signal.SIGTERM, signal.SIG_IGN)
+  with open(sys.argv[1], "w") as output:
+    output.write(str(os.getpid()))
+  time.sleep(60)
+else:
+  signal.signal(signal.SIGTERM, signal.SIG_IGN)
+  os.wait()
+'"'"' "$1"
+' bash "$child_file" &
+benchmark=$!
+sleep 60 &
+unrelated=$!
+cleanup() {
+  kill "$unrelated" 2>/dev/null || :
+  wait "$unrelated" 2>/dev/null || :
+}
+trap cleanup EXIT
+while [[ ! -s "$child_file" ]]; do sleep 0.01; done
+child=$(cat "$child_file")
+authenticate_scope_cgroup() {
+  [[ ${2:-/test.scope} == /test.scope ]]
+  [[ ${3:-$runtime_cgroup} == "$runtime_cgroup" ]]
+  [[ ${4:-$benchmark} == "$benchmark" ]]
+  AUTHENTICATED_CONTROL_GROUP=/test.scope
+  AUTHENTICATED_CGROUP_PATH=$runtime_cgroup
+}
+load_owned_cgroup_pids() {
+  load_attempts=$((${load_attempts:-0} + 1))
+  if [[ $load_attempts -eq 1 ]]; then
+    return 3
+  fi
+  OWNED_CGROUP_PIDS=()
+  local pid
+  local state
+  for pid in "$benchmark" "$child"; do
+    state=$(ps -o stat= -p "$pid" 2>/dev/null || :)
+    if [[ -n "$state" && "$state" != Z* ]]; then
+      OWNED_CGROUP_PIDS+=("$pid")
+    fi
+  done
+}
+owned_cgroup_is_empty() {
+  [[ ${#OWNED_CGROUP_PIDS[@]} -eq 0 ]]
+}
+systemctl() {
+  return 1
+}
+if wait_for_benchmark_with_monitor \
+  test.scope "$benchmark" /test.scope "$runtime_cgroup"; then
+  exit 1
+fi
+! kill -0 "$benchmark" 2>/dev/null
+for _ in {1..40}; do
+  if ! kill -0 "$child" 2>/dev/null; then
+    kill -0 "$unrelated" 2>/dev/null
+    exit 0
+  fi
+  sleep 0.05
+done
+exit 2
+"""
+      child_file = root / "benchmark-child.pid"
+      stopped = subprocess.run(
+          [
+              "bash",
+              "-c",
+              command,
+              "bash",
+              str(runner),
+              str(child_file),
+              str(runtime_cgroup),
+          ],
+          capture_output=True,
+          text=True,
+          timeout=8,
+      )
+      self.assertEqual(stopped.returncode, 0, stopped.stderr)
+      self.assertIn("terminating authenticated cgroup", stopped.stderr)
+      self.assertIn("authenticated cgroup teardown complete", stopped.stderr)
+      self.assertIn("process monitor died during BenchExec", stopped.stderr)
+
   def test_formal_runner_reverifies_runtime_closure(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
     baseline_path = Path(__file__).with_name("baseline.py")
@@ -1844,13 +2064,19 @@ test ! -e "$MONITOR_OUTPUT.stopped"
       python_stdlib = root / "python-stdlib"
       python_dist_packages = root / "python-dist-packages"
       python_local_dist_packages = root / "python-local-dist-packages"
-      for path, content in (
-          (python_stdlib, b"stdlib"),
-          (python_dist_packages, b"dist-packages"),
-          (python_local_dist_packages, b"local-dist-packages"),
-      ):
-        path.mkdir()
-        (path / "closure").write_bytes(content)
+      python_stdlib.mkdir()
+      (python_stdlib / "runtime.py").write_bytes(b"stdlib")
+      python_dist_packages.mkdir()
+      (python_dist_packages / "yaml").mkdir()
+      (python_dist_packages / "yaml/__init__.py").write_bytes(b"source")
+      (python_dist_packages / "yaml/_yaml.so").write_bytes(b"extension")
+      (python_dist_packages / "_yaml").mkdir()
+      (python_dist_packages / "_yaml/__init__.py").write_bytes(b"source")
+      (python_dist_packages / "PyYAML-test.dist-info").mkdir()
+      (python_dist_packages / "PyYAML-test.dist-info/METADATA").write_bytes(
+          b"metadata"
+      )
+      python_local_dist_packages.mkdir()
 
       setup = """
 source "$1"
@@ -1877,12 +2103,13 @@ EXPECTED_PYTHON_REAL=$PYTHON_BIN
 EXPECTED_PYTHON_SHA256=$(sha256sum "$PYTHON_BIN" | cut -d' ' -f1)
 EXPECTED_PYTHON_VERSION=$("$PYTHON_BIN" --version)
 EXPECTED_PYTHON_STDLIB=$PYTHON_STDLIB
-EXPECTED_PYTHON_STDLIB_DIGEST=$(directory_digest_value "$PYTHON_STDLIB")
+EXPECTED_PYTHON_STDLIB_DIGEST=$(python_runtime_digest_value "$PYTHON_STDLIB")
 EXPECTED_PYTHON_DIST_PACKAGES=$PYTHON_DIST_PACKAGES
-EXPECTED_PYTHON_DIST_PACKAGES_DIGEST=$(directory_digest_value "$PYTHON_DIST_PACKAGES")
+EXPECTED_PYYAML_PACKAGE_PATHS=(yaml _yaml PyYAML-test.dist-info)
+EXPECTED_PYYAML_PACKAGE_DIGEST=$(pyyaml_package_digest_value)
 EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=$PYTHON_LOCAL_DIST_PACKAGES
-EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=$(directory_digest_value "$PYTHON_LOCAL_DIST_PACKAGES")
-EXPECTED_PYTHON_SYSTEM_PATH=$("$PYTHON_BIN" -I -c 'import sys; print(":".join(sys.path))')
+EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=$(python_runtime_digest_value "$PYTHON_LOCAL_DIST_PACKAGES")
+EXPECTED_PYTHON_SYSTEM_PATH=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c 'import sys; print(":".join(sys.path))')
 EXPECTED_PYYAML_FILE=$("$PYTHON_BIN" -I -c 'import yaml; print(yaml.__file__)')
 EXPECTED_PYYAML_VERSION=$("$PYTHON_BIN" -I -c 'import yaml; print(yaml.__version__)')
 EXPECTED_BENCHEXEC_ARCHIVE=$(benchexec_archive_digest)
@@ -1925,34 +2152,114 @@ benchexec_version() { printf 'test-benchexec\\n'; }
       self.assertNotEqual(rejected.returncode, 0)
       (stock / "lib/java/runtime.jar").write_bytes(original_runtime)
 
-      for closure_dir, expected_variable, original in (
-          (python_stdlib, "EXPECTED_PYTHON_STDLIB_DIGEST", b"stdlib"),
-          (
-              python_dist_packages,
-              "EXPECTED_PYTHON_DIST_PACKAGES_DIGEST",
-              b"dist-packages",
-          ),
-          (
-              python_local_dist_packages,
-              "EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST",
-              b"local-dist-packages",
-          ),
+      stdlib_digest = dataset.baseline.python_runtime_digest(python_stdlib)[
+          "sha256"
+      ]
+      (python_stdlib / "runtime.py").write_bytes(b"changed")
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + f"\nEXPECTED_PYTHON_STDLIB_DIGEST={stdlib_digest}\n"
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      (python_stdlib / "runtime.py").write_bytes(b"stdlib")
+
+      package_paths = ("yaml", "_yaml", "PyYAML-test.dist-info")
+      package_digest = dataset.baseline.python_runtime_digest(
+          python_dist_packages, package_paths
+      )["sha256"]
+      local_digest = dataset.baseline.python_runtime_digest(
+          python_local_dist_packages
+      )["sha256"]
+      for relative in (
+          "yaml/__init__.py",
+          "yaml/_yaml.so",
+          "PyYAML-test.dist-info/METADATA",
+          "yaml/unknown",
       ):
-        original_digest = dataset.baseline.directory_digest(closure_dir)["sha256"]
-        (closure_dir / "closure").write_bytes(b"changed")
+        path = python_dist_packages / relative
+        original = path.read_bytes() if path.exists() else None
+        path.write_bytes(b"changed")
         rejected = subprocess.run(
             [
                 "bash",
                 "-c",
                 setup
-                + f"\n{expected_variable}={original_digest}\n"
+                + f"\nEXPECTED_PYYAML_PACKAGE_DIGEST={package_digest}\n"
                 + "verify_runtime_closure true",
                 "bash",
                 *arguments,
             ],
         )
         self.assertNotEqual(rejected.returncode, 0)
-        (closure_dir / "closure").write_bytes(original)
+        if original is None:
+          path.unlink()
+        else:
+          path.write_bytes(original)
+
+      for cache in (
+          python_stdlib / "__pycache__/runtime.cpython-312.pyc",
+          python_dist_packages / "yaml/__pycache__/loader.cpython-312.pyc",
+          python_local_dist_packages / "__pycache__/shadow.cpython-312.pyc",
+      ):
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(b"cache")
+      subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + f"\nEXPECTED_PYTHON_STDLIB_DIGEST={stdlib_digest}\n"
+              + f"EXPECTED_PYYAML_PACKAGE_DIGEST={package_digest}\n"
+              + (
+                  "EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST="
+                  f"{local_digest}\n"
+              )
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+          check=True,
+      )
+
+      sourceless = python_dist_packages / "yaml/ignored.pyc"
+      sourceless.write_bytes(b"cache")
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + f"\nEXPECTED_PYYAML_PACKAGE_DIGEST={package_digest}\n"
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      sourceless.unlink()
+
+      shadow = python_local_dist_packages / "yaml"
+      shadow.mkdir()
+      (shadow / "__init__.py").write_bytes(b"shadow")
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + f"\nEXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST={local_digest}\n"
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      shutil.rmtree(shadow)
 
       original_ant = ant.read_text(encoding="utf-8")
       ant_digest = dataset.baseline.directory_digest(ant_install)["sha256"]
@@ -2047,6 +2354,187 @@ benchexec_version() { printf 'test-benchexec\\n'; }
           ],
       )
       self.assertNotEqual(rejected.returncode, 0)
+
+  def test_formal_python_bootstrap_ignores_host_caches_and_site_hooks(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    python = Path(os.path.realpath("/usr/bin/python3"))
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      script_dir = root / "saved/scripts"
+      script_dir.mkdir(parents=True)
+      helper = script_dir / "helper.py"
+      helper.write_text('VALUE = "cache"\n', encoding="utf-8")
+      py_compile.compile(
+          str(helper),
+          invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
+          doraise=True,
+      )
+      helper.write_text('VALUE = "source"\n', encoding="utf-8")
+      output = root / "runtime.json"
+      script = script_dir / "probe.py"
+      script.write_text(
+          """
+import json
+import sys
+from pathlib import Path
+import helper
+
+Path(sys.argv[1]).write_text(json.dumps({
+    "value": helper.VALUE,
+    "sys_path": sys.path,
+    "site_loaded": "site" in sys.modules,
+    "dont_write_bytecode": sys.dont_write_bytecode,
+    "pycache_prefix": sys.pycache_prefix,
+    "isolated": sys.flags.isolated,
+    "no_site": sys.flags.no_site,
+    "safe_path": getattr(sys.flags, "safe_path", None),
+}), encoding="utf-8")
+""",
+          encoding="utf-8",
+      )
+      hook = root / "hooks"
+      hook.mkdir()
+      hook_marker = root / "sitecustomize-ran"
+      (hook / "sitecustomize.py").write_text(
+          f"open({str(hook_marker)!r}, 'w').write('ran')\n",
+          encoding="utf-8",
+      )
+      (hook / "injected.pth").write_text(
+          f"import pathlib; pathlib.Path({str(hook_marker)!r}).write_text('pth')\n",
+          encoding="utf-8",
+      )
+      control = subprocess.run(
+          [
+              python,
+              "-I",
+              "-S",
+              "-B",
+              "-c",
+              (
+                  "import sys; sys.path.insert(0, sys.argv[1]); "
+                  "import helper; print(helper.VALUE)"
+              ),
+              str(script_dir),
+          ],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      self.assertEqual(control.stdout.strip(), "cache")
+      subprocess.run(
+          [
+              "bash",
+              "-c",
+              'source "$1"; run_python_script "$2" "$3"',
+              "bash",
+              str(runner),
+              str(script),
+              str(output),
+          ],
+          check=True,
+          env={**os.environ, "PYTHONPATH": str(hook)},
+      )
+      runtime = json.loads(output.read_text(encoding="utf-8"))
+      expected_path = subprocess.run(
+          [python, *dataset.PYTHON_RUNTIME_FLAGS, "-c",
+           (
+               "import json,sys; print(json.dumps({"
+               "'path':sys.path,"
+               "'safe_path':getattr(sys.flags,'safe_path',None)}))"
+           )],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      self.assertEqual(runtime["value"], "source")
+      self.assertEqual(
+          runtime["sys_path"],
+          [str(script_dir), *json.loads(expected_path.stdout)["path"]],
+      )
+      self.assertFalse(runtime["site_loaded"])
+      self.assertTrue(runtime["dont_write_bytecode"])
+      self.assertEqual(runtime["pycache_prefix"], "/dev/null")
+      self.assertEqual(
+          {
+              "isolated": runtime["isolated"],
+              "no_site": runtime["no_site"],
+              "safe_path": runtime["safe_path"],
+          },
+          {
+              "isolated": 1,
+              "no_site": 1,
+              "safe_path": json.loads(expected_path.stdout)["safe_path"],
+          },
+      )
+      self.assertFalse(hook_marker.exists())
+      saved_output = root / "saved-runtime.json"
+      dataset.run_saved_dataset(
+          script, [str(saved_output)], python_bin=python
+      )
+      saved_runtime = json.loads(saved_output.read_text(encoding="utf-8"))
+      self.assertEqual(saved_runtime["value"], "source")
+      self.assertFalse(saved_runtime["site_loaded"])
+      self.assertEqual(saved_runtime["pycache_prefix"], "/dev/null")
+      sourceless_source = script_dir / "sourceless.py"
+      sourceless_source.write_text('VALUE = "bytecode"\n', encoding="utf-8")
+      sourceless_bytecode = script_dir / "sourceless.pyc"
+      py_compile.compile(
+          str(sourceless_source),
+          cfile=str(sourceless_bytecode),
+          doraise=True,
+      )
+      sourceless_source.unlink()
+      control = subprocess.run(
+          [
+              python,
+              *dataset.PYTHON_RUNTIME_FLAGS,
+              "-c",
+              (
+                  "import sys; sys.path.insert(0, sys.argv[1]); "
+                  "import sourceless; print(sourceless.VALUE)"
+              ),
+              str(script_dir),
+          ],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      self.assertEqual(control.stdout.strip(), "bytecode")
+      sourceless_output = root / "sourceless-output"
+      sourceless_probe = script_dir / "sourceless-probe.py"
+      sourceless_probe.write_text(
+          (
+              "import sourceless\n"
+              "from pathlib import Path\n"
+              "Path(__import__('sys').argv[1]).write_text("
+              "sourceless.VALUE, encoding='utf-8')\n"
+          ),
+          encoding="utf-8",
+      )
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              'source "$1"; run_python_script "$2" "$3"',
+              "bash",
+              str(runner),
+              str(sourceless_probe),
+              str(sourceless_output),
+          ],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("sourceless Python bytecode", rejected.stderr)
+      self.assertFalse(sourceless_output.exists())
+      with self.assertRaisesRegex(
+          RuntimeError, "sourceless Python bytecode"
+      ):
+        dataset.run_saved_dataset(
+            sourceless_probe,
+            [str(sourceless_output)],
+            python_bin=python,
+        )
 
   def test_formal_runner_copies_relative_evidence_for_reauthentication(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
@@ -3615,6 +4103,15 @@ copy_phase_evidence "$2"
       self.assertEqual(descriptor["host"], "valkyrie")
       self.assertEqual(argv[argv.index("-N") + 1], "8")
       self.assertEqual(argv[argv.index("-c", argv.index("-N")) + 1], "1")
+      python_index = argv.index("/usr/bin/python3.10")
+      self.assertEqual(
+          argv[python_index + 1:python_index + 6],
+          list(dataset.PYTHON_RUNTIME_FLAGS),
+      )
+      self.assertEqual(
+          argv[argv.index(str(root / "benchexec")) + 1],
+          dataset.FORMAL_PYYAML_FILE,
+      )
 
   def test_probe_result_metadata_preserves_one_fixed_profile_host(self):
     with tempfile.TemporaryDirectory() as temp:
@@ -4884,6 +5381,23 @@ test "$(cat "$root/partial-summary/new")" = new
     self.assertIn("require-formal-process-gone", runner)
     self.assertIn("recovery=authenticated-process-gone", runner)
     self.assertIn('--benchexec-exit "$recovery_exit"', runner)
+    self.assertIn(
+        "PYTHON_RUNTIME_FLAGS=(-I -S -B -X pycache_prefix=/dev/null)",
+        Path(__file__).with_name("run-stock-formal-dataset.sh")
+        .read_text(encoding="utf-8"),
+    )
+    self.assertNotIn('"$PYTHON_BIN" -I', runner)
+    self.assertNotIn("sys.dont_write_bytecode", runner)
+    self.assertNotIn("sys.pycache_prefix", runner)
+    self.assertIn("assert_no_sourceless_python_bytecode", runner)
+    self.assertIn("authenticate_scope_cgroup", runner)
+    self.assertIn("wait_for_benchmark_with_monitor", runner)
+    self.assertIn("reap_benchmark_launcher", runner)
+    self.assertIn("EXPECTED_PYYAML_PACKAGE_DIGEST=", runner)
+    self.assertIn(
+        "ProcessLookupError",
+        Path(__file__).with_name("dataset.py").read_text(encoding="utf-8"),
+    )
     self.assertIn("authenticate_probe_taint", runner)
     self.assertNotIn('if [[ ! -f "$primary_taint" ]]', runner)
     self.assertNotIn("ABANDONED", runner)

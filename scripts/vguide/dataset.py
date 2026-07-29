@@ -220,17 +220,31 @@ FORMAL_FOREIGN_CPU_SECONDS = 10.0
 FORMAL_LOAD_SAMPLE_SECONDS = 1.0
 FORMAL_LOAD_MONITOR_SCHEMA = "formal-p-core-load-monitor-v1"
 FORMAL_ATTEMPT_SCHEMA = "hard-case-formal-attempt-complete-v3"
-FORMAL_PROCESS_DESCRIPTOR_SCHEMA = "hard-case-formal-process-descriptor-v1"
+FORMAL_PROCESS_DESCRIPTOR_SCHEMA = "hard-case-formal-process-descriptor-v2"
 FORMAL_P_CORE_LIST = "0,2,4,6,8,10,12,14"
+FORMAL_PYYAML_FILE = "/usr/lib/python3/dist-packages/yaml/__init__.py"
+PYTHON_RUNTIME_FLAGS = (
+    "-I",
+    "-S",
+    "-B",
+    "-X",
+    "pycache_prefix=/dev/null",
+)
+BENCHEXEC_MODULE_COMMAND = (
+    "import importlib.util,runpy,sys; from pathlib import Path; "
+    "repository=sys.argv.pop(1); yaml_file=sys.argv.pop(1); "
+    'spec=importlib.util.spec_from_file_location("yaml",yaml_file,'
+    "submodule_search_locations=[str(Path(yaml_file).parent)]); "
+    "assert spec is not None and spec.loader is not None; "
+    "yaml=importlib.util.module_from_spec(spec); "
+    'sys.modules["yaml"]=yaml; spec.loader.exec_module(yaml); '
+    "sys.path.insert(0,repository); "
+    'sys.argv[0]="benchexec"; '
+    'runpy.run_module("benchexec.benchexec",run_name="__main__")'
+)
 EMPTY_PROVIDER_MODEL = "deterministic-empty-provider"
 EMPTY_PROVIDER_RESPONSE_SHA256 = (
     "950ec9013b84aed3afe9761427511822630e80cd5f009e837389312830deba94"
-)
-BENCHEXEC_MODULE_COMMAND = (
-    'import runpy,sys; sys.dont_write_bytecode=True; '
-    'sys.pycache_prefix="/dev/null"; sys.path.insert(0,sys.argv.pop(1)); '
-    'sys.argv[0]="benchexec"; '
-    'runpy.run_module("benchexec.benchexec",run_name="__main__")'
 )
 
 
@@ -3383,8 +3397,7 @@ def formal_process_descriptor(args):
   unit = formal_systemd_unit(root, args.mode, args.label)
   monitor_argv = [
       str(python_bin),
-      "-I",
-      "-B",
+      *PYTHON_RUNTIME_FLAGS,
       str(dataset_py),
       "monitor-formal-load",
       "--output",
@@ -3412,10 +3425,11 @@ def formal_process_descriptor(args):
       "PATH=/usr/bin:/bin",
       f"JAVA={java_home}/bin/java",
       str(python_bin),
-      "-I",
+      *PYTHON_RUNTIME_FLAGS,
       "-c",
       BENCHEXEC_MODULE_COMMAND,
       str(benchexec_dir),
+      FORMAL_PYYAML_FILE,
       "--name",
       args.name,
       "--tool-directory",
@@ -3692,7 +3706,13 @@ def command_monitor_formal_load(args):
           status = (proc / "status").read_text(encoding="utf-8")
           parent = int(re.search(r"^PPid:\s+(\d+)$", status, re.MULTILINE).group(1))
           parents[int(proc.name)] = parent
-        except (FileNotFoundError, PermissionError, AttributeError, ValueError):
+        except (
+            FileNotFoundError,
+            PermissionError,
+            ProcessLookupError,
+            AttributeError,
+            ValueError,
+        ):
           continue
       excluded = {args.exclude_root}
       changed = True
@@ -4377,17 +4397,25 @@ def cap8_summary_reproduction_arguments(paths, sv_benchmarks, output_dir):
 def run_saved_dataset(script, arguments, python_bin=None):
   if python_bin is None:
     python_bin = sys.executable
+  script = Path(script).resolve()
+  for path in script.parent.rglob("*"):
+    if (
+        path.is_file()
+        and path.suffix in {".pyc", ".pyo"}
+        and "__pycache__" not in path.relative_to(script.parent).parts
+    ):
+      raise RuntimeError(
+          f"sourceless Python bytecode could shadow pinned source: {path}"
+      )
   command = [
       str(python_bin),
-      "-I",
+      *PYTHON_RUNTIME_FLAGS,
       "-c",
       (
           "import runpy,sys;"
           "from pathlib import Path;"
           "script=Path(sys.argv.pop(1)).resolve();"
           "sys.argv[0]=str(script);"
-          "sys.dont_write_bytecode=True;"
-          "sys.pycache_prefix='/dev/null';"
           "sys.path.insert(0,str(script.parent));"
           "runpy.run_path(str(script),run_name='__main__')"
       ),

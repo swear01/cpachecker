@@ -427,6 +427,58 @@ specification = specification/property.spc
           with self.assertRaisesRegex(RuntimeError, "not a directory"):
             baseline.directory_digest(invalid)
 
+  def test_python_runtime_digest_ignores_only_pycache_directories(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      package = root / "yaml"
+      metadata = root / "PyYAML.dist-info"
+      package.mkdir()
+      metadata.mkdir()
+      (package / "__init__.py").write_text("version = 1\n", encoding="utf-8")
+      (package / "_yaml.so").write_bytes(b"extension")
+      (metadata / "METADATA").write_text("Version: 1\n", encoding="utf-8")
+      selected = ("yaml", "PyYAML.dist-info")
+      original = baseline.python_runtime_digest(root, selected)
+
+      cache = package / "__pycache__"
+      cache.mkdir()
+      (cache / "__init__.cpython-312.pyc").write_bytes(b"cache")
+      self.assertEqual(
+          original, baseline.python_runtime_digest(root, selected)
+      )
+
+      for path in (
+          package / "__init__.py",
+          package / "_yaml.so",
+          metadata / "METADATA",
+          package / "unknown",
+          package / "sourceless.pyc",
+          package / "sourceless.pyo",
+      ):
+        with self.subTest(path=path):
+          previous = path.read_bytes() if path.exists() else None
+          path.write_bytes(b"changed")
+          self.assertNotEqual(
+              original, baseline.python_runtime_digest(root, selected)
+          )
+          if previous is None:
+            path.unlink()
+          else:
+            path.write_bytes(previous)
+
+  def test_python_runtime_digest_rejects_invalid_roots_and_special_nodes(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      (root / "package").mkdir()
+      for selected in (("missing",), ("../package",), ("package", "package")):
+        with self.subTest(selected=selected):
+          with self.assertRaises(RuntimeError):
+            baseline.python_runtime_digest(root, selected)
+      fifo = root / "package/fifo"
+      os.mkfifo(fifo)
+      with self.assertRaisesRegex(RuntimeError, "Unsupported filesystem entry"):
+        baseline.python_runtime_digest(root, ("package",))
+
   def test_calibration_summary_quantifies_repeated_noise(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)

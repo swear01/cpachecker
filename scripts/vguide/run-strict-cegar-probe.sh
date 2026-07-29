@@ -46,27 +46,37 @@ if [[ $PROBE_COHORT == cap8 ]]; then
   EXPECTED_PYTHON_SHA256=7d51cd6b48b521277f5caa4610a82126e315fa2be4df069823a8b1eeb5bd4a86
   EXPECTED_PYTHON_VERSION="Python 3.10.12"
   EXPECTED_PYTHON_STDLIB=/usr/lib/python3.10
-  EXPECTED_PYTHON_STDLIB_DIGEST=eef7994f6b57cb0bbdb803ef6aadc0c1afbe61d444932eeef5dc5c114b6cf27b
+  EXPECTED_PYTHON_STDLIB_DIGEST=c9af63c831839af73b709cf538807f9ea989c834d635526875a03787c29247cc
   EXPECTED_PYTHON_DIST_PACKAGES=/usr/lib/python3/dist-packages
-  EXPECTED_PYTHON_DIST_PACKAGES_DIGEST=0970024a48206a1937b5bfbf889335525b769b89a27ca7df25d793d7727b909c
   EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=/usr/local/lib/python3.10/dist-packages
   EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-  EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python310.zip:/usr/lib/python3.10:/usr/lib/python3.10/lib-dynload:/usr/local/lib/python3.10/dist-packages:/usr/lib/python3/dist-packages
+  EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python310.zip:/usr/lib/python3.10:/usr/lib/python3.10/lib-dynload
   EXPECTED_PYYAML_FILE=/usr/lib/python3/dist-packages/yaml/__init__.py
   EXPECTED_PYYAML_VERSION=5.4.1
+  EXPECTED_PYYAML_PACKAGE_PATHS=(
+    yaml
+    _yaml
+    PyYAML-5.4.1.egg-info
+  )
+  EXPECTED_PYYAML_PACKAGE_DIGEST=9dd464e236b90eaa25fc9576bb22442b07817d16e086f9e3754d61c3328d9bbd
 else
   EXPECTED_PYTHON_REAL=/usr/bin/python3.12
   EXPECTED_PYTHON_SHA256=1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118
   EXPECTED_PYTHON_VERSION="Python 3.12.3"
   EXPECTED_PYTHON_STDLIB=/usr/lib/python3.12
-  EXPECTED_PYTHON_STDLIB_DIGEST=a3940bab942bcff9bf32ed7b81f7f71e0cd506166aec5c156c5058bf4f337d16
+  EXPECTED_PYTHON_STDLIB_DIGEST=a0c9c33e4f5b6c4e8e921598ec1c7273341cf2e8f2c74d7a348d6a3584a2c325
   EXPECTED_PYTHON_DIST_PACKAGES=/usr/lib/python3/dist-packages
-  EXPECTED_PYTHON_DIST_PACKAGES_DIGEST=c7831aae147cc850f67958d070d122bf9e3c72c31a090fd497ff50177b84d189
   EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=/usr/local/lib/python3.12/dist-packages
   EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-  EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python312.zip:/usr/lib/python3.12:/usr/lib/python3.12/lib-dynload:/usr/local/lib/python3.12/dist-packages:/usr/lib/python3/dist-packages
+  EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python312.zip:/usr/lib/python3.12:/usr/lib/python3.12/lib-dynload
   EXPECTED_PYYAML_FILE=/usr/lib/python3/dist-packages/yaml/__init__.py
   EXPECTED_PYYAML_VERSION=6.0.1
+  EXPECTED_PYYAML_PACKAGE_PATHS=(
+    yaml
+    _yaml
+    PyYAML-6.0.1.dist-info
+  )
+  EXPECTED_PYYAML_PACKAGE_DIGEST=9148a8dc1759caac2f87132749a8f29de2cf8ee71b6ddead932d027613045627
 fi
 EXPECTED_BENCHEXEC_ARCHIVE=75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737c143ba018bc
 EXPECTED_BENCHEXEC_VERSION="benchexec 3.35-dev"
@@ -204,10 +214,11 @@ verify_runtime_closure true
 write_runtime_provenance "$OUTPUT_DIR/provenance/runtime-closure.txt"
 record_process_snapshot "$OUTPUT_DIR/provenance"
 
+assert_no_sourceless_python_bytecode "$BENCHEXEC_DIR"
 systemd-run --user --quiet --scope --slice=benchexec -p Delegate=yes \
-  taskset -c "$P_CORES" "$PYTHON_BIN" -I -c \
-  'import runpy,sys; sys.dont_write_bytecode=True; sys.pycache_prefix="/dev/null"; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]="benchexec"; runpy.run_module("benchexec.check_cgroups",run_name="__main__")' \
-  "$BENCHEXEC_DIR" --no-thread \
+  taskset -c "$P_CORES" "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+  "$BENCHEXEC_CGROUP_COMMAND" \
+  "$BENCHEXEC_DIR" "$EXPECTED_PYYAML_FILE" --no-thread \
   2>&1 | tee "$OUTPUT_DIR/provenance/cgroup-check.log"
 JAVA_HOME="$JAVA_HOME" run_python_script "$BASELINE_PY" machine \
   --output "$OUTPUT_DIR/provenance/machine-preflight-start.json"
@@ -341,6 +352,9 @@ run_probe_attempt() {
   local result
   local status
   local unit
+  local benchmark_pid
+  local benchmark_control_group
+  local benchmark_cgroup_path
   local -a evidence=(
     --output-root "$OUTPUT_DIR" --manifest "$PROBE_MANIFEST"
     --sv-benchmarks "$SV_BENCHMARKS_DIR" --host "$FORMAL_HOST"
@@ -359,7 +373,7 @@ run_probe_attempt() {
   mkdir -p "$output"
   if [[ -f "$marker" ]]; then
     result=$(single_probe_result "$output")
-    status=$("$PYTHON_BIN" -I -c \
+    status=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
       'import json,sys; print(json.load(open(sys.argv[1]))["benchexec_exit"])' \
       "$marker")
     run_python_script "$DATASET_PY" formal-attempt-complete \
@@ -427,26 +441,30 @@ run_probe_attempt() {
     --output "$OUTPUT_DIR/provenance/machine-before-$label.json"
   start_process_monitor "$monitor"
   wait_for_process_monitor
+  assert_no_sourceless_python_bytecode "$BENCHEXEC_DIR"
   set +e
-  (
-    cd "$CPACHECKER_DIR"
-    "$PYTHON_BIN" -I - "$process" "$unit" \
-      systemd-run --user --quiet --scope --unit="$unit" \
-      --slice=benchexec -p Delegate=yes \
-      taskset -c "$P_CORES" env -i \
-      HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
-      JAVA="$JAVA_HOME/bin/java" \
-      "$PYTHON_BIN" -I -c "$BENCHEXEC_MODULE_COMMAND" "$BENCHEXEC_DIR" \
-      --name "$name" --tool-directory "$CPACHECKER_DIR" \
-      --outputpath "$output/" --allowedCores "$P_CORES" \
-      --no-hyperthreading --container --read-only-dir / --hidden-dir /home \
-      --overlay-dir "$CPACHECKER_DIR" -N 8 -c 1 "$definition" <<'PY'
+  "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" - \
+    "$CPACHECKER_DIR" "$process" "$unit" \
+    systemd-run --user --quiet --scope --unit="$unit" \
+    --slice=benchexec -p Delegate=yes \
+    taskset -c "$P_CORES" env -i \
+    HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
+    JAVA="$JAVA_HOME/bin/java" \
+    "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+    "$BENCHEXEC_MODULE_COMMAND" "$BENCHEXEC_DIR" "$EXPECTED_PYYAML_FILE" \
+    --name "$name" --tool-directory "$CPACHECKER_DIR" \
+    --outputpath "$output/" --allowedCores "$P_CORES" \
+    --no-hyperthreading --container --read-only-dir / --hidden-dir /home \
+    --overlay-dir "$CPACHECKER_DIR" -N 8 -c 1 "$definition" \
+    >"$OUTPUT_DIR/provenance/$label-benchexec.log" 2>&1 <<'PY' &
 import json
 import os
 import sys
 from pathlib import Path
 
-output, unit, *argv = sys.argv[1:]
+working_directory, output, unit, *argv = sys.argv[1:]
+os.chdir(working_directory)
+os.setsid()
 proc = Path("/proc/self")
 status = proc.joinpath("status").read_text()
 uid = int(next(line for line in status.splitlines() if line.startswith("Uid:")).split()[1])
@@ -463,15 +481,26 @@ identity = {
 Path(output).write_text(json.dumps(identity, indent=2) + "\n")
 os.execvp(argv[0], argv)
 PY
-  ) 2>&1 | tee "$OUTPUT_DIR/provenance/$label-benchexec.log"
-  status=${PIPESTATUS[0]}
+  benchmark_pid=$!
+  if authenticate_scope_cgroup "$unit" "" "" "$benchmark_pid"; then
+    benchmark_control_group=$AUTHENTICATED_CONTROL_GROUP
+    benchmark_cgroup_path=$AUTHENTICATED_CGROUP_PATH
+    wait_for_benchmark_with_monitor \
+      "$unit" "$benchmark_pid" \
+      "$benchmark_control_group" "$benchmark_cgroup_path"
+    status=$?
+  else
+    echo "could not authenticate BenchExec scope immediately after launch" >&2
+    reap_benchmark_launcher "$benchmark_pid"
+    status=1
+  fi
   set -e
+  [[ "$status" -eq 0 || "$status" -eq 130 ]]
   stop_process_monitor
   capture_attempt_machine_evidence \
     "$OUTPUT_DIR/provenance/machine-before-$label.json" \
     "$OUTPUT_DIR/provenance/machine-after-$label.json" \
     "$OUTPUT_DIR/provenance/machine-check-$label.json"
-  [[ "$status" -eq 0 || "$status" -eq 130 ]]
   result=$(single_probe_result "$output")
   run_python_script "$DATASET_PY" formal-attempt-complete \
     "${evidence[@]}" --benchexec-exit "$status" --result "$result"
@@ -524,7 +553,7 @@ current_result=$primary
 current_taint=$primary_taint
 replacement_args=()
 attempt=1
-while [[ $("$PYTHON_BIN" -I -c \
+while [[ $("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
   'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
   "$current_taint") -gt 0 ]]; do
   label="$primary_label-replacement-attempt-$attempt"
@@ -566,7 +595,7 @@ if [[ ! -f "$OUTPUT_DIR/probe-plan.json" ]]; then
     --manifest "$PROBE_MANIFEST" --primary-result "$primary"
     --output "$OUTPUT_DIR/probe-plan.json"
   )
-  if [[ $("$PYTHON_BIN" -I -c \
+  if [[ $("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
     'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
     "$primary_taint") -gt 0 ]]; then
     plan_args+=(--taint-manifest "$primary_taint" "${replacement_args[@]}")
