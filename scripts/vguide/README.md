@@ -369,7 +369,8 @@ env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
   scripts/vguide/run-stock-cap16-formal-dataset.sh \
   /path/to/cpachecker-stock /path/to/sv-benchmarks /path/to/benchexec \
   /path/to/cap16-phase-a-package \
-  /path/to/cap16-formal-output
+  /path/to/cap16-formal-output \
+  /path/to/frozen-cap16-recovery-protocol
 ```
 
 The research checkout containing this runner must be frozen and published
@@ -522,6 +523,49 @@ deliberately does not pin its own research-code commit because that would be
 self-referential. The publication release or tag must externally pin the
 final research commit.
 
+The current Dataset-v2 recovery amendment is attempt-independent. A
+checksummed migration manifest lists arbitrary historical attempts and their
+definition, result, log, load-monitor, taint, boot, and optional process
+evidence. Every migrated attempt carries its own exact runtime-closure hash
+and worker count; authenticated historical cap-16 `-N 2` rows remain distinct
+from new cap-16 `-N 1` attempts. `build-formal-recovery-seed` accepts only
+structurally complete, untainted rows and classifies each as reusable or
+verifier failure. The frozen
+protocol derives pending work from those row identities and partitions it in
+parent-manifest order into 16-task cap-8 shards or 8-task cap-16 shards.
+Every new attempt is authorized before launch and is accepted atomically into
+an append-only ledger as reusable, tainted, incomplete, verifier failure, or
+invalid evidence. Invalid evidence never settles a task.
+Ambiguous identities, duplicate settled rows, changed evidence, mixed protocol
+hashes, or an unauthorized task fail closed. A launcher failure before any
+task starts is recorded as a checksummed pre-task abandonment and advances to
+a new attempt without changing the protocol. Same-boot abandonment requires
+an authenticated owned process that is proven gone; an authorization with no
+lifecycle evidence is reused rather than abandoned. Historical recovery selectors
+remain read-only migration evidence; future attempts do not require a new
+selector or code revision. Current accepted/pending counts and the next action
+are recorded in `issue16-status.json`.
+The environment-gated
+`test_formal_recovery_migration_against_actual_interrupted_trees` requires a
+JSON list at `VGUIDE_FORMAL_RECOVERY_ACTUAL_AUDITS`; each host-local entry
+pins an actual output root, manifest, SV-Benchmarks checkout, seed, expected
+row count, and seed hash. Preregistration validation runs it once for cap-8
+and once for cap-16, replaying every migration against both append-only
+interrupted trees.
+Migration alone accepts an exact historical definition whose absolute path
+prefix changed when its result tree was preserved: the XML hash, fixed
+topology, task-set basename, sibling task-set contents, parent manifest, and
+task-set hash still have to agree. A markerless legacy attempt with incomplete
+load-monitor coverage conservatively taints every uncovered row; new
+authorized attempts retain the stricter complete-monitor requirement.
+
+Task selection, host policy, concurrency, resource limits, classification,
+acceptance, recovery trust boundaries, benchmark code, configuration closure,
+or artifact schema require a new preregistration. A pre-task correction to an
+external path, D-Bus environment, missing historical Git object, pinned-JDK
+path, or clean checkout does not require a new experimental revision when
+exact logs prove that zero benchmark tasks started.
+
 Arguments six through fourteen are grouped as manifest, raw result, and
 survivor for the original Valkyrie shard, r4 reroute, and r5 recovery:
 
@@ -544,7 +588,8 @@ env -u VGUIDE_LLM -u DEEPSEEK_API_KEY -u OPENAI_API_KEY \
   /path/to/r5-recovery/candidate-manifest-valkyrie.json \
   /path/to/r5-recovery-result.xml.bz2 \
   /path/to/r5-recovery-survivor.json \
-  /path/to/formal-output
+  /path/to/formal-output \
+  /path/to/frozen-cap8-recovery-protocol
 ```
 
 Before creating output, the runner rejects output paths inside any tool,
@@ -611,9 +656,10 @@ threshold does not block launch.
 
 The runner builds stock CPAchecker, performs the ten-second machine preflight,
 generates the fixed 900/910/920 definition with `render-formal`, and executes
-two sequential BenchExec repetitions with distinct fixed names. The shared
-runner fixes parallelism internally by mode: cap-8 remains `-N 2 -c 4`, while
-cap-16 uses `-N 1 -c 4` after repeated Athena reboots correlated with load.
+two sequential repetitions through their frozen deterministic micro-shards.
+The shared runner fixes parallelism internally by mode: cap-8 remains
+`-N 2 -c 4`, while cap-16 uses `-N 1 -c 4` after repeated Athena reboots
+correlated with load.
 This is a scheduling-only change and does not select tasks or outcomes; there
 is no user-controlled parallelism option.
 Raw JAR bytes are not reproducible because ZIP metadata changes: two clean
@@ -634,16 +680,15 @@ Each repetition has independent machine snapshots and a counter check.
 The runner correlates each sustained-contention interval with the two
 BenchExec task timelines and taints only tasks active during the interval.
 It also taints every missing row in an `error="incomplete"` primary result.
-Completed untainted primary rows remain accepted. Tainted tasks are rerun with
-the unchanged formal protocol; a completed but contaminated replacement is
-retained as evidence and retried in a new directory until a clean replacement
-exists. An external interruption still stops the process fail-closed; the same
-plan commands can resume from its incomplete primary without discarding
-completed untainted rows. The runner then writes a hashed repetition plan before
-`summarize --hard-threshold 200`. Every missing primary row must be tainted,
-only tainted rows may be replaced, replacement definitions must contain
-exactly their declared tasks, and no accepted result artifact may be reused
-across repetitions.
+Completed untainted rows remain accepted. Tainted or incomplete tasks stay
+pending and are retried in a newly authorized attempt without changing the
+frozen shard partition. An external interruption stops the process
+fail-closed; restart reauthenticates the attempt evidence and keeps every
+already settled row. The runner exports a hashed repetition plan only after
+the ledger has settled the full cohort, then runs
+`summarize --hard-threshold 200`. Every missing row must remain pending,
+definitions contain exactly their authorized task subset, and no accepted
+result artifact may be reused across repetitions.
 `summarize` emits `row-provenance.json`, which binds every accepted row to its
 primary or replacement result hash and records the replacement reason.
 

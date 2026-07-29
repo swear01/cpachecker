@@ -135,9 +135,30 @@ CAP16_FORMAL_REPETITION_PLAN_SCHEMA = (
 FORMAL_TAINT_SCHEMA = "hard-case-formal-taint-v1"
 SCREEN_REPETITION_PLAN_SCHEMA = "hard-case-screen-repetition-plan-v1"
 SCREEN_TAINT_SCHEMA = "hard-case-screen-taint-v1"
+FORMAL_RECOVERY_PROTOCOL_SCHEMA = "hard-case-formal-recovery-protocol-v1"
+FORMAL_RECOVERY_SEED_SCHEMA = "hard-case-formal-recovery-seed-ledger-v1"
+FORMAL_RECOVERY_MIGRATION_SCHEMA = "hard-case-formal-recovery-migration-v1"
+FORMAL_RECOVERY_BOOT_EVIDENCE_SCHEMA = "hard-case-formal-boot-evidence-v1"
+FORMAL_RECOVERY_AUTHORIZATION_SCHEMA = (
+    "hard-case-formal-attempt-authorization-v1"
+)
+FORMAL_RECOVERY_PREPARATION_SCHEMA = "hard-case-formal-shard-preparation-v1"
+FORMAL_RECOVERY_LEDGER_SCHEMA = "hard-case-formal-attempt-ledger-v1"
+FORMAL_RECOVERY_ABANDONMENT_SCHEMA = "hard-case-formal-pretask-abandonment-v1"
+FORMAL_RECOVERY_REJECTION_SCHEMA = "hard-case-formal-invalid-evidence-v1"
+FORMAL_RECOVERY_PLAN_SCHEMA = "hard-case-formal-recovery-plan-v1"
+FORMAL_RUNTIME_COMMITS = {
+    "cpachecker_commit": "1848f9eb597ca99a170fd98af8aad716743a2bfe",
+    "sv_benchmarks_commit": "9cf9198156e4c8a6c517e474770158e1bb0b566d",
+    "benchexec_commit": "edb95ed3a8478366b8bb89f8cdd1d9a6c5fa8c84",
+    "jdk_sha256": (
+        "867ff62e01a0936fc0a90ceae27338be1973559767ef0717896f8d64f780ece6"
+    ),
+}
 FORMAL_TAINT_REASONS = {
     "foreign_p_core_contention",
     "interrupted_incomplete",
+    "missing_load_monitor_coverage",
 }
 FORMAL_P_CORE_CPUS = tuple(range(16))
 FORMAL_FOREIGN_CPU_PERCENT = 50.0
@@ -149,7 +170,10 @@ LEGACY_FORMAL_ATTEMPT_SCHEMA = "hard-case-formal-attempt-complete-v3"
 FORMAL_PROCESS_IDENTITY_SCHEMA = "formal-owned-process-identity-v2"
 LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA = "formal-owned-process-identity-v1"
 FORMAL_RECOVERY_SELECTION_SCHEMA = "formal-attempt-recovery-selection-v1"
-FORMAL_PROCESS_DESCRIPTOR_SCHEMA = "hard-case-formal-process-descriptor-v2"
+FORMAL_PROCESS_DESCRIPTOR_SCHEMA = "hard-case-formal-process-descriptor-v3"
+PREVIOUS_FORMAL_PROCESS_DESCRIPTOR_SCHEMA = (
+    "hard-case-formal-process-descriptor-v2"
+)
 LEGACY_FORMAL_PROCESS_DESCRIPTOR_SCHEMA = (
     "hard-case-formal-process-descriptor-v1"
 )
@@ -1683,9 +1707,10 @@ def result_metadata(path, display, time_limit, allow_incomplete=False):
       ),
   }
   error = root.get("error")
+  incomplete_errors = {"incomplete", "interrupted"} if allow_incomplete else set()
   if (
       root.tag != "result"
-      or (error is not None and (not allow_incomplete or error != "incomplete"))
+      or (error is not None and error not in incomplete_errors)
       or any(root.get(name) != value for name, value in expected.items())
   ):
     raise RuntimeError("result metadata does not match the frozen stock protocol")
@@ -1700,11 +1725,11 @@ def result_metadata(path, display, time_limit, allow_incomplete=False):
   }
   if (
       not metadata["starttime"]
-      or (not metadata["endtime"] and error != "incomplete")
+      or (not metadata["endtime"] and error not in incomplete_errors)
       or not metadata["benchmarkname"]
   ):
     raise RuntimeError("result lacks a start time, end time, or benchmark name")
-  metadata["incomplete"] = error == "incomplete"
+  metadata["incomplete"] = error in incomplete_errors
   return metadata
 
 
@@ -3565,7 +3590,7 @@ def formal_systemd_unit(output_root, mode, label):
   return f"vguide-{mode}-{label}-{digest}.scope"
 
 
-def formal_process_descriptor(args, legacy=False):
+def formal_process_descriptor(args, legacy=False, descriptor_schema=None):
   root = Path(args.output_root).resolve()
   definition = Path(args.definition).resolve()
   result_output = Path(args.result_output).resolve()
@@ -3606,8 +3631,7 @@ def formal_process_descriptor(args, legacy=False):
   )
   recovery_head = recovery_root / "research-head.txt"
   revision_runtime_is_pinned = (
-      args.mode == "cap16"
-      and recovery_match is not None
+      recovery_match is not None
       and recovery_root.parent == root / "input"
       and dataset_py == recovery_root / "scripts/dataset.py"
       and recovery_head.is_file()
@@ -3636,6 +3660,17 @@ def formal_process_descriptor(args, legacy=False):
   if args.name != expected_name:
     raise RuntimeError("formal BenchExec run name is not canonical")
   unit = formal_systemd_unit(root, args.mode, args.label)
+  schema = descriptor_schema or (
+      LEGACY_FORMAL_PROCESS_DESCRIPTOR_SCHEMA
+      if legacy
+      else FORMAL_PROCESS_DESCRIPTOR_SCHEMA
+  )
+  if schema not in {
+      FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
+      PREVIOUS_FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
+      LEGACY_FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
+  } or legacy != (schema == LEGACY_FORMAL_PROCESS_DESCRIPTOR_SCHEMA):
+    raise RuntimeError("formal process descriptor schema is invalid")
   monitor_python_flags = (
       ("-I", "-B") if legacy else PYTHON_RUNTIME_FLAGS
   )
@@ -3697,17 +3732,18 @@ def formal_process_descriptor(args, legacy=False):
       "--overlay-dir",
       str(cpachecker_dir),
       "-N",
-      "2",
+      (
+          "1"
+          if schema == FORMAL_PROCESS_DESCRIPTOR_SCHEMA
+          and args.mode == "cap16"
+          else "2"
+      ),
       "-c",
       "4",
       str(definition),
   ]
   return {
-      "schema_version": (
-          LEGACY_FORMAL_PROCESS_DESCRIPTOR_SCHEMA
-          if legacy
-          else FORMAL_PROCESS_DESCRIPTOR_SCHEMA
-      ),
+      "schema_version": schema,
       "output_root": str(root),
       "mode": args.mode,
       "label": args.label,
@@ -3792,6 +3828,7 @@ def load_formal_process_descriptor(path, output_root, mode, label, host):
       or descriptor["schema_version"]
       not in {
           FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
+          PREVIOUS_FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
           LEGACY_FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
       }
       or descriptor["output_root"] != str(Path(output_root).resolve())
@@ -3815,7 +3852,7 @@ def load_formal_process_descriptor(path, output_root, mode, label, host):
       label=descriptor["label"],
       host=descriptor["host"],
       **descriptor["inputs"],
-  ), legacy=legacy)
+  ), legacy=legacy, descriptor_schema=descriptor["schema_version"])
   if descriptor != expected:
     raise RuntimeError("formal process descriptor content is invalid")
   return descriptor
@@ -4453,6 +4490,7 @@ def formal_attempt_record(args):
             args.repetition,
             {name: path for name, (path, _) in paths.items()},
             identities,
+            args.sv_benchmarks,
         )
     )
     run_taints(
@@ -5112,13 +5150,88 @@ def formal_result_directory_digest(directory):
 
 
 def validate_markerless_recovery_identity_selection(
-    root, label, role, repetition, paths, identities
+    root,
+    label,
+    role,
+    repetition,
+    paths,
+    identities,
+    sv_benchmarks=None,
 ):
   schemas = {identity["schema_version"] for identity in identities.values()}
   if schemas == {LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA}:
     return False
   if schemas != {FORMAL_PROCESS_IDENTITY_SCHEMA}:
     raise RuntimeError("formal process identity schemas do not match")
+  root = Path(root).resolve()
+  authorization_path = root / f"provenance/authorizations/{label}.json"
+  if authorization_path.is_file() and not authorization_path.is_symlink():
+    if sv_benchmarks is None:
+      raise RuntimeError("formal recovery SV-Benchmarks root is missing")
+    protocol_root = root / "input/recovery-protocol"
+    protocol_path = protocol_root / "protocol.json"
+    seed_path = protocol_root / "seed-ledger.json"
+    manifest_path = protocol_root / "candidate-manifest.json"
+    property_file = protocol_root / "unreach-call.prp"
+    state = load_formal_recovery_ledger(
+        root,
+        protocol_path,
+        seed_path,
+        manifest_path,
+        property_file,
+        sv_benchmarks,
+    )
+    authorization = formal_recovery_authorization(
+        root, authorization_path, state
+    )
+    if (
+        authorization["label"] != label
+        or authorization["role"] != role
+        or authorization["repetition"] != repetition
+        or set(identities) != {"benchexec-launcher", "load-monitor"}
+        or {identity["boot_id"] for identity in identities.values()}
+        != {authorization["boot_id"]}
+    ):
+      raise RuntimeError("formal recovery authorization identity differs")
+    expected_paths = {
+        "definition": (
+            root / authorization["files"]["definition"]["path"]
+        ),
+        "result": (
+            root / authorization["files"]["result_directory"]
+            / Path(paths["result"]).name
+        ),
+        "benchexec_log": (
+            root / authorization["files"]["benchexec_log"]
+        ),
+        "benchexec_process": (
+            root / f"provenance/{label}-benchexec.process.json"
+        ),
+        "process_descriptor": (
+            root / authorization["files"]["process_descriptor"]["path"]
+        ),
+        "load_monitor": (
+            root / authorization["files"]["load_monitor"]
+        ),
+        "monitor_pid": (
+            root / f"provenance/{label}-load-monitor.jsonl.pid"
+        ),
+        "monitor_process": (
+            root / f"provenance/{label}-load-monitor.jsonl.process.json"
+        ),
+        "machine_before": (
+            root / authorization["files"]["machine_before"]
+        ),
+    }
+    if any(
+        Path(paths[name]).resolve() != expected
+        for name, expected in expected_paths.items()
+    ):
+      raise RuntimeError("formal recovery authorization paths differ")
+    result_tasks = result_task_names(paths["result"], state["manifest"])
+    if not set(result_tasks) <= set(authorization["authorized_tasks"]):
+      raise RuntimeError("formal recovery result exceeds authorization")
+    return False
   selections = (
       (FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION, True),
       (FROZEN_CAP16_ATHENA_ATTEMPT_2_V2_RECOVERY_SELECTION, False),
@@ -5142,7 +5255,6 @@ def validate_markerless_recovery_identity_selection(
         "formal recovery requires an exact frozen v2 selection"
     )
   selection, allow_final_log_only_completion = matches[0]
-  root = Path(root).resolve()
   for name, expected in selection["files"].items():
     path = Path(paths[name])
     expected_path = root / expected["path"]
@@ -5575,6 +5687,7 @@ def command_recover_formal_attempt(args):
       args.repetition,
       inputs,
       identities,
+      args.sv_benchmarks,
   )
   canonical_label = (
       f"repetition-{args.repetition}"
@@ -5687,6 +5800,18 @@ def command_validate_formal_closure(args):
   manifest = baseline.load_task_manifest(manifest_path)
   if len(args.repetition_plan) != 2:
     raise RuntimeError("formal closure requires exactly two repetition plans")
+  plan_schemas = [
+      json.loads(Path(plan).read_text(encoding="utf-8")).get(
+          "schema_version"
+      )
+      for plan in args.repetition_plan
+  ]
+  generic_recovery = plan_schemas == [FORMAL_RECOVERY_PLAN_SCHEMA] * 2
+  if (
+      FORMAL_RECOVERY_PLAN_SCHEMA in plan_schemas
+      and not generic_recovery
+  ):
+    raise RuntimeError("formal recovery and legacy plans cannot be mixed")
   complete = root / "summary/.complete"
   if args.require_complete:
     if (
@@ -5733,8 +5858,10 @@ def command_validate_formal_closure(args):
       raise RuntimeError(f"formal closure lacks mandatory file: {relative}")
   marker_records = {}
   marker_dir = root / "provenance/attempts"
-  markers = sorted(marker_dir.glob("*.json"))
-  if not markers:
+  markers = (
+      [] if generic_recovery else sorted(marker_dir.glob("*.json"))
+  )
+  if not markers and not generic_recovery:
     raise RuntimeError("formal closure has no attempt markers")
   for marker in markers:
     record = validate_formal_attempt_marker(
@@ -5757,7 +5884,11 @@ def command_validate_formal_closure(args):
       raise RuntimeError("formal closure repetition plan escapes output") from error
     if not plan_path.is_file() or plan_path.is_symlink():
       raise RuntimeError("formal closure repetition plan is not regular")
-    if args.mode == "cap16":
+    if generic_recovery:
+      authenticated = load_formal_recovery_plan(
+          plan_path, args.sv_benchmarks
+      )
+    elif args.mode == "cap16":
       authenticated = load_screen_plan(
           plan_path,
           manifest,
@@ -5786,6 +5917,8 @@ def command_validate_formal_closure(args):
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     authenticated_plans.append(authenticated)
     repetitions.append(plan["repetition"])
+    if generic_recovery:
+      continue
     primary_label = f"repetition-{plan['repetition']}"
     expected_attempts[primary_label] = {
         "repetition": plan["repetition"],
@@ -5819,7 +5952,10 @@ def command_validate_formal_closure(args):
   ]
   if len(authenticated_results) != len(set(authenticated_results)):
     raise RuntimeError("formal closure result artifacts are reused")
-  if {marker.stem for marker in markers} != set(expected_attempts):
+  if (
+      not generic_recovery
+      and {marker.stem for marker in markers} != set(expected_attempts)
+  ):
     raise RuntimeError(
         "formal attempt markers do not match exactly the planned attempts"
     )
@@ -5904,6 +6040,7 @@ def load_formal_contention_intervals(path, allow_trailing_nul=False):
   } or not isinstance(header.get("excluded_process_root"), int):
     raise RuntimeError("formal load-monitor policy does not match")
   intervals = []
+  coverage_start = None
   previous = None
   for line in lines[1:]:
     sample = json.loads(line)
@@ -5917,6 +6054,10 @@ def load_formal_contention_intervals(path, allow_trailing_nul=False):
     timestamp = datetime.datetime.fromisoformat(sample["timestamp"])
     if timestamp.tzinfo is None or (previous is not None and timestamp <= previous):
       raise RuntimeError("formal load-monitor timestamps are invalid")
+    if coverage_start is None:
+      coverage_start = timestamp - datetime.timedelta(
+          seconds=sample["elapsed_seconds"]
+      )
     previous = timestamp
     if not isinstance(sample["offenders"], list):
       raise RuntimeError("formal load-monitor offenders are invalid")
@@ -5950,7 +6091,7 @@ def load_formal_contention_intervals(path, allow_trailing_nul=False):
         raise RuntimeError("formal load-monitor offender is inconsistent")
       if offender["contended"]:
         intervals.append((since, timestamp))
-  return intervals, previous
+  return intervals, coverage_start, previous
 
 
 def match_benchexec_log_task(name, manifest):
@@ -5969,6 +6110,7 @@ def run_taints(
     time_limit="900 s",
     allow_trailing_nul=False,
     allow_final_log_only_completion=False,
+    allow_missing_monitor_coverage=False,
 ):
   result = Path(result).resolve()
   metadata = result_metadata(
@@ -5980,10 +6122,15 @@ def run_taints(
       row["task"]: row
       for row in baseline.parse_result_rows(result, subset, 200)
   }
-  intervals, monitor_end = load_formal_contention_intervals(
+  intervals, monitor_start, monitor_end = load_formal_contention_intervals(
       load_monitor, allow_trailing_nul
   )
   start_date = datetime.datetime.fromisoformat(metadata["starttime"])
+  result_end = (
+      datetime.datetime.fromisoformat(metadata["endtime"])
+      if metadata["endtime"]
+      else None
+  )
   day = start_date.date()
   previous_clock = start_date.timetz().replace(tzinfo=None)
   starts = {}
@@ -6019,7 +6166,7 @@ def run_taints(
     raise RuntimeError("BenchExec log completes a task that it never started")
   if any(ended < starts[task] for task, ended in ends.items()):
     raise RuntimeError("BenchExec log completes a task before it starts")
-  if monitor_end is not None and any(
+  if not allow_missing_monitor_coverage and monitor_end is not None and any(
       timestamp > monitor_end
       for timestamp in (*starts.values(), *ends.values())
   ):
@@ -6063,7 +6210,19 @@ def run_taints(
     ended = ends.get(task, monitor_end)
     if ended is None:
       raise RuntimeError("load monitor ended before an active task could be bounded")
+    if (task in ends and ended < started) or (
+        task in complete and result_end is not None and ended > result_end
+    ):
+      raise RuntimeError("BenchExec task timeline is invalid")
     ended += datetime.timedelta(seconds=1)
+    if result_end is not None:
+      ended = min(ended, result_end)
+    if (
+        allow_missing_monitor_coverage
+        and task in complete
+        and (started < monitor_start or ended > monitor_end)
+    ):
+      tainted.setdefault(task, "missing_load_monitor_coverage")
     if any(started <= stop and ended >= begin for begin, stop in intervals):
       tainted.setdefault(task, "foreign_p_core_contention")
   return tainted
@@ -6173,6 +6332,2142 @@ def row_is_complete(row):
       and row["cpu_time_seconds"] is not None
       and row["wall_time_seconds"] is not None
   )
+
+
+def task_set_sha256(tasks):
+  return sha256_text("".join(f"{task}\n" for task in sorted(tasks)))
+
+
+def recovery_file_entry(path, root):
+  declared = Path(path)
+  path = Path(os.path.abspath(declared))
+  root = Path(root).resolve()
+  try:
+    relative = path.relative_to(root)
+  except ValueError as error:
+    raise RuntimeError("formal recovery evidence escapes output root") from error
+  if (
+      declared.resolve() != path
+      or path.is_symlink()
+      or not path.is_file()
+  ):
+    raise RuntimeError("formal recovery evidence is not a regular file")
+  return {
+      "path": relative.as_posix(),
+      "sha256": baseline.sha256_file(path),
+  }
+
+
+def validate_recovery_file_entry(root, entry, label):
+  if (
+      not isinstance(entry, dict)
+      or set(entry) != {"path", "sha256"}
+      or not isinstance(entry["path"], str)
+      or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
+  ):
+    raise RuntimeError(f"{label} file entry is invalid")
+  relative = Path(entry["path"])
+  if relative.is_absolute() or ".." in relative.parts:
+    raise RuntimeError(f"{label} file entry escapes output root")
+  path = Path(root).resolve() / relative
+  if (
+      path.resolve() != Path(os.path.abspath(path))
+      or path.is_symlink()
+      or not path.is_file()
+      or baseline.sha256_file(path) != entry["sha256"]
+  ):
+    raise RuntimeError(f"{label} file entry differs")
+  return path
+
+
+def load_formal_recovery_seed(path, manifest_path, manifest):
+  path = Path(path).resolve()
+  data = json.loads(path.read_text(encoding="utf-8"))
+  provenance_keys = {
+      "definition",
+      "result",
+      "benchexec_log",
+      "load_monitor",
+      "taint_manifest",
+      "boot_evidence",
+      "runtime_closure",
+      "migration_manifest",
+      "attempt_marker",
+      "machine_before",
+      "process_descriptor",
+  }
+  if (
+      not isinstance(data, dict)
+      or set(data) != {
+          "schema_version",
+          "parent_manifest_sha256",
+          "rows",
+      }
+      or data["schema_version"] != FORMAL_RECOVERY_SEED_SCHEMA
+      or data["parent_manifest_sha256"]
+      != baseline.sha256_file(Path(manifest_path))
+      or not isinstance(data["rows"], list)
+  ):
+    raise RuntimeError("formal recovery seed ledger is invalid")
+  identities = []
+  rows = {}
+  for entry in data["rows"]:
+    if (
+        not isinstance(entry, dict)
+        or set(entry) != {
+            "repetition",
+            "task",
+            "classification",
+            "row",
+            "provenance",
+        }
+        or entry["repetition"] not in {1, 2}
+        or not isinstance(entry["task"], str)
+        or entry["task"] not in manifest
+        or entry["classification"]
+        not in {"accepted_and_reusable", "verifier_failure"}
+        or not isinstance(entry["row"], dict)
+        or entry["row"].get("task") != entry["task"]
+        or not row_is_complete(entry["row"])
+        or not isinstance(entry["provenance"], dict)
+        or set(entry["provenance"]) != provenance_keys | {"attempt_id"}
+        or not isinstance(entry["provenance"]["attempt_id"], str)
+        or not entry["provenance"]["attempt_id"]
+        or any(
+            value is not None
+            and (
+                not isinstance(value, dict)
+                or set(value) != {"path", "sha256"}
+                or not isinstance(value["path"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", value["sha256"])
+            )
+            for label, value in entry["provenance"].items()
+            if label != "attempt_id"
+        )
+        or entry["provenance"]["definition"] is None
+        or entry["provenance"]["result"] is None
+        or entry["provenance"]["benchexec_log"] is None
+        or entry["provenance"]["load_monitor"] is None
+        or entry["provenance"]["taint_manifest"] is None
+        or entry["provenance"]["boot_evidence"] is None
+        or entry["provenance"]["runtime_closure"] is None
+        or entry["provenance"]["migration_manifest"] is None
+    ):
+      raise RuntimeError("formal recovery seed row is invalid")
+    expected_classification = (
+        "accepted_and_reusable"
+        if entry["row"]["category"] == "correct"
+        or is_analysis_unsolved(entry["row"])
+        else "verifier_failure"
+    )
+    if entry["classification"] != expected_classification:
+      raise RuntimeError("formal recovery seed classification differs")
+    identity = (entry["repetition"], entry["task"])
+    if identity in rows:
+      raise RuntimeError("formal recovery seed row is duplicated")
+    identities.append(identity)
+    rows[identity] = entry
+  if identities != sorted(identities):
+    raise RuntimeError("formal recovery seed rows are not sorted")
+  return data, rows
+
+
+def validate_formal_boot_evidence(path, attempt_id, host):
+  data = json.loads(Path(path).read_text(encoding="utf-8"))
+  if (
+      not isinstance(data, dict)
+      or set(data) != {
+          "schema_version",
+          "attempt_id",
+          "host",
+          "boot_id",
+          "method",
+          "records",
+      }
+      or data["schema_version"] != FORMAL_RECOVERY_BOOT_EVIDENCE_SCHEMA
+      or data["attempt_id"] != attempt_id
+      or data["host"] != host
+      or not re.fullmatch(
+          r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+          r"[0-9a-f]{4}-[0-9a-f]{12}",
+          data["boot_id"],
+      )
+      or data["method"]
+      not in {"systemd_journal_record", "owned_process_identity"}
+      or not isinstance(data["records"], list)
+      or not data["records"]
+  ):
+    raise RuntimeError("formal recovery boot evidence is invalid")
+  encoded = json.dumps(data["records"], sort_keys=True)
+  if data["boot_id"].replace("-", "") not in encoded.replace("-", "") or (
+      attempt_id not in encoded
+  ):
+    raise RuntimeError("formal recovery boot evidence does not bind the attempt")
+  if data["method"] == "systemd_journal_record":
+    if not any(
+        isinstance(record, dict)
+        and record.get("_BOOT_ID", "").replace("-", "")
+        == data["boot_id"].replace("-", "")
+        and record.get("_HOSTNAME") == host
+        and attempt_id in record.get("MESSAGE", "")
+        for record in data["records"]
+    ):
+      raise RuntimeError("formal recovery journal boot record differs")
+  elif not any(
+      isinstance(record, dict)
+      and record.get("boot_id") == data["boot_id"]
+      and attempt_id in json.dumps(record.get("argv"), sort_keys=True)
+      for record in data["records"]
+  ):
+    raise RuntimeError("formal recovery process boot record differs")
+  return data
+
+
+def command_build_formal_recovery_seed(args):
+  root = Path(args.output_root).resolve()
+  manifest_path = Path(args.manifest).resolve()
+  manifest = baseline.load_task_manifest(manifest_path)
+  migration_path = Path(args.migration_manifest).resolve()
+  migration = json.loads(migration_path.read_text(encoding="utf-8"))
+  expected_host = "athena" if args.mode == "cap16" else "valkyrie"
+  if (
+      not isinstance(migration, dict)
+      or set(migration) != {
+          "schema_version",
+          "parent_manifest_sha256",
+          "mode",
+          "host",
+          "attempts",
+      }
+      or migration["schema_version"] != FORMAL_RECOVERY_MIGRATION_SCHEMA
+      or migration["parent_manifest_sha256"]
+      != baseline.sha256_file(manifest_path)
+      or migration["mode"] != args.mode
+      or migration["host"] != expected_host
+      or not isinstance(migration["attempts"], list)
+  ):
+    raise RuntimeError("formal recovery migration manifest is invalid")
+  migration_entry = recovery_file_entry(migration_path, root)
+  rows = {}
+  attempt_ids = set()
+  file_keys = {
+      "definition",
+      "result",
+      "benchexec_log",
+      "load_monitor",
+      "taint_manifest",
+      "boot_evidence",
+      "runtime_closure",
+      "attempt_marker",
+      "process_descriptor",
+      "machine_before",
+  }
+  for attempt in migration["attempts"]:
+    if (
+        not isinstance(attempt, dict)
+        or set(attempt) != {
+            "id",
+            "repetition",
+            "completion_state",
+            "task_set_sha256",
+            "runtime",
+            "files",
+        }
+        or not isinstance(attempt["id"], str)
+        or not attempt["id"]
+        or attempt["id"] in attempt_ids
+        or attempt["repetition"] not in {1, 2}
+        or attempt["completion_state"] not in {"complete", "interrupted"}
+        or not re.fullmatch(r"[0-9a-f]{64}", attempt["task_set_sha256"])
+        or not isinstance(attempt["files"], dict)
+        or set(attempt["files"]) != file_keys
+    ):
+      raise RuntimeError("formal recovery migration attempt is invalid")
+    validate_formal_migration_runtime(attempt["runtime"], args.mode)
+    attempt_ids.add(attempt["id"])
+    files = {}
+    for label, entry in attempt["files"].items():
+      if entry is None:
+        if label not in {
+            "attempt_marker",
+            "process_descriptor",
+            "machine_before",
+        }:
+          raise RuntimeError("formal recovery migration evidence is missing")
+        files[label] = None
+      else:
+        files[label] = validate_recovery_file_entry(
+            root, entry, f"migration {label}"
+        )
+    boot = validate_formal_boot_evidence(
+        files["boot_evidence"], attempt["id"], expected_host
+    )
+    if (
+        baseline.sha256_file(files["runtime_closure"])
+        != attempt["runtime"]["configuration_closure_sha256"]
+    ):
+      raise RuntimeError("formal recovery migration runtime closure differs")
+    definition_tasks = migration_definition_manifest_tasks(
+        files["definition"],
+        manifest_path,
+        manifest,
+        args.sv_benchmarks,
+    )
+    if attempt["task_set_sha256"] != task_set_sha256(definition_tasks):
+      raise RuntimeError("formal recovery migration task set differs")
+    metadata = result_metadata(
+        files["result"], FORMAL_DISPLAY, "900 s", allow_incomplete=True
+    )
+    if (
+        metadata["host"] != expected_host
+        or metadata["incomplete"]
+        != (attempt["completion_state"] == "interrupted")
+    ):
+      raise RuntimeError("formal recovery migration completion state differs")
+    result_tasks = result_task_names(files["result"], manifest)
+    if not set(result_tasks) <= set(definition_tasks):
+      raise RuntimeError("formal recovery migration result exceeds its task set")
+    subset = {task: manifest[task] for task in result_tasks}
+    validate_result_run_topology(
+        files["result"], subset, args.sv_benchmarks, files["definition"]
+    )
+    parsed = {
+        row["task"]: row
+        for row in baseline.parse_result_rows(files["result"], subset, 200)
+    }
+    tainted = validate_taint_manifest(
+        json.loads(files["taint_manifest"].read_text(encoding="utf-8")),
+        attempt["repetition"],
+        baseline.sha256_file(files["result"]),
+        manifest,
+    )
+    marker = None
+    descriptor = None
+    if files["process_descriptor"] is not None:
+      descriptor = load_formal_process_descriptor(
+          files["process_descriptor"],
+          root,
+          args.mode,
+          attempt["id"],
+          expected_host,
+      )
+      launcher_argv = descriptor["identities"]["benchexec-launcher"]["argv"]
+      workers = int(launcher_argv[launcher_argv.index("-N") + 1])
+      if workers != attempt["runtime"]["workers"]:
+        raise RuntimeError("formal recovery migration workers differ")
+    if files["attempt_marker"] is not None:
+      marker = validate_formal_attempt_marker(
+          files["attempt_marker"],
+          root,
+          manifest_path,
+          args.sv_benchmarks,
+          expected_host,
+          args.mode,
+      )
+      expected_marker_files = {
+          "definition": files["definition"],
+          "result": files["result"],
+          "benchexec_log": files["benchexec_log"],
+          "load_monitor": files["load_monitor"],
+          "process_descriptor": files["process_descriptor"],
+          "machine_before": files["machine_before"],
+      }
+      if (
+          marker["label"] != attempt["id"]
+          or marker["repetition"] != attempt["repetition"]
+          or sorted(marker["result_tasks"]) != sorted(result_tasks)
+          or any(
+              path is None
+              or marker["files"][label]
+              != attempt["files"][label]
+              for label, path in expected_marker_files.items()
+          )
+      ):
+        raise RuntimeError("formal recovery migration marker differs")
+      if boot["method"] == "owned_process_identity":
+        expected_processes = [
+            json.loads(
+                (root / marker["files"][label]["path"]).read_text(
+                    encoding="utf-8"
+                )
+            )
+            for label in ("benchexec_process", "monitor_process")
+        ]
+        if (
+            boot["records"] != expected_processes
+            or any(
+                record.get("boot_id") != boot["boot_id"]
+                for record in expected_processes
+            )
+        ):
+          raise RuntimeError(
+              "formal recovery migration process boot record differs"
+          )
+    recomputed_taint = run_taints(
+        files["result"],
+        files["benchexec_log"],
+        files["load_monitor"],
+        manifest,
+        allow_trailing_nul=(
+            marker is not None and marker["benchexec_exit"] == 125
+        ),
+        allow_final_log_only_completion=(
+            marker is not None
+            and marker_authorizes_final_log_only_completion(marker)
+        ),
+        allow_missing_monitor_coverage=marker is None,
+    )
+    if tainted != recomputed_taint:
+      raise RuntimeError("formal recovery migration taint differs")
+    if not set(tainted) <= set(definition_tasks):
+      raise RuntimeError("formal recovery migration taint exceeds its task set")
+    for task in sorted(result_tasks):
+      row = parsed[task]
+      if not row_is_complete(row) or task in tainted:
+        continue
+      classification = (
+          "accepted_and_reusable"
+          if row["category"] == "correct" or is_analysis_unsolved(row)
+          else "verifier_failure"
+      )
+      identity = (attempt["repetition"], task)
+      if identity in rows:
+        raise RuntimeError("formal recovery migration has conflicting rows")
+      rows[identity] = {
+          "repetition": attempt["repetition"],
+          "task": task,
+          "classification": classification,
+          "row": row,
+          "provenance": {
+              "attempt_id": attempt["id"],
+              **{
+                  label: (
+                      None
+                      if entry is None
+                      else attempt["files"][label]
+                  )
+                  for label, entry in files.items()
+              },
+              "migration_manifest": migration_entry,
+          },
+      }
+  seed = {
+      "schema_version": FORMAL_RECOVERY_SEED_SCHEMA,
+      "parent_manifest_sha256": baseline.sha256_file(manifest_path),
+      "rows": [rows[identity] for identity in sorted(rows)],
+  }
+  if args.output is None:
+    return seed
+  output = Path(args.output).resolve()
+  if output.exists() or output.is_symlink():
+    raise RuntimeError("formal recovery seed output already exists")
+  output.parent.mkdir(parents=True, exist_ok=True)
+  output.write_text(
+      json.dumps(seed, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+  )
+  load_formal_recovery_seed(output, manifest_path, manifest)
+  validate_seed_evidence(
+      root,
+      rows,
+      manifest,
+      expected_host,
+      manifest_path,
+      args.sv_benchmarks,
+      args.mode,
+  )
+  print(output)
+
+
+def validate_formal_runtime(runtime, allowed_workers):
+  if (
+      not isinstance(runtime, dict)
+      or set(runtime) != {
+          "cpachecker_commit",
+          "sv_benchmarks_commit",
+          "benchexec_commit",
+          "jdk_sha256",
+          "configuration_closure_sha256",
+          "solver",
+          "limits",
+          "workers",
+          "cores_per_worker",
+          "p_cores",
+      }
+      or not re.fullmatch(r"[0-9a-f]{40}", runtime["cpachecker_commit"])
+      or not re.fullmatch(
+          r"[0-9a-f]{40}", runtime["sv_benchmarks_commit"]
+      )
+      or not re.fullmatch(r"[0-9a-f]{40}", runtime["benchexec_commit"])
+      or not re.fullmatch(r"[0-9a-f]{64}", runtime["jdk_sha256"])
+      or not re.fullmatch(
+          r"[0-9a-f]{64}", runtime["configuration_closure_sha256"]
+      )
+      or not isinstance(runtime["solver"], str)
+      or runtime["solver"] != "MathSAT5"
+      or any(
+          runtime[name] != value
+          for name, value in FORMAL_RUNTIME_COMMITS.items()
+      )
+      or runtime["limits"]
+      != {
+          "cpu": "900 s",
+          "hard_cpu": "910 s",
+          "wall": "920 s",
+          "memory": "15 GB",
+          "heap": "10000M",
+      }
+      or runtime["workers"] not in allowed_workers
+      or runtime["cores_per_worker"] != 4
+      or runtime["p_cores"] != FORMAL_P_CORE_LIST
+  ):
+    raise RuntimeError("formal recovery runtime closure is invalid")
+
+
+def validate_formal_recovery_runtime(runtime, mode):
+  validate_formal_runtime(runtime, {1 if mode == "cap16" else 2})
+
+
+def validate_formal_migration_runtime(runtime, mode):
+  validate_formal_runtime(runtime, {1, 2} if mode == "cap16" else {2})
+
+
+def load_formal_recovery_protocol(
+    path, seed_path, manifest_path, property_file
+):
+  path = Path(path).resolve()
+  seed_path = Path(seed_path).resolve()
+  manifest_path = Path(manifest_path).resolve()
+  property_file = Path(property_file).resolve()
+  manifest = baseline.load_task_manifest(manifest_path)
+  seed, seed_rows = load_formal_recovery_seed(
+      seed_path, manifest_path, manifest
+  )
+  data = json.loads(path.read_text(encoding="utf-8"))
+  if (
+      not isinstance(data, dict)
+      or set(data) != {
+          "schema_version",
+          "source_commit",
+          "mode",
+          "host",
+          "parent_manifest_sha256",
+          "property_sha256",
+          "seed_ledger_sha256",
+          "runtime",
+          "shard_size",
+          "repetitions",
+      }
+      or data["schema_version"] != FORMAL_RECOVERY_PROTOCOL_SCHEMA
+      or not re.fullmatch(r"[0-9a-f]{40}", data["source_commit"])
+      or data["mode"] not in {"cap8", "cap16"}
+      or data["host"]
+      != ("athena" if data["mode"] == "cap16" else "valkyrie")
+      or data["parent_manifest_sha256"]
+      != baseline.sha256_file(manifest_path)
+      or data["property_sha256"] != baseline.sha256_file(property_file)
+      or data["seed_ledger_sha256"] != baseline.sha256_file(seed_path)
+      or data["shard_size"] != (8 if data["mode"] == "cap16" else 16)
+      or not isinstance(data["repetitions"], list)
+      or len(data["repetitions"]) != 2
+  ):
+    raise RuntimeError("formal recovery protocol identity is invalid")
+  validate_formal_recovery_runtime(data["runtime"], data["mode"])
+  parent_order = list(manifest)
+  for repetition, record in enumerate(data["repetitions"], start=1):
+    settled = {
+        task
+        for (candidate_repetition, task), _ in seed_rows.items()
+        if candidate_repetition == repetition
+    }
+    expected_pending = [
+        task for task in parent_order if task not in settled
+    ]
+    if (
+        not isinstance(record, dict)
+        or set(record) != {
+            "repetition",
+            "pending_tasks",
+            "pending_task_set_sha256",
+            "shards",
+        }
+        or record["repetition"] != repetition
+        or record["pending_tasks"] != expected_pending
+        or record["pending_task_set_sha256"]
+        != task_set_sha256(expected_pending)
+        or not isinstance(record["shards"], list)
+    ):
+      raise RuntimeError("formal recovery repetition protocol differs")
+    expected_shards = []
+    for index in range(0, len(expected_pending), data["shard_size"]):
+      tasks = expected_pending[index:index + data["shard_size"]]
+      digest = task_set_sha256(tasks)
+      expected_shards.append({
+          "index": len(expected_shards),
+          "id": f"r{repetition}-s{len(expected_shards):03d}-{digest[:12]}",
+          "task_set_sha256": digest,
+          "tasks": tasks,
+      })
+    if record["shards"] != expected_shards:
+      raise RuntimeError("formal recovery shard partition differs")
+  return data, seed, manifest, seed_rows
+
+
+def command_freeze_formal_recovery_protocol(args):
+  output = Path(args.output).resolve()
+  if output.exists() or output.is_symlink():
+    raise RuntimeError("formal recovery protocol output already exists")
+  manifest_path = Path(args.manifest).resolve()
+  property_file = Path(args.property_file).resolve()
+  manifest = baseline.load_task_manifest(manifest_path)
+  _, seed_rows = load_formal_recovery_seed(
+      args.seed_ledger, manifest_path, manifest
+  )
+  runtime = json.loads(Path(args.runtime_closure).read_text(encoding="utf-8"))
+  validate_formal_recovery_runtime(runtime, args.mode)
+  repetitions = []
+  parent_order = list(manifest)
+  shard_size = 8 if args.mode == "cap16" else 16
+  for repetition in (1, 2):
+    settled = {
+        task
+        for (candidate_repetition, task), _ in seed_rows.items()
+        if candidate_repetition == repetition
+    }
+    pending = [task for task in parent_order if task not in settled]
+    shards = []
+    for start in range(0, len(pending), shard_size):
+      tasks = pending[start:start + shard_size]
+      digest = task_set_sha256(tasks)
+      shards.append({
+          "index": len(shards),
+          "id": f"r{repetition}-s{len(shards):03d}-{digest[:12]}",
+          "task_set_sha256": digest,
+          "tasks": tasks,
+      })
+    repetitions.append({
+        "repetition": repetition,
+        "pending_tasks": pending,
+        "pending_task_set_sha256": task_set_sha256(pending),
+        "shards": shards,
+    })
+  protocol = {
+      "schema_version": FORMAL_RECOVERY_PROTOCOL_SCHEMA,
+      "source_commit": args.source_commit,
+      "mode": args.mode,
+      "host": "athena" if args.mode == "cap16" else "valkyrie",
+      "parent_manifest_sha256": baseline.sha256_file(manifest_path),
+      "property_sha256": baseline.sha256_file(property_file),
+      "seed_ledger_sha256": baseline.sha256_file(Path(args.seed_ledger)),
+      "runtime": runtime,
+      "shard_size": shard_size,
+      "repetitions": repetitions,
+  }
+  output.parent.mkdir(parents=True, exist_ok=True)
+  output.write_text(
+      json.dumps(protocol, indent=2, sort_keys=True) + "\n",
+      encoding="utf-8",
+  )
+  load_formal_recovery_protocol(
+      output, args.seed_ledger, manifest_path, property_file
+  )
+  print(output)
+
+
+def validate_seed_evidence(
+    root,
+    seed_rows,
+    manifest,
+    host,
+    manifest_path,
+    sv_benchmarks,
+    mode,
+):
+  root = Path(root).resolve()
+  migrations = {}
+  for entry in seed_rows.values():
+    migration_entry = entry["provenance"]["migration_manifest"]
+    migration_path = validate_recovery_file_entry(
+        root, migration_entry, "seed migration manifest"
+    )
+    migrations[(migration_entry["path"], migration_entry["sha256"])] = (
+        migration_path
+    )
+  expected_rows = {}
+  for migration_path in migrations.values():
+    rebuilt = command_build_formal_recovery_seed(argparse.Namespace(
+        output_root=str(root),
+        migration_manifest=str(migration_path),
+        manifest=str(Path(manifest_path).resolve()),
+        sv_benchmarks=str(Path(sv_benchmarks).resolve()),
+        mode=mode,
+        output=None,
+    ))
+    for row in rebuilt["rows"]:
+      identity = (row["repetition"], row["task"])
+      if identity in expected_rows:
+        raise RuntimeError("formal recovery seed has conflicting migrations")
+      expected_rows[identity] = row
+  if host != ("athena" if mode == "cap16" else "valkyrie"):
+    raise RuntimeError("formal recovery seed host differs")
+  if expected_rows != seed_rows:
+    raise RuntimeError("formal recovery seed replay differs")
+
+
+def formal_recovery_ledger_rows(
+    root, authorization, marker, taint_entry, manifest
+):
+  root = Path(root).resolve()
+  if (
+      not isinstance(marker, dict)
+      or marker.get("schema_version") != FORMAL_ATTEMPT_SCHEMA
+      or marker.get("label") != authorization["label"]
+      or marker.get("role") != "replacement"
+      or marker.get("repetition") != authorization["repetition"]
+      or not isinstance(marker.get("result_tasks"), list)
+      or not set(marker["result_tasks"])
+      <= set(authorization["authorized_tasks"])
+      or not isinstance(marker.get("files"), dict)
+  ):
+    raise RuntimeError("formal recovery ledger marker identity is invalid")
+  for label, file_entry in marker["files"].items():
+    validate_recovery_file_entry(root, file_entry, f"marker {label}")
+  result = root / marker["files"]["result"]["path"]
+  result_subset = {
+      task: manifest[task] for task in marker["result_tasks"]
+  }
+  parsed = {
+      row["task"]: row
+      for row in baseline.parse_result_rows(result, result_subset, 200)
+  }
+  taint_path = validate_recovery_file_entry(
+      root, taint_entry, "ledger taint manifest"
+  )
+  tainted = validate_taint_manifest(
+      json.loads(taint_path.read_text(encoding="utf-8")),
+      authorization["repetition"],
+      marker["files"]["result"]["sha256"],
+      manifest,
+  )
+  recomputed_taint = run_taints(
+      result,
+      root / marker["files"]["benchexec_log"]["path"],
+      root / marker["files"]["load_monitor"]["path"],
+      manifest,
+      allow_trailing_nul=marker["benchexec_exit"] == 125,
+      allow_final_log_only_completion=(
+          marker_authorizes_final_log_only_completion(marker)
+      ),
+  )
+  if tainted != recomputed_taint:
+    raise RuntimeError("formal recovery ledger taint differs")
+  if not set(tainted) <= set(authorization["authorized_tasks"]):
+    raise RuntimeError("formal recovery ledger taint exceeds authorization")
+  provenance = {
+      "definition": marker["files"]["definition"],
+      "result": marker["files"]["result"],
+      "benchexec_log": marker["files"]["benchexec_log"],
+      "load_monitor": marker["files"]["load_monitor"],
+      "taint_manifest": taint_entry,
+      "attempt_marker": None,
+      "machine_before": marker["files"]["machine_before"],
+      "process_descriptor": marker["files"]["process_descriptor"],
+  }
+  rows = []
+  for task in authorization["authorized_tasks"]:
+    row = parsed.get(task)
+    classification, settled = classify_formal_recovery_row(
+        row, task in tainted
+    )
+    if row is not None and not row_is_complete(row) and task not in tainted:
+      raise RuntimeError("incomplete formal recovery row is not tainted")
+    rows.append({
+        "task": task,
+        "classification": classification,
+        "settled": settled,
+        "row": row,
+        "provenance": provenance,
+    })
+  return rows
+
+
+def load_formal_recovery_ledger(
+    root,
+    protocol_path,
+    seed_path,
+    manifest_path,
+    property_file,
+    sv_benchmarks,
+):
+  root = Path(root).resolve()
+  protocol, seed, manifest, seed_rows = load_formal_recovery_protocol(
+      protocol_path, seed_path, manifest_path, property_file
+  )
+  validate_seed_evidence(
+      root,
+      seed_rows,
+      manifest,
+      protocol["host"],
+      manifest_path,
+      sv_benchmarks,
+      protocol["mode"],
+  )
+  protocol_sha256 = baseline.sha256_file(Path(protocol_path))
+  seed_sha256 = baseline.sha256_file(Path(seed_path))
+  validation_state = {
+      "protocol": protocol,
+      "protocol_sha256": protocol_sha256,
+      "seed_sha256": seed_sha256,
+      "manifest": manifest,
+      "manifest_path": Path(manifest_path).resolve(),
+      "sv_benchmarks": Path(sv_benchmarks).resolve(),
+  }
+  settled = dict(seed_rows)
+  attempts = []
+  entries = root / "provenance/formal-ledger/entries"
+  if entries.exists():
+    if entries.is_symlink() or not entries.is_dir():
+      raise RuntimeError("formal recovery ledger entry root is invalid")
+    for path in sorted(entries.iterdir()):
+      if path.is_symlink() or not path.is_file() or path.suffix != ".json":
+        raise RuntimeError("formal recovery ledger topology is invalid")
+      entry = json.loads(path.read_text(encoding="utf-8"))
+      if (
+          not isinstance(entry, dict)
+          or set(entry) != {
+              "schema_version",
+              "protocol_sha256",
+              "seed_ledger_sha256",
+              "authorization",
+              "attempt_marker",
+              "taint_manifest",
+              "repetition",
+              "shard_id",
+              "rows",
+          }
+          or entry["schema_version"] != FORMAL_RECOVERY_LEDGER_SCHEMA
+          or entry["protocol_sha256"] != protocol_sha256
+          or entry["seed_ledger_sha256"] != seed_sha256
+          or entry["repetition"] not in {1, 2}
+          or not isinstance(entry["shard_id"], str)
+          or not isinstance(entry["rows"], list)
+          or path.stem != entry["attempt_marker"]["sha256"]
+      ):
+        raise RuntimeError("formal recovery ledger entry is invalid")
+      authorization_path = validate_recovery_file_entry(
+          root, entry["authorization"], "ledger authorization"
+      )
+      marker_path = validate_recovery_file_entry(
+          root, entry["attempt_marker"], "ledger attempt marker"
+      )
+      authorization = formal_recovery_authorization(
+          root, authorization_path, validation_state
+      )
+      marker = validate_formal_attempt_marker(
+          marker_path,
+          root,
+          Path(manifest_path).resolve(),
+          sv_benchmarks,
+          protocol["host"],
+          protocol["mode"],
+      )
+      for identity_name in ("benchexec_process", "monitor_process"):
+        identity_path = validate_recovery_file_entry(
+            root,
+            marker["files"][identity_name],
+            f"ledger {identity_name}",
+        )
+        identity = load_attempt_process_identity(
+            identity_path, root, authorization["label"]
+        )
+        if identity["boot_id"] != authorization["boot_id"]:
+          raise RuntimeError(
+              "formal recovery ledger process boot differs from authorization"
+          )
+      expected_rows = formal_recovery_ledger_rows(
+          root,
+          authorization,
+          marker,
+          entry["taint_manifest"],
+          manifest,
+      )
+      expected_provenance = {
+          **expected_rows[0]["provenance"],
+          "attempt_marker": entry["attempt_marker"],
+      } if expected_rows else None
+      for row in expected_rows:
+        row["provenance"] = expected_provenance
+      if (
+          entry["repetition"] != authorization["repetition"]
+          or entry["shard_id"] != authorization["shard_id"]
+          or entry["rows"] != expected_rows
+      ):
+        raise RuntimeError("formal recovery ledger content differs")
+      identities = []
+      for row in entry["rows"]:
+        if (
+            not isinstance(row, dict)
+            or set(row) != {
+                "task",
+                "classification",
+                "settled",
+                "row",
+                "provenance",
+            }
+            or row["task"] not in manifest
+            or row["classification"]
+            not in {
+                "accepted_and_reusable",
+                "complete_but_tainted",
+                "structurally_incomplete",
+                "verifier_failure",
+            }
+            or row["settled"]
+            != (
+                row["classification"]
+                in {"accepted_and_reusable", "verifier_failure"}
+            )
+            or (
+                row["row"] is not None
+                and (
+                    not isinstance(row["row"], dict)
+                    or row["row"].get("task") != row["task"]
+                )
+            )
+            or not isinstance(row["provenance"], dict)
+        ):
+          raise RuntimeError("formal recovery ledger row is invalid")
+        identities.append(row["task"])
+        if row["settled"]:
+          identity = (entry["repetition"], row["task"])
+          if identity in settled:
+            raise RuntimeError("formal recovery ledger has conflicting rows")
+          settled[identity] = {
+              "repetition": entry["repetition"],
+              "task": row["task"],
+              "classification": row["classification"],
+              "row": row["row"],
+              "provenance": row["provenance"],
+          }
+      if identities != sorted(identities) or len(set(identities)) != len(
+          identities
+      ):
+        raise RuntimeError("formal recovery ledger rows are not sorted")
+      attempts.append((path, entry))
+  pending = {}
+  for record in protocol["repetitions"]:
+    repetition = record["repetition"]
+    pending[repetition] = [
+        task
+        for task in record["pending_tasks"]
+        if (repetition, task) not in settled
+    ]
+  abandonments = []
+  abandonment_root = root / "provenance/formal-ledger/abandonments"
+  if abandonment_root.exists():
+    if abandonment_root.is_symlink() or not abandonment_root.is_dir():
+      raise RuntimeError("formal recovery abandonment root is invalid")
+    for path in sorted(abandonment_root.iterdir()):
+      if path.is_symlink() or not path.is_file() or path.suffix != ".json":
+        raise RuntimeError("formal recovery abandonment topology is invalid")
+      abandonments.append(
+          formal_recovery_abandonment(
+              root,
+              path,
+              validation_state,
+          )
+      )
+  rejections = []
+  rejection_root = root / "provenance/formal-ledger/rejections"
+  if rejection_root.exists():
+    if rejection_root.is_symlink() or not rejection_root.is_dir():
+      raise RuntimeError("formal recovery rejection root is invalid")
+    for path in sorted(rejection_root.iterdir()):
+      if path.is_symlink() or not path.is_file() or path.suffix != ".json":
+        raise RuntimeError("formal recovery rejection topology is invalid")
+      record = json.loads(path.read_text(encoding="utf-8"))
+      if (
+          not isinstance(record, dict)
+          or set(record) != {
+              "schema_version",
+              "protocol_sha256",
+              "seed_ledger_sha256",
+              "completion_state",
+              "label",
+              "authorization",
+              "error",
+              "error_sha256",
+              "rows",
+          }
+          or record["schema_version"] != FORMAL_RECOVERY_REJECTION_SCHEMA
+          or record["protocol_sha256"] != protocol_sha256
+          or record["seed_ledger_sha256"] != seed_sha256
+          or record["completion_state"] != "invalid_evidence"
+          or path.stem != record["label"]
+          or not isinstance(record["error"], str)
+          or not record["error"]
+          or record["error_sha256"] != sha256_text(record["error"])
+          or not isinstance(record["rows"], list)
+      ):
+        raise RuntimeError("formal recovery rejection is invalid")
+      authorization_path = validate_recovery_file_entry(
+          root, record["authorization"], "rejection authorization"
+      )
+      authorization = formal_recovery_authorization(
+          root, authorization_path, validation_state
+      )
+      expected_rows = [
+          {
+              "task": task,
+              "classification": "invalid_evidence",
+              "settled": False,
+          }
+          for task in authorization["authorized_tasks"]
+      ]
+      if (
+          authorization["label"] != record["label"]
+          or record["rows"] != expected_rows
+      ):
+        raise RuntimeError("formal recovery rejection rows differ")
+      rejections.append(record)
+  accepted_labels = {
+      entry["attempt_marker"]["path"].rsplit("/", 1)[-1].removesuffix(
+          ".json"
+      )
+      for _, entry in attempts
+  }
+  abandoned_labels = {record["label"] for record in abandonments}
+  rejected_labels = {record["label"] for record in rejections}
+  if (
+      accepted_labels & abandoned_labels
+      or accepted_labels & rejected_labels
+      or abandoned_labels & rejected_labels
+  ):
+    raise RuntimeError("formal recovery attempt has conflicting terminal states")
+  return {
+      "protocol": protocol,
+      "protocol_sha256": protocol_sha256,
+      "seed": seed,
+      "seed_sha256": seed_sha256,
+      "manifest": manifest,
+      "manifest_path": Path(manifest_path).resolve(),
+      "sv_benchmarks": Path(sv_benchmarks).resolve(),
+      "settled": settled,
+      "attempts": attempts,
+      "abandonments": abandonments,
+      "rejections": rejections,
+      "pending": pending,
+  }
+
+
+def formal_definition_closure(definition):
+  definition = Path(definition).resolve()
+  root = ET.parse(definition).getroot()
+  files = [definition]
+  for node in root.findall(".//includesfile"):
+    if not node.text:
+      raise RuntimeError("formal recovery definition includes an empty task set")
+    task_set = Path(node.text)
+    if not task_set.is_absolute():
+      task_set = definition.parent / task_set
+    files.append(task_set.resolve())
+  if len(files) == 1:
+    raise RuntimeError("formal recovery definition has no task set")
+  return files
+
+
+def definition_manifest_tasks(
+    definition, manifest_path, manifest, sv_benchmarks
+):
+  tasks = []
+  for task_set in formal_definition_closure(definition)[1:]:
+    if task_set.is_symlink() or not task_set.is_file():
+      raise RuntimeError("formal recovery task set is not a regular file")
+    for name in task_set.read_text(encoding="utf-8").splitlines():
+      task = baseline.match_result_task(name, manifest)
+      if task in tasks:
+        raise RuntimeError("formal recovery definition repeats a task")
+      tasks.append(task)
+  subset = {
+      "task_count": len(tasks),
+      "tasks": [manifest[task] for task in tasks],
+  }
+  validate_formal_definition(
+      definition,
+      manifest_path,
+      subset,
+      sv_benchmarks,
+  )
+  return tasks
+
+
+def migration_definition_manifest_tasks(
+    definition, manifest_path, manifest, sv_benchmarks
+):
+  definition = Path(definition).resolve()
+  root = ET.parse(definition).getroot()
+  task_sets = []
+  for group in root.findall("./rundefinition/tasks"):
+    includes = group.findall("includesfile")
+    expected_name = f"hard-case-candidates-{group.get('name')}.set"
+    if (
+        len(includes) != 1
+        or not includes[0].text
+        or Path(includes[0].text).name != expected_name
+    ):
+      raise RuntimeError("formal recovery migration task set path is invalid")
+    task_sets.append(definition.parent / expected_name)
+  tasks = []
+  for task_set in task_sets:
+    if task_set.is_symlink() or not task_set.is_file():
+      raise RuntimeError("formal recovery task set is not a regular file")
+    for name in task_set.read_text(encoding="utf-8").splitlines():
+      task = baseline.match_result_task(name, manifest)
+      if task in tasks:
+        raise RuntimeError("formal recovery definition repeats a task")
+      tasks.append(task)
+  subset = {
+      "task_count": len(tasks),
+      "tasks": [manifest[task] for task in tasks],
+  }
+  normalized = ET.fromstring(ET.tostring(root))
+  for group in normalized.findall("./rundefinition/tasks"):
+    name = group.get("name")
+    include = group.find("includesfile")
+    property_file = group.find("propertyfile")
+    suffix = (
+        "c/properties/unreach-call.prp"
+        if name == "official"
+        else "corpus/properties/unreach-call.prp"
+    )
+    if (
+        name not in {"official", "external"}
+        or include is None
+        or property_file is None
+        or not property_file.text
+        or Path(property_file.text.replace("\\", "/")).parts[-3:]
+        != Path(suffix).parts
+    ):
+      raise RuntimeError("formal recovery migration property path is invalid")
+    include.text = str(
+        definition.parent / f"hard-case-candidates-{name}.set"
+    )
+    property_file.text = str(
+        (
+            Path(sv_benchmarks).resolve()
+            if name == "official"
+            else Path(manifest_path).resolve().parent
+        )
+        / suffix
+    )
+  expected = benchmark_root(
+      FORMAL_DISPLAY, "900 s", "910 s", "920 s"
+  )
+  ET.SubElement(expected, "resultfiles").text = "**/witness.*"
+  for name, value in (
+      ("--svcomp27", None),
+      ("--heap", "10000M"),
+      ("--benchmark", None),
+      ("--timelimit", "900 s"),
+  ):
+    option = ET.SubElement(expected, "option", {"name": name})
+    if value:
+      option.text = value
+  grouped_rows = {
+      "official": [
+          row for row in subset["tasks"] if row["source"] == "sv-benchmarks"
+      ],
+      "external": [
+          row for row in subset["tasks"] if row["source"] != "sv-benchmarks"
+      ],
+  }
+  groups = {
+      name: definition.parent / f"hard-case-candidates-{name}.set"
+      for name, rows in grouped_rows.items()
+      if rows
+  }
+  write_run_definition(
+      expected,
+      "hard-case-candidates",
+      groups,
+      Path(sv_benchmarks).resolve() / "c/properties/unreach-call.prp",
+      Path(manifest_path).resolve().parent
+      / "corpus/properties/unreach-call.prp",
+  )
+  if xml_shape(normalized) != xml_shape(expected):
+    raise RuntimeError("formal recovery migration definition topology differs")
+  return tasks
+
+
+def formal_recovery_shard(protocol, repetition, shard_id):
+  matches = [
+      shard
+      for record in protocol["repetitions"]
+      if record["repetition"] == repetition
+      for shard in record["shards"]
+      if shard["id"] == shard_id
+  ]
+  if len(matches) != 1:
+    raise RuntimeError("formal recovery shard identity is invalid")
+  return matches[0]
+
+
+def next_formal_attempt_number(root, repetition):
+  pattern = re.compile(
+      rf"repetition-{repetition}-replacement-attempt-([1-9]\d*)"
+  )
+  numbers = []
+  for directory in (
+      Path(root) / "provenance/preparations",
+      Path(root) / "provenance/authorizations",
+      Path(root) / "provenance/attempts",
+  ):
+    if directory.exists():
+      for path in directory.glob("*.json"):
+        match = pattern.fullmatch(path.stem)
+        if match:
+          numbers.append(int(match.group(1)))
+  return max(numbers, default=0) + 1
+
+
+def formal_recovery_preparation(root, path, state):
+  root = Path(root).resolve()
+  declared = Path(path)
+  path = declared.resolve()
+  if (
+      declared.is_symlink()
+      or Path(os.path.abspath(declared)) != path
+      or not path.is_file()
+  ):
+    raise RuntimeError("formal recovery preparation is not a regular file")
+  record = json.loads(path.read_text(encoding="utf-8"))
+  if (
+      not isinstance(record, dict)
+      or set(record) != {
+          "schema_version",
+          "protocol_sha256",
+          "seed_ledger_sha256",
+          "repetition",
+          "label",
+          "shard_id",
+          "tasks",
+          "task_set_sha256",
+          "definition_files",
+      }
+      or record["schema_version"] != FORMAL_RECOVERY_PREPARATION_SCHEMA
+      or record["protocol_sha256"] != state["protocol_sha256"]
+      or record["seed_ledger_sha256"] != state["seed_sha256"]
+      or record["repetition"] not in {1, 2}
+      or not isinstance(record["label"], str)
+      or not isinstance(record["tasks"], list)
+      or record["tasks"] != sorted(record["tasks"])
+      or len(set(record["tasks"])) != len(record["tasks"])
+      or record["task_set_sha256"] != task_set_sha256(record["tasks"])
+      or not isinstance(record["definition_files"], list)
+  ):
+    raise RuntimeError("formal recovery preparation is invalid")
+  for entry in record["definition_files"]:
+    validate_recovery_file_entry(root, entry, "preparation definition")
+  return record
+
+
+def command_prepare_formal_recovery_shard(args):
+  root = Path(args.output_root).resolve()
+  state = load_formal_recovery_ledger(
+      root,
+      args.protocol,
+      args.seed_ledger,
+      args.manifest,
+      args.property_file,
+      args.sv_benchmarks,
+  )
+  pending = state["pending"][args.repetition]
+  if not pending:
+    print(json.dumps({"complete": True, "repetition": args.repetition}))
+    return
+  pending_set = set(pending)
+  shard = next(
+      shard
+      for shard in state["protocol"]["repetitions"][args.repetition - 1][
+          "shards"
+      ]
+      if pending_set & set(shard["tasks"])
+  )
+  tasks = [task for task in shard["tasks"] if task in pending_set]
+  preparations = root / "provenance/preparations"
+  preparations.mkdir(parents=True, exist_ok=True)
+  existing = []
+  for path in preparations.glob(
+      f"repetition-{args.repetition}-replacement-attempt-*.json"
+  ):
+    record = formal_recovery_preparation(root, path, state)
+    marker = root / f"provenance/attempts/{record['label']}.json"
+    ledger = root / "provenance/formal-ledger/entries"
+    accepted = any(
+        entry["attempt_marker"]["path"]
+        == marker.relative_to(root).as_posix()
+        for _, entry in state["attempts"]
+    )
+    abandoned = any(
+        entry["label"] == record["label"]
+        for entry in state["abandonments"]
+    )
+    rejected = any(
+        entry["label"] == record["label"]
+        for entry in state["rejections"]
+    )
+    if not accepted and not abandoned and not rejected:
+      existing.append(record)
+  if existing:
+    if len(existing) != 1:
+      raise RuntimeError("formal recovery has multiple open preparations")
+    record = existing[0]
+    if record["tasks"] != sorted(tasks) or record["shard_id"] != shard["id"]:
+      raise RuntimeError("open formal recovery preparation differs")
+    print(json.dumps({"complete": False, **record}, sort_keys=True))
+    return
+  number = next_formal_attempt_number(root, args.repetition)
+  label = (
+      f"repetition-{args.repetition}-replacement-attempt-{number}"
+  )
+  output = root / f"generated/{label}"
+  selected = [state["manifest"][task] for task in tasks]
+  namespace = argparse.Namespace(
+      manifest=args.manifest,
+      sv_benchmarks=args.sv_benchmarks,
+      property_file=str(
+          Path(args.sv_benchmarks).resolve()
+          / "c/properties/unreach-call.prp"
+      ),
+      output_dir=str(output),
+  )
+  render_stock(
+      namespace,
+      FORMAL_DISPLAY,
+      ("900 s", "910 s", "920 s"),
+      rows=selected,
+  )
+  validate_formal_definition(
+      output / "hard-case-candidates.xml",
+      args.manifest,
+      {"task_count": len(selected), "tasks": selected},
+      args.sv_benchmarks,
+  )
+  record = {
+      "schema_version": FORMAL_RECOVERY_PREPARATION_SCHEMA,
+      "protocol_sha256": state["protocol_sha256"],
+      "seed_ledger_sha256": state["seed_sha256"],
+      "repetition": args.repetition,
+      "label": label,
+      "shard_id": shard["id"],
+      "tasks": sorted(tasks),
+      "task_set_sha256": task_set_sha256(tasks),
+      "definition_files": [
+          recovery_file_entry(path, root)
+          for path in formal_definition_closure(
+              output / "hard-case-candidates.xml"
+          )
+      ],
+  }
+  preparation = preparations / f"{label}.json"
+  temporary = preparation.with_name(f".{preparation.name}.tmp-{os.getpid()}")
+  temporary.write_text(
+      json.dumps(record, indent=2, sort_keys=True) + "\n",
+      encoding="utf-8",
+  )
+  os.replace(temporary, preparation)
+  print(json.dumps({"complete": False, **record}, sort_keys=True))
+
+
+def formal_recovery_authorization(root, path, state):
+  root = Path(root).resolve()
+  path = Path(path).resolve()
+  record = json.loads(path.read_text(encoding="utf-8"))
+  if (
+      not isinstance(record, dict)
+      or set(record) != {
+          "schema_version",
+          "protocol_sha256",
+          "seed_ledger_sha256",
+          "completion_state",
+          "mode",
+          "host",
+          "label",
+          "role",
+          "repetition",
+          "shard_id",
+          "authorized_tasks",
+          "task_set_sha256",
+          "boot_id",
+          "resources",
+          "files",
+      }
+      or record["schema_version"] != FORMAL_RECOVERY_AUTHORIZATION_SCHEMA
+      or record["protocol_sha256"] != state["protocol_sha256"]
+      or record["seed_ledger_sha256"] != state["seed_sha256"]
+      or record["completion_state"] != "prelaunch"
+      or record["mode"] != state["protocol"]["mode"]
+      or record["host"] != state["protocol"]["host"]
+      or record["role"] != "replacement"
+      or record["repetition"] not in {1, 2}
+      or path.stem != record["label"]
+      or not isinstance(record["authorized_tasks"], list)
+      or record["authorized_tasks"] != sorted(record["authorized_tasks"])
+      or len(set(record["authorized_tasks"]))
+      != len(record["authorized_tasks"])
+      or record["task_set_sha256"]
+      != task_set_sha256(record["authorized_tasks"])
+      or not re.fullmatch(
+          r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+          r"[0-9a-f]{4}-[0-9a-f]{12}",
+          record["boot_id"],
+      )
+      or record["resources"] != state["protocol"]["runtime"]
+      or not isinstance(record["files"], dict)
+      or set(record["files"]) != {
+          "manifest",
+          "protocol",
+          "seed_ledger",
+          "preparation",
+          "definition",
+          "definition_task_sets",
+          "process_descriptor",
+          "result_directory",
+          "benchexec_log",
+          "load_monitor",
+          "machine_before",
+      }
+  ):
+    raise RuntimeError("formal recovery authorization is invalid")
+  validated = {}
+  for label in (
+      "manifest",
+      "protocol",
+      "seed_ledger",
+      "preparation",
+      "definition",
+      "process_descriptor",
+  ):
+    validated[label] = validate_recovery_file_entry(
+        root, record["files"][label], f"authorization {label}"
+    )
+  if not isinstance(record["files"]["definition_task_sets"], list):
+    raise RuntimeError("formal recovery authorization task sets are invalid")
+  task_sets = [
+      validate_recovery_file_entry(
+          root, entry, "authorization definition task set"
+      )
+      for entry in record["files"]["definition_task_sets"]
+  ]
+  for label in (
+      "result_directory",
+      "benchexec_log",
+      "load_monitor",
+      "machine_before",
+  ):
+    value = record["files"][label]
+    if not isinstance(value, str):
+      raise RuntimeError("formal recovery authorization path is invalid")
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts:
+      raise RuntimeError("formal recovery authorization path escapes")
+  shard = formal_recovery_shard(
+      state["protocol"], record["repetition"], record["shard_id"]
+  )
+  preparation = formal_recovery_preparation(
+      root, validated["preparation"], state
+  )
+  definition_files = formal_definition_closure(validated["definition"])
+  descriptor = load_formal_process_descriptor(
+      validated["process_descriptor"],
+      root,
+      state["protocol"]["mode"],
+      record["label"],
+      state["protocol"]["host"],
+  )
+  expected_paths = {
+      "result_directory": f"results/{record['label']}",
+      "benchexec_log": f"provenance/{record['label']}-benchexec.log",
+      "load_monitor": f"provenance/{record['label']}-load-monitor.jsonl",
+      "machine_before": f"provenance/machine-before-{record['label']}.json",
+  }
+  if (
+      validated["manifest"] != state["manifest_path"]
+      or validated["protocol"]
+      != root / "input/recovery-protocol/protocol.json"
+      or validated["seed_ledger"]
+      != root / "input/recovery-protocol/seed-ledger.json"
+      or preparation["label"] != record["label"]
+      or preparation["repetition"] != record["repetition"]
+      or preparation["shard_id"] != record["shard_id"]
+      or preparation["tasks"] != record["authorized_tasks"]
+      or record["authorized_tasks"]
+      != sorted(task for task in shard["tasks"] if task in preparation["tasks"])
+      or record["files"]["definition"]
+      != preparation["definition_files"][0]
+      or record["files"]["definition_task_sets"]
+      != preparation["definition_files"][1:]
+      or definition_files != [validated["definition"], *task_sets]
+      or sorted(definition_manifest_tasks(
+          validated["definition"],
+          state["manifest_path"],
+          state["manifest"],
+          state["sv_benchmarks"],
+      ))
+      != record["authorized_tasks"]
+      or any(
+          record["files"][label] != value
+          for label, value in expected_paths.items()
+      )
+      or descriptor["inputs"]["definition"]
+      != str(validated["definition"])
+      or descriptor["inputs"]["result_output"]
+      != str(root / expected_paths["result_directory"])
+      or descriptor["inputs"]["monitor_output"]
+      != str(root / expected_paths["load_monitor"])
+  ):
+    raise RuntimeError("formal recovery authorization closure differs")
+  return record
+
+
+def command_authorize_formal_recovery_attempt(args):
+  root = Path(args.output_root).resolve()
+  state = load_formal_recovery_ledger(
+      root,
+      args.protocol,
+      args.seed_ledger,
+      args.manifest,
+      args.property_file,
+      args.sv_benchmarks,
+  )
+  preparation_path = (
+      root / f"provenance/preparations/{args.label}.json"
+  )
+  preparation = formal_recovery_preparation(
+      root, preparation_path, state
+  )
+  if (
+      preparation["repetition"] != args.repetition
+      or preparation["label"] != args.label
+  ):
+    raise RuntimeError("formal recovery preparation identity differs")
+  shard = formal_recovery_shard(
+      state["protocol"], args.repetition, preparation["shard_id"]
+  )
+  pending = set(state["pending"][args.repetition])
+  expected_tasks = sorted(task for task in shard["tasks"] if task in pending)
+  if preparation["tasks"] != expected_tasks or not expected_tasks:
+    raise RuntimeError("formal recovery authorization is not current pending work")
+  definition = root / preparation["definition_files"][0]["path"]
+  actual_tasks = definition_manifest_tasks(
+      definition,
+      args.manifest,
+      state["manifest"],
+      args.sv_benchmarks,
+  )
+  if sorted(actual_tasks) != expected_tasks:
+    raise RuntimeError("formal recovery definition tasks differ")
+  descriptor = load_formal_process_descriptor(
+      args.process_descriptor,
+      root,
+      state["protocol"]["mode"],
+      args.label,
+      state["protocol"]["host"],
+  )
+  if (
+      descriptor["inputs"]["definition"] != str(definition)
+      or descriptor["inputs"]["result_output"]
+      != str(root / f"results/{args.label}")
+  ):
+    raise RuntimeError("formal recovery process descriptor paths differ")
+  files = {
+      "manifest": recovery_file_entry(args.manifest, root),
+      "protocol": recovery_file_entry(args.protocol, root),
+      "seed_ledger": recovery_file_entry(args.seed_ledger, root),
+      "preparation": recovery_file_entry(preparation_path, root),
+      "definition": recovery_file_entry(definition, root),
+      "definition_task_sets": [
+          recovery_file_entry(path, root)
+          for path in formal_definition_closure(definition)[1:]
+      ],
+      "process_descriptor": recovery_file_entry(
+          args.process_descriptor, root
+      ),
+      "result_directory": f"results/{args.label}",
+      "benchexec_log": f"provenance/{args.label}-benchexec.log",
+      "load_monitor": f"provenance/{args.label}-load-monitor.jsonl",
+      "machine_before": f"provenance/machine-before-{args.label}.json",
+  }
+  record = {
+      "schema_version": FORMAL_RECOVERY_AUTHORIZATION_SCHEMA,
+      "protocol_sha256": state["protocol_sha256"],
+      "seed_ledger_sha256": state["seed_sha256"],
+      "completion_state": "prelaunch",
+      "mode": state["protocol"]["mode"],
+      "host": state["protocol"]["host"],
+      "label": args.label,
+      "role": "replacement",
+      "repetition": args.repetition,
+      "shard_id": preparation["shard_id"],
+      "authorized_tasks": expected_tasks,
+      "task_set_sha256": task_set_sha256(expected_tasks),
+      "boot_id": read_boot_id(),
+      "resources": state["protocol"]["runtime"],
+      "files": files,
+  }
+  output = root / f"provenance/authorizations/{args.label}.json"
+  content = json.dumps(record, indent=2, sort_keys=True) + "\n"
+  if output.exists():
+    if output.is_symlink() or output.read_text(encoding="utf-8") != content:
+      raise RuntimeError("formal recovery authorization already differs")
+  else:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.tmp-{os.getpid()}")
+    temporary.write_text(content, encoding="utf-8")
+    os.replace(temporary, output)
+  formal_recovery_authorization(root, output, state)
+  print(output)
+
+
+def formal_recovery_abandonment(root, path, state):
+  root = Path(root).resolve()
+  path = Path(path).resolve()
+  record = json.loads(path.read_text(encoding="utf-8"))
+  if (
+      not isinstance(record, dict)
+      or set(record) != {
+          "schema_version",
+          "protocol_sha256",
+          "seed_ledger_sha256",
+          "completion_state",
+          "label",
+          "benchexec_exit",
+          "recovery_boot_id",
+          "authorization",
+          "files",
+      }
+      or record["schema_version"] != FORMAL_RECOVERY_ABANDONMENT_SCHEMA
+      or record["protocol_sha256"] != state["protocol_sha256"]
+      or record["seed_ledger_sha256"] != state["seed_sha256"]
+      or record["completion_state"] != "pre_task_failure"
+      or path.stem != record["label"]
+      or (
+          record["benchexec_exit"] is not None
+          and (
+              not isinstance(record["benchexec_exit"], int)
+              or record["benchexec_exit"] == 0
+          )
+      )
+      or not re.fullmatch(
+          r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+          r"[0-9a-f]{4}-[0-9a-f]{12}",
+          record["recovery_boot_id"],
+      )
+      or not isinstance(record["files"], dict)
+      or set(record["files"]) != {
+          "process_descriptor",
+          "benchexec_log",
+          "benchexec_process",
+          "load_monitor",
+          "monitor_pid",
+          "monitor_process",
+          "monitor_stopped",
+          "machine_before",
+          "machine_after",
+          "machine_check",
+      }
+  ):
+    raise RuntimeError("formal recovery pre-task abandonment is invalid")
+  authorization_path = validate_recovery_file_entry(
+      root, record["authorization"], "abandonment authorization"
+  )
+  authorization = formal_recovery_authorization(
+      root, authorization_path, state
+  )
+  if authorization["label"] != record["label"]:
+    raise RuntimeError("formal recovery abandonment authorization differs")
+  files = {}
+  for label, entry in record["files"].items():
+    if entry is None:
+      if label == "process_descriptor":
+        raise RuntimeError("formal recovery abandonment evidence is missing")
+      files[label] = None
+    else:
+      files[label] = validate_recovery_file_entry(
+          root, entry, f"abandonment {label}"
+      )
+  if files["benchexec_log"] is not None and re.search(
+      r"^\d{2}:\d{2}:\d{2}\s+starting\s+",
+      files["benchexec_log"].read_text(encoding="utf-8"),
+      re.MULTILINE,
+  ):
+    raise RuntimeError("formal recovery abandonment started a task")
+  result_directory = root / authorization["files"]["result_directory"]
+  if (
+      result_directory.is_symlink()
+      or not result_directory.is_dir()
+      or any(result_directory.iterdir())
+      or (root / f"provenance/attempts/{record['label']}.json").exists()
+  ):
+    raise RuntimeError("formal recovery abandonment has benchmark output")
+  descriptor = load_formal_process_descriptor(
+      files["process_descriptor"],
+      root,
+      state["protocol"]["mode"],
+      record["label"],
+      state["protocol"]["host"],
+  )
+  machine_paths = [
+      files[label]
+      for label in ("machine_before", "machine_after", "machine_check")
+  ]
+  same_boot = record["recovery_boot_id"] == authorization["boot_id"]
+  if same_boot and any(machine_paths) and not all(machine_paths):
+    raise RuntimeError(
+        "same-boot formal recovery abandonment machine evidence is partial"
+    )
+  if all(machine_paths):
+    expected_check = machine_check_record(
+        files["machine_before"], files["machine_after"]
+    )
+    actual_check = json.loads(
+        files["machine_check"].read_text(encoding="utf-8")
+    )
+    if (
+        expected_check != actual_check
+        or expected_check["hostname"] != state["protocol"]["host"]
+    ):
+      raise RuntimeError("formal recovery abandonment machine evidence differs")
+  if (
+      same_boot
+      and files["benchexec_process"] is None
+      and files["monitor_process"] is None
+  ):
+    raise RuntimeError(
+        "same-boot formal recovery abandonment lacks owned process evidence"
+    )
+  if files["benchexec_process"] is not None:
+    if files["benchexec_log"] is None:
+      raise RuntimeError("formal recovery abandonment lacks launcher log")
+    benchexec_identity = load_attempt_process_identity(
+        files["benchexec_process"], root, record["label"]
+    )
+    if benchexec_identity.get("boot_id") != authorization["boot_id"]:
+      raise RuntimeError("formal recovery abandonment launcher boot differs")
+    validate_formal_process_identity(benchexec_identity, {
+        "role": "benchexec-launcher",
+        **descriptor["identities"]["benchexec-launcher"],
+    })
+    require_process_gone(
+        benchexec_identity, descriptor["systemd_unit"]
+    )
+  monitor_paths = [
+      files[label]
+      for label in ("load_monitor", "monitor_pid", "monitor_process")
+  ]
+  if any(monitor_paths) and not all(monitor_paths):
+    raise RuntimeError("formal recovery abandonment monitor evidence is partial")
+  if all(monitor_paths):
+    load_formal_contention_intervals(
+        files["load_monitor"], allow_trailing_nul=True
+    )
+    pid_text = files["monitor_pid"].read_text(encoding="utf-8").strip()
+    if not pid_text.isdigit():
+      raise RuntimeError("formal recovery abandonment monitor PID is invalid")
+    monitor_identity = load_attempt_process_identity(
+        files["monitor_process"], root, record["label"]
+    )
+    if (
+        monitor_identity.get("pid") != int(pid_text)
+        or monitor_identity.get("boot_id") != authorization["boot_id"]
+    ):
+      raise RuntimeError("formal recovery abandonment monitor identity differs")
+    validate_formal_process_identity(monitor_identity, {
+        "role": "load-monitor",
+        **descriptor["identities"]["load-monitor"],
+    })
+    require_process_gone(monitor_identity)
+    if files["monitor_stopped"] is not None:
+      entries = [
+          line.split("=", 1)
+          for line in files["monitor_stopped"].read_text(
+              encoding="utf-8"
+          ).splitlines()
+          if line.count("=") == 1
+      ]
+      stopped = dict(entries)
+      if (
+          len(entries) != 3
+          or stopped != {
+              "pid": pid_text,
+              "exit": "0",
+              "samples": stopped.get("samples"),
+          }
+          or not stopped["samples"].isdigit()
+          or int(stopped["samples"]) < 1
+      ):
+        raise RuntimeError(
+            "formal recovery abandonment monitor stop is invalid"
+        )
+  elif files["monitor_stopped"] is not None:
+    raise RuntimeError("formal recovery abandonment has orphan monitor stop")
+  return record
+
+
+def command_abandon_formal_recovery_pretask(args):
+  root = Path(args.output_root).resolve()
+  state = load_formal_recovery_ledger(
+      root,
+      args.protocol,
+      args.seed_ledger,
+      args.manifest,
+      args.property_file,
+      args.sv_benchmarks,
+  )
+  authorization_path = (
+      root / f"provenance/authorizations/{args.label}.json"
+  )
+  authorization = formal_recovery_authorization(
+      root, authorization_path, state
+  )
+  files = {
+      label: (
+          None
+          if value is None
+          else recovery_file_entry(value, root)
+      )
+      for label, value in {
+          "process_descriptor": args.process_descriptor,
+          "benchexec_log": args.benchexec_log,
+          "benchexec_process": args.benchexec_process,
+          "load_monitor": args.load_monitor,
+          "monitor_pid": args.monitor_pid,
+          "monitor_process": args.monitor_process,
+          "monitor_stopped": args.monitor_stopped,
+          "machine_before": args.machine_before,
+          "machine_after": args.machine_after,
+          "machine_check": args.machine_check,
+      }.items()
+  }
+  record = {
+      "schema_version": FORMAL_RECOVERY_ABANDONMENT_SCHEMA,
+      "protocol_sha256": state["protocol_sha256"],
+      "seed_ledger_sha256": state["seed_sha256"],
+      "completion_state": "pre_task_failure",
+      "label": args.label,
+      "benchexec_exit": args.benchexec_exit,
+      "recovery_boot_id": read_boot_id(),
+      "authorization": recovery_file_entry(authorization_path, root),
+      "files": files,
+  }
+  if authorization["label"] != args.label:
+    raise RuntimeError("formal recovery abandonment label differs")
+  output = root / f"provenance/formal-ledger/abandonments/{args.label}.json"
+  if output.exists() or output.is_symlink():
+    raise RuntimeError("formal recovery abandonment already exists")
+  output.parent.mkdir(parents=True, exist_ok=True)
+  temporary = output.with_name(f".{output.name}.tmp-{os.getpid()}")
+  temporary.write_text(
+      json.dumps(record, indent=2, sort_keys=True) + "\n",
+      encoding="utf-8",
+  )
+  os.replace(temporary, output)
+  formal_recovery_abandonment(root, output, state)
+  print(output)
+
+
+def classify_formal_recovery_row(row, tainted):
+  if row is None or not row_is_complete(row):
+    return "structurally_incomplete", False
+  if tainted:
+    return "complete_but_tainted", False
+  if row["category"] == "correct" or is_analysis_unsolved(row):
+    return "accepted_and_reusable", True
+  return "verifier_failure", True
+
+
+def record_formal_recovery_rejection(
+    root, state, authorization_path, authorization, error
+):
+  message = str(error)
+  record = {
+      "schema_version": FORMAL_RECOVERY_REJECTION_SCHEMA,
+      "protocol_sha256": state["protocol_sha256"],
+      "seed_ledger_sha256": state["seed_sha256"],
+      "completion_state": "invalid_evidence",
+      "label": authorization["label"],
+      "authorization": recovery_file_entry(authorization_path, root),
+      "error": message,
+      "error_sha256": sha256_text(message),
+      "rows": [
+          {
+              "task": task,
+              "classification": "invalid_evidence",
+              "settled": False,
+          }
+          for task in authorization["authorized_tasks"]
+      ],
+  }
+  output = (
+      Path(root)
+      / f"provenance/formal-ledger/rejections/{authorization['label']}.json"
+  )
+  if output.exists() or output.is_symlink():
+    raise RuntimeError("formal recovery rejection already exists")
+  output.parent.mkdir(parents=True, exist_ok=True)
+  temporary = output.with_name(f".{output.name}.tmp-{os.getpid()}")
+  temporary.write_text(
+      json.dumps(record, indent=2, sort_keys=True) + "\n",
+      encoding="utf-8",
+  )
+  os.replace(temporary, output)
+  return output
+
+
+def command_accept_formal_recovery_attempt(args):
+  root = Path(args.output_root).resolve()
+  state = load_formal_recovery_ledger(
+      root,
+      args.protocol,
+      args.seed_ledger,
+      args.manifest,
+      args.property_file,
+      args.sv_benchmarks,
+  )
+  authorization_path = (
+      root / f"provenance/authorizations/{args.label}.json"
+  )
+  authorization = formal_recovery_authorization(
+      root, authorization_path, state
+  )
+  try:
+    marker_path = root / f"provenance/attempts/{args.label}.json"
+    marker = validate_formal_attempt_marker(
+        marker_path,
+        root,
+        Path(args.manifest).resolve(),
+        args.sv_benchmarks,
+        state["protocol"]["host"],
+        state["protocol"]["mode"],
+    )
+    if (
+        marker["repetition"] != authorization["repetition"]
+        or marker["role"] != "replacement"
+        or not set(marker["result_tasks"])
+        <= set(authorization["authorized_tasks"])
+    ):
+      raise RuntimeError("formal recovery marker exceeds authorization")
+    taint_path = Path(args.taint_manifest).resolve()
+    marker_entry = recovery_file_entry(marker_path, root)
+    taint_entry = recovery_file_entry(taint_path, root)
+    rows = formal_recovery_ledger_rows(
+        root,
+        authorization,
+        marker,
+        taint_entry,
+        state["manifest"],
+    )
+  except (RuntimeError, OSError, ValueError, ET.ParseError) as error:
+    record_formal_recovery_rejection(
+        root, state, authorization_path, authorization, error
+    )
+    raise
+  for row in rows:
+    row["provenance"]["attempt_marker"] = marker_entry
+  entry = {
+      "schema_version": FORMAL_RECOVERY_LEDGER_SCHEMA,
+      "protocol_sha256": state["protocol_sha256"],
+      "seed_ledger_sha256": state["seed_sha256"],
+      "authorization": recovery_file_entry(authorization_path, root),
+      "attempt_marker": marker_entry,
+      "taint_manifest": taint_entry,
+      "repetition": authorization["repetition"],
+      "shard_id": authorization["shard_id"],
+      "rows": rows,
+  }
+  entries = root / "provenance/formal-ledger/entries"
+  entries.mkdir(parents=True, exist_ok=True)
+  output = entries / f"{marker_entry['sha256']}.json"
+  content = json.dumps(entry, indent=2, sort_keys=True) + "\n"
+  if output.exists():
+    if output.is_symlink() or output.read_text(encoding="utf-8") != content:
+      raise RuntimeError("formal recovery ledger entry already differs")
+  else:
+    temporary = output.with_name(f".{output.name}.tmp-{os.getpid()}")
+    descriptor = os.open(
+        temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as target:
+      target.write(content)
+      target.flush()
+      os.fsync(target.fileno())
+    os.replace(temporary, output)
+    directory = os.open(entries, os.O_RDONLY)
+    try:
+      os.fsync(directory)
+    finally:
+      os.close(directory)
+  load_formal_recovery_ledger(
+      root,
+      args.protocol,
+      args.seed_ledger,
+      args.manifest,
+      args.property_file,
+      args.sv_benchmarks,
+  )
+  print(output)
+
+
+def command_formal_recovery_state(args):
+  state = load_formal_recovery_ledger(
+      args.output_root,
+      args.protocol,
+      args.seed_ledger,
+      args.manifest,
+      args.property_file,
+      args.sv_benchmarks,
+  )
+  print(json.dumps({
+      "schema_version": "hard-case-formal-recovery-state-v1",
+      "protocol_sha256": state["protocol_sha256"],
+      "seed_ledger_sha256": state["seed_sha256"],
+      "settled": {
+          str(repetition): sum(
+              candidate_repetition == repetition
+              for candidate_repetition, _ in state["settled"]
+          )
+          for repetition in (1, 2)
+      },
+      "pending": {
+          str(repetition): len(state["pending"][repetition])
+          for repetition in (1, 2)
+      },
+      "pending_task_set_sha256": {
+          str(repetition): task_set_sha256(state["pending"][repetition])
+          for repetition in (1, 2)
+      },
+      "attempt_entries": len(state["attempts"]),
+      "invalid_evidence_attempts": len(state["rejections"]),
+  }, sort_keys=True))
+
+
+def formal_recovery_plan_record(state, root, repetition):
+  if state["pending"][repetition]:
+    raise RuntimeError("formal recovery repetition still has pending tasks")
+  rows = []
+  for task in state["manifest"]:
+    entry = state["settled"].get((repetition, task))
+    if entry is None:
+      raise RuntimeError("formal recovery repetition lacks a settled row")
+    rows.append(entry)
+  ledger_entries = [
+      recovery_file_entry(path, root)
+      for path, entry in state["attempts"]
+      if entry["repetition"] == repetition
+  ]
+  return {
+      "schema_version": FORMAL_RECOVERY_PLAN_SCHEMA,
+      "protocol_sha256": state["protocol_sha256"],
+      "seed_ledger_sha256": state["seed_sha256"],
+      "repetition": repetition,
+      "ledger_entries": ledger_entries,
+      "rows": rows,
+  }
+
+
+def command_export_formal_recovery_plan(args):
+  root = Path(args.output_root).resolve()
+  state = load_formal_recovery_ledger(
+      root,
+      args.protocol,
+      args.seed_ledger,
+      args.manifest,
+      args.property_file,
+      args.sv_benchmarks,
+  )
+  record = formal_recovery_plan_record(state, root, args.repetition)
+  output = Path(args.output).resolve()
+  try:
+    output.relative_to(root)
+  except ValueError as error:
+    raise RuntimeError("formal recovery plan escapes output root") from error
+  if output.exists() or output.is_symlink():
+    raise RuntimeError("formal recovery plan output already exists")
+  output.write_text(
+      json.dumps(record, indent=2, sort_keys=True) + "\n",
+      encoding="utf-8",
+  )
+  print(output)
+
+
+def load_formal_recovery_plan(path, sv_benchmarks):
+  path = Path(path).resolve()
+  root = path.parent
+  protocol_root = root / "input/recovery-protocol"
+  state = load_formal_recovery_ledger(
+      root,
+      protocol_root / "protocol.json",
+      protocol_root / "seed-ledger.json",
+      protocol_root / "candidate-manifest.json",
+      protocol_root / "unreach-call.prp",
+      sv_benchmarks,
+  )
+  record = json.loads(path.read_text(encoding="utf-8"))
+  repetition = record.get("repetition") if isinstance(record, dict) else None
+  if repetition not in {1, 2}:
+    raise RuntimeError("formal recovery plan repetition is invalid")
+  expected = formal_recovery_plan_record(state, root, repetition)
+  if record != expected:
+    raise RuntimeError("formal recovery plan content differs")
+  result_entries = {}
+  row_sources = []
+  rows = {}
+  for entry in record["rows"]:
+    row = entry["row"]
+    if not row_is_complete(row):
+      raise RuntimeError("formal recovery plan contains an incomplete row")
+    task = entry["task"]
+    rows[task] = row
+    provenance = entry["provenance"]
+    result = provenance["result"]
+    result_entries.setdefault(result["path"], result)
+    row_sources.append({
+        "task": task,
+        "source": "formal_recovery_ledger",
+        "classification": entry["classification"],
+        **provenance,
+    })
+  metadata = []
+  result_hashes = []
+  for relative, entry in sorted(result_entries.items()):
+    result = validate_recovery_file_entry(
+        root, entry, "formal recovery plan result"
+    )
+    parsed = result_metadata(
+        result, FORMAL_DISPLAY, "900 s", allow_incomplete=True
+    )
+    if parsed["host"] != state["protocol"]["host"]:
+      raise RuntimeError("formal recovery plan result host differs")
+    metadata.append(parsed)
+    result_hashes.append(entry["sha256"])
+  if not result_hashes:
+    raise RuntimeError("formal recovery plan has no result artifacts")
+  for field in ("starttime", "benchmarkname"):
+    if len({item[field] for item in metadata}) != len(metadata):
+      raise RuntimeError(
+          f"formal recovery attempts must have distinct {field} values"
+      )
+  return {
+      "generic_recovery": True,
+      "repetition": repetition,
+      "plan_sha256": baseline.sha256_file(path),
+      "primary_sha256": result_hashes[0],
+      "taint_sha256": None,
+      "replacement_sha256": result_hashes[1:],
+      "metadata": metadata[0],
+      "replacement_metadata": metadata[1:],
+      "rows": rows,
+      "row_sources": row_sources,
+  }
 
 
 def load_repetition_plan(
@@ -6771,7 +9066,22 @@ def command_summarize(args):
       args.sv_benchmarks,
   )
   manifest = baseline.load_task_manifest(manifest_path)
-  if hasattr(args, "phase_a_output"):
+  plan_schemas = [
+      json.loads(Path(plan).read_text(encoding="utf-8")).get(
+          "schema_version"
+      )
+      for plan in args.repetition_plan
+  ]
+  if plan_schemas == [FORMAL_RECOVERY_PLAN_SCHEMA] * 2:
+    plans = [
+        load_formal_recovery_plan(plan, args.sv_benchmarks)
+        for plan in args.repetition_plan
+    ]
+    if any(set(plan["rows"]) != set(manifest) for plan in plans):
+      raise RuntimeError("formal recovery plans differ from the manifest")
+  elif FORMAL_RECOVERY_PLAN_SCHEMA in plan_schemas:
+    raise RuntimeError("formal recovery and legacy plans cannot be mixed")
+  elif hasattr(args, "phase_a_output"):
     plans = [
         load_screen_plan(
             plan,
@@ -6816,10 +9126,14 @@ def command_summarize(args):
   ]
   if len(all_result_hashes) != len(set(all_result_hashes)):
     raise RuntimeError("formal result artifacts cannot be reused across repetitions")
-  metadata = [plan["metadata"] for plan in plans]
+  metadata = [
+      result
+      for plan in plans
+      for result in [plan["metadata"], *plan["replacement_metadata"]]
+  ]
   for field in ("starttime", "benchmarkname"):
-    if len({result[field] for result in metadata}) != 2:
-      raise RuntimeError(f"formal repetitions must have distinct {field} values")
+    if len({result[field] for result in metadata}) != len(metadata):
+      raise RuntimeError(f"formal attempts must have distinct {field} values")
   output = Path(args.output_dir)
   output.mkdir(parents=True, exist_ok=True)
   provenance = {
@@ -7306,6 +9620,134 @@ def main():
   )
   formal_closure.add_argument("--require-complete", action="store_true")
   formal_closure.set_defaults(function=command_validate_formal_closure)
+  freeze_recovery = commands.add_parser(
+      "freeze-formal-recovery-protocol"
+  )
+  freeze_recovery.add_argument("--manifest", required=True)
+  freeze_recovery.add_argument("--property-file", required=True)
+  freeze_recovery.add_argument("--seed-ledger", required=True)
+  freeze_recovery.add_argument("--runtime-closure", required=True)
+  freeze_recovery.add_argument(
+      "--source-commit", required=True
+  )
+  freeze_recovery.add_argument(
+      "--mode", choices=("cap8", "cap16"), required=True
+  )
+  freeze_recovery.add_argument("--output", required=True)
+  freeze_recovery.set_defaults(
+      function=command_freeze_formal_recovery_protocol
+  )
+  build_recovery_seed = commands.add_parser(
+      "build-formal-recovery-seed"
+  )
+  build_recovery_seed.add_argument("--output-root", required=True)
+  build_recovery_seed.add_argument("--migration-manifest", required=True)
+  build_recovery_seed.add_argument("--manifest", required=True)
+  build_recovery_seed.add_argument("--sv-benchmarks", required=True)
+  build_recovery_seed.add_argument(
+      "--mode", choices=("cap8", "cap16"), required=True
+  )
+  build_recovery_seed.add_argument("--output", required=True)
+  build_recovery_seed.set_defaults(
+      function=command_build_formal_recovery_seed
+  )
+  prepare_recovery = commands.add_parser(
+      "prepare-formal-recovery-shard"
+  )
+  prepare_recovery.add_argument("--output-root", required=True)
+  prepare_recovery.add_argument("--protocol", required=True)
+  prepare_recovery.add_argument("--seed-ledger", required=True)
+  prepare_recovery.add_argument("--manifest", required=True)
+  prepare_recovery.add_argument("--property-file", required=True)
+  prepare_recovery.add_argument("--sv-benchmarks", required=True)
+  prepare_recovery.add_argument(
+      "--repetition", type=int, choices=(1, 2), required=True
+  )
+  prepare_recovery.set_defaults(
+      function=command_prepare_formal_recovery_shard
+  )
+  authorize_recovery = commands.add_parser(
+      "authorize-formal-recovery-attempt"
+  )
+  authorize_recovery.add_argument("--output-root", required=True)
+  authorize_recovery.add_argument("--protocol", required=True)
+  authorize_recovery.add_argument("--seed-ledger", required=True)
+  authorize_recovery.add_argument("--manifest", required=True)
+  authorize_recovery.add_argument("--property-file", required=True)
+  authorize_recovery.add_argument("--sv-benchmarks", required=True)
+  authorize_recovery.add_argument("--process-descriptor", required=True)
+  authorize_recovery.add_argument("--label", required=True)
+  authorize_recovery.add_argument(
+      "--repetition", type=int, choices=(1, 2), required=True
+  )
+  authorize_recovery.set_defaults(
+      function=command_authorize_formal_recovery_attempt
+  )
+  accept_recovery = commands.add_parser(
+      "accept-formal-recovery-attempt"
+  )
+  accept_recovery.add_argument("--output-root", required=True)
+  accept_recovery.add_argument("--protocol", required=True)
+  accept_recovery.add_argument("--seed-ledger", required=True)
+  accept_recovery.add_argument("--manifest", required=True)
+  accept_recovery.add_argument("--property-file", required=True)
+  accept_recovery.add_argument("--sv-benchmarks", required=True)
+  accept_recovery.add_argument("--label", required=True)
+  accept_recovery.add_argument("--taint-manifest", required=True)
+  accept_recovery.set_defaults(
+      function=command_accept_formal_recovery_attempt
+  )
+  abandon_recovery = commands.add_parser(
+      "abandon-formal-recovery-pretask"
+  )
+  abandon_recovery.add_argument("--output-root", required=True)
+  abandon_recovery.add_argument("--protocol", required=True)
+  abandon_recovery.add_argument("--seed-ledger", required=True)
+  abandon_recovery.add_argument("--manifest", required=True)
+  abandon_recovery.add_argument("--property-file", required=True)
+  abandon_recovery.add_argument("--sv-benchmarks", required=True)
+  abandon_recovery.add_argument("--label", required=True)
+  abandon_recovery.add_argument("--benchexec-exit", type=int)
+  abandon_recovery.add_argument("--process-descriptor", required=True)
+  for name in (
+      "benchexec-log",
+      "load-monitor",
+      "monitor-pid",
+      "monitor-process",
+      "monitor-stopped",
+      "machine-before",
+      "machine-after",
+      "machine-check",
+  ):
+    abandon_recovery.add_argument(f"--{name}")
+  abandon_recovery.add_argument("--benchexec-process")
+  abandon_recovery.set_defaults(
+      function=command_abandon_formal_recovery_pretask
+  )
+  recovery_state = commands.add_parser("formal-recovery-state")
+  recovery_state.add_argument("--output-root", required=True)
+  recovery_state.add_argument("--protocol", required=True)
+  recovery_state.add_argument("--seed-ledger", required=True)
+  recovery_state.add_argument("--manifest", required=True)
+  recovery_state.add_argument("--property-file", required=True)
+  recovery_state.add_argument("--sv-benchmarks", required=True)
+  recovery_state.set_defaults(function=command_formal_recovery_state)
+  export_recovery = commands.add_parser(
+      "export-formal-recovery-plan"
+  )
+  export_recovery.add_argument("--output-root", required=True)
+  export_recovery.add_argument("--protocol", required=True)
+  export_recovery.add_argument("--seed-ledger", required=True)
+  export_recovery.add_argument("--manifest", required=True)
+  export_recovery.add_argument("--property-file", required=True)
+  export_recovery.add_argument("--sv-benchmarks", required=True)
+  export_recovery.add_argument(
+      "--repetition", type=int, choices=(1, 2), required=True
+  )
+  export_recovery.add_argument("--output", required=True)
+  export_recovery.set_defaults(
+      function=command_export_formal_recovery_plan
+  )
   complete_sentinel = commands.add_parser("write-complete-sentinel")
   complete_sentinel.add_argument("--output", required=True)
   complete_sentinel.set_defaults(function=command_write_complete_sentinel)

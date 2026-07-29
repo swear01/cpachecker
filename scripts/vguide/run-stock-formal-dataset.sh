@@ -144,6 +144,24 @@ validate_formal_package_topology() {
   fi
 }
 
+validate_recovery_protocol_topology() {
+  local package=$1
+  local actual
+  local expected
+  actual=$(find -P "$package" -mindepth 1 -printf '%y %P\n' | sort)
+  expected=$(
+    printf '%s\n' \
+      "f candidate-manifest.json" \
+      "f protocol.json" \
+      "f seed-ledger.json" \
+      "f unreach-call.prp"
+  )
+  if [[ "$actual" != "$expected" ]]; then
+    echo "formal recovery protocol package topology is not exact" >&2
+    return 1
+  fi
+}
+
 path_is_within() {
   local child
   local parent
@@ -368,8 +386,9 @@ activate_formal_research_provenance() {
   ORIGINAL_RESEARCH_PROVENANCE=$original
   if [[ "$original_head" == "$current_head" ]]; then
     ACTIVE_RESEARCH_PROVENANCE=$original
-  elif [[ "$RESUMING" == true && "$FORMAL_MODE" == cap16 &&
-    "$original_head" == "$LEGACY_FORMAL_RESEARCH_HEAD" ]]; then
+  elif [[ "$RESUMING" == true ]] &&
+    git -C "$RESEARCH_ROOT" merge-base --is-ancestor \
+      "$original_head" "$current_head"; then
     ACTIVE_RESEARCH_PROVENANCE=$(
       printf '%s/input/recovery-research-%s' "$OUTPUT_DIR" "$current_head"
     )
@@ -408,10 +427,6 @@ verify_all_research_provenance() {
     fi
     verify_frozen_research_provenance \
       "$destination" "$LEGACY_RECOVERY_RESEARCH_HEAD"
-  elif [[ "$ACTIVE_RESEARCH_PROVENANCE" != \
-    "$ORIGINAL_RESEARCH_PROVENANCE" ]]; then
-    echo "legacy recovery research provenance is missing" >&2
-    return 1
   fi
 
   for destination in "$OUTPUT_DIR"/input/recovery-research-*; do
@@ -761,11 +776,11 @@ formal_benchexec_workers() {
 main() {
   FORMAL_MODE=$1
   shift
-  if [[ "$FORMAL_MODE" == cap16 && $# -ne 5 ]]; then
-    echo "usage: $0 CPACHECKER_DIR SV_BENCHMARKS_DIR BENCHEXEC_DIR CAP16_PHASE_A_PACKAGE OUTPUT_DIR" >&2
+  if [[ "$FORMAL_MODE" == cap16 && $# -ne 6 ]]; then
+    echo "usage: $0 CPACHECKER_DIR SV_BENCHMARKS_DIR BENCHEXEC_DIR CAP16_PHASE_A_PACKAGE OUTPUT_DIR RECOVERY_PROTOCOL_PACKAGE" >&2
     exit 2
-  elif [[ "$FORMAL_MODE" == cap8 && $# -ne 15 ]]; then
-    echo "usage: $0 CPACHECKER_DIR SV_BENCHMARKS_DIR BENCHEXEC_DIR FORMAL_PACKAGE PARENT_MANIFEST ORIGINAL_MANIFEST ORIGINAL_RESULT ORIGINAL_SURVIVOR REROUTE_MANIFEST REROUTE_RESULT REROUTE_SURVIVOR RECOVERY_MANIFEST RECOVERY_RESULT RECOVERY_SURVIVOR OUTPUT_DIR" >&2
+  elif [[ "$FORMAL_MODE" == cap8 && $# -ne 16 ]]; then
+    echo "usage: $0 CPACHECKER_DIR SV_BENCHMARKS_DIR BENCHEXEC_DIR FORMAL_PACKAGE PARENT_MANIFEST ORIGINAL_MANIFEST ORIGINAL_RESULT ORIGINAL_SURVIVOR REROUTE_MANIFEST REROUTE_RESULT REROUTE_SURVIVOR RECOVERY_MANIFEST RECOVERY_RESULT RECOVERY_SURVIVOR OUTPUT_DIR RECOVERY_PROTOCOL_PACKAGE" >&2
     exit 2
   elif [[ "$FORMAL_MODE" != cap8 && "$FORMAL_MODE" != cap16 ]]; then
     echo "unknown formal mode: $FORMAL_MODE" >&2
@@ -782,6 +797,7 @@ main() {
     CAP16_PHASE_A_OUTPUT=$(realpath -m "$4")
     FORMAL_MANIFEST="$CAP16_PHASE_A_OUTPUT/summary/candidate-manifest-analysis-survivors.json"
     OUTPUT_DIR=$(realpath -m "$5")
+    RECOVERY_PROTOCOL_PACKAGE=$(realpath "$6")
   elif [[ "$FORMAL_MODE" == cap8 ]]; then
     if [[ -L $4 ]]; then
       echo "formal package root must not be a symlink: $4" >&2
@@ -805,7 +821,9 @@ main() {
       "$(realpath "${14}")"
     )
     OUTPUT_DIR=$(realpath -m "${15}")
+    RECOVERY_PROTOCOL_PACKAGE=$(realpath "${16}")
   fi
+  validate_recovery_protocol_topology "$RECOVERY_PROTOCOL_PACKAGE"
   SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
   RESEARCH_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 
@@ -892,12 +910,15 @@ main() {
     [[ ! -d "$OUTPUT_DIR" ]] ||
       [[ -n $(find "$OUTPUT_DIR" -mindepth 1 -print -quit) ]]
   }; then
-    if [[ "$FORMAL_MODE" == cap16 &&
-      -d "$OUTPUT_DIR/input/evidence" &&
+    if [[ -d "$OUTPUT_DIR/input/evidence" &&
       -d "$OUTPUT_DIR/input/research" ]]; then
       RESUMING=true
-      CAP16_PHASE_A_OUTPUT="$OUTPUT_DIR/input/evidence"
-      FORMAL_MANIFEST="$CAP16_PHASE_A_OUTPUT/summary/candidate-manifest-analysis-survivors.json"
+      if [[ "$FORMAL_MODE" == cap16 ]]; then
+        CAP16_PHASE_A_OUTPUT="$OUTPUT_DIR/input/evidence"
+        FORMAL_MANIFEST="$CAP16_PHASE_A_OUTPUT/summary/candidate-manifest-analysis-survivors.json"
+      else
+        FORMAL_MANIFEST="$OUTPUT_DIR/input/formal/candidate-manifest-valkyrie-formal.json"
+      fi
     else
       echo "output directory must be absent or empty: $OUTPUT_DIR" >&2
       exit 1
@@ -907,6 +928,7 @@ main() {
     "$RESEARCH_ROOT" "$CPACHECKER_DIR" "$SV_BENCHMARKS_DIR" "$BENCHEXEC_DIR"
     "$JAVA_HOME" "$ANT_INSTALL" "$PYTHON_BIN" "$PYTHON_STDLIB"
     "$PYTHON_DIST_PACKAGES" "$PYTHON_LOCAL_DIST_PACKAGES"
+    "$RECOVERY_PROTOCOL_PACKAGE"
   )
   if [[ "$FORMAL_MODE" == cap16 && "$RESUMING" == false ]]; then
     INPUT_PATHS+=("$CAP16_PHASE_A_OUTPUT")
@@ -953,10 +975,33 @@ main() {
     fi
     capture_research_provenance "$OUTPUT_DIR/input/research"
   else
-    CAP16_PHASE_A_OUTPUT="$OUTPUT_DIR/input/evidence"
-    FORMAL_MANIFEST="$CAP16_PHASE_A_OUTPUT/summary/candidate-manifest-analysis-survivors.json"
+    if [[ "$FORMAL_MODE" == cap16 ]]; then
+      CAP16_PHASE_A_OUTPUT="$OUTPUT_DIR/input/evidence"
+      FORMAL_MANIFEST="$CAP16_PHASE_A_OUTPUT/summary/candidate-manifest-analysis-survivors.json"
+    else
+      FORMAL_MANIFEST="$OUTPUT_DIR/input/formal/candidate-manifest-valkyrie-formal.json"
+    fi
   fi
+  if [[ -e "$OUTPUT_DIR/input/recovery-protocol" ]]; then
+    diff -r -- "$RECOVERY_PROTOCOL_PACKAGE" \
+      "$OUTPUT_DIR/input/recovery-protocol"
+  else
+    cp -a -- "$RECOVERY_PROTOCOL_PACKAGE" \
+      "$OUTPUT_DIR/input/recovery-protocol"
+  fi
+  PROTOCOL_ROOT="$OUTPUT_DIR/input/recovery-protocol"
+  PROTOCOL_COPY="$PROTOCOL_ROOT/protocol.json"
+  SEED_LEDGER_COPY="$PROTOCOL_ROOT/seed-ledger.json"
+  PROTOCOL_MANIFEST_COPY="$PROTOCOL_ROOT/candidate-manifest.json"
+  PROTOCOL_PROPERTY_COPY="$PROTOCOL_ROOT/unreach-call.prp"
+  cmp -- "$FORMAL_MANIFEST" "$PROTOCOL_MANIFEST_COPY"
+  cmp -- "$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp" \
+    "$PROTOCOL_PROPERTY_COPY"
   activate_formal_research_provenance
+  [[ $("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+    'import json,sys; print(json.load(open(sys.argv[1]))["source_commit"])' \
+    "$PROTOCOL_COPY") == \
+    "$(cat "$ACTIVE_RESEARCH_PROVENANCE/research-head.txt")" ]]
   verify_runtime_closure false
   COMPLETE_SENTINEL="$OUTPUT_DIR/summary/.complete"
   if [[ -e "$COMPLETE_SENTINEL" || -L "$COMPLETE_SENTINEL" ]]; then
@@ -968,27 +1013,15 @@ main() {
   fi
   if [[ "$RESUMING" == true &&
     -f "$COMPLETE_SENTINEL" && ! -L "$COMPLETE_SENTINEL" ]]; then
-    FAST_SUMMARY="$OUTPUT_DIR/summary.fast-validation"
-    rm -rf -- "$FAST_SUMMARY"
-    run_python_script "$DATASET_PY" summarize-cap16-formal \
-      --phase-a-output "$CAP16_PHASE_A_OUTPUT" \
-      --sv-benchmarks "$SV_BENCHMARKS_DIR" \
-      --manifest "$FORMAL_MANIFEST" \
-      --benchmark-definition "$OUTPUT_DIR/generated/hard-case-candidates.xml" \
-      --repetition-plan "$OUTPUT_DIR/repetition-1-plan.json" \
-      --repetition-plan "$OUTPUT_DIR/repetition-2-plan.json" \
-      --output-dir "$FAST_SUMMARY" --hard-threshold 200
-    for candidate in "$FAST_SUMMARY"/*; do
-      cmp -- "$candidate" "$OUTPUT_DIR/summary/$(basename "$candidate")"
-    done
-    rm -rf -- "$FAST_SUMMARY"
     run_python_script "$DATASET_PY" validate-formal-closure \
       --output-root "$OUTPUT_DIR" \
       --manifest "$FORMAL_MANIFEST" --sv-benchmarks "$SV_BENCHMARKS_DIR" \
       --benchmark-definition "$OUTPUT_DIR/generated/hard-case-candidates.xml" \
       --host "$FORMAL_HOST" --mode "$FORMAL_MODE" \
-      --repetition-plan "$OUTPUT_DIR/repetition-1-plan.json" \
-      --repetition-plan "$OUTPUT_DIR/repetition-2-plan.json" \
+      --repetition-plan \
+      "$OUTPUT_DIR/formal-recovery-repetition-1-plan.json" \
+      --repetition-plan \
+      "$OUTPUT_DIR/formal-recovery-repetition-2-plan.json" \
       --require-complete
     if [[ "$FORMAL_MODE" == cap16 ]]; then
       verify_cap16_phase_evidence
@@ -1013,6 +1046,7 @@ main() {
       "$OUTPUT_DIR/provenance/runtime-verification-failure.log" \
       "$OUTPUT_DIR/provenance/research-verification-final.log" \
       "$OUTPUT_DIR/provenance/runtime-verification-final.log" \
+      "$OUTPUT_DIR/provenance/recovery-state-before.json" \
       "$OUTPUT_DIR/provenance/render-formal.log" \
       "$OUTPUT_DIR/provenance/summarize.log" \
       "$OUTPUT_DIR/provenance/artifact-manifest.json"; do
@@ -1021,6 +1055,41 @@ main() {
     done
   fi
   write_runtime_provenance "$OUTPUT_DIR/provenance/runtime-closure.txt"
+  "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" - \
+    "$PROTOCOL_COPY" \
+    "$OUTPUT_DIR/provenance/runtime-closure.txt" \
+    "$EXPECTED_CPACHECKER" "$EXPECTED_SV_BENCHMARKS" \
+    "$EXPECTED_BENCHEXEC" "$EXPECTED_JDK" \
+    "$(formal_benchexec_workers "$FORMAL_MODE")" <<'PY'
+import hashlib
+import json
+import sys
+
+protocol = json.load(open(sys.argv[1], encoding="utf-8"))
+runtime = protocol["runtime"]
+expected = {
+    "cpachecker_commit": sys.argv[3],
+    "sv_benchmarks_commit": sys.argv[4],
+    "benchexec_commit": sys.argv[5],
+    "jdk_sha256": sys.argv[6],
+    "configuration_closure_sha256": hashlib.sha256(
+        open(sys.argv[2], "rb").read()
+    ).hexdigest(),
+    "workers": int(sys.argv[7]),
+    "cores_per_worker": 4,
+    "p_cores": "0,2,4,6,8,10,12,14",
+}
+if any(runtime.get(name) != value for name, value in expected.items()):
+  raise SystemExit("formal recovery runtime closure differs")
+PY
+  run_python_script "$DATASET_PY" formal-recovery-state \
+    --output-root "$OUTPUT_DIR" \
+    --protocol "$PROTOCOL_COPY" \
+    --seed-ledger "$SEED_LEDGER_COPY" \
+    --manifest "$PROTOCOL_MANIFEST_COPY" \
+    --property-file "$PROTOCOL_PROPERTY_COPY" \
+    --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+    >"$OUTPUT_DIR/provenance/recovery-state-before.json"
   BUILD_COMPLETED=false
 
   capture_failure() {
@@ -1195,6 +1264,7 @@ main() {
     local benchexec_status
     local result
     local marker="$OUTPUT_DIR/provenance/attempts/$label.json"
+    local authorization="$OUTPUT_DIR/provenance/authorizations/$label.json"
     local benchexec_process="$OUTPUT_DIR/provenance/$label-benchexec.process.json"
     local process_descriptor="$OUTPUT_DIR/provenance/$label-process-descriptor.json"
     local recovery_research_head
@@ -1203,6 +1273,7 @@ main() {
     [[ "$recovery_research_head" =~ ^[0-9a-f]{40}$ ]]
     local recovery_directory="$OUTPUT_DIR/provenance/recoveries/$label/$recovery_research_head"
     local unit
+    ATTEMPT_ABANDONED=false
     local -a attempt_common=(
       --output-root "$OUTPUT_DIR"
       --manifest "$FORMAL_MANIFEST"
@@ -1235,6 +1306,41 @@ main() {
       --machine-check "$recovery_directory/machine-check.json"
       --output "$marker"
     )
+    abandon_current_pretask() {
+      local exit_value=$1
+      shift
+      local name
+      local path
+      local -a evidence_args=()
+      local -a exit_args=()
+      if [[ "$exit_value" != unobserved ]]; then
+        exit_args=(--benchexec-exit "$exit_value")
+      fi
+      while (($#)); do
+        name=$1
+        path=$2
+        shift 2
+        if [[ -e "$path" || -L "$path" ]]; then
+          if [[ ! -f "$path" || -L "$path" ]]; then
+            echo "pre-task evidence is not a regular file: $path" >&2
+            return 1
+          fi
+          evidence_args+=("--${name//_/-}" "$path")
+        fi
+      done
+      run_python_script "$DATASET_PY" \
+        abandon-formal-recovery-pretask \
+        --output-root "$OUTPUT_DIR" \
+        --protocol "$PROTOCOL_COPY" \
+        --seed-ledger "$SEED_LEDGER_COPY" \
+        --manifest "$PROTOCOL_MANIFEST_COPY" \
+        --property-file "$PROTOCOL_PROPERTY_COPY" \
+        --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+        --label "$label" "${exit_args[@]}" \
+        --process-descriptor "$process_descriptor" \
+        "${evidence_args[@]}" >/dev/null
+      ATTEMPT_ABANDONED=true
+    }
     authenticate_formal_attempt() {
       local status=$1
       local result_path=$2
@@ -1261,10 +1367,61 @@ main() {
         --result "$result" --marker "$marker" >/dev/null
       return
     fi
+    if [[ -e "$authorization" || -L "$authorization" ]]; then
+      if [[ ! -f "$authorization" || -L "$authorization" ]]; then
+        echo "formal recovery authorization is not a regular file" >&2
+        return 1
+      fi
+      if [[ -z $(find "$output" -mindepth 1 -print -quit) ]]; then
+        local authorization_boot
+        local current_boot
+        local lifecycle_present=false
+        authorization_boot=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+          'import json,sys; print(json.load(open(sys.argv[1]))["boot_id"])' \
+          "$authorization")
+        current_boot=$(< /proc/sys/kernel/random/boot_id)
+        for candidate in \
+          "$OUTPUT_DIR/provenance/$label-benchexec.log" \
+          "$benchexec_process" \
+          "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
+          "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.pid" \
+          "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.process.json" \
+          "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.stopped" \
+          "$OUTPUT_DIR/provenance/machine-before-$label.json" \
+          "$OUTPUT_DIR/provenance/machine-after-$label.json" \
+          "$OUTPUT_DIR/provenance/machine-check-$label.json"; do
+          if [[ -e "$candidate" || -L "$candidate" ]]; then
+            lifecycle_present=true
+            break
+          fi
+        done
+        if [[ "$authorization_boot" != "$current_boot" ||
+          "$lifecycle_present" == true ]]; then
+          abandon_current_pretask unobserved \
+            benchexec_log \
+            "$OUTPUT_DIR/provenance/$label-benchexec.log" \
+            benchexec_process "$benchexec_process" \
+            load_monitor \
+            "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
+            monitor_pid \
+            "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.pid" \
+            monitor_process \
+            "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.process.json" \
+            monitor_stopped \
+            "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.stopped" \
+            machine_before \
+            "$OUTPUT_DIR/provenance/machine-before-$label.json" \
+            machine_after \
+            "$OUTPUT_DIR/provenance/machine-after-$label.json" \
+            machine_check \
+            "$OUTPUT_DIR/provenance/machine-check-$label.json"
+          return
+        fi
+      fi
+    fi
     if [[ -n $(find "$output" -mindepth 1 -print -quit) ||
       -e "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.process.json" ||
-      -e "$benchexec_process" ||
-      -e "$process_descriptor" ]]; then
+      -e "$benchexec_process" ]]; then
       local process_identity="$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.process.json"
       result=$(single_formal_result "$output")
       for candidate in \
@@ -1287,16 +1444,27 @@ main() {
         --result "$result"
       return
     fi
-    run_python_script "$DATASET_PY" write-formal-process-descriptor \
-      --output-root "$OUTPUT_DIR" --mode "$FORMAL_MODE" \
-      --label "$label" --host "$FORMAL_HOST" --name "$name" \
-      --definition "$definition" --result-output "$output" \
-      --monitor-output "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
-      --monitor-exclude-root "$$" --dataset-py "$DATASET_PY" \
-      --cpachecker-dir "$CPACHECKER_DIR" \
-      --benchexec-dir "$BENCHEXEC_DIR" --python-bin "$PYTHON_BIN" \
-      --java-home "$JAVA_HOME" --p-cores "$P_CORES" \
-      --output "$process_descriptor"
+    if [[ ! -f "$process_descriptor" || -L "$process_descriptor" ]]; then
+      run_python_script "$DATASET_PY" write-formal-process-descriptor \
+        --output-root "$OUTPUT_DIR" --mode "$FORMAL_MODE" \
+        --label "$label" --host "$FORMAL_HOST" --name "$name" \
+        --definition "$definition" --result-output "$output" \
+        --monitor-output "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
+        --monitor-exclude-root "$$" --dataset-py "$DATASET_PY" \
+        --cpachecker-dir "$CPACHECKER_DIR" \
+        --benchexec-dir "$BENCHEXEC_DIR" --python-bin "$PYTHON_BIN" \
+        --java-home "$JAVA_HOME" --p-cores "$P_CORES" \
+        --output "$process_descriptor"
+    fi
+    run_python_script "$DATASET_PY" authorize-formal-recovery-attempt \
+      --output-root "$OUTPUT_DIR" \
+      --protocol "$PROTOCOL_COPY" \
+      --seed-ledger "$SEED_LEDGER_COPY" \
+      --manifest "$PROTOCOL_MANIFEST_COPY" \
+      --property-file "$PROTOCOL_PROPERTY_COPY" \
+      --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+      --process-descriptor "$process_descriptor" \
+      --label "$label" --repetition "$repetition" >/dev/null
     unit=$(run_python_script "$DATASET_PY" formal-systemd-unit \
       --output-root "$OUTPUT_DIR" --mode "$FORMAL_MODE" --label "$label")
     JAVA_HOME="$JAVA_HOME" run_python_script "$BASELINE_PY" machine \
@@ -1363,154 +1531,130 @@ PY
       --after "$OUTPUT_DIR/provenance/machine-after-$label.json" |
       tee "$OUTPUT_DIR/provenance/machine-check-$label.json"
     if [[ "$benchexec_status" -ne 0 && "$benchexec_status" -ne 130 ]]; then
+      if [[ -z $(find "$output" -mindepth 1 -print -quit) ]]; then
+        abandon_current_pretask "$benchexec_status" \
+          benchexec_log \
+          "$OUTPUT_DIR/provenance/$label-benchexec.log" \
+          benchexec_process "$benchexec_process" \
+          load_monitor \
+          "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
+          monitor_pid \
+          "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.pid" \
+          monitor_process \
+          "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.process.json" \
+          monitor_stopped \
+          "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl.stopped" \
+          machine_before \
+          "$OUTPUT_DIR/provenance/machine-before-$label.json" \
+          machine_after \
+          "$OUTPUT_DIR/provenance/machine-after-$label.json" \
+          machine_check \
+          "$OUTPUT_DIR/provenance/machine-check-$label.json"
+        return
+      fi
       return "$benchexec_status"
     fi
     result=$(single_formal_result "$output")
     authenticate_formal_attempt "$benchexec_status" "$result"
   }
 
-  build_repetition_plan() {
+  recovery_pending_count() {
     local repetition=$1
-    local primary=$2
-    local label="repetition-$repetition"
-    local taint="$OUTPUT_DIR/$label-taint.json"
-    local plan="$OUTPUT_DIR/$label-plan.json"
-    local taint_count
-    if [[ -f "$plan" ]]; then
-      BUILT_PLAN=$plan
-      return
-    fi
-    if [[ ! -f "$taint" ]]; then
-      run_python_script "$DATASET_PY" formal-taint \
-        --manifest "$FORMAL_MANIFEST" \
-        --repetition "$repetition" \
-        --result "$primary" \
-        --benchexec-log "$OUTPUT_DIR/provenance/$label-benchexec.log" \
-        --load-monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
-        --attempt-marker "$OUTPUT_DIR/provenance/attempts/$label.json" \
-        --output-root "$OUTPUT_DIR" \
-        --sv-benchmarks "$SV_BENCHMARKS_DIR" \
-        --host "$FORMAL_HOST" \
-        --mode "$FORMAL_MODE" \
-        --output "$taint"
-    fi
-    taint_count=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
-      'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' "$taint")
-    if [[ "$taint_count" -eq 0 ]]; then
-      if [[ "$FORMAL_MODE" == cap16 ]]; then
-        run_python_script "$DATASET_PY" cap16-repetition-plan \
-          --manifest "$FORMAL_MANIFEST" \
-          --repetition "$repetition" \
-          --primary-result "$primary" \
-          --output "$plan"
-      else
-        run_python_script "$DATASET_PY" repetition-plan \
-          --manifest "$FORMAL_MANIFEST" \
-          --repetition "$repetition" \
-          --primary-result "$primary" \
-          --output "$plan"
-      fi
-      BUILT_PLAN=$plan
-      return
-    fi
-
-    local attempt=1
-    local current_result=$primary
-    local current_taint=$taint
-    local definition_dir
-    local definition
-    local replacement
-    local replacement_taint
-    local replacement_taint_count
-    local replacement_args=()
-    while true; do
-      local attempt_label="$label-replacement-attempt-$attempt"
-      local attempt_output="$OUTPUT_DIR/results/$attempt_label"
-      definition_dir="$OUTPUT_DIR/generated/$attempt_label"
-      definition="$definition_dir/hard-case-candidates.xml"
-      if [[ ! -f "$definition" ]]; then
-        run_python_script "$DATASET_PY" "$RENDER_REPLACEMENT_COMMAND" \
-          "${PHASE_ARGS[@]}" \
-          --manifest "$FORMAL_MANIFEST" \
-          --primary-result "$current_result" \
-          --taint-manifest "$current_taint" \
-          --property-file "$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp" \
-          --output-dir "$definition_dir"
-      fi
-      run_formal_benchmark "$attempt_label" \
-        "hard-case-dataset-v2${FORMAL_BENCHMARK_SCOPE}-formal-$FORMAL_HOST-$attempt_label" \
-        "$definition" "$attempt_output" "$repetition"
-      replacement=$(single_formal_result "$attempt_output")
-      replacement_taint="$OUTPUT_DIR/$attempt_label-taint.json"
-      if [[ ! -f "$replacement_taint" ]]; then
-        run_python_script "$DATASET_PY" formal-taint \
-          --manifest "$FORMAL_MANIFEST" \
-          --repetition "$repetition" \
-          --result "$replacement" \
-          --benchexec-log "$OUTPUT_DIR/provenance/$attempt_label-benchexec.log" \
-          --load-monitor "$OUTPUT_DIR/provenance/$attempt_label-load-monitor.jsonl" \
-          --attempt-marker "$OUTPUT_DIR/provenance/attempts/$attempt_label.json" \
-          --output-root "$OUTPUT_DIR" \
-          --sv-benchmarks "$SV_BENCHMARKS_DIR" \
-          --host "$FORMAL_HOST" \
-          --mode "$FORMAL_MODE" \
-          --output "$replacement_taint"
-      fi
-      replacement_args+=(
-        --replacement-result "$replacement"
-        --replacement-definition "$definition"
-        --replacement-taint-manifest "$replacement_taint"
-      )
-      replacement_taint_count=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
-        'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
-        "$replacement_taint")
-      if [[ "$replacement_taint_count" -eq 0 ]]; then
-        break
-      fi
-      if [[ "$FORMAL_MODE" == cap16 ]]; then
-        current_result=$replacement
-        current_taint=$replacement_taint
-      fi
-      attempt=$((attempt + 1))
-      sleep 10
-    done
-    if [[ "$FORMAL_MODE" == cap16 ]]; then
-      run_python_script "$DATASET_PY" cap16-repetition-plan \
-        --manifest "$FORMAL_MANIFEST" \
-        --repetition "$repetition" \
-        --primary-result "$primary" \
-        --taint-manifest "$taint" \
-        "${replacement_args[@]}" \
-        --output "$plan"
-    else
-      run_python_script "$DATASET_PY" repetition-plan \
-        --manifest "$FORMAL_MANIFEST" \
-        --repetition "$repetition" \
-        --primary-result "$primary" \
-        --taint-manifest "$taint" \
-        --replacement-result "$replacement" \
-        --replacement-definition "$definition" \
-        --output "$plan"
-    fi
-    BUILT_PLAN=$plan
+    run_python_script "$DATASET_PY" formal-recovery-state \
+      --output-root "$OUTPUT_DIR" \
+      --protocol "$PROTOCOL_COPY" \
+      --seed-ledger "$SEED_LEDGER_COPY" \
+      --manifest "$PROTOCOL_MANIFEST_COPY" \
+      --property-file "$PROTOCOL_PROPERTY_COPY" \
+      --sv-benchmarks "$SV_BENCHMARKS_DIR" |
+      "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+        'import json,sys; print(json.load(sys.stdin)["pending"][sys.argv[1]])' \
+        "$repetition"
   }
 
-  RESULTS=()
+  run_recovery_repetition() {
+    local repetition=$1
+    local plan="$OUTPUT_DIR/formal-recovery-repetition-$repetition-plan.json"
+    local prepared
+    local complete
+    local label
+    local definition
+    local result
+    local taint
+    local before
+    local after
+    while true; do
+      prepared=$(run_python_script "$DATASET_PY" \
+        prepare-formal-recovery-shard \
+        --output-root "$OUTPUT_DIR" \
+        --protocol "$PROTOCOL_COPY" \
+        --seed-ledger "$SEED_LEDGER_COPY" \
+        --manifest "$PROTOCOL_MANIFEST_COPY" \
+        --property-file "$PROTOCOL_PROPERTY_COPY" \
+        --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+        --repetition "$repetition" | tail -n 1)
+      complete=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+        'import json,sys; print(str(json.loads(sys.argv[1])["complete"]).lower())' \
+        "$prepared")
+      if [[ "$complete" == true ]]; then
+        break
+      fi
+      label=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+        'import json,sys; print(json.loads(sys.argv[1])["label"])' \
+        "$prepared")
+      definition="$OUTPUT_DIR/generated/$label/hard-case-candidates.xml"
+      before=$(recovery_pending_count "$repetition")
+      run_formal_benchmark "$label" \
+        "hard-case-dataset-v2${FORMAL_BENCHMARK_SCOPE}-formal-$FORMAL_HOST-$label" \
+        "$definition" "$OUTPUT_DIR/results/$label" "$repetition"
+      if [[ "$ATTEMPT_ABANDONED" == true ]]; then
+        continue
+      fi
+      result=$(single_formal_result "$OUTPUT_DIR/results/$label")
+      taint="$OUTPUT_DIR/$label-taint.json"
+      if [[ ! -f "$taint" ]]; then
+        run_python_script "$DATASET_PY" formal-taint \
+          --manifest "$PROTOCOL_MANIFEST_COPY" \
+          --repetition "$repetition" \
+          --result "$result" \
+          --benchexec-log "$OUTPUT_DIR/provenance/$label-benchexec.log" \
+          --load-monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl" \
+          --attempt-marker "$OUTPUT_DIR/provenance/attempts/$label.json" \
+          --output-root "$OUTPUT_DIR" \
+          --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+          --host "$FORMAL_HOST" --mode "$FORMAL_MODE" \
+          --output "$taint"
+      fi
+      run_python_script "$DATASET_PY" accept-formal-recovery-attempt \
+        --output-root "$OUTPUT_DIR" \
+        --protocol "$PROTOCOL_COPY" \
+        --seed-ledger "$SEED_LEDGER_COPY" \
+        --manifest "$PROTOCOL_MANIFEST_COPY" \
+        --property-file "$PROTOCOL_PROPERTY_COPY" \
+        --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+        --label "$label" --taint-manifest "$taint" >/dev/null
+      after=$(recovery_pending_count "$repetition")
+      if ((after >= before)); then
+        echo "formal recovery shard made no accepted progress; evidence preserved" >&2
+        return 75
+      fi
+    done
+    if [[ ! -f "$plan" ]]; then
+      run_python_script "$DATASET_PY" export-formal-recovery-plan \
+        --output-root "$OUTPUT_DIR" \
+        --protocol "$PROTOCOL_COPY" \
+        --seed-ledger "$SEED_LEDGER_COPY" \
+        --manifest "$PROTOCOL_MANIFEST_COPY" \
+        --property-file "$PROTOCOL_PROPERTY_COPY" \
+        --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+        --repetition "$repetition" --output "$plan" >/dev/null
+    fi
+    PLANS+=("$plan")
+  }
+
   PLANS=()
-  run_formal_benchmark repetition-1 \
-    "hard-case-dataset-v2${FORMAL_BENCHMARK_SCOPE}-formal-$FORMAL_HOST-repetition-1" \
-    "$OUTPUT_DIR/generated/hard-case-candidates.xml" \
-    "$OUTPUT_DIR/results/repetition-1" 1
-  RESULTS+=("$(single_formal_result "$OUTPUT_DIR/results/repetition-1")")
-  build_repetition_plan 1 "${RESULTS[0]}"
-  PLANS+=("$BUILT_PLAN")
-  run_formal_benchmark repetition-2 \
-    "hard-case-dataset-v2${FORMAL_BENCHMARK_SCOPE}-formal-$FORMAL_HOST-repetition-2" \
-    "$OUTPUT_DIR/generated/hard-case-candidates.xml" \
-    "$OUTPUT_DIR/results/repetition-2" 2
-  RESULTS+=("$(single_formal_result "$OUTPUT_DIR/results/repetition-2")")
-  build_repetition_plan 2 "${RESULTS[1]}"
-  PLANS+=("$BUILT_PLAN")
+  run_recovery_repetition 1
+  run_recovery_repetition 2
 
   SUMMARY_STAGE="$OUTPUT_DIR/summary.staging"
   if [[ -e "$SUMMARY_STAGE" ]]; then
