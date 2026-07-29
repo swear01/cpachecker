@@ -1,8 +1,8 @@
 {
   "schema_version": "hard-case-dataset-v2-rolling-status-v1",
   "issue": 16,
-  "observed_at": "2026-07-30T03:37:59+08:00",
-  "authoritative_snapshot_sha256": "7dabd042313027a8188512769712cc0beb1dbd40b9343c0c707a02c60c0c7214",
+  "observed_at": "2026-07-30T04:05:40+08:00",
+  "authoritative_snapshot_sha256": "0d2c9632d6a082923746f83064e765de8c9077c1bba639b8eeacc4914897f07f",
   "phase": "phase_b_formal_recovery",
   "cap8": {
     "accepted": {
@@ -10,7 +10,7 @@
       "repetition_2": 80
     },
     "active_attempt": "repetition-2-replacement-attempt-2",
-    "active_structurally_complete_rows": 129,
+    "active_structurally_complete_rows": 136,
     "cohort": 270,
     "pending": {
       "repetition_1": 0,
@@ -19,21 +19,21 @@
   },
   "cap16": {
     "accepted": {
-      "repetition_1": 103,
+      "repetition_1": 111,
       "repetition_2": 0
     },
-    "active_attempt": null,
-    "boot_id": "a381e032-eece-4387-bf89-0e885e152d16",
+    "active_attempt": "next frozen repetition-1 shard",
+    "boot_id": "04e10dff-12c3-4eba-9fe2-a2a679092466",
     "cohort": 224,
     "first_shard_tasks": 8,
-    "invocation_id": "f4064faeb16c489ba2f269117986b039",
+    "invocation_id": "519cbf7ad53f414db95a4167f9dafe0f",
     "pending": {
-      "repetition_1": 121,
+      "repetition_1": 113,
       "repetition_2": 224
     },
     "protocol_sha256": "959bd13a33b098dbbe218731b58bb3d38e16ae5fc7fe52d985418005e8211327",
     "seed_sha256": "76ecdeb5a793feb70a2c968eeab746ae3c36b68d0356b9a9acdb374b69f1f9a7",
-    "unit": "vguide-cap16-generic-recovery-v3-20260730.service",
+    "unit": "vguide-cap16-generic-recovery-v4-postreboot-20260730.service",
     "last_terminated_attempt": {
       "label": "repetition-1-replacement-attempt-6",
       "structurally_complete_rows": 8,
@@ -50,18 +50,30 @@
       "launch_log_sha256": "df63b7d063db7c77f922b7344f7289eecc5998718d8b8ae272092956ba350d30",
       "authorization_sha256": "8802c08e9390e78107c7a5634053b1f1419f337d86504ddd268f4ea96ca23a3e",
       "live_gate_sha256": "09fa18021eeba6618649d09076e1e633c5a8359ba3ee494fdc5f42310388d090"
+    },
+    "last_accepted_attempt": {
+      "label": "repetition-1-replacement-attempt-6",
+      "accepted_rows": 8,
+      "ledger_sha256": "a16cc1a7c5504c4eec08e820835ef1a73b32d93539e359e20425b7d53d3551a8"
+    },
+    "last_interruption": {
+      "launch": "launch-003",
+      "old_boot_id": "a381e032-eece-4387-bf89-0e885e152d16",
+      "new_boot_id": "04e10dff-12c3-4eba-9fe2-a2a679092466",
+      "attempt7_preparation_present": false,
+      "exit_status_present": false
     }
   },
-  "blocker": "The zero-task launch gate exposed an exact-equality check between the frozen protocol source commit and the externally preregistered descendant recovery implementation.",
-  "next_action": "Preregister and freshly verify the minimal fail-closed source-ancestry correction, then reauthenticate attempt-6 without rerunning it and resume the next frozen shard.",
+  "blocker": null,
+  "next_action": "Preserve both healthy runs; launch 004 is continuing cap-16 from the first pending deterministic eight-task shard and cap-8 is continuing its authenticated legacy attempt.",
   "generic_recovery_prereg": {
-    "code_commit": "23b702d8186466b79331d523fbd96924cedbaefc",
-    "generic_recovery_prereg_id": 362002229,
+    "code_commit": "c8619b6c21dc018226da695f7c832ce375917d24",
+    "generic_recovery_prereg_id": 362012768,
     "immutable": true,
-    "tag": "hard-case-dataset-v2-generic-formal-recovery-prereg-v3-20260730",
-    "wiki_commit": "42e9e5e858191dabc1b2fed2357f2cda386a412a",
-    "publication_wiki_commit": "c362ef7b36690249fb3e6a118d01c130640e3e71",
-    "archive_sha256": "c66847fdef40663ea272c190b573b28758ac4d4a2313ceb6a97b59904370519f",
-    "fresh_download_verification_sha256": "eefa2ddf3ae73520a48d6658aa15e2a074a889d68140ada93a25af87d2a2642b"
+    "tag": "hard-case-dataset-v2-generic-formal-recovery-prereg-v4-20260730",
+    "wiki_commit": "3f02023fc46e523419a980abe4f51173f5ce4b2d",
+    "publication_wiki_commit": "c9ea1506d859dfb90abf53d98f153c410acb3a9c",
+    "archive_sha256": "6bd8bcc9033c4919b240dc720ff7e4f0d1d6250d97e65837ee59f3e49abe47a9",
+    "fresh_download_verification_sha256": "227e9a20f07b5915a495fae6f3b14a2ad36bf5acae1056fc19a62603af3183dc"
   }
 }
