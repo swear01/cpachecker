@@ -43,7 +43,7 @@ EXPECTED_PYTHON_STDLIB_DIGEST=a0c9c33e4f5b6c4e8e921598ec1c7273341cf2e8f2c74d7a34
 EXPECTED_PYTHON_DIST_PACKAGES=/usr/lib/python3/dist-packages
 EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=/usr/local/lib/python3.12/dist-packages
 EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python312.zip:/usr/lib/python3.12:/usr/lib/python3.12/lib-dynload:/usr/local/lib/python3.12/dist-packages:/usr/lib/python3/dist-packages
+EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python312.zip:/usr/lib/python3.12:/usr/lib/python3.12/lib-dynload
 EXPECTED_PYYAML_FILE=/usr/lib/python3/dist-packages/yaml/__init__.py
 EXPECTED_PYYAML_VERSION=6.0.1
 EXPECTED_PYYAML_PACKAGE_PATHS=(
@@ -82,10 +82,11 @@ PYTHON_LOCAL_DIST_PACKAGES=$(realpath "$EXPECTED_PYTHON_LOCAL_DIST_PACKAGES")
 remove_compiled_classes
 assert_no_compiled_classes
 verify_runtime_closure false
+assert_no_sourceless_python_bytecode "$BENCHEXEC_DIR"
 systemd-run --user --quiet --scope --slice=benchexec -p Delegate=yes \
-  taskset -c "$P_CORES" "$PYTHON_BIN" -I -c \
-  'import runpy,sys; sys.dont_write_bytecode=True; sys.pycache_prefix="/dev/null"; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]="benchexec"; runpy.run_module("benchexec.check_cgroups",run_name="__main__")' \
-  "$BENCHEXEC_DIR" --no-thread
+  taskset -c "$P_CORES" "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+  "$BENCHEXEC_CGROUP_COMMAND" \
+  "$BENCHEXEC_DIR" "$EXPECTED_PYYAML_FILE" --no-thread
 
 exec 9>/var/tmp/vguide-athena-pcores.lock
 flock -n 9 || {
@@ -97,7 +98,9 @@ copy_manifest_package() {
   local source=$1
   local destination=$2
   local status
-  "$PYTHON_BIN" -I - "$SCRIPT_DIR/dataset.py" "$source" "$destination" <<'PY'
+  assert_no_sourceless_python_bytecode "$SCRIPT_DIR"
+  "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" - \
+    "$SCRIPT_DIR/dataset.py" "$source" "$destination" <<'PY'
 import importlib.util
 import json
 import shutil
@@ -257,7 +260,7 @@ promote_plan() {
   local target=$2
   local partial_evidence=$3
   if [[ -f "$target" ]]; then
-    if "$PYTHON_BIN" -c \
+    if "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
       'import json,sys; json.load(open(sys.argv[1]))' "$target" 2>/dev/null; then
       cmp "$target" "$candidate" || return
       rm "$candidate" || return
@@ -328,15 +331,14 @@ run_screen() {
   local result_dir="$attempt_dir/results"
   local monitor="$attempt_dir/load-monitor.jsonl"
   mkdir -p "$result_dir" || return
-  taskset -c 16-23 "$PYTHON_BIN" -I -u -c '
+  assert_no_sourceless_python_bytecode "$SCRIPT_DIR"
+  taskset -c 16-23 "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -u -c '
 import runpy
 import sys
 from pathlib import Path
 
 script = Path(sys.argv.pop(1)).resolve()
 sys.argv[0] = str(script)
-sys.dont_write_bytecode = True
-sys.pycache_prefix = "/dev/null"
 sys.path.insert(0, str(script.parent))
 runpy.run_path(str(script), run_name="__main__")
 ' "$SCRIPT_DIR/dataset.py" monitor-formal-load \
@@ -348,12 +350,13 @@ runpy.run_path(str(script), run_name="__main__")
     sleep 0.05 || return
   done
   while [[ $(($(wc -l <"$monitor") - 1)) -lt 10 ]] ||
-    "$PYTHON_BIN" -c \
+    "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
       'import json,sys; raise SystemExit(not any(x["contended"] for x in json.loads(open(sys.argv[1]).read().splitlines()[-1])["offenders"]))' \
       "$monitor"; do
     kill -0 "$MONITOR_PID" 2>/dev/null || return
     sleep 1 || return
   done
+  assert_no_sourceless_python_bytecode "$BENCHEXEC_DIR"
   set +e
   (
     cd "$CPACHECKER_DIR"
@@ -361,9 +364,9 @@ runpy.run_path(str(script), run_name="__main__")
       taskset -c "$P_CORES" env -i \
       HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
       JAVA="$JAVA_HOME/bin/java" \
-      "$PYTHON_BIN" -I -c \
-      'import runpy,sys; sys.dont_write_bytecode=True; sys.pycache_prefix="/dev/null"; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]="benchexec"; runpy.run_module("benchexec.benchexec",run_name="__main__")' \
-      "$BENCHEXEC_DIR" \
+      "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+      "$BENCHEXEC_MODULE_COMMAND" \
+      "$BENCHEXEC_DIR" "$EXPECTED_PYYAML_FILE" \
       --name "hard-case-dataset-cap16-athena-$label" \
       --tool-directory "$CPACHECKER_DIR" \
       --outputpath "$result_dir/" \
@@ -517,7 +520,7 @@ PRIMARY=$(cat "${RECORDS[0]}/result.path")
 TAINT="${RECORDS[0]}/taint.json"
 CURRENT_RESULT=$(cat "${RECORDS[-1]}/result.path")
 CURRENT_TAINT="${RECORDS[-1]}/taint.json"
-TAINT_COUNT=$("$PYTHON_BIN" -c \
+TAINT_COUNT=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
   'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
   "$CURRENT_TAINT")
 
@@ -540,7 +543,7 @@ while [[ "$TAINT_COUNT" -gt 0 ]]; do
   if finalize_attempt "$ATTEMPT_DIR"; then
     CURRENT_RESULT=$(cat "$ATTEMPT_DIR/result.path")
     CURRENT_TAINT="$ATTEMPT_DIR/taint.json"
-    TAINT_COUNT=$("$PYTHON_BIN" -c \
+    TAINT_COUNT=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
       'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
       "$CURRENT_TAINT")
   elif [[ $? -eq 20 ]]; then

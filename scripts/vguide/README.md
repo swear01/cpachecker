@@ -203,6 +203,10 @@ systemd-run/taskset/environment/Python/BenchExec argv, plus the exact load
 monitor script, output and excluded root argv. Resume authenticates an
 unfinished identity against that descriptor before checking it and queries the
 descriptor's expected unit rather than trusting the identity's recorded unit.
+New version-2 descriptors require every Python process to start with
+`-I -S -B -X pycache_prefix=/dev/null`. Only the two hash-pinned Athena
+version-1 descriptors already present in the frozen recovery may be read; no
+other version-1 path, hash, host or label is accepted.
 It requires both the launcher identity to be gone and that expected unit to be
 definitively inactive/not found. If either the exact owned process or unit is
 still alive, resume fails closed and never signals it. For an authenticated
@@ -263,15 +267,26 @@ validated read-only; new recovery markers use version 4.
 Its runtime
 closure is the cap-16 Athena Python 3.12/PyYAML 6.0.1 closure, not the older
 Valkyrie Python 3.10 closure. It pins the Python executable, version and exact
-isolated `sys.path`; the non-cache standard-library closure at
+isolated `sys.path`. Every helper starts with
+`-I -S -B -X pycache_prefix=/dev/null` before any import, so host bytecode,
+`site`, `.pth`, `sitecustomize`, user packages and Python environment variables
+cannot alter executed code. The default path is only the standard-library zip,
+standard library and `lib-dynload`; a saved-script parent or the exact BenchExec
+checkout is inserted only by the command that needs it. PyYAML is loaded
+directly from its pinned `yaml/__init__.py` with that one package search path,
+not by adding either distribution-packages root; the same explicit bootstrap
+preloads it before every BenchExec entry point. The runner pins the non-cache
+standard-library closure at
 `a0c9c33e4f5b6c4e8e921598ec1c7273341cf2e8f2c74d7a348d6a3584a2c325`;
 the exact `yaml`, `_yaml` and `PyYAML-6.0.1.dist-info` package closure at
 `9148a8dc1759caac2f87132749a8f29de2cf8ee71b6ddead932d027613045627`;
 and an empty non-cache local distribution closure. Only real `__pycache__`
-directories and regular `.pyc` or `.pyo` files are excluded. Source,
-extension, metadata, unknown non-cache, symlink and special-node drift remains
-fail-closed, and PyYAML must still resolve to its pinned module path and
-version. Before any rendering or measurement it copies
+directories are excluded. A `.pyc` or `.pyo` outside one is authenticated by
+the closure and is also rejected from every explicitly inserted saved-script
+or BenchExec root, because Python can import such sourceless bytecode directly.
+Source, extension, metadata, unknown non-cache, symlink and special-node drift
+remains fail-closed, and PyYAML must still resolve to its pinned module path
+and version. Before any rendering or measurement it copies
 the portable package under `input/evidence/`, reauthenticates that saved copy,
 and uses only saved-copy paths for all later render, validate and summarize
 operations.
@@ -514,18 +529,23 @@ the exact `yaml`, `_yaml` and `PyYAML-5.4.1.egg-info` closure at
 `9dd464e236b90eaa25fc9576bb22442b07817d16e086f9e3754d61c3328d9bbd`,
 and the empty non-cache `/usr/local/lib/python3.10/dist-packages` closure at
 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
-Only real `__pycache__` directories and regular `.pyc` or `.pyo` files are
-excluded; every other selected-package, standard-library or local-distribution
-node remains authenticated.
+Only real `__pycache__` directories are excluded. Sourceless `.pyc`/`.pyo`
+outside one remains authenticated and is rejected from inserted saved-script
+and BenchExec roots; every other selected-package, standard-library or
+local-distribution node remains authenticated.
 Under the actual `env -i HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8
 PATH=/usr/bin:/bin JAVA=<pinned-jdk>/bin/java` invocation, it requires the
 BenchExec checkout followed by `/usr/lib/python310.zip`, `/usr/lib/python3.10`,
-`/usr/lib/python3.10/lib-dynload`,
-`/usr/local/lib/python3.10/dist-packages`, and
-`/usr/lib/python3/dist-packages` as the exact `sys.path`. PyYAML must resolve
-to `/usr/lib/python3/dist-packages/yaml/__init__.py` at version 5.4.1. These
+and `/usr/lib/python3.10/lib-dynload` as the exact `sys.path`. Every helper
+starts with `-I -S -B -X pycache_prefix=/dev/null` before imports. It never
+loads `site` or processes `.pth`/`sitecustomize`; saved-script and BenchExec
+paths are inserted explicitly. PyYAML is loaded directly from
+`/usr/lib/python3/dist-packages/yaml/__init__.py`, without adding either
+distribution-packages root, and must report version 5.4.1. These
 paths, versions, module location, and filtered closure hashes are recorded before
 measurement and reverified during both success and failure teardown. The
+Python 3.10 interpreter does not expose `sys.flags.safe_path`; its equivalent
+startup guarantee is authenticated by the exact `-I` argv and exact `sys.path`.
 saved `dataset.py` and `baseline.py` commands use this same pinned interpreter
 and are therefore covered by the same binary, standard-library, and installed
 package closure.

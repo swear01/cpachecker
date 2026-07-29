@@ -209,8 +209,6 @@ def python_runtime_digest(root, selected_paths=()):
     mode = path.lstat().st_mode
     if stat.S_ISDIR(mode) and path.name == "__pycache__":
       return
-    if stat.S_ISREG(mode) and path.suffix in (".pyc", ".pyo"):
-      return
     entries.append(path)
     if stat.S_ISDIR(mode):
       for child in sorted(path.iterdir(), key=lambda item: item.name):

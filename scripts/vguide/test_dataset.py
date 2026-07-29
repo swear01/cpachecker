@@ -16,6 +16,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import py_compile
 import random
 import shutil
 import subprocess
@@ -2018,6 +2019,32 @@ capture_research_provenance "$4"
           descriptor["inputs"]["dataset_py"],
           str(current / "scripts/dataset.py"),
       )
+      self.assertEqual(
+          descriptor["schema_version"],
+          dataset.FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
+      )
+      self.assertEqual(
+          descriptor["identities"]["load-monitor"]["argv"][1:6],
+          list(dataset.PYTHON_RUNTIME_FLAGS),
+      )
+      benchexec_argv = descriptor["identities"][
+          "benchexec-launcher"
+      ]["argv"]
+      python_index = benchexec_argv.index("/usr/bin/python3.12")
+      self.assertEqual(
+          benchexec_argv[python_index + 1:python_index + 6],
+          list(dataset.PYTHON_RUNTIME_FLAGS),
+      )
+      self.assertEqual(
+          benchexec_argv[
+              benchexec_argv.index(descriptor["inputs"]["benchexec_dir"]) + 1
+          ],
+          dataset.FORMAL_PYYAML_FILE,
+      )
+      self.assertNotIn("sys.pycache_prefix", dataset.BENCHEXEC_MODULE_COMMAND)
+      self.assertNotIn(
+          "sys.dont_write_bytecode", dataset.BENCHEXEC_MODULE_COMMAND
+      )
       (current / "research-head.txt").write_text(
           f"{'0' * 40}\n", encoding="utf-8"
       )
@@ -2183,7 +2210,7 @@ EXPECTED_PYYAML_PACKAGE_PATHS=(yaml _yaml PyYAML-test.dist-info)
 EXPECTED_PYYAML_PACKAGE_DIGEST=$(pyyaml_package_digest_value)
 EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=$PYTHON_LOCAL_DIST_PACKAGES
 EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=$(python_runtime_digest_value "$PYTHON_LOCAL_DIST_PACKAGES")
-EXPECTED_PYTHON_SYSTEM_PATH=$("$PYTHON_BIN" -I -c 'import sys; print(":".join(sys.path))')
+EXPECTED_PYTHON_SYSTEM_PATH=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c 'import sys; print(":".join(sys.path))')
 EXPECTED_PYYAML_FILE=$("$PYTHON_BIN" -I -c 'import yaml; print(yaml.__file__)')
 EXPECTED_PYYAML_VERSION=$("$PYTHON_BIN" -I -c 'import yaml; print(yaml.__version__)')
 EXPECTED_BENCHEXEC_ARCHIVE=$(benchexec_archive_digest)
@@ -2280,7 +2307,6 @@ benchexec_version() { printf 'test-benchexec\\n'; }
       for cache in (
           python_stdlib / "__pycache__/runtime.cpython-312.pyc",
           python_dist_packages / "yaml/__pycache__/loader.cpython-312.pyc",
-          python_dist_packages / "yaml/ignored.pyc",
           python_local_dist_packages / "__pycache__/shadow.cpython-312.pyc",
       ):
         cache.parent.mkdir(parents=True, exist_ok=True)
@@ -2302,6 +2328,22 @@ benchexec_version() { printf 'test-benchexec\\n'; }
           ],
           check=True,
       )
+
+      sourceless = python_dist_packages / "yaml/ignored.pyc"
+      sourceless.write_bytes(b"cache")
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              setup
+              + f"\nEXPECTED_PYYAML_PACKAGE_DIGEST={package_digest}\n"
+              + "verify_runtime_closure true",
+              "bash",
+              *arguments,
+          ],
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      sourceless.unlink()
 
       shadow = python_local_dist_packages / "yaml"
       shadow.mkdir()
@@ -2413,6 +2455,296 @@ benchexec_version() { printf 'test-benchexec\\n'; }
           ],
       )
       self.assertNotEqual(rejected.returncode, 0)
+
+  def test_formal_python_bootstrap_ignores_host_caches_and_site_hooks(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    python = Path(os.path.realpath("/usr/bin/python3"))
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      script_dir = root / "saved/scripts"
+      script_dir.mkdir(parents=True)
+      helper = script_dir / "helper.py"
+      helper.write_text('VALUE = "cache"\n', encoding="utf-8")
+      py_compile.compile(
+          str(helper),
+          invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
+          doraise=True,
+      )
+      helper.write_text('VALUE = "source"\n', encoding="utf-8")
+      output = root / "runtime.json"
+      script = script_dir / "probe.py"
+      script.write_text(
+          """
+import json
+import sys
+from pathlib import Path
+import helper
+
+Path(sys.argv[1]).write_text(json.dumps({
+    "value": helper.VALUE,
+    "sys_path": sys.path,
+    "site_loaded": "site" in sys.modules,
+    "dont_write_bytecode": sys.dont_write_bytecode,
+    "pycache_prefix": sys.pycache_prefix,
+    "isolated": sys.flags.isolated,
+    "no_site": sys.flags.no_site,
+    "safe_path": getattr(sys.flags, "safe_path", None),
+}), encoding="utf-8")
+""",
+          encoding="utf-8",
+      )
+      hook = root / "hooks"
+      hook.mkdir()
+      hook_marker = root / "sitecustomize-ran"
+      (hook / "sitecustomize.py").write_text(
+          f"open({str(hook_marker)!r}, 'w').write('ran')\n",
+          encoding="utf-8",
+      )
+      (hook / "injected.pth").write_text(
+          f"import pathlib; pathlib.Path({str(hook_marker)!r}).write_text('pth')\n",
+          encoding="utf-8",
+      )
+      control = subprocess.run(
+          [
+              python,
+              "-I",
+              "-S",
+              "-B",
+              "-c",
+              (
+                  "import sys; sys.path.insert(0, sys.argv[1]); "
+                  "import helper; print(helper.VALUE)"
+              ),
+              str(script_dir),
+          ],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      self.assertEqual(control.stdout.strip(), "cache")
+      subprocess.run(
+          [
+              "bash",
+              "-c",
+              'source "$1"; run_python_script "$2" "$3"',
+              "bash",
+              str(runner),
+              str(script),
+              str(output),
+          ],
+          check=True,
+          env={**os.environ, "PYTHONPATH": str(hook)},
+      )
+      runtime = json.loads(output.read_text(encoding="utf-8"))
+      expected_path = subprocess.run(
+          [python, *dataset.PYTHON_RUNTIME_FLAGS, "-c",
+           (
+               "import json,sys; print(json.dumps({"
+               "'path':sys.path,"
+               "'safe_path':getattr(sys.flags,'safe_path',None)}))"
+           )],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      self.assertEqual(runtime["value"], "source")
+      self.assertEqual(
+          runtime["sys_path"],
+          [str(script_dir), *json.loads(expected_path.stdout)["path"]],
+      )
+      self.assertFalse(runtime["site_loaded"])
+      self.assertTrue(runtime["dont_write_bytecode"])
+      self.assertEqual(runtime["pycache_prefix"], "/dev/null")
+      self.assertEqual(
+          {
+              "isolated": runtime["isolated"],
+              "no_site": runtime["no_site"],
+              "safe_path": runtime["safe_path"],
+          },
+          {
+              "isolated": 1,
+              "no_site": 1,
+              "safe_path": json.loads(expected_path.stdout)["safe_path"],
+          },
+      )
+      self.assertFalse(hook_marker.exists())
+      sourceless_source = script_dir / "sourceless.py"
+      sourceless_source.write_text('VALUE = "bytecode"\n', encoding="utf-8")
+      sourceless_bytecode = script_dir / "sourceless.pyc"
+      py_compile.compile(
+          str(sourceless_source),
+          cfile=str(sourceless_bytecode),
+          doraise=True,
+      )
+      sourceless_source.unlink()
+      control = subprocess.run(
+          [
+              python,
+              *dataset.PYTHON_RUNTIME_FLAGS,
+              "-c",
+              (
+                  "import sys; sys.path.insert(0, sys.argv[1]); "
+                  "import sourceless; print(sourceless.VALUE)"
+              ),
+              str(script_dir),
+          ],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      self.assertEqual(control.stdout.strip(), "bytecode")
+      sourceless_output = root / "sourceless-output"
+      sourceless_probe = script_dir / "sourceless-probe.py"
+      sourceless_probe.write_text(
+          (
+              "import sourceless\n"
+              "from pathlib import Path\n"
+              "Path(__import__('sys').argv[1]).write_text("
+              "sourceless.VALUE, encoding='utf-8')\n"
+          ),
+          encoding="utf-8",
+      )
+      rejected = subprocess.run(
+          [
+              "bash",
+              "-c",
+              'source "$1"; run_python_script "$2" "$3"',
+              "bash",
+              str(runner),
+              str(sourceless_probe),
+              str(sourceless_output),
+          ],
+          capture_output=True,
+          text=True,
+      )
+      self.assertNotEqual(rejected.returncode, 0)
+      self.assertIn("sourceless Python bytecode", rejected.stderr)
+      self.assertFalse(sourceless_output.exists())
+
+  def test_legacy_process_descriptors_require_exact_frozen_selection(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp).resolve()
+
+      def arguments(label):
+        return SimpleNamespace(
+            output_root=str(root),
+            mode="cap16",
+            label=label,
+            host="athena",
+            name=(
+                "hard-case-dataset-v2-cap16-formal-athena-"
+                f"{label}"
+            ),
+            definition=str(root / "generated/hard-case-candidates.xml"),
+            result_output=str(root / f"results/{label}"),
+            monitor_output=str(
+                root / f"provenance/{label}-load-monitor.jsonl"
+            ),
+            monitor_exclude_root=123,
+            dataset_py=str(root / "input/research/scripts/dataset.py"),
+            cpachecker_dir=str(root / "cpachecker"),
+            benchexec_dir=str(root / "benchexec"),
+            python_bin="/usr/bin/python3.12",
+            java_home=str(root / "jdk"),
+            p_cores=dataset.FORMAL_P_CORE_LIST,
+        )
+
+      replacement = copy.deepcopy(
+          dataset.FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION
+      )
+      replacement_path = (
+          root / replacement["files"]["process_descriptor"]["path"]
+      )
+      replacement_path.parent.mkdir(parents=True)
+      legacy = dataset.formal_process_descriptor(
+          arguments(replacement["label"]), legacy=True
+      )
+      replacement_path.write_text(
+          json.dumps(legacy, indent=2) + "\n", encoding="utf-8"
+      )
+      replacement["files"]["process_descriptor"]["sha256"] = (
+          dataset.baseline.sha256_file(replacement_path)
+      )
+      with mock.patch.object(
+          dataset,
+          "FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION",
+          replacement,
+      ):
+        self.assertEqual(
+            dataset.load_formal_process_descriptor(
+                replacement_path,
+                root,
+                "cap16",
+                replacement["label"],
+                "athena",
+            ),
+            legacy,
+        )
+        arbitrary = root / "provenance/arbitrary-process-descriptor.json"
+        arbitrary.write_bytes(replacement_path.read_bytes())
+        with self.assertRaisesRegex(RuntimeError, "not selected"):
+          dataset.load_formal_process_descriptor(
+              arbitrary,
+              root,
+              "cap16",
+              replacement["label"],
+              "athena",
+          )
+        altered = copy.deepcopy(legacy)
+        altered["identities"]["load-monitor"]["argv"].append("injected")
+        replacement_path.write_text(
+            json.dumps(altered, indent=2) + "\n", encoding="utf-8"
+        )
+        replacement["files"]["process_descriptor"]["sha256"] = (
+            dataset.baseline.sha256_file(replacement_path)
+        )
+        with self.assertRaisesRegex(RuntimeError, "content is invalid"):
+          dataset.load_formal_process_descriptor(
+              replacement_path,
+              root,
+              "cap16",
+              replacement["label"],
+              "athena",
+          )
+
+      primary = copy.deepcopy(dataset.LEGACY_CAP16_ATHENA_REPETITION_1)
+      primary_path = root / "provenance/repetition-1-process-descriptor.json"
+      primary_legacy = dataset.formal_process_descriptor(
+          arguments(primary["label"]), legacy=True
+      )
+      primary_path.write_text(
+          json.dumps(primary_legacy, indent=2) + "\n", encoding="utf-8"
+      )
+      primary["selected_provenance"][
+          "repetition-1-process-descriptor.json"
+      ] = dataset.baseline.sha256_file(primary_path)
+      with (
+          mock.patch.object(
+              dataset, "LEGACY_CAP16_ATHENA_REPETITION_1", primary
+          ),
+          mock.patch.object(
+              dataset, "validate_recovery_selection"
+          ) as validate_selection,
+      ):
+        dataset.load_formal_process_descriptor(
+            primary_path, root, "cap16", primary["label"], "athena"
+        )
+        validate_selection.assert_called_once_with(root, primary)
+        displaced = (
+            root
+            / "provenance/abandoned/repetition-1-superseded-zero-row-rerun"
+            / "provenance/repetition-1-process-descriptor.json"
+        )
+        displaced.parent.mkdir(parents=True)
+        displaced.write_bytes(primary_path.read_bytes())
+        with self.assertRaisesRegex(RuntimeError, "not selected"):
+          dataset.load_formal_process_descriptor(
+              displaced, root, "cap16", primary["label"], "athena"
+          )
+        with self.assertRaisesRegex(RuntimeError, "identity is invalid"):
+          dataset.load_formal_process_descriptor(
+              primary_path, root, "cap16", primary["label"], "valkyrie"
+          )
 
   def test_formal_runner_copies_relative_evidence_for_reauthentication(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
@@ -5627,6 +5959,28 @@ copy_phase_evidence "$2"
     self.assertIn("recover-formal-attempt", runner)
     self.assertIn("restore-legacy-cap16-athena-attempt", runner)
     self.assertIn("formal-owned-process-identity-v2", runner)
+    self.assertIn(
+        "PYTHON_RUNTIME_FLAGS=(-I -S -B -X pycache_prefix=/dev/null)",
+        runner,
+    )
+    self.assertIn("assert_no_sourceless_python_bytecode", runner)
+    self.assertNotIn('"$PYTHON_BIN" -I', runner)
+    self.assertNotIn('"$PYTHON_BIN" -c', runner)
+    self.assertNotIn("sys.dont_write_bytecode = True", runner)
+    self.assertNotIn('sys.pycache_prefix = "/dev/null"', runner)
+    shell_module_command = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; printf %s "$BENCHEXEC_MODULE_COMMAND"',
+            "bash",
+            str(Path(__file__).with_name("run-stock-formal-dataset.sh")),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    self.assertEqual(shell_module_command, dataset.BENCHEXEC_MODULE_COMMAND)
     self.assertIn("input/recovery-research", runner)
     self.assertIn("verify_frozen_research_provenance", runner)
     self.assertNotIn("require-formal-process-gone", runner)
@@ -5671,6 +6025,11 @@ copy_phase_evidence "$2"
     )
     self.assertNotIn('touch "$COMPLETE_CHECK/.complete"', runner)
     self.assertIn('source "$SCRIPT_DIR/run-stock-formal-dataset.sh"', runner)
+    self.assertNotIn('"$PYTHON_BIN" -I', runner)
+    self.assertNotIn('"$PYTHON_BIN" -c', runner)
+    self.assertNotIn("sys.dont_write_bytecode = True", runner)
+    self.assertNotIn('sys.pycache_prefix = "/dev/null"', runner)
+    self.assertIn("assert_no_sourceless_python_bytecode", runner)
     package_start = runner.index("CAP16_PACKAGE_SCRIPT_FILES=(")
     package_end = runner.index("\n)", package_start)
     self.assertEqual(
@@ -5702,9 +6061,7 @@ copy_phase_evidence "$2"
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "EXPECTED_PYTHON_SYSTEM_PATH="
         "/usr/lib/python312.zip:/usr/lib/python3.12:"
-        "/usr/lib/python3.12/lib-dynload:"
-        "/usr/local/lib/python3.12/dist-packages:"
-        "/usr/lib/python3/dist-packages",
+        "/usr/lib/python3.12/lib-dynload",
         "EXPECTED_PYYAML_FILE=/usr/lib/python3/dist-packages/yaml/__init__.py",
         "EXPECTED_PYYAML_VERSION=6.0.1",
         "EXPECTED_ANT_INSTALL="
@@ -5757,12 +6114,13 @@ copy_phase_evidence "$2"
               "bash",
               "-c",
               copy_function
-              + "\nPYTHON_BIN=python3\nSCRIPT_DIR=$1\n"
+              + '\nsource "$4"\nSCRIPT_DIR=$1\n'
               + 'copy_manifest_package "$2" "$3"\n',
               "bash",
               str(Path(__file__).parent),
               str(manifest_path),
               str(destination),
+              str(Path(__file__).with_name("run-stock-formal-dataset.sh")),
           ],
           check=True,
       )

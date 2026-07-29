@@ -427,7 +427,7 @@ specification = specification/property.spc
           with self.assertRaisesRegex(RuntimeError, "not a directory"):
             baseline.directory_digest(invalid)
 
-  def test_python_runtime_digest_ignores_only_bytecode_caches(self):
+  def test_python_runtime_digest_ignores_only_pycache_directories(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
       package = root / "yaml"
@@ -443,8 +443,6 @@ specification = specification/property.spc
       cache = package / "__pycache__"
       cache.mkdir()
       (cache / "__init__.cpython-312.pyc").write_bytes(b"cache")
-      (package / "ignored.pyc").write_bytes(b"cache")
-      (package / "ignored.pyo").write_bytes(b"cache")
       self.assertEqual(
           original, baseline.python_runtime_digest(root, selected)
       )
@@ -454,6 +452,8 @@ specification = specification/property.spc
           package / "_yaml.so",
           metadata / "METADATA",
           package / "unknown",
+          package / "sourceless.pyc",
+          package / "sourceless.pyo",
       ):
         with self.subTest(path=path):
           previous = path.read_bytes() if path.exists() else None

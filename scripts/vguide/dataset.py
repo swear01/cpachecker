@@ -149,9 +149,32 @@ LEGACY_FORMAL_ATTEMPT_SCHEMA = "hard-case-formal-attempt-complete-v3"
 FORMAL_PROCESS_IDENTITY_SCHEMA = "formal-owned-process-identity-v2"
 LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA = "formal-owned-process-identity-v1"
 FORMAL_RECOVERY_SELECTION_SCHEMA = "formal-attempt-recovery-selection-v1"
-FORMAL_PROCESS_DESCRIPTOR_SCHEMA = "hard-case-formal-process-descriptor-v1"
+FORMAL_PROCESS_DESCRIPTOR_SCHEMA = "hard-case-formal-process-descriptor-v2"
+LEGACY_FORMAL_PROCESS_DESCRIPTOR_SCHEMA = (
+    "hard-case-formal-process-descriptor-v1"
+)
 FORMAL_P_CORE_LIST = "0,2,4,6,8,10,12,14"
+FORMAL_PYYAML_FILE = "/usr/lib/python3/dist-packages/yaml/__init__.py"
+PYTHON_RUNTIME_FLAGS = (
+    "-I",
+    "-S",
+    "-B",
+    "-X",
+    "pycache_prefix=/dev/null",
+)
 BENCHEXEC_MODULE_COMMAND = (
+    "import importlib.util,runpy,sys; from pathlib import Path; "
+    "repository=sys.argv.pop(1); yaml_file=sys.argv.pop(1); "
+    'spec=importlib.util.spec_from_file_location("yaml",yaml_file,'
+    "submodule_search_locations=[str(Path(yaml_file).parent)]); "
+    "assert spec is not None and spec.loader is not None; "
+    "yaml=importlib.util.module_from_spec(spec); "
+    'sys.modules["yaml"]=yaml; spec.loader.exec_module(yaml); '
+    "sys.path.insert(0,repository); "
+    'sys.argv[0]="benchexec"; '
+    'runpy.run_module("benchexec.benchexec",run_name="__main__")'
+)
+LEGACY_BENCHEXEC_MODULE_COMMAND = (
     'import runpy,sys; sys.dont_write_bytecode=True; '
     'sys.pycache_prefix="/dev/null"; sys.path.insert(0,sys.argv.pop(1)); '
     'sys.argv[0]="benchexec"; '
@@ -2926,7 +2949,7 @@ def formal_systemd_unit(output_root, mode, label):
   return f"vguide-{mode}-{label}-{digest}.scope"
 
 
-def formal_process_descriptor(args):
+def formal_process_descriptor(args, legacy=False):
   root = Path(args.output_root).resolve()
   definition = Path(args.definition).resolve()
   result_output = Path(args.result_output).resolve()
@@ -2997,10 +3020,18 @@ def formal_process_descriptor(args):
   if args.name != expected_name:
     raise RuntimeError("formal BenchExec run name is not canonical")
   unit = formal_systemd_unit(root, args.mode, args.label)
+  monitor_python_flags = (
+      ("-I", "-B") if legacy else PYTHON_RUNTIME_FLAGS
+  )
+  benchexec_python_flags = ("-I",) if legacy else PYTHON_RUNTIME_FLAGS
+  module_command = (
+      LEGACY_BENCHEXEC_MODULE_COMMAND
+      if legacy
+      else BENCHEXEC_MODULE_COMMAND
+  )
   monitor_argv = [
       str(python_bin),
-      "-I",
-      "-B",
+      *monitor_python_flags,
       str(dataset_py),
       "monitor-formal-load",
       "--output",
@@ -3028,10 +3059,11 @@ def formal_process_descriptor(args):
       "PATH=/usr/bin:/bin",
       f"JAVA={java_home}/bin/java",
       str(python_bin),
-      "-I",
+      *benchexec_python_flags,
       "-c",
-      BENCHEXEC_MODULE_COMMAND,
+      module_command,
       str(benchexec_dir),
+      *((FORMAL_PYYAML_FILE,) if not legacy else ()),
       "--name",
       args.name,
       "--tool-directory",
@@ -3055,7 +3087,11 @@ def formal_process_descriptor(args):
       str(definition),
   ]
   return {
-      "schema_version": FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
+      "schema_version": (
+          LEGACY_FORMAL_PROCESS_DESCRIPTOR_SCHEMA
+          if legacy
+          else FORMAL_PROCESS_DESCRIPTOR_SCHEMA
+      ),
       "output_root": str(root),
       "mode": args.mode,
       "label": args.label,
@@ -3087,6 +3123,34 @@ def formal_process_descriptor(args):
   }
 
 
+def trusted_legacy_process_descriptor(root, mode, label, host, path):
+  root = Path(root).resolve()
+  resolved = Path(path).resolve()
+  if mode != "cap16" or host != "athena":
+    raise RuntimeError("legacy process descriptor host is not selected")
+  primary = LEGACY_CAP16_ATHENA_REPETITION_1
+  replacement = FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION
+  if label == primary["label"]:
+    validate_recovery_selection(root, primary)
+    expected_path = root / "provenance" / (
+        "repetition-1-process-descriptor.json"
+    )
+    expected_sha256 = primary["selected_provenance"][
+        "repetition-1-process-descriptor.json"
+    ]
+  elif label == replacement["label"]:
+    expected = replacement["files"]["process_descriptor"]
+    expected_path = root / expected["path"]
+    expected_sha256 = expected["sha256"]
+  else:
+    raise RuntimeError("legacy process descriptor has no frozen selection")
+  if (
+      resolved != expected_path
+      or baseline.sha256_file(resolved) != expected_sha256
+  ):
+    raise RuntimeError("legacy process descriptor is not selected")
+
+
 def load_formal_process_descriptor(path, output_root, mode, label, host):
   declared = Path(path)
   resolved = declared.resolve()
@@ -3109,7 +3173,11 @@ def load_formal_process_descriptor(path, output_root, mode, label, host):
           "systemd_unit",
           "identities",
       }
-      or descriptor["schema_version"] != FORMAL_PROCESS_DESCRIPTOR_SCHEMA
+      or descriptor["schema_version"]
+      not in {
+          FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
+          LEGACY_FORMAL_PROCESS_DESCRIPTOR_SCHEMA,
+      }
       or descriptor["output_root"] != str(Path(output_root).resolve())
       or descriptor["mode"] != mode
       or descriptor["label"] != label
@@ -3117,13 +3185,21 @@ def load_formal_process_descriptor(path, output_root, mode, label, host):
       or not isinstance(descriptor["inputs"], dict)
   ):
     raise RuntimeError("formal process descriptor identity is invalid")
+  legacy = (
+      descriptor["schema_version"]
+      == LEGACY_FORMAL_PROCESS_DESCRIPTOR_SCHEMA
+  )
+  if legacy:
+    trusted_legacy_process_descriptor(
+        output_root, mode, label, host, resolved
+    )
   expected = formal_process_descriptor(argparse.Namespace(
       output_root=descriptor["output_root"],
       mode=descriptor["mode"],
       label=descriptor["label"],
       host=descriptor["host"],
       **descriptor["inputs"],
-  ))
+  ), legacy=legacy)
   if descriptor != expected:
     raise RuntimeError("formal process descriptor content is invalid")
   return descriptor

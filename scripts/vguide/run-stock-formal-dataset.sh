@@ -11,17 +11,33 @@
 set -euo pipefail
 
 PYTHON_BIN=$(realpath /usr/bin/python3)
+PYTHON_RUNTIME_FLAGS=(-I -S -B -X pycache_prefix=/dev/null)
+BENCHEXEC_MODULE_COMMAND='import importlib.util,runpy,sys; from pathlib import Path; repository=sys.argv.pop(1); yaml_file=sys.argv.pop(1); spec=importlib.util.spec_from_file_location("yaml",yaml_file,submodule_search_locations=[str(Path(yaml_file).parent)]); assert spec is not None and spec.loader is not None; yaml=importlib.util.module_from_spec(spec); sys.modules["yaml"]=yaml; spec.loader.exec_module(yaml); sys.path.insert(0,repository); sys.argv[0]="benchexec"; runpy.run_module("benchexec.benchexec",run_name="__main__")'
+BENCHEXEC_CGROUP_COMMAND='import importlib.util,runpy,sys; from pathlib import Path; repository=sys.argv.pop(1); yaml_file=sys.argv.pop(1); spec=importlib.util.spec_from_file_location("yaml",yaml_file,submodule_search_locations=[str(Path(yaml_file).parent)]); assert spec is not None and spec.loader is not None; yaml=importlib.util.module_from_spec(spec); sys.modules["yaml"]=yaml; spec.loader.exec_module(yaml); sys.path.insert(0,repository); sys.argv[0]="benchexec"; runpy.run_module("benchexec.check_cgroups",run_name="__main__")'
+
+assert_no_sourceless_python_bytecode() {
+  local root
+  local match
+  for root in "$@"; do
+    match=$(find -P "$root" -mindepth 1 \
+      \( -type d -name __pycache__ -prune \) -o \
+      \( -name '*.pyc' -o -name '*.pyo' \) -print -quit)
+    if [[ -n "$match" ]]; then
+      echo "sourceless Python bytecode could shadow pinned source: $match" >&2
+      return 1
+    fi
+  done
+}
 
 run_python_script() {
-  "$PYTHON_BIN" -I -c '
+  assert_no_sourceless_python_bytecode "$(dirname "$(realpath "$1")")"
+  "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c '
 import runpy
 import sys
 from pathlib import Path
 
 script = Path(sys.argv.pop(1)).resolve()
 sys.argv[0] = str(script)
-sys.dont_write_bytecode = True
-sys.pycache_prefix = "/dev/null"
 sys.path.insert(0, str(script.parent))
 runpy.run_path(str(script), run_name="__main__")
 ' "$@"
@@ -43,7 +59,8 @@ require_clean_repo() {
     echo "$label checkout is not clean: $repository" >&2
     return 1
   fi
-  "$PYTHON_BIN" -I - "$repository" "$label" "$allow_missing_skip" <<'PY'
+  "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" - \
+    "$repository" "$label" "$allow_missing_skip" <<'PY'
 import os
 import stat
 import subprocess
@@ -178,7 +195,8 @@ copy_phase_evidence() {
   local result_name
   mkdir -p "$evidence_dir/corpus/properties"
   cp -- "$PARENT_MANIFEST" "$evidence_dir/parent-manifest.json"
-  property_path=$("$PYTHON_BIN" -I - "$PARENT_MANIFEST" <<'PY'
+  property_path=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" - \
+    "$PARENT_MANIFEST" <<'PY'
 import json
 import sys
 
@@ -418,7 +436,8 @@ verify_all_research_provenance() {
 directory_digest_value() {
   run_python_script "${BASELINE_PY:-$SCRIPT_DIR/baseline.py}" \
     directory-digest --root "$1" |
-    "$PYTHON_BIN" -I -c 'import json,sys; print(json.load(sys.stdin)["sha256"])'
+    "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+    'import json,sys; print(json.load(sys.stdin)["sha256"])'
 }
 
 python_runtime_digest_value() {
@@ -431,7 +450,8 @@ python_runtime_digest_value() {
   done
   run_python_script "${BASELINE_PY:-$SCRIPT_DIR/baseline.py}" \
     python-runtime-digest --root "$root" "${arguments[@]}" |
-    "$PYTHON_BIN" -I -c 'import json,sys; print(json.load(sys.stdin)["sha256"])'
+    "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+    'import json,sys; print(json.load(sys.stdin)["sha256"])'
 }
 
 pyyaml_package_digest_value() {
@@ -442,7 +462,8 @@ pyyaml_package_digest_value() {
 jar_content_digest_value() {
   run_python_script "${BASELINE_PY:-$SCRIPT_DIR/baseline.py}" \
     jar-content-digest --jar "$1" |
-    "$PYTHON_BIN" -I -c 'import json,sys; print(json.load(sys.stdin)["sha256"])'
+    "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+    'import json,sys; print(json.load(sys.stdin)["sha256"])'
 }
 
 remove_compiled_classes() {
@@ -464,31 +485,65 @@ benchexec_archive_digest() {
 }
 
 python_runtime_evidence() {
+  assert_no_sourceless_python_bytecode "$BENCHEXEC_DIR"
   env -i HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
-    JAVA="$JAVA_HOME/bin/java" "$PYTHON_BIN" -I -c '
+    JAVA="$JAVA_HOME/bin/java" \
+    "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c '
+import importlib.util
 import json
 import sys
+from pathlib import Path
 
-sys.path.insert(0, sys.argv[1])
-import yaml
+repository = sys.argv[1]
+yaml_file = sys.argv[2]
+spec = importlib.util.spec_from_file_location(
+    "yaml",
+    yaml_file,
+    submodule_search_locations=[str(Path(yaml_file).parent)],
+)
+if spec is None or spec.loader is None:
+  raise SystemExit(f"unexpected yaml module: {yaml_file}")
+yaml = importlib.util.module_from_spec(spec)
+sys.modules["yaml"] = yaml
+spec.loader.exec_module(yaml)
+sys.path.insert(0, repository)
 
 print(json.dumps({
     "python_executable": sys.executable,
     "sys_path": sys.path,
+    "dont_write_bytecode": sys.dont_write_bytecode,
+    "isolated": sys.flags.isolated,
+    "no_site": sys.flags.no_site,
+    "pycache_prefix": sys.pycache_prefix,
+    "safe_path": getattr(sys.flags, "safe_path", None),
+    "site_loaded": "site" in sys.modules,
     "yaml_file": yaml.__file__,
     "yaml_version": yaml.__version__,
 }, sort_keys=True, separators=(",", ":")))
-' "$BENCHEXEC_DIR"
+' "$BENCHEXEC_DIR" "$EXPECTED_PYYAML_FILE"
 }
 
 verify_python_runtime() {
+  assert_no_sourceless_python_bytecode "$BENCHEXEC_DIR"
   env -i HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
-    JAVA="$JAVA_HOME/bin/java" "$PYTHON_BIN" -I -c '
+    JAVA="$JAVA_HOME/bin/java" \
+    "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c '
+import importlib.util
 import sys
+from pathlib import Path
 
 repository, executable, system_path, yaml_file, yaml_version = sys.argv[1:]
+spec = importlib.util.spec_from_file_location(
+    "yaml",
+    yaml_file,
+    submodule_search_locations=[str(Path(yaml_file).parent)],
+)
+if spec is None or spec.loader is None:
+  raise SystemExit(f"unexpected yaml module: {yaml_file}")
+yaml = importlib.util.module_from_spec(spec)
+sys.modules["yaml"] = yaml
+spec.loader.exec_module(yaml)
 sys.path.insert(0, repository)
-import yaml
 
 if sys.executable != executable:
   raise SystemExit(f"unexpected Python executable: {sys.executable}")
@@ -499,21 +554,27 @@ if yaml.__file__ != yaml_file:
   raise SystemExit(f"unexpected yaml module: {yaml.__file__}")
 if yaml.__version__ != yaml_version:
   raise SystemExit(f"unexpected yaml version: {yaml.__version__}")
+if (
+    not sys.dont_write_bytecode
+    or sys.pycache_prefix != "/dev/null"
+    or not sys.flags.isolated
+    or not sys.flags.no_site
+    or (
+        hasattr(sys.flags, "safe_path")
+        and not sys.flags.safe_path
+    )
+    or "site" in sys.modules
+):
+  raise SystemExit("Python startup isolation is not active")
 ' "$BENCHEXEC_DIR" "$EXPECTED_PYTHON_REAL" "$EXPECTED_PYTHON_SYSTEM_PATH" \
     "$EXPECTED_PYYAML_FILE" "$EXPECTED_PYYAML_VERSION"
 }
 
 benchexec_version() {
-  "$PYTHON_BIN" -I -c '
-import runpy
-import sys
-
-sys.dont_write_bytecode = True
-sys.pycache_prefix = "/dev/null"
-sys.path.insert(0, sys.argv.pop(1))
-sys.argv[0] = "benchexec"
-runpy.run_module("benchexec.benchexec", run_name="__main__")
-' "$BENCHEXEC_DIR" --version
+  assert_no_sourceless_python_bytecode "$BENCHEXEC_DIR"
+  "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+    "$BENCHEXEC_MODULE_COMMAND" \
+    "$BENCHEXEC_DIR" "$EXPECTED_PYYAML_FILE" --version
 }
 
 verify_runtime_closure() {
@@ -540,6 +601,9 @@ verify_runtime_closure() {
   [[ $(pyyaml_package_digest_value) == "$EXPECTED_PYYAML_PACKAGE_DIGEST" ]]
   [[ $(python_runtime_digest_value "$PYTHON_LOCAL_DIST_PACKAGES") == \
     "$EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST" ]]
+  assert_no_sourceless_python_bytecode \
+    "$BENCHEXEC_DIR" \
+    "$(dirname "${DATASET_PY:-$SCRIPT_DIR/dataset.py}")"
   verify_python_runtime
   [[ $(benchexec_archive_digest) == "$EXPECTED_BENCHEXEC_ARCHIVE" ]]
   [[ $(benchexec_version) == "$EXPECTED_BENCHEXEC_VERSION" ]]
@@ -586,7 +650,8 @@ record_process_snapshot() {
 
 start_process_monitor() {
   local output=$1
-  taskset -c 16-23 "$PYTHON_BIN" -I -B "$DATASET_PY" monitor-formal-load \
+  taskset -c 16-23 "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" \
+    "$DATASET_PY" monitor-formal-load \
     --output "$output" --exclude-root "$$" &
   MONITOR_PID=$!
   MONITOR_ACTIVE=true
@@ -650,7 +715,7 @@ wait_for_process_monitor() {
     fi
     samples=$(($(wc -l <"$MONITOR_OUTPUT") - 1))
     if [[ "$samples" -ge 10 ]]; then
-      contended=$("$PYTHON_BIN" -I -c \
+      contended=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
         'import json,sys; print(any(row["contended"] for row in json.loads(open(sys.argv[1]).read().splitlines()[-1])["offenders"]))' \
         "$MONITOR_OUTPUT")
       if [[ "$contended" == False ]]; then
@@ -747,7 +812,7 @@ main() {
     EXPECTED_PYTHON_STDLIB=/usr/lib/python3.12
     EXPECTED_PYTHON_STDLIB_DIGEST=a0c9c33e4f5b6c4e8e921598ec1c7273341cf2e8f2c74d7a348d6a3584a2c325
     EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=/usr/local/lib/python3.12/dist-packages
-    EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python312.zip:/usr/lib/python3.12:/usr/lib/python3.12/lib-dynload:/usr/local/lib/python3.12/dist-packages:/usr/lib/python3/dist-packages
+    EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python312.zip:/usr/lib/python3.12:/usr/lib/python3.12/lib-dynload
     EXPECTED_PYYAML_VERSION=6.0.1
     EXPECTED_PYYAML_PACKAGE_PATHS=(
       yaml
@@ -764,7 +829,7 @@ main() {
     EXPECTED_PYTHON_STDLIB=/usr/lib/python3.10
     EXPECTED_PYTHON_STDLIB_DIGEST=c9af63c831839af73b709cf538807f9ea989c834d635526875a03787c29247cc
     EXPECTED_PYTHON_LOCAL_DIST_PACKAGES=/usr/local/lib/python3.10/dist-packages
-    EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python310.zip:/usr/lib/python3.10:/usr/lib/python3.10/lib-dynload:/usr/local/lib/python3.10/dist-packages:/usr/lib/python3/dist-packages
+    EXPECTED_PYTHON_SYSTEM_PATH=/usr/lib/python310.zip:/usr/lib/python3.10:/usr/lib/python3.10/lib-dynload
     EXPECTED_PYYAML_VERSION=5.4.1
     EXPECTED_PYYAML_PACKAGE_PATHS=(
       yaml
@@ -1001,11 +1066,12 @@ main() {
   trap capture_failure EXIT
   record_process_snapshot "$OUTPUT_DIR/provenance"
 
+  assert_no_sourceless_python_bytecode "$BENCHEXEC_DIR"
   systemd-run --user --quiet --scope --slice=benchexec -p Delegate=yes \
     taskset -c "$P_CORES" \
-    "$PYTHON_BIN" -I -c \
-    'import runpy,sys; sys.dont_write_bytecode=True; sys.pycache_prefix="/dev/null"; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]="benchexec"; runpy.run_module("benchexec.check_cgroups",run_name="__main__")' \
-    "$BENCHEXEC_DIR" --no-thread \
+    "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+    "$BENCHEXEC_CGROUP_COMMAND" \
+    "$BENCHEXEC_DIR" "$EXPECTED_PYYAML_FILE" --no-thread \
     2>&1 | tee "$OUTPUT_DIR/provenance/cgroup-check.log"
 
   if [[ "$FORMAL_MODE" == cap8 ]]; then
@@ -1021,7 +1087,7 @@ main() {
     --manifest "$FORMAL_MANIFEST" \
     --sv-benchmarks "$SV_BENCHMARKS_DIR"
 
-  TASK_COUNT=$("$PYTHON_BIN" -I -c \
+  TASK_COUNT=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
     'import json,sys; print(json.load(open(sys.argv[1]))["task_count"])' \
     "$FORMAL_MANIFEST")
   if [[ "$FORMAL_MODE" == cap8 && "$TASK_COUNT" -ne 270 ]]; then
@@ -1068,7 +1134,7 @@ main() {
   run_python_script "$BASELINE_PY" jar-content-digest \
     --jar "$CPACHECKER_DIR/cpachecker.jar" \
     >"$OUTPUT_DIR/provenance/cpachecker-jar-content.json"
-  [[ $("$PYTHON_BIN" -I -c \
+  [[ $("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
     'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' \
     "$OUTPUT_DIR/provenance/cpachecker-jar-content.json") == \
       "$EXPECTED_CPACHECKER_JAR_CONTENT" ]]
@@ -1223,18 +1289,20 @@ main() {
       --output "$OUTPUT_DIR/provenance/machine-before-$label.json"
     start_process_monitor "$OUTPUT_DIR/provenance/$label-load-monitor.jsonl"
     wait_for_process_monitor
+    assert_no_sourceless_python_bytecode "$BENCHEXEC_DIR"
     set +e
     (
       cd "$CPACHECKER_DIR"
-      "$PYTHON_BIN" -I - "$benchexec_process" "$unit" \
+      "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" - \
+        "$benchexec_process" "$unit" \
         systemd-run --user --quiet --scope --unit="$unit" \
         --slice=benchexec -p Delegate=yes \
         taskset -c "$P_CORES" env -i \
         HOME=/home/benchexec LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
         JAVA="$JAVA_HOME/bin/java" \
-        "$PYTHON_BIN" -I -c \
-        'import runpy,sys; sys.dont_write_bytecode=True; sys.pycache_prefix="/dev/null"; sys.path.insert(0,sys.argv.pop(1)); sys.argv[0]="benchexec"; runpy.run_module("benchexec.benchexec",run_name="__main__")' \
-        "$BENCHEXEC_DIR" \
+        "$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
+        "$BENCHEXEC_MODULE_COMMAND" \
+        "$BENCHEXEC_DIR" "$EXPECTED_PYYAML_FILE" \
         --name "$name" \
         --tool-directory "$CPACHECKER_DIR" \
         --outputpath "$output/" \
@@ -1312,7 +1380,7 @@ PY
         --mode "$FORMAL_MODE" \
         --output "$taint"
     fi
-    taint_count=$("$PYTHON_BIN" -I -c \
+    taint_count=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
       'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' "$taint")
     if [[ "$taint_count" -eq 0 ]]; then
       if [[ "$FORMAL_MODE" == cap16 ]]; then
@@ -1379,7 +1447,7 @@ PY
         --replacement-definition "$definition"
         --replacement-taint-manifest "$replacement_taint"
       )
-      replacement_taint_count=$("$PYTHON_BIN" -I -c \
+      replacement_taint_count=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" -c \
         'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
         "$replacement_taint")
       if [[ "$replacement_taint_count" -eq 0 ]]; then
