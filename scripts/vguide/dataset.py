@@ -583,6 +583,228 @@ FROZEN_CAP16_ATHENA_ATTEMPT_3_V2_RECOVERY_SELECTION = {
         ): "23aa10ed361e08efdc16f63a7ec160ffad6367c29cfa1cd095ec4fe3d00c01e1",
     },
 }
+FROZEN_CAP16_ATHENA_ATTEMPT_4_V2_RECOVERY_SELECTION = {
+    "label": "repetition-1-replacement-attempt-4",
+    "role": "replacement",
+    "repetition": 1,
+    "captured_boot_id": "42634c09-e311-4afb-9ff9-4eb49bbd07b6",
+    "result_directory": "results/repetition-1-replacement-attempt-4",
+    "result_directory_digest": (
+        "ffa7a1fdbe39dd6cc19ee11eb3530cc031c5327c0391d12fbf27caa40bcecedb"
+    ),
+    "result_directories": (
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label41+token_ring.01.cil-1.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label41+token_ring.01.cil-1.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label41+token_ring.04.cil-1.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label41+token_ring.04.cil-1.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label41+token_ring.12.cil-2.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label41+token_ring.12.cil-2.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label43+token_ring.03.cil-2.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label43+token_ring.03.cil-2.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label45+token_ring.01.cil-1.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label45+token_ring.01.cil-1.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label45+token_ring.02.cil-1.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label45+token_ring.02.cil-1.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label45+token_ring.03.cil-2.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label45+token_ring.03.cil-2.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label46+token_ring.03.cil-2.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label46+token_ring.03.cil-2.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label49+token_ring.03.cil-2.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/Problem05_label49+token_ring.03.cil-2.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/pals_lcr.3.ufo.BOUNDED-6.pals+Problem12_label03.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/pals_lcr.3.ufo.BOUNDED-6.pals+Problem12_label03.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/pals_lcr.5.1.ufo.UNBOUNDED.pals+Problem12_label05.yml"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".files/hard-case-candidates/pals_lcr.5.1.ufo.UNBOUNDED.pals+Problem12_label05.yml/output"
+        ),
+        (
+            "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+            "repetition-1-replacement-attempt-4.2026-07-29_18-02-06"
+            ".logfiles"
+        ),
+    ),
+    "files": {
+        "definition": {
+            "path": (
+                "generated/repetition-1-replacement-attempt-4/hard-case-candidates.xml"
+            ),
+            "sha256": (
+                "0a0c118e750322d69471546c2bbd51dfd3b795f55512a36e1f6de19491568e7d"
+            ),
+        },
+        "result": {
+            "path": (
+                "results/repetition-1-replacement-attempt-4/hard-case-candidates.hard-"
+                "case-dataset-v2-cap16-formal-athena-repetition-1-replacement-attempt-"
+                "4.2026-07-29_18-02-06.results.hard-case-candidates.official.xml"
+            ),
+            "sha256": (
+                "72a95d9f1508ced6c7f3d431e9baa37329210ef7a4327a82562a946497e2c365"
+            ),
+        },
+        "benchexec_log": {
+            "path": "provenance/repetition-1-replacement-attempt-4-benchexec.log",
+            "sha256": (
+                "ed9d9b9547aea51b729bbc4b8369ebf7d9d3f946ef799510da98535e37b4170c"
+            ),
+        },
+        "benchexec_process": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-4-benchexec.process.json"
+            ),
+            "sha256": (
+                "f55d5cced1b50c24f90609bb5f6d10635edbcbc7666453471c1f62f322ae80dd"
+            ),
+        },
+        "process_descriptor": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-4-process-descriptor.json"
+            ),
+            "sha256": (
+                "5b3463e3eb9439b61739bf902a69664ec06af1f9898ca2a2b0c4a4a5d1703bcb"
+            ),
+        },
+        "load_monitor": {
+            "path": "provenance/repetition-1-replacement-attempt-4-load-monitor.jsonl",
+            "sha256": (
+                "a2d5bf46766c774bc19bc3db91ed34fc7189d855d0a2c611450a2cd19ffa9738"
+            ),
+        },
+        "monitor_pid": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-4-load-monitor.jsonl.pid"
+            ),
+            "sha256": (
+                "cec20bc2f9dc18bc8d79bc816b899ff19d1e56c3ddceca7b66deec2ab3e73b61"
+            ),
+        },
+        "monitor_process": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-4-load-monitor.jsonl."
+                "process.json"
+            ),
+            "sha256": (
+                "3f4c08b9ca002287095d057db8eb87b7e853108534ba8331c5a304b29fa593a6"
+            ),
+        },
+        "machine_before": {
+            "path": "provenance/machine-before-repetition-1-replacement-attempt-4.json",
+            "sha256": (
+                "86a33bc64e2725b3bbce7e1f61c04cd4b52892dc5e1ca48597f20ba8a422c943"
+            ),
+        },
+    },
+    "closure_files": {
+        (
+            "generated/repetition-1-replacement-attempt-4/hard-case-candidates-"
+            "official.set"
+        ): (
+            "061c70147f21aa7eebcefb9bfcecd23eda9930ea3862c07fdc8abde0e884758e"
+        ),
+        "provenance/attempts/repetition-1-replacement-attempt-3.json": (
+            "97a3b0faba2d3b91d2db8baf1cc4fd4820f5c83fb9c26ca1c2238ab59f72f10f"
+        ),
+        "repetition-1-replacement-attempt-3-taint.json": (
+            "d1a1f009f747b508ca4098c75278908203f8ed2560c09d50174edfbd33321492"
+        ),
+    },
+}
 
 
 def sha256_text(value):
@@ -4779,6 +5001,7 @@ def validate_markerless_recovery_identity_selection(
       (FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION, True),
       (FROZEN_CAP16_ATHENA_ATTEMPT_2_V2_RECOVERY_SELECTION, False),
       (FROZEN_CAP16_ATHENA_ATTEMPT_3_V2_RECOVERY_SELECTION, False),
+      (FROZEN_CAP16_ATHENA_ATTEMPT_4_V2_RECOVERY_SELECTION, False),
   )
   matches = [
       item for item in selections
