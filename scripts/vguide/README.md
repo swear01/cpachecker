@@ -375,6 +375,29 @@ across repetitions.
 `summarize` emits `row-provenance.json`, which binds every accepted row to its
 primary or replacement result hash and records the replacement reason.
 
+The same runner enters the frozen cap-8 r10 recovery only with its 18-argument
+form: the final four arguments are the r9 output tree, r9 launch log, r9 exit
+status, and new output directory. The 16-argument r9 path is unchanged. R10
+accepts only the artifact tree with manifest
+`0a4e978e90fd4c969c61fe6c4d8a7e475ef939933b642aeaffe2c21500fe92a1`
+and aggregate
+`1e29c7f7a79f5e930529c4bd958f3dcf34dbd5e1c93a6d6dfbc6651b44126f7a`,
+plus the pinned external launch log and exit status. This exact failed attempt
+contains 257 rows: 67 complete untainted rows are reusable and 190 rows remain
+pending (182 incomplete and eight contaminated). Root
+`error="interrupted"` is accepted only while this exact tree, result, log,
+monitor, failure status, and external failure evidence authenticate; normal
+complete results and every other partial path still reject it.
+
+R10 preserves the raw interrupted XML. Each version-2 repetition-plan entry
+hashes its result, definition, taint, BenchExec log, and load monitor. Entries
+are applied sequentially to exactly the preceding tainted set; accepted rows
+are derived as attempted tasks minus that entry's taint. Accepted sets must be
+disjoint and the final taint must be empty. The runner therefore renders only
+the current remainder after every attempt instead of restarting completed
+cases. Symlinks, special nodes, path escapes, topology drift, task drift, hash
+drift, non-exact coverage, or unauthenticated interrupted XML fail closed.
+
 `render-formal-replacement` authenticates the full Phase-B inputs, incomplete
 primary and taint manifest, then renders the unchanged 900/910/920 protocol for
 only the tainted tasks. `repetition-plan` binds that definition and its complete

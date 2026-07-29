@@ -1014,6 +1014,13 @@ class DatasetTest(unittest.TestCase):
     self.assertIn("output directory must be absent or empty", runner)
     self.assertIn('R8_RECOVERY_ROOT=$(realpath "${15}")', runner)
     self.assertIn('OUTPUT_DIR=$(realpath -m "${16}")', runner)
+    self.assertIn('if [[ $# -ne 16 && $# -ne 18 ]]', runner)
+    self.assertIn("validate-cap8-r9-recovery", runner)
+    self.assertIn('--replacement-taint "$current_taint"', runner)
+    self.assertIn('if [[ $# -eq 6 ]]', runner)
+    self.assertIn(
+        'cp -a "$RECOVERY_ROOT" "$OUTPUT_DIR/input/recovery-r9"', runner
+    )
     self.assertIn("flock -n 9", runner)
     self.assertNotIn("foreign-workload-gate", runner)
     self.assertIn('require_clean_repo "$RESEARCH_ROOT" "research"', runner)
@@ -2856,6 +2863,238 @@ copy_phase_evidence "$2"
               dataset.baseline.sha256_file(artifact),
               aggregate.hexdigest(),
           )
+
+  def test_interrupted_result_is_partial_only(self):
+    with self.assertRaisesRegex(RuntimeError, "supplied together"):
+      dataset.cap8_r9_recovery_requested(SimpleNamespace(
+          recovery_root="/tmp/recovery",
+      ))
+    with tempfile.TemporaryDirectory() as temp:
+      result = Path(temp) / "result.xml"
+      tasks = [{
+          "task": "c/t.yml",
+          "task_path": "c/t.yml",
+          "source_paths": ["c/t.c"],
+          "expected_verdict": "true",
+          "benchmark_set": "Loops",
+      }]
+      write_stock_result(result, tasks, "valkyrie", formal=True)
+      root = ET.parse(result).getroot()
+      root.set("error", "interrupted")
+      ET.ElementTree(root).write(result, encoding="unicode")
+      with self.assertRaisesRegex(RuntimeError, "metadata"):
+        dataset.result_metadata(
+            result, dataset.FORMAL_DISPLAY, "900 s", allow_incomplete=True
+        )
+      metadata = dataset.result_metadata(
+          result,
+          dataset.FORMAL_DISPLAY,
+          "900 s",
+          allow_incomplete=True,
+          allow_interrupted=True,
+      )
+      self.assertTrue(metadata["interrupted"])
+
+  def test_partial_replacement_plan_is_sequential_hashed_and_fail_closed(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      tasks = [{
+          "task": f"c/t{index}.yml",
+          "task_path": f"c/t{index}.yml",
+          "source_paths": [f"c/t{index}.c"],
+          "expected_verdict": "true",
+          "benchmark_set": "Loops",
+      } for index in range(3)]
+      manifest_path = root / "manifest.json"
+      manifest_path.write_text(json.dumps({
+          "task_count": 3,
+          "tasks": tasks,
+      }))
+      manifest = dataset.baseline.load_task_manifest(manifest_path)
+      primary = root / "primary.xml"
+      partial = root / "partial.xml"
+      final = root / "final.xml"
+      write_stock_result(primary, tasks, "valkyrie", formal=True, marker="1")
+      write_stock_result(partial, tasks, "valkyrie", formal=True, marker="2")
+      write_stock_result(final, tasks[2:], "valkyrie", formal=True, marker="3")
+      primary_root = ET.parse(primary).getroot()
+      primary_root.set("error", "incomplete")
+      ET.ElementTree(primary_root).write(primary, encoding="unicode")
+      partial_root = ET.parse(partial).getroot()
+      partial_root.set("error", "interrupted")
+      for column in list(partial_root.findall("run")[2]):
+        partial_root.findall("run")[2].remove(column)
+      ET.ElementTree(partial_root).write(partial, encoding="unicode")
+      primary_taint = root / "primary-taint.json"
+      partial_taint = root / "partial-taint.json"
+      final_taint = root / "final-taint.json"
+
+      def write_taint(path, result, selected):
+        path.write_text(json.dumps({
+            "schema_version": dataset.FORMAL_TAINT_SCHEMA,
+            "repetition": 2,
+            "primary_result_sha256": dataset.baseline.sha256_file(result),
+            "tasks": selected,
+        }))
+
+      write_taint(primary_taint, primary, [
+          {"task": row["task"], "reason": "interrupted_incomplete"}
+          for row in tasks
+      ])
+      write_taint(partial_taint, partial, [{
+          "task": tasks[2]["task"],
+          "reason": "interrupted_incomplete",
+      }])
+      write_taint(final_taint, final, [])
+      partial_definition = root / "partial-definition.xml"
+      final_definition = root / "final-definition.xml"
+      for path in (partial_definition, final_definition):
+        path.write_text("<benchmark/>")
+      partial_log, partial_monitor = root / "partial.log", root / "partial.jsonl"
+      final_log, final_monitor = root / "final.log", root / "final.jsonl"
+      for path in (partial_log, partial_monitor, final_log, final_monitor):
+        path.write_text(f"{path.name}\n")
+      recovery = root / "recovery"
+      (recovery / "provenance").mkdir(parents=True)
+      artifact = recovery / "provenance/artifact-manifest.json"
+      artifact.write_text("{}")
+      launch, status = root / "launch.log", root / "exit.txt"
+      launch.write_text("launch\n")
+      status.write_text("1\n")
+      frozen = {
+          "root": recovery,
+          "launch": launch,
+          "exit": status,
+          "result": partial,
+          "definition": partial_definition,
+          "log": partial_log,
+          "monitor": partial_monitor,
+          "tainted": {tasks[2]["task"]: "interrupted_incomplete"},
+      }
+
+      def observed(result, *_args, **_kwargs):
+        return (
+            {tasks[2]["task"]: "interrupted_incomplete"}
+            if Path(result) == partial else {}
+        )
+
+      plan = root / "plan.json"
+      args = SimpleNamespace(
+          manifest=str(manifest_path),
+          repetition=2,
+          primary_result=str(primary),
+          taint_manifest=str(primary_taint),
+          replacement_result=[str(partial), str(final)],
+          replacement_definition=[
+              str(partial_definition), str(final_definition)
+          ],
+          replacement_taint=[str(partial_taint), str(final_taint)],
+          replacement_log=[str(partial_log), str(final_log)],
+          replacement_monitor=[str(partial_monitor), str(final_monitor)],
+          recovery_root=str(recovery),
+          launch_log=str(launch),
+          exit_status=str(status),
+          sv_benchmarks=str(root),
+          output=str(plan),
+      )
+      with mock.patch.object(
+          dataset, "formal_run_taints", side_effect=observed
+      ), mock.patch.object(
+          dataset, "validate_cap8_r9_failure", return_value=frozen
+      ):
+        dataset.command_repetition_plan(args)
+      data = json.loads(plan.read_text())
+      self.assertEqual(
+          data["schema_version"],
+          dataset.FORMAL_PARTIAL_REPETITION_PLAN_SCHEMA,
+      )
+      self.assertEqual(
+          [row["tasks"] for row in data["replacements"]],
+          [[task["task"] for task in tasks], [tasks[2]["task"]]],
+      )
+      self.assertEqual(
+          data["replacements"][0]["log"]["sha256"],
+          dataset.baseline.sha256_file(partial_log),
+      )
+
+      def load(candidate):
+        candidate_path = root / "candidate-plan.json"
+        candidate_path.write_text(json.dumps(candidate))
+        with mock.patch.object(
+            dataset, "formal_run_taints", side_effect=observed
+        ), mock.patch.object(
+            dataset, "validate_cap8_r9_failure", return_value=frozen
+        ), mock.patch.object(
+            dataset, "validate_result_run_topology"
+        ), mock.patch.object(
+            dataset, "validate_formal_definition"
+        ):
+          return dataset.load_repetition_plan(
+              candidate_path,
+              manifest,
+              manifest_path,
+              "valkyrie",
+              root,
+              root / "benchmark.xml",
+              200,
+          )
+
+      loaded = load(data)
+      self.assertEqual(len(loaded["rows"]), 3)
+      sources = {row["task"]: row["source"] for row in loaded["row_sources"]}
+      self.assertEqual(
+          sources,
+          {
+              tasks[0]["task"]: "replacement",
+              tasks[1]["task"]: "replacement",
+              tasks[2]["task"]: "replacement",
+          },
+      )
+      mutations = []
+      wrong_topology = json.loads(json.dumps(data))
+      wrong_topology["replacements"][0]["extra"] = True
+      mutations.append(wrong_topology)
+      wrong_hash = json.loads(json.dumps(data))
+      wrong_hash["replacements"][0]["log"]["sha256"] = "0" * 64
+      mutations.append(wrong_hash)
+      wrong_task = json.loads(json.dumps(data))
+      wrong_task["replacements"][0]["tasks"] = wrong_task[
+          "replacements"
+      ][0]["tasks"][1:]
+      mutations.append(wrong_task)
+      wrong_path = json.loads(json.dumps(data))
+      wrong_path["replacements"][0]["log"]["path"] = "../partial.log"
+      mutations.append(wrong_path)
+      alias = root / "log-alias"
+      alias.symlink_to(partial_log)
+      wrong_symlink = json.loads(json.dumps(data))
+      wrong_symlink["replacements"][0]["log"] = {
+          "path": alias.name,
+          "sha256": dataset.baseline.sha256_file(partial_log),
+      }
+      mutations.append(wrong_symlink)
+      fifo = root / "fifo"
+      os.mkfifo(fifo)
+      wrong_node = json.loads(json.dumps(data))
+      wrong_node["replacements"][0]["log"] = {
+          "path": fifo.name,
+          "sha256": "0" * 64,
+      }
+      mutations.append(wrong_node)
+      for mutation in mutations:
+        with self.subTest(mutation=mutations.index(mutation)):
+          with self.assertRaises(RuntimeError):
+            load(mutation)
+
+      wrong_error = ET.parse(partial).getroot()
+      wrong_error.set("error", "wrong")
+      ET.ElementTree(wrong_error).write(partial, encoding="unicode")
+      changed = json.loads(json.dumps(data))
+      changed["replacements"][0]["sha256"] = (
+          dataset.baseline.sha256_file(partial)
+      )
+      with self.assertRaises(RuntimeError):
+        load(changed)
 
   def test_phase_b_zero_survivors_are_preserved_and_skip_formal(self):
     with tempfile.TemporaryDirectory() as temp:

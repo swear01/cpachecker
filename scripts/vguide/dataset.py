@@ -118,6 +118,7 @@ FROZEN_TOOLMODULE = "benchexec.tools.cpachecker"
 DISCOVERY_DISPLAY = "CPAchecker frozen stock hard-case discovery screen"
 FORMAL_DISPLAY = "CPAchecker frozen stock hard-case formal measurement"
 FORMAL_REPETITION_PLAN_SCHEMA = "hard-case-formal-repetition-plan-v1"
+FORMAL_PARTIAL_REPETITION_PLAN_SCHEMA = "hard-case-formal-repetition-plan-v2"
 FORMAL_TAINT_SCHEMA = "hard-case-formal-taint-v1"
 FORMAL_TAINT_REASONS = {
     "foreign_p_core_contention",
@@ -148,6 +149,35 @@ FROZEN_CAP8_R8_REP2_RESULT = (
     "hard-case-candidates.hard-case-dataset-v2-formal-valkyrie-repetition-2."
     "2026-07-29_05-24-53.results.hard-case-candidates.official.xml"
 )
+FROZEN_CAP8_R9 = {
+    "root": (
+        "/var/tmp/swear01-cpachecker-paper/hard-case-dataset-v2-discovery/"
+        "phase-b-formal-valkyrie-r9-recovery"
+    ),
+    "artifact": "0a4e978e90fd4c969c61fe6c4d8a7e475ef939933b642aeaffe2c21500fe92a1",
+    "aggregate": "1e29c7f7a79f5e930529c4bd958f3dcf34dbd5e1c93a6d6dfbc6651b44126f7a",
+    "launch": "af37d7a3bb4027b37bbf57b0449fa649cf2922983a6fbb4fd2cc9589258fabbd",
+    "exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "failure": "a92b2796183824486f5efbbff024126b11479810f6f5771008335b9f2d382de0",
+    "result": (
+        "results/repetition-2-replacement-attempt-1/"
+        "hard-case-candidates.hard-case-dataset-v2-formal-valkyrie-"
+        "repetition-2-replacement-attempt-1.2026-07-29_08-26-37."
+        "results.hard-case-candidates.official.xml.bz2"
+    ),
+    "log": "provenance/repetition-2-replacement-attempt-1-benchexec.log",
+    "monitor": (
+        "provenance/repetition-2-replacement-attempt-1-load-monitor.jsonl"
+    ),
+    "definition": "generated/repetition-2-replacement/hard-case-candidates.xml",
+    "primary_taint": "repetition-2-taint.json",
+    "result_hash": "56cc6584d3778fe6feb1f7b5c8d6a0c6023f977fbe59f2f9ab9eb8a29f252610",
+    "log_hash": "a5d391204fee8ae8b810b4bf91a9483b7b35d1a3c1bd9bff6cb88f47f970fe3f",
+    "monitor_hash": "e70844a342e99a33232730b5778b9bad839261dc58500680c26414faf6203866",
+    "attempt_hash": "9aa9367316f7e3fe1bceedc28cbcbf9dd82405a22c74123fc157c8378bdf650e",
+    "accepted_hash": "8ceb4879698effb53d76f086956773d8a3d73f9dc02351c6bb2f2f15e582caaa",
+    "pending_hash": "19c8be39b0350f24647b07e09e33b2da53c9aaedca1a3fae3217ff6d905640a3",
+}
 
 
 def sha256_text(value):
@@ -650,16 +680,24 @@ def command_render_formal_replacement(args):
   manifest_rows = baseline.load_task_manifest(args.manifest)
   primary = Path(args.primary_result).resolve()
   primary_hash = baseline.sha256_file(primary)
+  recovery = None
+  if cap8_r9_recovery_requested(args):
+    recovery = validate_cap8_r9_failure(
+        args.recovery_root,
+        args.launch_log,
+        args.exit_status,
+        args.sv_benchmarks,
+    )
+    if primary != recovery["result"]:
+      raise RuntimeError("partial result is not frozen cap-8 r9 evidence")
   primary_metadata = result_metadata(
-      primary, FORMAL_DISPLAY, "900 s", allow_incomplete=True
+      primary, FORMAL_DISPLAY, "900 s", True, recovery is not None
   )
   if primary_metadata["host"] != host:
     raise RuntimeError("formal primary result must run on the merged manifest host")
-  validate_result_run_topology(
-      primary,
-      manifest_rows,
-      args.sv_benchmarks,
-  )
+  result_tasks = result_task_names(primary, manifest_rows)
+  subset = {task: manifest_rows[task] for task in result_tasks}
+  validate_result_run_topology(primary, subset, args.sv_benchmarks)
   taint_path = Path(args.taint_manifest).resolve()
   taint_data = json.loads(taint_path.read_text(encoding="utf-8"))
   tainted = validate_taint_manifest(
@@ -670,7 +708,11 @@ def command_render_formal_replacement(args):
   )
   if not tainted:
     raise RuntimeError("formal replacement requires at least one tainted task")
-  primary_rows = baseline.parse_result_rows(primary, manifest_rows, 200)
+  if not set(tainted) <= set(subset):
+    raise RuntimeError("formal taint contains tasks absent from its result")
+  if recovery is not None and tainted != recovery["tainted"]:
+    raise RuntimeError("partial taint is not frozen cap-8 r9 evidence")
+  primary_rows = baseline.parse_result_rows(primary, subset, 200)
   missing = {
       row["task"] for row in primary_rows if not row_is_complete(row)
   }
@@ -767,7 +809,9 @@ def write_xml(root, path):
     target.write("\n")
 
 
-def result_metadata(path, display, time_limit, allow_incomplete=False):
+def result_metadata(
+    path, display, time_limit, allow_incomplete=False, allow_interrupted=False
+):
   with baseline.open_result(Path(path)) as source:
     root = ET.parse(source).getroot()
   expected = {
@@ -786,9 +830,12 @@ def result_metadata(path, display, time_limit, allow_incomplete=False):
       ),
   }
   error = root.get("error")
+  allowed_error = error == "incomplete" or (
+      error == "interrupted" and allow_interrupted
+  )
   if (
       root.tag != "result"
-      or (error is not None and (not allow_incomplete or error != "incomplete"))
+      or (error is not None and (not allow_incomplete or not allowed_error))
       or any(root.get(name) != value for name, value in expected.items())
   ):
     raise RuntimeError("result metadata does not match the frozen stock protocol")
@@ -803,11 +850,12 @@ def result_metadata(path, display, time_limit, allow_incomplete=False):
   }
   if (
       not metadata["starttime"]
-      or (not metadata["endtime"] and error != "incomplete")
+      or (not metadata["endtime"] and error not in {"incomplete", "interrupted"})
       or not metadata["benchmarkname"]
   ):
     raise RuntimeError("result lacks a start time, end time, or benchmark name")
-  metadata["incomplete"] = error == "incomplete"
+  metadata["incomplete"] = error in {"incomplete", "interrupted"}
+  metadata["interrupted"] = error == "interrupted"
   return metadata
 
 
@@ -2385,9 +2433,13 @@ def match_benchexec_log_task(name, manifest):
     return baseline.match_result_task(f"c/{name}", manifest)
 
 
-def formal_run_taints(result, log, load_monitor, manifest):
+def formal_run_taints(
+    result, log, load_monitor, manifest, allow_interrupted=False
+):
   result = Path(result).resolve()
-  metadata = result_metadata(result, FORMAL_DISPLAY, "900 s", allow_incomplete=True)
+  metadata = result_metadata(
+      result, FORMAL_DISPLAY, "900 s", True, allow_interrupted
+  )
   result_tasks = result_task_names(result, manifest)
   subset = {task: manifest[task] for task in result_tasks}
   rows = {
@@ -2468,11 +2520,27 @@ def command_formal_taint(args):
     raise RuntimeError(f"formal taint output already exists: {output}")
   manifest = baseline.load_task_manifest(args.manifest)
   primary_hash = baseline.sha256_file(Path(args.result))
+  allow_interrupted = False
+  if cap8_r9_recovery_requested(args):
+    recovery = validate_cap8_r9_failure(
+        args.recovery_root,
+        args.launch_log,
+        args.exit_status,
+        args.sv_benchmarks,
+    )
+    if (
+        Path(args.result).resolve() != recovery["result"]
+        or Path(args.benchexec_log).resolve() != recovery["log"]
+        or Path(args.load_monitor).resolve() != recovery["monitor"]
+    ):
+      raise RuntimeError("partial taint inputs are not frozen cap-8 r9 evidence")
+    allow_interrupted = True
   tainted = formal_run_taints(
       args.result,
       args.benchexec_log,
       args.load_monitor,
       manifest,
+      allow_interrupted,
   )
   output.parent.mkdir(parents=True, exist_ok=True)
   output.write_text(json.dumps({
@@ -2487,11 +2555,16 @@ def command_formal_taint(args):
   print(output)
 
 
-def validate_frozen_artifact_manifest(root, manifest_hash, aggregate_hash):
+def validate_frozen_artifact_manifest(
+    root, manifest_hash, aggregate_hash, expected_root=None
+):
+  expected_root = expected_root or FROZEN_CAP8_R8_FAILURE_ROOT
   declared_root = Path(root)
   if declared_root.is_symlink():
     raise RuntimeError("frozen recovery root must not be a symlink")
   root = declared_root.resolve()
+  if Path(os.path.abspath(declared_root)) != root:
+    raise RuntimeError("frozen recovery root must not traverse a symlink")
   manifest_path = root / "provenance/artifact-manifest.json"
   if (
       not root.is_dir()
@@ -2509,7 +2582,7 @@ def validate_frozen_artifact_manifest(root, manifest_hash, aggregate_hash):
       or not isinstance(manifest["file_count"], int)
       or not isinstance(manifest["aggregate_sha256"], str)
       or not isinstance(manifest["files"], list)
-      or manifest["root"] != FROZEN_CAP8_R8_FAILURE_ROOT
+      or manifest["root"] != expected_root
       or manifest["aggregate_sha256"] != aggregate_hash
       or manifest["file_count"] != len(manifest["files"])
   ):
@@ -2645,6 +2718,127 @@ def command_validate_cap8_r8_recovery(args):
   }, sort_keys=True))
 
 
+def frozen_file(path, digest, label):
+  declared = Path(path)
+  path = declared.resolve()
+  if (
+      declared.is_symlink()
+      or Path(os.path.abspath(declared)) != path
+      or not path.is_file()
+      or baseline.sha256_file(path) != digest
+  ):
+    raise RuntimeError(f"{label} does not match frozen cap-8 r9 evidence")
+  return path
+
+
+def cap8_r9_recovery_requested(args):
+  values = (
+      getattr(args, "recovery_root", None),
+      getattr(args, "launch_log", None),
+      getattr(args, "exit_status", None),
+  )
+  if any(value is not None for value in values) and not all(
+      value is not None for value in values
+  ):
+    raise RuntimeError("cap-8 r9 recovery inputs must be supplied together")
+  return values[0] is not None
+
+
+def task_list_hash(tasks):
+  return hashlib.sha256(
+      "".join(f"{task}\n" for task in sorted(tasks)).encode()
+  ).hexdigest()
+
+
+def validate_cap8_r9_failure(root, launch_log, exit_status, sv_benchmarks):
+  frozen = FROZEN_CAP8_R9
+  root = validate_frozen_artifact_manifest(
+      root, frozen["artifact"], frozen["aggregate"], frozen["root"]
+  )
+  launch_log = frozen_file(launch_log, frozen["launch"], "launch log")
+  exit_status = frozen_file(exit_status, frozen["exit"], "exit status")
+  frozen_file(
+      root / "provenance/failure-capture-status.txt",
+      frozen["failure"],
+      "failure status",
+  )
+  if exit_status.read_text() != "1\n":
+    raise RuntimeError("frozen cap-8 r9 exit status is not a failure")
+  manifest_path = root / "input/formal/candidate-manifest-valkyrie-formal.json"
+  if baseline.sha256_file(manifest_path) != FROZEN_FORMAL_MANIFEST_SHA256:
+    raise RuntimeError("frozen cap-8 r9 formal manifest does not match")
+  manifest = baseline.load_task_manifest(manifest_path)
+  result = frozen_file(
+      root / frozen["result"], frozen["result_hash"], "partial result"
+  )
+  log = frozen_file(root / frozen["log"], frozen["log_hash"], "BenchExec log")
+  monitor = frozen_file(
+      root / frozen["monitor"], frozen["monitor_hash"], "load monitor"
+  )
+  attempt = sorted(result_task_names(result, manifest))
+  subset = {task: manifest[task] for task in attempt}
+  validate_result_run_topology(
+      result, subset, sv_benchmarks, root / frozen["definition"]
+  )
+  rows = baseline.parse_result_rows(result, subset, 200)
+  tainted = formal_run_taints(
+      result, log, monitor, manifest, allow_interrupted=True
+  )
+  accepted = sorted(
+      row["task"] for row in rows
+      if row_is_complete(row) and row["task"] not in tainted
+  )
+  pending = sorted(tainted)
+  primary_taint = validate_taint_manifest(
+      json.loads((root / frozen["primary_taint"]).read_text()),
+      2,
+      baseline.sha256_file(root / FROZEN_CAP8_R8_REP2_RESULT),
+      manifest,
+  )
+  metadata = result_metadata(result, FORMAL_DISPLAY, "900 s", True, True)
+  if (
+      metadata["host"] != "valkyrie"
+      or not metadata["interrupted"]
+      or set(attempt) != set(primary_taint)
+      or collections.Counter(tainted.values()) != {
+          "interrupted_incomplete": 182,
+          "foreign_p_core_contention": 8,
+      }
+      or task_list_hash(attempt) != frozen["attempt_hash"]
+      or task_list_hash(accepted) != frozen["accepted_hash"]
+      or task_list_hash(pending) != frozen["pending_hash"]
+  ):
+    raise RuntimeError("frozen cap-8 r9 partial partition does not match")
+  return {
+      "root": root,
+      "launch": launch_log,
+      "exit": exit_status,
+      "manifest": manifest,
+      "result": result,
+      "definition": root / frozen["definition"],
+      "log": log,
+      "monitor": monitor,
+      "primary_result": root / FROZEN_CAP8_R8_REP2_RESULT,
+      "primary_taint": root / frozen["primary_taint"],
+      "attempt": attempt,
+      "accepted": accepted,
+      "pending": pending,
+      "tainted": tainted,
+  }
+
+
+def command_validate_cap8_r9_recovery(args):
+  run = validate_cap8_r9_failure(
+      args.root, args.launch_log, args.exit_status, args.sv_benchmarks
+  )
+  print(json.dumps({
+      "artifact_manifest_sha256": FROZEN_CAP8_R9["artifact"],
+      "attempted": len(run["attempt"]),
+      "accepted": len(run["accepted"]),
+      "pending": len(run["pending"]),
+  }, sort_keys=True))
+
+
 def row_is_complete(row):
   return (
       bool(row["status"])
@@ -2680,8 +2874,14 @@ def load_repetition_plan(
       "replacements",
   }:
     raise RuntimeError("formal repetition-plan topology is not exact")
+  partial_plan = (
+      plan["schema_version"] == FORMAL_PARTIAL_REPETITION_PLAN_SCHEMA
+  )
   if (
-      plan["schema_version"] != FORMAL_REPETITION_PLAN_SCHEMA
+      plan["schema_version"] not in {
+          FORMAL_REPETITION_PLAN_SCHEMA,
+          FORMAL_PARTIAL_REPETITION_PLAN_SCHEMA,
+      }
       or not isinstance(plan["repetition"], int)
       or plan["repetition"] not in {1, 2}
       or not isinstance(plan["replacements"], list)
@@ -2743,16 +2943,28 @@ def load_repetition_plan(
   replacement_hashes = []
   replacement_metadata = []
   previous_path = ""
+  remaining = set(tainted)
+  partial_keys = {
+      "path",
+      "sha256",
+      "definition_path",
+      "definition_sha256",
+      "tasks",
+      "taint",
+      "log",
+      "monitor",
+      "recovery",
+  }
   for entry in plan["replacements"]:
     if (
         not isinstance(entry, dict)
-        or set(entry) != {
+        or set(entry) != (partial_keys if partial_plan else {
             "path",
             "sha256",
             "definition_path",
             "definition_sha256",
             "tasks",
-        }
+        })
         or not isinstance(entry["path"], str)
         or not isinstance(entry["sha256"], str)
         or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
@@ -2764,12 +2976,18 @@ def load_repetition_plan(
         or any(not isinstance(task, str) for task in entry["tasks"])
         or entry["tasks"] != sorted(entry["tasks"])
         or len(entry["tasks"]) != len(set(entry["tasks"]))
-        or entry["path"] <= previous_path
+        or (not partial_plan and entry["path"] <= previous_path)
     ):
       raise RuntimeError("formal replacement entry is invalid or not sorted")
     previous_path = entry["path"]
     tasks = set(entry["tasks"])
-    if not tasks <= set(tainted) or tasks & replacement_tasks:
+    if (
+        (partial_plan and tasks != remaining)
+        or (
+            not partial_plan
+            and (not tasks <= set(tainted) or tasks & replacement_tasks)
+        )
+    ):
       raise RuntimeError("formal replacement tasks are untainted or duplicated")
     replacement = declared_plan_file(root, {
         "path": entry["path"],
@@ -2796,7 +3014,57 @@ def load_repetition_plan(
         full_manifest,
         sv_benchmarks,
     )
-    metadata = result_metadata(replacement, FORMAL_DISPLAY, "900 s")
+    allow_interrupted = False
+    replacement_taint = {}
+    if partial_plan:
+      taint_path = declared_plan_file(
+          root, entry["taint"], "replacement taint"
+      )
+      log = declared_plan_file(root, entry["log"], "replacement log")
+      monitor = declared_plan_file(root, entry["monitor"], "replacement monitor")
+      if entry["recovery"] is not None:
+        if not isinstance(entry["recovery"], dict) or set(entry["recovery"]) != {
+            "artifact", "launch", "exit"
+        }:
+          raise RuntimeError("formal replacement recovery is invalid")
+        artifact = declared_plan_file(
+            root, entry["recovery"]["artifact"], "recovery artifact manifest"
+        )
+        launch = declared_plan_file(
+            root, entry["recovery"]["launch"], "recovery launch log"
+        )
+        exit_status = declared_plan_file(
+            root, entry["recovery"]["exit"], "recovery exit status"
+        )
+        frozen = validate_cap8_r9_failure(
+            artifact.parent.parent, launch, exit_status, sv_benchmarks
+        )
+        if (
+            replacement != frozen["result"]
+            or definition != frozen["definition"]
+            or log != frozen["log"]
+            or monitor != frozen["monitor"]
+        ):
+          raise RuntimeError("partial replacement is not frozen cap-8 r9 evidence")
+        allow_interrupted = True
+      replacement_taint = validate_taint_manifest(
+          json.loads(taint_path.read_text()),
+          plan["repetition"],
+          entry["sha256"],
+          manifest,
+      )
+      observed_taint = formal_run_taints(
+          replacement, log, monitor, manifest, allow_interrupted
+      )
+      if replacement_taint != observed_taint:
+        raise RuntimeError("replacement taint does not match its evidence")
+    metadata = result_metadata(
+        replacement,
+        FORMAL_DISPLAY,
+        "900 s",
+        allow_incomplete=partial_plan,
+        allow_interrupted=allow_interrupted,
+    )
     if metadata["host"] != host:
       raise RuntimeError("formal replacement must run on the merged manifest host")
     validate_result_run_topology(
@@ -2806,9 +3074,12 @@ def load_repetition_plan(
         definition,
     )
     rows = baseline.parse_result_rows(replacement, subset, hard_threshold)
-    if any(not row_is_complete(row) for row in rows):
+    accepted_rows = [
+        row for row in rows if row["task"] not in replacement_taint
+    ]
+    if any(not row_is_complete(row) for row in accepted_rows):
       raise RuntimeError("formal replacement result has incomplete rows")
-    for row in rows:
+    for row in accepted_rows:
       accepted[row["task"]] = row
       row_sources[row["task"]] = {
           "task": row["task"],
@@ -2819,10 +3090,20 @@ def load_repetition_plan(
           "definition_sha256": entry["definition_sha256"],
           "reason": tainted[row["task"]],
       }
-    replacement_tasks.update(tasks)
+    accepted_tasks = tasks - set(replacement_taint)
+    if partial_plan and (
+        remaining != accepted_tasks | set(replacement_taint)
+    ):
+      raise RuntimeError("replacement partition is not exact")
+    replacement_tasks.update(accepted_tasks if partial_plan else tasks)
+    if partial_plan:
+      remaining = set(replacement_taint)
     replacement_hashes.append(entry["sha256"])
     replacement_metadata.append(metadata)
-  if replacement_tasks != set(tainted):
+  if (
+      replacement_tasks != set(tainted)
+      or (partial_plan and remaining)
+  ):
     raise RuntimeError(
         "formal replacements do not cover exactly the tainted task set"
     )
@@ -2878,32 +3159,124 @@ def command_repetition_plan(args):
   covered = set()
   replacement_results = args.replacement_result or []
   replacement_definitions = args.replacement_definition or []
-  if len(replacement_results) != len(replacement_definitions):
-    raise RuntimeError(
-        "replacement results and definitions must have the same count"
+  replacement_taints = getattr(args, "replacement_taint", None) or []
+  replacement_logs = getattr(args, "replacement_log", None) or []
+  replacement_monitors = getattr(args, "replacement_monitor", None) or []
+  partial = bool(replacement_taints or replacement_logs or replacement_monitors)
+  recovery = cap8_r9_recovery_requested(args)
+  frozen = None
+  if recovery:
+    if not partial or not replacement_results:
+      raise RuntimeError("cap-8 r9 recovery requires partial replacement evidence")
+    frozen = validate_cap8_r9_failure(
+        args.recovery_root,
+        args.launch_log,
+        args.exit_status,
+        args.sv_benchmarks,
     )
-  for replacement_path, definition_path in zip(
-      replacement_results, replacement_definitions, strict=True
+  if (
+      len(replacement_results) != len(replacement_definitions)
+      or (
+          partial
+          and len({
+              len(replacement_results),
+              len(replacement_taints),
+              len(replacement_logs),
+              len(replacement_monitors),
+          }) != 1
+      )
   ):
+    raise RuntimeError(
+        "replacement result evidence must have the same count"
+    )
+  remaining = set(tainted)
+  for index, (replacement_path, definition_path) in enumerate(zip(
+      replacement_results, replacement_definitions, strict=True
+  )):
     entry = plan_file_entry(replacement_path, output.parent)
     definition = plan_file_entry(definition_path, output.parent)
     tasks = sorted(result_task_names(replacement_path, manifest))
-    if not tasks or set(tasks) & covered:
-      raise RuntimeError("replacement result tasks must be nonempty and disjoint")
-    covered.update(tasks)
-    replacements.append(
-        {
-            **entry,
-            "definition_path": definition["path"],
-            "definition_sha256": definition["sha256"],
-            "tasks": tasks,
+    if (
+        not tasks
+        or (partial and set(tasks) != remaining)
+        or (
+            not partial
+            and (
+                not set(tasks) <= set(tainted)
+                or set(tasks) & covered
+            )
+        )
+    ):
+      raise RuntimeError("replacement results do not cover exactly the pending set")
+    replacement = {
+        **entry,
+        "definition_path": definition["path"],
+        "definition_sha256": definition["sha256"],
+        "tasks": tasks,
+    }
+    if partial:
+      evidence = [
+          plan_file_entry(paths[index], output.parent)
+          for paths in (
+              replacement_taints,
+              replacement_logs,
+              replacement_monitors,
+          )
+      ]
+      observed = formal_run_taints(
+          replacement_path,
+          replacement_logs[index],
+          replacement_monitors[index],
+          manifest,
+          allow_interrupted=(
+              index == 0 and recovery
+          ),
+      )
+      recorded = validate_taint_manifest(
+          json.loads(Path(replacement_taints[index]).read_text()),
+          args.repetition,
+          entry["sha256"],
+          manifest,
+      )
+      if recorded != observed or not set(recorded) <= set(tasks):
+        raise RuntimeError("replacement taint does not match its evidence")
+      recovery_entry = None
+      if index == 0 and recovery:
+        if (
+            Path(replacement_path).resolve() != frozen["result"]
+            or Path(definition_path).resolve() != frozen["definition"]
+            or Path(replacement_logs[index]).resolve() != frozen["log"]
+            or Path(replacement_monitors[index]).resolve() != frozen["monitor"]
+        ):
+          raise RuntimeError("partial replacement is not frozen cap-8 r9 evidence")
+        recovery_entry = {
+            "artifact": plan_file_entry(
+                frozen["root"] / "provenance/artifact-manifest.json",
+                output.parent,
+            ),
+            "launch": plan_file_entry(frozen["launch"], output.parent),
+            "exit": plan_file_entry(frozen["exit"], output.parent),
         }
-    )
-  replacements.sort(key=lambda entry: entry["path"])
-  if covered != set(tainted):
+      replacement.update({
+          "taint": evidence[0],
+          "log": evidence[1],
+          "monitor": evidence[2],
+          "recovery": recovery_entry,
+      })
+      remaining = set(recorded)
+    if partial and set(tasks) & covered:
+      raise RuntimeError("replacement result tasks must be disjoint")
+    covered.update(set(tasks) - remaining if partial else set(tasks))
+    replacements.append(replacement)
+  if not partial:
+    replacements.sort(key=lambda entry: entry["path"])
+  if (partial and remaining) or covered != set(tainted):
     raise RuntimeError("replacement results do not cover exactly the taint manifest")
   plan = {
-      "schema_version": FORMAL_REPETITION_PLAN_SCHEMA,
+      "schema_version": (
+          FORMAL_PARTIAL_REPETITION_PLAN_SCHEMA
+          if partial else FORMAL_REPETITION_PLAN_SCHEMA
+      ),
       "repetition": args.repetition,
       "primary": primary,
       "taint": taint,
@@ -3167,6 +3540,9 @@ def main():
   render_replacement.add_argument("--manifest", required=True)
   render_replacement.add_argument("--primary-result", required=True)
   render_replacement.add_argument("--taint-manifest", required=True)
+  render_replacement.add_argument("--recovery-root")
+  render_replacement.add_argument("--launch-log")
+  render_replacement.add_argument("--exit-status")
   render_replacement.add_argument("--property-file", required=True)
   render_replacement.add_argument("--output-dir", required=True)
   render_replacement.set_defaults(function=command_render_formal_replacement)
@@ -3200,6 +3576,13 @@ def main():
   repetition_plan.add_argument("--taint-manifest")
   repetition_plan.add_argument("--replacement-result", action="append")
   repetition_plan.add_argument("--replacement-definition", action="append")
+  repetition_plan.add_argument("--replacement-taint", action="append")
+  repetition_plan.add_argument("--replacement-log", action="append")
+  repetition_plan.add_argument("--replacement-monitor", action="append")
+  repetition_plan.add_argument("--recovery-root")
+  repetition_plan.add_argument("--launch-log")
+  repetition_plan.add_argument("--exit-status")
+  repetition_plan.add_argument("--sv-benchmarks")
   repetition_plan.add_argument("--output", required=True)
   repetition_plan.set_defaults(function=command_repetition_plan)
   monitor_formal_load = commands.add_parser("monitor-formal-load")
@@ -3212,6 +3595,10 @@ def main():
   formal_taint.add_argument("--result", required=True)
   formal_taint.add_argument("--benchexec-log", required=True)
   formal_taint.add_argument("--load-monitor", required=True)
+  formal_taint.add_argument("--recovery-root")
+  formal_taint.add_argument("--launch-log")
+  formal_taint.add_argument("--exit-status")
+  formal_taint.add_argument("--sv-benchmarks")
   formal_taint.add_argument("--output", required=True)
   formal_taint.set_defaults(function=command_formal_taint)
   validate_cap8_recovery = commands.add_parser(
@@ -3222,6 +3609,12 @@ def main():
   validate_cap8_recovery.set_defaults(
       function=command_validate_cap8_r8_recovery
   )
+  validate_cap8_r9 = commands.add_parser("validate-cap8-r9-recovery")
+  validate_cap8_r9.add_argument("--root", required=True)
+  validate_cap8_r9.add_argument("--launch-log", required=True)
+  validate_cap8_r9.add_argument("--exit-status", required=True)
+  validate_cap8_r9.add_argument("--sv-benchmarks", required=True)
+  validate_cap8_r9.set_defaults(function=command_validate_cap8_r9_recovery)
   summarize = commands.add_parser("summarize")
   add_phase_b_inputs(summarize)
   summarize.add_argument("--manifest", required=True)

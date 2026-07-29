@@ -870,8 +870,8 @@ single_formal_result() {
 }
 
 main() {
-  if [[ $# -ne 16 ]]; then
-    echo "usage: $0 CPACHECKER_DIR SV_BENCHMARKS_DIR BENCHEXEC_DIR FORMAL_PACKAGE PARENT_MANIFEST ORIGINAL_MANIFEST ORIGINAL_RESULT ORIGINAL_SURVIVOR REROUTE_MANIFEST REROUTE_RESULT REROUTE_SURVIVOR RECOVERY_MANIFEST RECOVERY_RESULT RECOVERY_SURVIVOR R8_RECOVERY_ROOT OUTPUT_DIR" >&2
+  if [[ $# -ne 16 && $# -ne 18 ]]; then
+    echo "usage: $0 CPACHECKER_DIR SV_BENCHMARKS_DIR BENCHEXEC_DIR FORMAL_PACKAGE PARENT_MANIFEST ORIGINAL_MANIFEST ORIGINAL_RESULT ORIGINAL_SURVIVOR REROUTE_MANIFEST REROUTE_RESULT REROUTE_SURVIVOR RECOVERY_MANIFEST RECOVERY_RESULT RECOVERY_SURVIVOR RECOVERY_ROOT [R9_LAUNCH_LOG R9_EXIT_STATUS] OUTPUT_DIR" >&2
     exit 2
   fi
 
@@ -899,12 +899,25 @@ main() {
     "$(realpath "${11}")"
     "$(realpath "${14}")"
   )
+  R10=false
   if [[ -L ${15} ]]; then
-    echo "r8 recovery root must not be a symlink: ${15}" >&2
+    echo "recovery root must not be a symlink: ${15}" >&2
     exit 1
   fi
-  R8_RECOVERY_ROOT=$(realpath "${15}")
-  OUTPUT_DIR=$(realpath -m "${16}")
+  RECOVERY_ROOT=$(realpath "${15}")
+  RECOVERY_INPUTS=("$RECOVERY_ROOT")
+  if [[ $# -eq 18 ]]; then
+    R10=true
+    R9_LAUNCH_LOG=$(realpath "${16}")
+    R9_EXIT_STATUS=$(realpath "${17}")
+    RECOVERY_INPUTS+=("$R9_LAUNCH_LOG" "$R9_EXIT_STATUS")
+    OUTPUT_DIR=$(realpath -m "${18}")
+  else
+    R8_RECOVERY_ROOT=$(realpath "${15}")
+    RECOVERY_ROOT=$R8_RECOVERY_ROOT
+    RECOVERY_INPUTS=("$R8_RECOVERY_ROOT")
+    OUTPUT_DIR=$(realpath -m "${16}")
+  fi
   SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
   RESEARCH_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 
@@ -963,7 +976,7 @@ main() {
     "$JAVA_HOME" "$ANT_INSTALL" "$PYTHON_BIN" "$PYTHON_STDLIB" \
     "$PYTHON_DIST_PACKAGES" "$PYTHON_LOCAL_DIST_PACKAGES" \
     "$FORMAL_PACKAGE" "$PARENT_MANIFEST" \
-    "$R8_RECOVERY_ROOT" "${PHASE_MANIFESTS[@]}" \
+    "${RECOVERY_INPUTS[@]}" "${PHASE_MANIFESTS[@]}" \
     "${PHASE_RESULTS[@]}" "${PHASE_SURVIVORS[@]}"
   if [[ -e "$OUTPUT_DIR" ]] && {
     [[ ! -d "$OUTPUT_DIR" ]] ||
@@ -981,9 +994,14 @@ main() {
   run_python_script "$SCRIPT_DIR/dataset.py" validate \
     --manifest "$FORMAL_MANIFEST" \
     --sv-benchmarks "$SV_BENCHMARKS_DIR"
-  run_python_script "$SCRIPT_DIR/dataset.py" validate-cap8-r8-recovery \
-    --root "$R8_RECOVERY_ROOT" \
-    --sv-benchmarks "$SV_BENCHMARKS_DIR"
+  if $R10; then
+    run_python_script "$SCRIPT_DIR/dataset.py" validate-cap8-r9-recovery \
+      --root "${15}" --launch-log "${16}" \
+      --exit-status "${17}" --sv-benchmarks "$SV_BENCHMARKS_DIR"
+  else
+    run_python_script "$SCRIPT_DIR/dataset.py" validate-cap8-r8-recovery \
+      --root "$RECOVERY_ROOT" --sv-benchmarks "$SV_BENCHMARKS_DIR"
+  fi
 
   exec 9>/var/tmp/vguide-valkyrie-pcores.lock
   if ! flock -n 9; then
@@ -995,15 +1013,31 @@ main() {
     "$OUTPUT_DIR/input/research" "$OUTPUT_DIR/generated" \
     "$OUTPUT_DIR/results" "$OUTPUT_DIR/provenance"
   cp -a "$FORMAL_PACKAGE/." "$OUTPUT_DIR/input/formal/"
-  cp -a "$R8_RECOVERY_ROOT" "$OUTPUT_DIR/input/recovery-r8"
+  if $R10; then
+    cp -a "$RECOVERY_ROOT" "$OUTPUT_DIR/input/recovery-r9"
+    mkdir "$OUTPUT_DIR/input/recovery-r9-external"
+    cp "$R9_LAUNCH_LOG" "$OUTPUT_DIR/input/recovery-r9-external/launch.log"
+    cp "$R9_EXIT_STATUS" "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt"
+  else
+    cp -a "$R8_RECOVERY_ROOT" "$OUTPUT_DIR/input/recovery-r8"
+  fi
   FORMAL_MANIFEST="$OUTPUT_DIR/input/formal/candidate-manifest-valkyrie-formal.json"
   capture_research_provenance "$OUTPUT_DIR/input/research"
   activate_saved_scripts "$OUTPUT_DIR/input/research"
   verify_research_provenance "$OUTPUT_DIR/input/research"
-  run_python_script "$DATASET_PY" validate-cap8-r8-recovery \
-    --root "$OUTPUT_DIR/input/recovery-r8" \
-    --sv-benchmarks "$SV_BENCHMARKS_DIR" \
-    >"$OUTPUT_DIR/provenance/r8-recovery-validation.json"
+  if $R10; then
+    run_python_script "$DATASET_PY" validate-cap8-r9-recovery \
+      --root "$OUTPUT_DIR/input/recovery-r9" \
+      --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log" \
+      --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt" \
+      --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+      >"$OUTPUT_DIR/provenance/r9-recovery-validation.json"
+  else
+    run_python_script "$DATASET_PY" validate-cap8-r8-recovery \
+      --root "$OUTPUT_DIR/input/recovery-r8" \
+      --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+      >"$OUTPUT_DIR/provenance/r8-recovery-validation.json"
+  fi
   verify_runtime_closure false
   write_runtime_provenance "$OUTPUT_DIR/provenance/runtime-closure.txt"
   BUILD_COMPLETED=false
@@ -1200,6 +1234,81 @@ main() {
     local taint="$OUTPUT_DIR/$label-taint.json"
     local plan="$OUTPUT_DIR/$label-plan.json"
     local taint_count
+    if [[ $# -eq 6 ]]; then
+      local recovery_result=$3
+      local recovery_definition=$4
+      local recovery_log=$5
+      local recovery_monitor=$6
+      local attempt=1
+      local current_result=$recovery_result
+      local current_taint="$OUTPUT_DIR/$label-replacement-attempt-1-taint.json"
+      local current_log=$recovery_log
+      local current_monitor=$recovery_monitor
+      local definition=$recovery_definition
+      local replacement_args=()
+      cp "$RECOVERY_COPY/repetition-2-taint.json" "$taint"
+      run_python_script "$DATASET_PY" formal-taint \
+        --manifest "$FORMAL_MANIFEST" --repetition "$repetition" \
+        --result "$current_result" --benchexec-log "$current_log" \
+        --load-monitor "$current_monitor" --output "$current_taint" \
+        --recovery-root "$RECOVERY_COPY" \
+        --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log" \
+        --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt" \
+        --sv-benchmarks "$SV_BENCHMARKS_DIR"
+      while true; do
+        replacement_args+=(
+          --replacement-result "$current_result"
+          --replacement-definition "$definition"
+          --replacement-taint "$current_taint"
+          --replacement-log "$current_log"
+          --replacement-monitor "$current_monitor"
+        )
+        taint_count=$("$PYTHON_BIN" -I -c \
+          'import json,sys; print(len(json.load(open(sys.argv[1]))["tasks"]))' \
+          "$current_taint")
+        [[ "$taint_count" -ne 0 ]] || break
+        attempt=$((attempt + 1))
+        local attempt_label="$label-replacement-attempt-$attempt"
+        local definition_dir="$OUTPUT_DIR/generated/$attempt_label"
+        definition="$definition_dir/hard-case-candidates.xml"
+        local render_recovery=()
+        if [[ "$attempt" -eq 2 ]]; then
+          render_recovery=(
+            --recovery-root "$RECOVERY_COPY"
+            --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log"
+            --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt"
+          )
+        fi
+        run_python_script "$DATASET_PY" render-formal-replacement \
+          "${PHASE_ARGS[@]}" --manifest "$FORMAL_MANIFEST" \
+          --primary-result "$current_result" --taint-manifest "$current_taint" \
+          "${render_recovery[@]}" \
+          --property-file "$SV_BENCHMARKS_DIR/c/properties/unreach-call.prp" \
+          --output-dir "$definition_dir"
+        run_formal_benchmark "$attempt_label" \
+          "hard-case-dataset-v2-formal-valkyrie-$attempt_label" \
+          "$definition" "$OUTPUT_DIR/results/$attempt_label"
+        current_result=$(single_formal_result \
+          "$OUTPUT_DIR/results/$attempt_label")
+        current_taint="$OUTPUT_DIR/$attempt_label-taint.json"
+        current_log="$OUTPUT_DIR/provenance/$attempt_label-benchexec.log"
+        current_monitor="$OUTPUT_DIR/provenance/$attempt_label-load-monitor.jsonl"
+        run_python_script "$DATASET_PY" formal-taint \
+          --manifest "$FORMAL_MANIFEST" --repetition "$repetition" \
+          --result "$current_result" --benchexec-log "$current_log" \
+          --load-monitor "$current_monitor" --output "$current_taint"
+      done
+      run_python_script "$DATASET_PY" repetition-plan \
+        --manifest "$FORMAL_MANIFEST" --repetition "$repetition" \
+        --primary-result "$primary" --taint-manifest "$taint" \
+        "${replacement_args[@]}" \
+        --recovery-root "$RECOVERY_COPY" \
+        --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log" \
+        --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt" \
+        --sv-benchmarks "$SV_BENCHMARKS_DIR" --output "$plan"
+      BUILT_PLAN=$plan
+      return
+    fi
     run_python_script "$DATASET_PY" formal-taint \
       --manifest "$FORMAL_MANIFEST" \
       --repetition "$repetition" \
@@ -1267,6 +1376,25 @@ main() {
     BUILT_PLAN=$plan
   }
 
+  if $R10; then
+    RECOVERY_COPY="$OUTPUT_DIR/input/recovery-r9"
+    cp -a "$RECOVERY_COPY/results/repetition-1" "$OUTPUT_DIR/results/"
+    cp -a "$RECOVERY_COPY/results/repetition-1-replacement-attempt-1" \
+      "$OUTPUT_DIR/results/"
+    cp -a "$RECOVERY_COPY/generated/repetition-1-replacement" \
+      "$OUTPUT_DIR/generated/"
+    cp "$RECOVERY_COPY/repetition-1-taint.json" \
+      "$RECOVERY_COPY/repetition-1-plan.json" "$OUTPUT_DIR/"
+    PLANS=("$OUTPUT_DIR/repetition-1-plan.json")
+    build_repetition_plan 2 \
+      "$(single_formal_result "$RECOVERY_COPY/results/repetition-2")" \
+      "$(single_formal_result \
+        "$RECOVERY_COPY/results/repetition-2-replacement-attempt-1")" \
+      "$RECOVERY_COPY/generated/repetition-2-replacement/hard-case-candidates.xml" \
+      "$RECOVERY_COPY/provenance/repetition-2-replacement-attempt-1-benchexec.log" \
+      "$RECOVERY_COPY/provenance/repetition-2-replacement-attempt-1-load-monitor.jsonl"
+    PLANS+=("$BUILT_PLAN")
+  else
   RECOVERY_COPY="$OUTPUT_DIR/input/recovery-r8"
   mkdir -p \
     "$OUTPUT_DIR/results/repetition-1" \
@@ -1311,6 +1439,7 @@ main() {
   PLANS=("$OUTPUT_DIR/repetition-1-plan.json")
   build_repetition_plan 2 "${RESULTS[1]}"
   PLANS+=("$BUILT_PLAN")
+  fi
 
   run_python_script "$DATASET_PY" summarize \
     "${PHASE_ARGS[@]}" \
@@ -1324,19 +1453,36 @@ main() {
 
   verify_research_provenance "$OUTPUT_DIR/input/research" \
     >"$OUTPUT_DIR/provenance/research-verification-final.log" 2>&1
-  run_python_script "$DATASET_PY" validate-cap8-r8-recovery \
-    --root "$OUTPUT_DIR/input/recovery-r8" \
-    --sv-benchmarks "$SV_BENCHMARKS_DIR" \
-    >"$OUTPUT_DIR/provenance/r8-recovery-verification-final.json"
+  if $R10; then
+    run_python_script "$DATASET_PY" validate-cap8-r9-recovery \
+      --root "$OUTPUT_DIR/input/recovery-r9" \
+      --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log" \
+      --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt" \
+      --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+      >"$OUTPUT_DIR/provenance/r9-recovery-verification-final.json"
+  else
+    run_python_script "$DATASET_PY" validate-cap8-r8-recovery \
+      --root "$OUTPUT_DIR/input/recovery-r8" \
+      --sv-benchmarks "$SV_BENCHMARKS_DIR" \
+      >"$OUTPUT_DIR/provenance/r8-recovery-verification-final.json"
+  fi
   verify_runtime_closure true \
     >"$OUTPUT_DIR/provenance/runtime-verification-final.log" 2>&1
   run_python_script "$BASELINE_PY" artifact-manifest \
     --root "$OUTPUT_DIR" \
     --output "$OUTPUT_DIR/provenance/artifact-manifest.json"
   verify_research_provenance "$OUTPUT_DIR/input/research" >/dev/null
-  run_python_script "$DATASET_PY" validate-cap8-r8-recovery \
-    --root "$OUTPUT_DIR/input/recovery-r8" \
-    --sv-benchmarks "$SV_BENCHMARKS_DIR" >/dev/null
+  if $R10; then
+    run_python_script "$DATASET_PY" validate-cap8-r9-recovery \
+      --root "$OUTPUT_DIR/input/recovery-r9" \
+      --launch-log "$OUTPUT_DIR/input/recovery-r9-external/launch.log" \
+      --exit-status "$OUTPUT_DIR/input/recovery-r9-external/exit-status.txt" \
+      --sv-benchmarks "$SV_BENCHMARKS_DIR" >/dev/null
+  else
+    run_python_script "$DATASET_PY" validate-cap8-r8-recovery \
+      --root "$OUTPUT_DIR/input/recovery-r8" \
+      --sv-benchmarks "$SV_BENCHMARKS_DIR" >/dev/null
+  fi
   verify_runtime_closure true >/dev/null
   trap - EXIT
 }
