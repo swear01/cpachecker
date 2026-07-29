@@ -1,71 +1,64 @@
 {
   "schema_version": "hard-case-dataset-v2-rolling-status-v1",
   "issue": 16,
-  "observed_at": "2026-07-30T04:05:40+08:00",
-  "authoritative_snapshot_sha256": "0d2c9632d6a082923746f83064e765de8c9077c1bba639b8eeacc4914897f07f",
+  "observed_at": "2026-07-30T07:12:10+08:00",
+  "authoritative_snapshot_sha256": "f2b077097133139f288b0a39bf810c29164963bdc5a1c22aafc04c2216673e06",
   "phase": "phase_b_formal_recovery",
   "cap8": {
+    "cohort": 270,
     "accepted": {
       "repetition_1": 270,
       "repetition_2": 80
     },
-    "active_attempt": "repetition-2-replacement-attempt-2",
-    "active_structurally_complete_rows": 136,
-    "cohort": 270,
     "pending": {
       "repetition_1": 0,
       "repetition_2": 190
+    },
+    "active_attempt": null,
+    "protocol_sha256": "8d5786f7ce90806ac329db18b60ad42fe79ec30d9490cb5d53a144525450e7ef",
+    "seed_sha256": "145bd4eee9f4d64f1847881924c217ad782a5cff405d4c2b750087980df88ab5",
+    "last_attempt": {
+      "label": "repetition-2-replacement-attempt-2",
+      "structurally_complete_rows": 190,
+      "classification": {
+        "complete_but_tainted": 190
+      },
+      "accepted_rows": 0,
+      "result_sha256": "3b21bc71ef10a1ff2dfe4743457cba6d737756370e35d28f4cb68b8cfc361dca",
+      "taint_sha256": "78c0ee511de12ade52e9e95cb89e828f5c52c8253a6d5f5799d572bab64d13a0"
+    },
+    "launch_state": {
+      "launch_001": {
+        "exit_status": 1,
+        "benchmark_tasks_run": 0,
+        "reason": "input/output overlap before initialization"
+      },
+      "launch_002": {
+        "launched": false,
+        "benchmark_tasks_run": 0,
+        "reason": "foreign high P-core load"
+      }
     }
   },
   "cap16": {
+    "cohort": 224,
     "accepted": {
-      "repetition_1": 111,
+      "repetition_1": 143,
       "repetition_2": 0
     },
-    "active_attempt": "next frozen repetition-1 shard",
-    "boot_id": "04e10dff-12c3-4eba-9fe2-a2a679092466",
-    "cohort": 224,
-    "first_shard_tasks": 8,
-    "invocation_id": "519cbf7ad53f414db95a4167f9dafe0f",
     "pending": {
-      "repetition_1": 113,
+      "repetition_1": 81,
       "repetition_2": 224
     },
+    "active_attempt": "repetition-1-replacement-attempt-11",
+    "boot_id": "04e10dff-12c3-4eba-9fe2-a2a679092466",
+    "invocation_id": "519cbf7ad53f414db95a4167f9dafe0f",
     "protocol_sha256": "959bd13a33b098dbbe218731b58bb3d38e16ae5fc7fe52d985418005e8211327",
     "seed_sha256": "76ecdeb5a793feb70a2c968eeab746ae3c36b68d0356b9a9acdb374b69f1f9a7",
-    "unit": "vguide-cap16-generic-recovery-v4-postreboot-20260730.service",
-    "last_terminated_attempt": {
-      "label": "repetition-1-replacement-attempt-6",
-      "structurally_complete_rows": 8,
-      "accepted_rows": 0,
-      "marker_sha256": "bd50a24c660cd179866930af215eee6337e45431e51cffa864db8528ac1d777a",
-      "result_sha256": "655c3061ec3db6fe0f7bc5dd693ec1cc5b241facc69574f64d33da5dbfd00ee7",
-      "launch_log_sha256": "fc068c8d336f49e3f9697229ea796e7cc492579f67955e27e605f148ef95089d",
-      "exit_status": 1
-    },
-    "last_pretask_launch": {
-      "label": "launch-002",
-      "benchmark_tasks_run": 0,
-      "exit_status": 1,
-      "launch_log_sha256": "df63b7d063db7c77f922b7344f7289eecc5998718d8b8ae272092956ba350d30",
-      "authorization_sha256": "8802c08e9390e78107c7a5634053b1f1419f337d86504ddd268f4ea96ca23a3e",
-      "live_gate_sha256": "09fa18021eeba6618649d09076e1e633c5a8359ba3ee494fdc5f42310388d090"
-    },
-    "last_accepted_attempt": {
-      "label": "repetition-1-replacement-attempt-6",
-      "accepted_rows": 8,
-      "ledger_sha256": "a16cc1a7c5504c4eec08e820835ef1a73b32d93539e359e20425b7d53d3551a8"
-    },
-    "last_interruption": {
-      "launch": "launch-003",
-      "old_boot_id": "a381e032-eece-4387-bf89-0e885e152d16",
-      "new_boot_id": "04e10dff-12c3-4eba-9fe2-a2a679092466",
-      "attempt7_preparation_present": false,
-      "exit_status_present": false
-    }
+    "unit": "vguide-cap16-generic-recovery-v4-postreboot-20260730.service"
   },
-  "blocker": null,
-  "next_action": "Preserve both healthy runs; launch 004 is continuing cap-16 from the first pending deterministic eight-task shard and cap-8 is continuing its authenticated legacy attempt.",
+  "blocker": "cap-8 launch waits for foreign high P-core load on Valkyrie; cap-16 is healthy",
+  "next_action": "Preserve cap-16 attempt 11; resample Valkyrie and launch the frozen cap-8 shards with external byte-identical inputs when the P-core gate passes.",
   "generic_recovery_prereg": {
     "code_commit": "c8619b6c21dc018226da695f7c832ce375917d24",
     "generic_recovery_prereg_id": 362012768,
