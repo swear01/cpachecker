@@ -361,6 +361,117 @@ FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION = {
         ),
     },
 }
+FROZEN_CAP16_ATHENA_ATTEMPT_2_V2_RECOVERY_SELECTION = {
+    "label": "repetition-1-replacement-attempt-2",
+    "role": "replacement",
+    "repetition": 1,
+    "captured_boot_id": "0c4e2e6e-0531-4a2d-a1b8-78ac0bdec433",
+    "result_directory": "results/repetition-1-replacement-attempt-2",
+    "result_directory_digest": (
+        "bcf44a9f29da0cac7a01bd7290634e14d036dacdffa13dd1a23d0fe0b01de30d"
+    ),
+    "result_directories": (
+        "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+        "repetition-1-replacement-attempt-2.2026-07-29_11-16-51.logfiles",
+    ),
+    "files": {
+        "definition": {
+            "path": (
+                "generated/repetition-1-replacement-attempt-2/"
+                "hard-case-candidates.xml"
+            ),
+            "sha256": (
+                "38d73734e0663686379d072f6861e02991057ac3811c92f05892a73941db7fa7"
+            ),
+        },
+        "result": {
+            "path": (
+                "results/repetition-1-replacement-attempt-2/"
+                "hard-case-candidates.hard-case-dataset-v2-cap16-formal-"
+                "athena-repetition-1-replacement-attempt-2."
+                "2026-07-29_11-16-51.results.hard-case-candidates.official.xml"
+            ),
+            "sha256": (
+                "c102ddc216d1d2cb1da6a94c7313ed7a7e953124f979417c420a9c16b346adff"
+            ),
+        },
+        "benchexec_log": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-2-benchexec.log"
+            ),
+            "sha256": (
+                "21281365e61455be0654f8b753e3a7bf145cf9e495c2eba81b2a37398277572b"
+            ),
+        },
+        "benchexec_process": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-2-"
+                "benchexec.process.json"
+            ),
+            "sha256": (
+                "bc8f04f6421e457855d3bc3141286603bcbb294dbf12f99e0fcbca0ed4ba4f4d"
+            ),
+        },
+        "process_descriptor": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-2-"
+                "process-descriptor.json"
+            ),
+            "sha256": (
+                "7abc54fce7fc2435eb451d448a9f4746887279267f8498f608a18e475f6f1e34"
+            ),
+        },
+        "load_monitor": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-2-"
+                "load-monitor.jsonl"
+            ),
+            "sha256": (
+                "d0a345bd57770a5dc4c5bafdc86f6df3a2c5ed18e63679426dc2ce24a2840b99"
+            ),
+        },
+        "monitor_pid": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-2-"
+                "load-monitor.jsonl.pid"
+            ),
+            "sha256": (
+                "79c86d8992e0d52db9d6fc54a5b22baed8ebbea5701a272bddc0d0280b79dc84"
+            ),
+        },
+        "monitor_process": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-2-"
+                "load-monitor.jsonl.process.json"
+            ),
+            "sha256": (
+                "14019f93291f92ca4aeb85159c0893657936a4eb3d2c555de2df66e95887dff8"
+            ),
+        },
+        "machine_before": {
+            "path": (
+                "provenance/machine-before-repetition-1-"
+                "replacement-attempt-2.json"
+            ),
+            "sha256": (
+                "c813ebbf71be9d334b59f7d56a378228854d3650da4327cb4c56ec2558dbdae0"
+            ),
+        },
+    },
+    "closure_files": {
+        (
+            "generated/repetition-1-replacement-attempt-2/"
+            "hard-case-candidates-official.set"
+        ): "fe5b7bd2d204d314d206ce53cd7f2386c307c7545d56d565bf7166398501443f",
+        "repetition-1-replacement-attempt-1-taint.json": (
+            "de54201e1cd2228de2752c8afdea3330daf407a62fe67e17a9de6075173e8115"
+        ),
+        (
+            "provenance/attempts/"
+            "repetition-1-replacement-attempt-1.json"
+        ): "70d3e40b92669a4fa924c0773e5d167b0a043ae97631b9123314285144f63a50",
+    },
+}
 
 
 def sha256_text(value):
@@ -4553,16 +4664,26 @@ def validate_markerless_recovery_identity_selection(
     return False
   if schemas != {FORMAL_PROCESS_IDENTITY_SCHEMA}:
     raise RuntimeError("formal process identity schemas do not match")
-  selection = FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION
+  selections = (
+      (FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION, True),
+      (FROZEN_CAP16_ATHENA_ATTEMPT_2_V2_RECOVERY_SELECTION, False),
+  )
+  matches = [
+      item for item in selections
+      if (
+          label == item[0]["label"]
+          and role == item[0]["role"]
+          and repetition == item[0]["repetition"]
+      )
+  ]
   if (
-      label != selection["label"]
-      or role != selection["role"]
-      or repetition != selection["repetition"]
+      len(matches) != 1
       or set(identities) != {"benchexec-launcher", "load-monitor"}
   ):
     raise RuntimeError(
         "formal recovery requires an exact frozen v2 selection"
     )
+  selection, allow_final_log_only_completion = matches[0]
   root = Path(root).resolve()
   for name, expected in selection["files"].items():
     path = Path(paths[name])
@@ -4610,7 +4731,7 @@ def validate_markerless_recovery_identity_selection(
     raise RuntimeError("frozen v2 recovery boot identity differs")
   if read_boot_id() == selection["captured_boot_id"]:
     raise RuntimeError("frozen v2 recovery is not bound across reboot")
-  return True
+  return allow_final_log_only_completion
 
 
 def marker_authorizes_final_log_only_completion(record):
