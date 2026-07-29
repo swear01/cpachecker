@@ -4817,11 +4817,11 @@ copy_phase_evidence "$2"
       manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
       manifest_rows = dataset.baseline.load_task_manifest(manifest_path)
       output_root = root / "formal"
-      label = "repetition-1-replacement-attempt-1"
+      label = "repetition-1-replacement-attempt-3"
       primary = output_root / f"results/{label}/result.xml"
       primary.parent.mkdir(parents=True)
       write_stock_result(
-          primary, tasks[:174], "athena", formal=True, marker="10"
+          primary, tasks[:159], "athena", formal=True, marker="10"
       )
       primary_root = ET.parse(primary).getroot()
       primary_root.set("error", "incomplete")
@@ -4830,11 +4830,11 @@ copy_phase_evidence "$2"
         run.set("name", str(root / tasks[index]["task_path"]))
         run.set("files", f"[{root / tasks[index]['source_paths'][0]}]")
         run.set("propertyFile", str(property_file))
-      for run in primary_root.findall("run")[3:]:
+      for run in primary_root.findall("run")[1:]:
         for column in list(run):
           run.remove(column)
       ET.ElementTree(primary_root).write(primary, encoding="unicode")
-      expected_tasks = sorted(row["task"] for row in tasks[:174])
+      expected_tasks = sorted(row["task"] for row in tasks[:159])
 
       def marker_record(
           result,
@@ -4866,7 +4866,7 @@ copy_phase_evidence "$2"
                   "task": row["task"],
                   "reason": "interrupted_incomplete",
               }
-              for row in tasks[3:174]
+              for row in tasks[1:159]
           ],
       }), encoding="utf-8")
       args = SimpleNamespace(
@@ -4876,7 +4876,9 @@ copy_phase_evidence "$2"
           primary_result=str(primary),
           taint_manifest=str(taint),
           property_file=str(property_file),
-          output_dir=str(root / "replacement-2"),
+          output_dir=str(
+              root / "generated/repetition-1-replacement-attempt-4"
+          ),
       )
       with mock.patch.object(
           dataset,
@@ -4888,11 +4890,14 @@ copy_phase_evidence "$2"
           return_value=marker_record(primary),
       ):
         dataset.command_render_formal_replacement(args)
-      task_set = root / "replacement-2/hard-case-candidates-official.set"
-      self.assertEqual(len(task_set.read_text().splitlines()), 171)
+      task_set = (
+          root / "generated/repetition-1-replacement-attempt-4/"
+          "hard-case-candidates-official.set"
+      )
+      self.assertEqual(len(task_set.read_text().splitlines()), 158)
       self.assertEqual(
           task_set.read_text().splitlines(),
-          [str(root / row["task_path"]) for row in tasks[3:174]],
+          [str(root / row["task_path"]) for row in tasks[1:159]],
       )
 
       contended = primary.with_name("contended.xml")
@@ -5681,6 +5686,325 @@ copy_phase_evidence "$2"
       xml.write(result, encoding="unicode")
       with self.assertRaisesRegex(RuntimeError, "exactly one"):
         dataset.probe_result_metadata(result)
+
+  def test_frozen_attempt_2_recovery_is_exact_and_has_no_log_exception(self):
+    frozen = dataset.FROZEN_CAP16_ATHENA_ATTEMPT_2_V2_RECOVERY_SELECTION
+    self.assertEqual(
+        (
+            frozen["label"],
+            frozen["role"],
+            frozen["repetition"],
+            frozen["captured_boot_id"],
+            frozen["result_directory_digest"],
+        ),
+        (
+            "repetition-1-replacement-attempt-2",
+            "replacement",
+            1,
+            "0c4e2e6e-0531-4a2d-a1b8-78ac0bdec433",
+            "bcf44a9f29da0cac7a01bd7290634e14d036dacdffa13dd1a23d0fe0b01de30d",
+        ),
+    )
+    self.assertEqual(
+        frozen["files"]["result"]["sha256"],
+        "c102ddc216d1d2cb1da6a94c7313ed7a7e953124f979417c420a9c16b346adff",
+    )
+    self.assertEqual(
+        set(frozen["closure_files"]),
+        {
+            (
+                "generated/repetition-1-replacement-attempt-2/"
+                "hard-case-candidates-official.set"
+            ),
+            "repetition-1-replacement-attempt-1-taint.json",
+            (
+                "provenance/attempts/"
+                "repetition-1-replacement-attempt-1.json"
+            ),
+        },
+    )
+
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      paths = {}
+      for name in (
+          "definition",
+          "benchexec_log",
+          "benchexec_process",
+          "process_descriptor",
+          "load_monitor",
+          "monitor_pid",
+          "monitor_process",
+          "machine_before",
+      ):
+        path = root / f"evidence/{name}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{name}\n", encoding="utf-8")
+        paths[name] = path
+      result_directory = root / "results/replacement-attempt-2"
+      result_directory.mkdir(parents=True)
+      result = result_directory / "result.xml"
+      result.write_text("result\n", encoding="utf-8")
+      logfiles = result_directory / "result.logfiles"
+      logfiles.mkdir()
+      paths["result"] = result
+      closure_paths = []
+      for index in range(3):
+        path = root / f"closure/input-{index}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"closure-{index}\n", encoding="utf-8")
+        closure_paths.append(path)
+      captured_boot = "11111111-1111-1111-1111-111111111111"
+      recovery_boot = "22222222-2222-2222-2222-222222222222"
+      identities = {
+          role: {
+              "schema_version": dataset.FORMAL_PROCESS_IDENTITY_SCHEMA,
+              "boot_id": captured_boot,
+          }
+          for role in ("benchexec-launcher", "load-monitor")
+      }
+      selection = {
+          "label": "repetition-1-replacement-attempt-2",
+          "role": "replacement",
+          "repetition": 1,
+          "captured_boot_id": captured_boot,
+          "result_directory": result_directory.relative_to(root).as_posix(),
+          "result_directory_digest": (
+              dataset.formal_result_directory_digest(result_directory)
+          ),
+          "result_directories": ("result.logfiles",),
+          "files": {
+              name: {
+                  "path": path.relative_to(root).as_posix(),
+                  "sha256": dataset.baseline.sha256_file(path),
+              }
+              for name, path in paths.items()
+          },
+          "closure_files": {
+              path.relative_to(root).as_posix(): (
+                  dataset.baseline.sha256_file(path)
+              )
+              for path in closure_paths
+          },
+      }
+      with mock.patch.object(
+          dataset,
+          "FROZEN_CAP16_ATHENA_ATTEMPT_2_V2_RECOVERY_SELECTION",
+          selection,
+      ), mock.patch.object(
+          dataset, "read_boot_id", return_value=recovery_boot
+      ) as boot:
+        self.assertFalse(
+            dataset.validate_markerless_recovery_identity_selection(
+                root,
+                selection["label"],
+                selection["role"],
+                selection["repetition"],
+                paths,
+                identities,
+            )
+        )
+
+        original = paths["definition"].read_bytes()
+        paths["definition"].write_bytes(original + b"mutation")
+        with self.assertRaisesRegex(RuntimeError, "selection differs"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, selection["label"], "replacement", 1, paths, identities
+          )
+        paths["definition"].write_bytes(original)
+
+        extra = result_directory / "extra"
+        extra.mkdir()
+        with self.assertRaisesRegex(RuntimeError, "selection differs"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, selection["label"], "replacement", 1, paths, identities
+          )
+        extra.rmdir()
+
+        paths["definition"].unlink()
+        paths["definition"].symlink_to(paths["benchexec_log"])
+        with self.assertRaisesRegex(RuntimeError, "selection differs"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, selection["label"], "replacement", 1, paths, identities
+          )
+        paths["definition"].unlink()
+        paths["definition"].write_bytes(original)
+
+        mismatched = copy.deepcopy(identities)
+        mismatched["load-monitor"]["boot_id"] = recovery_boot
+        with self.assertRaisesRegex(RuntimeError, "boot identity differs"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, selection["label"], "replacement", 1, paths, mismatched
+          )
+        boot.return_value = captured_boot
+        with self.assertRaisesRegex(RuntimeError, "not bound across reboot"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, selection["label"], "replacement", 1, paths, identities
+          )
+
+  def test_frozen_attempt_3_recovery_is_exact_and_has_no_log_exception(self):
+    frozen = dataset.FROZEN_CAP16_ATHENA_ATTEMPT_3_V2_RECOVERY_SELECTION
+    self.assertEqual(
+        (
+            frozen["label"],
+            frozen["role"],
+            frozen["repetition"],
+            frozen["captured_boot_id"],
+            frozen["result_directory_digest"],
+        ),
+        (
+            "repetition-1-replacement-attempt-3",
+            "replacement",
+            1,
+            "c1551052-e3fb-4d61-850d-04817c261bee",
+            "7bebd0da3e0bfff4af8a4d5c6890294bf9514e8e5aedb41b15bd3e5cd8feb882",
+        ),
+    )
+    self.assertEqual(
+        frozen["files"]["result"]["sha256"],
+        "ea6288087da7efd4e29411725693380acc1e38749afc4fe83a9256ac9d776be4",
+    )
+    self.assertEqual(
+        set(frozen["closure_files"]),
+        {
+            (
+                "generated/repetition-1-replacement-attempt-3/"
+                "hard-case-candidates-official.set"
+            ),
+            "repetition-1-replacement-attempt-2-taint.json",
+            (
+                "provenance/attempts/"
+                "repetition-1-replacement-attempt-2.json"
+            ),
+        },
+    )
+    self.assertFalse(
+        dataset.marker_authorizes_final_log_only_completion({
+            "schema_version": dataset.FORMAL_ATTEMPT_SCHEMA,
+            "benchexec_exit": 125,
+            "result_incomplete": True,
+            "label": frozen["label"],
+            "role": frozen["role"],
+            "repetition": frozen["repetition"],
+            "files": frozen["files"],
+        })
+    )
+
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      paths = {}
+      for name in (
+          "definition",
+          "benchexec_log",
+          "benchexec_process",
+          "process_descriptor",
+          "load_monitor",
+          "monitor_pid",
+          "monitor_process",
+          "machine_before",
+      ):
+        path = root / f"evidence/{name}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{name}\n", encoding="utf-8")
+        paths[name] = path
+      result_directory = root / "results/replacement-attempt-3"
+      result_directory.mkdir(parents=True)
+      result = result_directory / "result.xml"
+      result.write_text("result\n", encoding="utf-8")
+      (result_directory / "result.logfiles").mkdir()
+      paths["result"] = result
+      closure_paths = []
+      for index in range(3):
+        path = root / f"closure/input-{index}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"closure-{index}\n", encoding="utf-8")
+        closure_paths.append(path)
+      captured_boot = "11111111-1111-1111-1111-111111111111"
+      recovery_boot = "22222222-2222-2222-2222-222222222222"
+      identities = {
+          role: {
+              "schema_version": dataset.FORMAL_PROCESS_IDENTITY_SCHEMA,
+              "boot_id": captured_boot,
+          }
+          for role in ("benchexec-launcher", "load-monitor")
+      }
+      selection = {
+          "label": "repetition-1-replacement-attempt-3",
+          "role": "replacement",
+          "repetition": 1,
+          "captured_boot_id": captured_boot,
+          "result_directory": result_directory.relative_to(root).as_posix(),
+          "result_directory_digest": (
+              dataset.formal_result_directory_digest(result_directory)
+          ),
+          "result_directories": ("result.logfiles",),
+          "files": {
+              name: {
+                  "path": path.relative_to(root).as_posix(),
+                  "sha256": dataset.baseline.sha256_file(path),
+              }
+              for name, path in paths.items()
+          },
+          "closure_files": {
+              path.relative_to(root).as_posix(): (
+                  dataset.baseline.sha256_file(path)
+              )
+              for path in closure_paths
+          },
+      }
+      with mock.patch.object(
+          dataset,
+          "FROZEN_CAP16_ATHENA_ATTEMPT_3_V2_RECOVERY_SELECTION",
+          selection,
+      ), mock.patch.object(
+          dataset, "read_boot_id", return_value=recovery_boot
+      ) as boot:
+        self.assertFalse(
+            dataset.validate_markerless_recovery_identity_selection(
+                root,
+                selection["label"],
+                selection["role"],
+                selection["repetition"],
+                paths,
+                identities,
+            )
+        )
+
+        original = paths["definition"].read_bytes()
+        paths["definition"].write_bytes(original + b"mutation")
+        with self.assertRaisesRegex(RuntimeError, "selection differs"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, selection["label"], "replacement", 1, paths, identities
+          )
+        paths["definition"].write_bytes(original)
+
+        original = closure_paths[0].read_bytes()
+        closure_paths[0].write_bytes(original + b"mutation")
+        with self.assertRaisesRegex(RuntimeError, "selection differs"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, selection["label"], "replacement", 1, paths, identities
+          )
+        closure_paths[0].write_bytes(original)
+
+        extra = result_directory / "extra"
+        extra.mkdir()
+        with self.assertRaisesRegex(RuntimeError, "selection differs"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, selection["label"], "replacement", 1, paths, identities
+          )
+        extra.rmdir()
+
+        mismatched = copy.deepcopy(identities)
+        mismatched["load-monitor"]["boot_id"] = recovery_boot
+        with self.assertRaisesRegex(RuntimeError, "boot identity differs"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, selection["label"], "replacement", 1, paths, mismatched
+          )
+        boot.return_value = captured_boot
+        with self.assertRaisesRegex(RuntimeError, "not bound across reboot"):
+          dataset.validate_markerless_recovery_identity_selection(
+              root, selection["label"], "replacement", 1, paths, identities
+          )
 
   def test_formal_attempt_marker_requires_atomic_teardown_closure(self):
     with tempfile.TemporaryDirectory() as temp:
@@ -7393,10 +7717,12 @@ test "$(cat "$root/partial-summary/new")" = new
         )
 
       write_identity()
-      with mock.patch.object(
+      with mock.patch.multiple(
           dataset,
-          "FROZEN_CAP16_PHASE_A_SURVIVOR_SHA256",
-          source_manifest_sha256,
+          FROZEN_CAP16_PHASE_A_SURVIVOR_SHA256=source_manifest_sha256,
+          FROZEN_CAP16_FORMAL_ARTIFACT_AGGREGATE_SHA256=(
+              "PENDING_AFTER_CAP16_FORMAL_COMPLETION"
+          ),
       ):
         with self.assertRaisesRegex(RuntimeError, "pin is pending"):
           dataset.validate_cap16_probe_input(probe, root)
@@ -7627,7 +7953,11 @@ test "$(cat "$root/partial-summary/new")" = new
           sv_benchmarks=str(root / "sv-benchmarks"),
           output_dir=str(output),
       )
-      with self.assertRaisesRegex(RuntimeError, "pin is pending"):
+      with mock.patch.object(
+          dataset,
+          "FROZEN_CAP8_FORMAL_ARTIFACT_AGGREGATE_SHA256",
+          "PENDING_AFTER_CAP8_FORMAL_COMPLETION",
+      ), self.assertRaisesRegex(RuntimeError, "pin is pending"):
         dataset.command_package_cap8_probe_input(args)
       self.assertFalse(output.exists())
 
