@@ -857,6 +857,44 @@ def command_render_formal(args):
   )
 
 
+def formal_replacement_result_manifest(args, primary, manifest, host):
+  result_tasks = result_task_names(primary, manifest)
+  label = primary.parent.name
+  cap16_replacement = (
+      hasattr(args, "phase_a_output")
+      and host == "athena"
+      and re.fullmatch(
+          r"repetition-[12]-replacement-attempt-[1-9]\d*", label
+      )
+  )
+  if cap16_replacement:
+    output_root = primary.parents[2]
+    record = validate_formal_attempt_marker(
+        output_root / f"provenance/attempts/{label}.json",
+        output_root,
+        Path(args.manifest).resolve(),
+        args.sv_benchmarks,
+        host,
+        "cap16",
+    )
+    if (
+        primary.parent != output_root / f"results/{label}"
+        or record["role"] != "replacement"
+        or (output_root / record["files"]["result"]["path"]).resolve() != primary
+        or record["result_tasks"] != sorted(result_tasks)
+    ):
+      raise RuntimeError(
+          "cap-16 replacement result is not an authenticated prior attempt"
+      )
+    return (
+        {task: manifest[task] for task in result_tasks},
+        record["repetition"],
+    )
+  if set(result_tasks) == set(manifest):
+    return manifest, None
+  raise RuntimeError("formal replacement primary does not cover the full manifest")
+
+
 def command_render_formal_replacement(args):
   require_absent_or_empty_output(args.output_dir)
   manifest, host = authenticate_formal_manifest(args)
@@ -868,9 +906,12 @@ def command_render_formal_replacement(args):
   )
   if primary_metadata["host"] != host:
     raise RuntimeError("formal primary result must run on the merged manifest host")
+  primary_subset, prior_repetition = formal_replacement_result_manifest(
+      args, primary, manifest_rows, host
+  )
   validate_result_run_topology(
       primary,
-      manifest_rows,
+      primary_subset,
       args.sv_benchmarks,
   )
   taint_path = Path(args.taint_manifest).resolve()
@@ -881,9 +922,18 @@ def command_render_formal_replacement(args):
       primary_hash,
       manifest_rows,
   )
+  if (
+      prior_repetition is not None
+      and taint_data["repetition"] != prior_repetition
+  ):
+    raise RuntimeError(
+        "formal taint repetition does not match its authenticated prior attempt"
+    )
   if not tainted:
     raise RuntimeError("formal replacement requires at least one tainted task")
-  primary_rows = baseline.parse_result_rows(primary, manifest_rows, 200)
+  if not set(tainted) <= set(primary_subset):
+    raise RuntimeError("formal taint contains tasks absent from its result")
+  primary_rows = baseline.parse_result_rows(primary, primary_subset, 200)
   missing = {
       row["task"] for row in primary_rows if not row_is_complete(row)
   }

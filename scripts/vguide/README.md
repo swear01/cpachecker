@@ -600,10 +600,16 @@ across repetitions.
 `summarize` emits `row-provenance.json`, which binds every accepted row to its
 primary or replacement result hash and records the replacement reason.
 
-`render-formal-replacement` authenticates the full Phase-B inputs, incomplete
-primary and taint manifest, then renders the unchanged 900/910/920 protocol for
-only the tainted tasks. `repetition-plan` binds that definition and its complete
-result to the primary:
+`render-formal-replacement` authenticates the full Phase-B inputs, result, and
+taint manifest, then renders the unchanged 900/910/920 protocol for only the
+tainted tasks. A cap-16 retry may use a prior replacement result as
+its new primary only when its attempt marker authenticates the exact prior
+replacement definition and result task set. This covers both an interruption
+and a completed attempt with sustained contention. Complete untainted rows
+remain accepted, while incomplete or contaminated rows are rendered again;
+missing, extra, wrong, or duplicate result rows fail closed. Full primary
+results and cap-8 recovery remain strict against the complete formal manifest.
+`repetition-plan` binds that definition and its complete result to the primary:
 
 ```bash
 python3 scripts/vguide/dataset.py render-formal-replacement \

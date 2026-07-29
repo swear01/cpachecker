@@ -4467,6 +4467,287 @@ copy_phase_evidence "$2"
           sources[pending[1]]["result_sha256"],
       )
 
+  def test_cap16_rerenders_only_pending_authenticated_replacement_rows(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      property_file = root / "c/properties/unreach-call.prp"
+      property_file.parent.mkdir(parents=True)
+      property_file.write_text("CHECK\n", encoding="utf-8")
+      tasks = []
+      for index in range(224):
+        task_path = f"c/tasks/task-{index:03}.yml"
+        source_path = f"c/tasks/task-{index:03}.c"
+        for path in (task_path, source_path):
+          target = root / path
+          target.parent.mkdir(parents=True, exist_ok=True)
+          target.write_text(f"{path}\n", encoding="utf-8")
+        tasks.append({
+            "task": task_path,
+            "task_path": task_path,
+            "source": "sv-benchmarks",
+            "source_paths": [source_path],
+            "expected_verdict": "true",
+            "benchmark_set": "Loops",
+        })
+      manifest_path = root / "manifest.json"
+      manifest = {
+          "task_count": len(tasks),
+          "derivation": {"host": "athena"},
+          "tasks": tasks,
+      }
+      manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+      manifest_rows = dataset.baseline.load_task_manifest(manifest_path)
+      output_root = root / "formal"
+      label = "repetition-1-replacement-attempt-1"
+      primary = output_root / f"results/{label}/result.xml"
+      primary.parent.mkdir(parents=True)
+      write_stock_result(
+          primary, tasks[:174], "athena", formal=True, marker="10"
+      )
+      primary_root = ET.parse(primary).getroot()
+      primary_root.set("error", "incomplete")
+      del primary_root.attrib["endtime"]
+      for index, run in enumerate(primary_root.findall("run")):
+        run.set("name", str(root / tasks[index]["task_path"]))
+        run.set("files", f"[{root / tasks[index]['source_paths'][0]}]")
+        run.set("propertyFile", str(property_file))
+      for run in primary_root.findall("run")[3:]:
+        for column in list(run):
+          run.remove(column)
+      ET.ElementTree(primary_root).write(primary, encoding="unicode")
+      expected_tasks = sorted(row["task"] for row in tasks[:174])
+
+      def marker_record(
+          result,
+          result_tasks=expected_tasks,
+          benchexec_exit=125,
+          result_incomplete=True,
+          repetition=1,
+      ):
+        return {
+            "role": "replacement",
+            "repetition": repetition,
+            "benchexec_exit": benchexec_exit,
+            "result_incomplete": result_incomplete,
+            "result_tasks": result_tasks,
+            "files": {
+                "result": {
+                    "path": result.relative_to(output_root).as_posix(),
+                }
+            },
+        }
+
+      taint = root / "taint.json"
+      taint.write_text(json.dumps({
+          "schema_version": dataset.FORMAL_TAINT_SCHEMA,
+          "repetition": 1,
+          "primary_result_sha256": dataset.baseline.sha256_file(primary),
+          "tasks": [
+              {
+                  "task": row["task"],
+                  "reason": "interrupted_incomplete",
+              }
+              for row in tasks[3:174]
+          ],
+      }), encoding="utf-8")
+      args = SimpleNamespace(
+          phase_a_output=str(root / "phase-a"),
+          manifest=str(manifest_path),
+          sv_benchmarks=str(root),
+          primary_result=str(primary),
+          taint_manifest=str(taint),
+          property_file=str(property_file),
+          output_dir=str(root / "replacement-2"),
+      )
+      with mock.patch.object(
+          dataset,
+          "authenticate_formal_manifest",
+          return_value=(manifest, "athena"),
+      ), mock.patch.object(
+          dataset,
+          "validate_formal_attempt_marker",
+          return_value=marker_record(primary),
+      ):
+        dataset.command_render_formal_replacement(args)
+      task_set = root / "replacement-2/hard-case-candidates-official.set"
+      self.assertEqual(len(task_set.read_text().splitlines()), 171)
+      self.assertEqual(
+          task_set.read_text().splitlines(),
+          [str(root / row["task_path"]) for row in tasks[3:174]],
+      )
+
+      contended = primary.with_name("contended.xml")
+      contended_root = ET.parse(primary).getroot()
+      del contended_root.attrib["error"]
+      contended_root.set("endtime", "2026-07-27T00:01:12+08:00")
+      for run in contended_root.findall("run"):
+        if not list(run):
+          for title, value in (
+              ("status", "TIMEOUT"),
+              ("category", "error"),
+              ("cputime", "900s"),
+              ("walltime", "900s"),
+          ):
+            ET.SubElement(run, "column", {"title": title, "value": value})
+      ET.ElementTree(contended_root).write(contended, encoding="unicode")
+      contended_taint = root / "contended-taint.json"
+      contended_tasks = [tasks[10]["task"], tasks[15]["task"]]
+      contended_taint.write_text(json.dumps({
+          "schema_version": dataset.FORMAL_TAINT_SCHEMA,
+          "repetition": 1,
+          "primary_result_sha256": dataset.baseline.sha256_file(contended),
+          "tasks": [
+              {"task": task, "reason": "foreign_p_core_contention"}
+              for task in contended_tasks
+          ],
+      }), encoding="utf-8")
+      contended_args = SimpleNamespace(
+          **{
+              **vars(args),
+              "primary_result": str(contended),
+              "taint_manifest": str(contended_taint),
+              "output_dir": str(root / "contended-replacement"),
+          }
+      )
+      with mock.patch.object(
+          dataset,
+          "authenticate_formal_manifest",
+          return_value=(manifest, "athena"),
+      ), mock.patch.object(
+          dataset,
+          "validate_formal_attempt_marker",
+          return_value=marker_record(
+              contended, benchexec_exit=0, result_incomplete=False
+          ),
+      ):
+        dataset.command_render_formal_replacement(contended_args)
+      self.assertEqual(
+          (root / "contended-replacement/"
+           "hard-case-candidates-official.set").read_text().splitlines(),
+          [str(root / tasks[index]["task_path"]) for index in (10, 15)],
+      )
+      bad_repetition_args = SimpleNamespace(
+          **{**vars(args), "output_dir": str(root / "bad-repetition")}
+      )
+      with mock.patch.object(
+          dataset,
+          "authenticate_formal_manifest",
+          return_value=(manifest, "athena"),
+      ), mock.patch.object(
+          dataset,
+          "validate_formal_attempt_marker",
+          return_value=marker_record(primary, repetition=2),
+      ), self.assertRaisesRegex(RuntimeError, "repetition does not match"):
+        dataset.command_render_formal_replacement(bad_repetition_args)
+
+      full = root / "full.xml"
+      write_stock_result(full, tasks, "athena", formal=True, marker="11")
+      with mock.patch.object(
+          dataset,
+          "validate_formal_attempt_marker",
+          side_effect=AssertionError("full results must stay on the strict path"),
+      ):
+        self.assertEqual(
+            dataset.formal_replacement_result_manifest(
+                args, full, manifest_rows, "athena"
+            ),
+            (manifest_rows, None),
+        )
+
+      full_replacement = (
+          output_root
+          / "results/repetition-2-replacement-attempt-1/result.xml"
+      )
+      full_replacement.parent.mkdir(parents=True)
+      shutil.copyfile(full, full_replacement)
+      full_taint = root / "full-replacement-taint.json"
+      full_taint.write_text(json.dumps({
+          "schema_version": dataset.FORMAL_TAINT_SCHEMA,
+          "repetition": 2,
+          "primary_result_sha256": (
+              dataset.baseline.sha256_file(full_replacement)
+          ),
+          "tasks": [{
+              "task": tasks[20]["task"],
+              "reason": "foreign_p_core_contention",
+          }],
+      }), encoding="utf-8")
+      full_replacement_args = SimpleNamespace(**{
+          **vars(args),
+          "primary_result": str(full_replacement),
+          "taint_manifest": str(full_taint),
+          "output_dir": str(root / "full-replacement"),
+      })
+      full_record = marker_record(
+          full_replacement,
+          result_tasks=sorted(row["task"] for row in tasks),
+          benchexec_exit=0,
+          result_incomplete=False,
+          repetition=2,
+      )
+      with mock.patch.object(
+          dataset,
+          "authenticate_formal_manifest",
+          return_value=(manifest, "athena"),
+      ), mock.patch.object(
+          dataset,
+          "validate_formal_attempt_marker",
+          return_value=full_record,
+      ) as marker:
+        dataset.command_render_formal_replacement(full_replacement_args)
+      marker.assert_called_once()
+      self.assertEqual(
+          (root / "full-replacement/"
+           "hard-case-candidates-official.set").read_text().splitlines(),
+          [str(root / tasks[20]["task_path"])],
+      )
+      with self.assertRaises(FileNotFoundError):
+        dataset.formal_replacement_result_manifest(
+            args, full_replacement, manifest_rows, "athena"
+        )
+      with mock.patch.object(
+          dataset,
+          "validate_formal_attempt_marker",
+          side_effect=RuntimeError("invalid marker"),
+      ), self.assertRaisesRegex(RuntimeError, "invalid marker"):
+        dataset.formal_replacement_result_manifest(
+            args, full_replacement, manifest_rows, "athena"
+        )
+
+      cap8_args = SimpleNamespace(
+          manifest=str(manifest_path), sv_benchmarks=str(root)
+      )
+      with self.assertRaisesRegex(RuntimeError, "full manifest"):
+        dataset.formal_replacement_result_manifest(
+            cap8_args, primary, manifest_rows, "valkyrie"
+        )
+
+      mutations = {}
+      for name in ("missing", "extra", "wrong", "duplicate"):
+        path = primary.with_name(f"{name}.xml")
+        tree = ET.parse(primary)
+        runs = tree.getroot().findall("run")
+        if name == "missing":
+          tree.getroot().remove(runs[-1])
+        elif name == "extra":
+          extra = ET.parse(full).getroot().findall("run")[174]
+          tree.getroot().append(copy.deepcopy(extra))
+        elif name == "wrong":
+          runs[0].set("name", str(root / "c/tasks/not-in-manifest.yml"))
+        else:
+          runs[1].set("name", runs[0].get("name"))
+        tree.write(path, encoding="unicode")
+        mutations[name] = path
+      for name, path in mutations.items():
+        with self.subTest(name=name), mock.patch.object(
+            dataset,
+            "validate_formal_attempt_marker",
+            return_value=marker_record(path),
+        ), self.assertRaises(RuntimeError):
+          dataset.formal_replacement_result_manifest(
+              args, path, manifest_rows, "athena"
+          )
+
   def test_formal_recovery_selects_50_row_abandoned_attempt_once(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
