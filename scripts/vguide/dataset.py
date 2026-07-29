@@ -4691,7 +4691,13 @@ def command_monitor_formal_load(args):
           status = (proc / "status").read_text(encoding="utf-8")
           parent = int(re.search(r"^PPid:\s+(\d+)$", status, re.MULTILINE).group(1))
           parents[int(proc.name)] = parent
-        except (FileNotFoundError, PermissionError, AttributeError, ValueError):
+        except (
+            FileNotFoundError,
+            PermissionError,
+            ProcessLookupError,
+            AttributeError,
+            ValueError,
+        ):
           continue
       excluded = {args.exclude_root}
       changed = True
@@ -6726,17 +6732,25 @@ def cap8_summary_reproduction_arguments(paths, sv_benchmarks, output_dir):
 def run_saved_dataset(script, arguments, python_bin=None):
   if python_bin is None:
     python_bin = sys.executable
+  script = Path(script).resolve()
+  for path in script.parent.rglob("*"):
+    if (
+        path.is_file()
+        and path.suffix in {".pyc", ".pyo"}
+        and "__pycache__" not in path.relative_to(script.parent).parts
+    ):
+      raise RuntimeError(
+          f"sourceless Python bytecode could shadow pinned source: {path}"
+      )
   command = [
       str(python_bin),
-      "-I",
+      *PYTHON_RUNTIME_FLAGS,
       "-c",
       (
           "import runpy,sys;"
           "from pathlib import Path;"
           "script=Path(sys.argv.pop(1)).resolve();"
           "sys.argv[0]=str(script);"
-          "sys.dont_write_bytecode=True;"
-          "sys.pycache_prefix='/dev/null';"
           "sys.path.insert(0,str(script.parent));"
           "runpy.run_path(str(script),run_name='__main__')"
       ),

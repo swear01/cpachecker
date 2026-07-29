@@ -789,6 +789,346 @@ wait_for_process_monitor() {
   done
 }
 
+authenticate_scope_cgroup() {
+  local scope=$1
+  local expected_control_group=${2:-}
+  local expected_path=${3:-}
+  local expected_pid=${4:-}
+  local cgroup_root
+  local control_group
+  local path
+  local unit
+  if ! cgroup_root=$(realpath -e /sys/fs/cgroup) ||
+    [[ $(stat -fc %T "$cgroup_root") != cgroup2fs ]]; then
+    echo "unified cgroup root is unavailable" >&2
+    return 1
+  fi
+  for _ in {1..40}; do
+    if ! unit=$(systemctl --user show "$scope" --property=Id --value 2>/dev/null); then
+      unit=
+    fi
+    if ! control_group=$(
+      systemctl --user show "$scope" --property=ControlGroup --value 2>/dev/null
+    ); then
+      control_group=
+    fi
+    if [[ "$unit" == "$scope" && "$control_group" == /* ]] &&
+      path=$(realpath -e "$cgroup_root$control_group" 2>/dev/null) &&
+      [[ "$path" == "$cgroup_root$control_group" ]] &&
+      [[ "$path" == "$cgroup_root/"* ]] &&
+      [[ ${path##*/} == "$scope" ]] &&
+      [[ ${path%/*} == */benchexec.slice ]] &&
+      [[ $(stat -fc %T "$path") == cgroup2fs ]] &&
+      [[ -r "$path/cgroup.procs" && -r "$path/cgroup.events" ]]; then
+      if [[ -n "$expected_control_group" &&
+        "$control_group" != "$expected_control_group" ]] ||
+        [[ -n "$expected_path" && "$path" != "$expected_path" ]]; then
+        echo "named scope changed its authenticated control group: $scope" >&2
+        return 1
+      fi
+      if [[ -n "$expected_pid" ]] &&
+        ! cgroup_contains_pid "$path" "$expected_pid"; then
+        sleep 0.05
+        continue
+      fi
+      AUTHENTICATED_CONTROL_GROUP=$control_group
+      AUTHENTICATED_CGROUP_PATH=$path
+      return
+    fi
+    sleep 0.05
+  done
+  echo "could not authenticate named scope control group: $scope" >&2
+  return 1
+}
+
+load_owned_cgroup_pids() {
+  local cgroup_path=$1
+  local processes
+  OWNED_CGROUP_PIDS=()
+  if processes=$("$PYTHON_BIN" "${PYTHON_RUNTIME_FLAGS[@]}" - "$cgroup_path" <<'PY'
+import os
+import stat
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+try:
+  mode = root.lstat().st_mode
+  if not stat.S_ISDIR(mode) or root.is_symlink():
+    raise SystemExit(f"invalid authenticated cgroup directory: {root}")
+  pids = set()
+  for directory, names, _ in os.walk(root, followlinks=False):
+    directory = Path(directory)
+    for name in names:
+      child = directory / name
+      child_mode = child.lstat().st_mode
+      if not stat.S_ISDIR(child_mode) or child.is_symlink():
+        raise SystemExit(f"invalid cgroup child directory: {child}")
+    procs = directory / "cgroup.procs"
+    procs_mode = procs.lstat().st_mode
+    if not stat.S_ISREG(procs_mode) or procs.is_symlink():
+      raise SystemExit(f"invalid cgroup.procs node: {procs}")
+    for line in procs.read_text(encoding="ascii").splitlines():
+      if not line.isdecimal() or int(line) <= 0:
+        raise SystemExit(f"invalid PID in {procs}: {line!r}")
+      pids.add(int(line))
+  for pid in sorted(pids):
+    print(pid)
+except FileNotFoundError:
+  raise SystemExit(3)
+PY
+  ); then
+    :
+  else
+    local status=$?
+    if [[ $status -eq 3 ]]; then
+      return 3
+    fi
+    echo "could not enumerate authenticated cgroup: $cgroup_path" >&2
+    return 1
+  fi
+  if [[ -n "$processes" ]]; then
+    mapfile -t OWNED_CGROUP_PIDS <<<"$processes"
+  fi
+}
+
+cgroup_contains_pid() {
+  local cgroup_path=$1
+  local expected_pid=$2
+  local pid
+  if [[ ! "$expected_pid" =~ ^[1-9][0-9]*$ ]] ||
+    ! load_owned_cgroup_pids "$cgroup_path"; then
+    return 1
+  fi
+  for pid in "${OWNED_CGROUP_PIDS[@]}"; do
+    if [[ "$pid" == "$expected_pid" ]]; then
+      return
+    fi
+  done
+  return 1
+}
+
+owned_cgroup_is_empty() {
+  local cgroup_path=$1
+  local events
+  local populated
+  if ! events=$(cat "$cgroup_path/cgroup.events"); then
+    echo "could not read authenticated cgroup events: $cgroup_path" >&2
+    return 2
+  fi
+  populated=$(awk '$1 == "populated" { print $2 }' <<<"$events")
+  if [[ "$populated" != 0 && "$populated" != 1 ]]; then
+    echo "invalid populated state for authenticated cgroup: $cgroup_path" >&2
+    return 2
+  fi
+  [[ "$populated" == 0 ]]
+}
+
+terminate_owned_cgroup() {
+  local cgroup_path=$1
+  local empty_status
+  local load_status
+  local signaled=false
+  for _ in {1..20}; do
+    if load_owned_cgroup_pids "$cgroup_path"; then
+      :
+    else
+      load_status=$?
+      if [[ $load_status -eq 3 && ! -e "$cgroup_path" &&
+        "$signaled" == true ]]; then
+        echo "authenticated cgroup was removed after termination" >&2
+        return
+      fi
+      if [[ $load_status -eq 3 && -e "$cgroup_path" ]]; then
+        sleep 0.05
+        continue
+      fi
+      return 1
+    fi
+    if [[ ${#OWNED_CGROUP_PIDS[@]} -eq 0 ]]; then
+      if owned_cgroup_is_empty "$cgroup_path"; then
+        return
+      else
+        empty_status=$?
+        if [[ $empty_status -eq 2 && ! -e "$cgroup_path" ]]; then
+          echo "empty authenticated cgroup was removed during verification" >&2
+          return
+        fi
+        if [[ $empty_status -eq 2 ]]; then
+          return 1
+        fi
+      fi
+    fi
+    signaled=true
+    if ! kill -TERM -- "${OWNED_CGROUP_PIDS[@]}" 2>/dev/null; then
+      sleep 0.05
+      continue
+    fi
+    sleep 0.05
+  done
+  for _ in {1..40}; do
+    if load_owned_cgroup_pids "$cgroup_path"; then
+      :
+    else
+      load_status=$?
+      if [[ $load_status -eq 3 && ! -e "$cgroup_path" &&
+        "$signaled" == true ]]; then
+        echo "authenticated cgroup was removed after termination" >&2
+        return
+      fi
+      if [[ $load_status -eq 3 && -e "$cgroup_path" ]]; then
+        sleep 0.05
+        continue
+      fi
+      return 1
+    fi
+    if [[ ${#OWNED_CGROUP_PIDS[@]} -eq 0 ]]; then
+      if owned_cgroup_is_empty "$cgroup_path"; then
+        return
+      else
+        empty_status=$?
+        if [[ $empty_status -eq 2 && ! -e "$cgroup_path" ]]; then
+          echo "empty authenticated cgroup was removed during verification" >&2
+          return
+        fi
+        if [[ $empty_status -eq 2 ]]; then
+          return 1
+        fi
+      fi
+    fi
+    if ! kill -KILL -- "${OWNED_CGROUP_PIDS[@]}" 2>/dev/null; then
+      sleep 0.05
+      continue
+    fi
+    sleep 0.05
+  done
+  if load_owned_cgroup_pids "$cgroup_path"; then
+    :
+  else
+    load_status=$?
+    if [[ $load_status -eq 3 && ! -e "$cgroup_path" &&
+      "$signaled" == true ]]; then
+      echo "authenticated cgroup was removed after termination" >&2
+      return
+    fi
+    if [[ $load_status -eq 3 && -e "$cgroup_path" ]]; then
+      echo "authenticated cgroup changed during final enumeration" >&2
+    fi
+    return 1
+  fi
+  if owned_cgroup_is_empty "$cgroup_path"; then
+    return
+  fi
+  echo "authenticated cgroup survived teardown: ${OWNED_CGROUP_PIDS[*]}" >&2
+  return 1
+}
+
+wait_for_owned_session_exit() {
+  local leader=$1
+  local processes
+  for _ in {1..40}; do
+    if ! processes=$(ps -e -o pid=,sid=); then
+      echo "could not inspect benchmark session: $leader" >&2
+      return 1
+    fi
+    if ! awk -v session="$leader" '$2 == session { found = 1 } END { exit !found }' \
+      <<<"$processes"; then
+      return
+    fi
+    sleep 0.05
+  done
+  echo "benchmark session survived authenticated cgroup teardown: $leader" >&2
+  return 1
+}
+
+reap_benchmark_launcher() {
+  local benchmark_pid=$1
+  kill -TERM "$benchmark_pid" 2>/dev/null || :
+  for _ in {1..4}; do
+    if ! kill -0 "$benchmark_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.05
+  done
+  kill -KILL "$benchmark_pid" 2>/dev/null || :
+  wait "$benchmark_pid" 2>/dev/null || :
+}
+
+wait_for_benchmark_with_monitor() {
+  local scope=$1
+  local benchmark_pid=$2
+  local control_group=$3
+  local cgroup_path=$4
+  local benchmark_exit
+  local benchmark_session
+  for _ in {1..20}; do
+    if ! benchmark_session=$(ps -o sid= -p "$benchmark_pid" | tr -d ' '); then
+      benchmark_session=
+    fi
+    if [[ -z "$benchmark_session" || "$benchmark_session" == "$benchmark_pid" ]]; then
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ -n "$benchmark_session" && "$benchmark_session" != "$benchmark_pid" ]]; then
+    echo "benchmark launcher failed to establish an owned session" >&2
+    kill "$benchmark_pid"
+    wait "$benchmark_pid" 2>/dev/null || :
+    return 1
+  fi
+  while kill -0 "$benchmark_pid" 2>/dev/null; do
+    if ! kill -0 "$MONITOR_PID" 2>/dev/null; then
+      if ! authenticate_scope_cgroup \
+        "$scope" "$control_group" "$cgroup_path" "$benchmark_pid"; then
+        echo "monitor failed without an authenticated control group; termination is unverified" >&2
+        reap_benchmark_launcher "$benchmark_pid"
+        return 1
+      fi
+      if ! systemctl --user stop "$scope"; then
+        echo "could not stop $scope through systemd; terminating authenticated cgroup" >&2
+        if ! terminate_owned_cgroup "$cgroup_path"; then
+          echo "authenticated cgroup termination could not be proven" >&2
+          reap_benchmark_launcher "$benchmark_pid"
+          return 1
+        fi
+      elif [[ -e "$cgroup_path" ]] &&
+        ! terminate_owned_cgroup "$cgroup_path"; then
+        echo "stopped scope retained an unreadable or populated cgroup" >&2
+        reap_benchmark_launcher "$benchmark_pid"
+        return 1
+      fi
+      wait "$benchmark_pid" 2>/dev/null || :
+      if [[ -e "$cgroup_path" ]]; then
+        if ! load_owned_cgroup_pids "$cgroup_path"; then
+          echo "could not verify authenticated cgroup after launcher reap" >&2
+          return 1
+        fi
+        if [[ ${#OWNED_CGROUP_PIDS[@]} -ne 0 ]] ||
+          ! owned_cgroup_is_empty "$cgroup_path"; then
+          echo "authenticated cgroup repopulated after launcher reap" >&2
+          return 1
+        fi
+      fi
+      if ! wait_for_owned_session_exit "$benchmark_pid"; then
+        return 1
+      fi
+      echo "process monitor died during BenchExec; authenticated cgroup teardown complete" >&2
+      return 1
+    fi
+    sleep 0.2
+  done
+  if wait "$benchmark_pid"; then
+    benchmark_exit=0
+  else
+    benchmark_exit=$?
+  fi
+  if ! kill -0 "$MONITOR_PID" 2>/dev/null; then
+    echo "process monitor died before BenchExec teardown" >&2
+    return 1
+  fi
+  return "$benchmark_exit"
+}
+
 single_formal_result() {
   local directory=$1
   local matches=()
