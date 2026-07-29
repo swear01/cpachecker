@@ -4968,7 +4968,13 @@ def validate_monitor_stop_evidence(path, pid, mode, benchexec_exit):
           and benchexec_exit not in {0, 130}
           and (not is_strict_probe_mode(mode) or benchexec_exit != 125)
       )
-      or (recovered and benchexec_exit != 125)
+      or (
+          recovered
+          and (
+              benchexec_exit != 125
+              or (mode != "cap16" and not is_strict_probe_mode(mode))
+          )
+      )
   ):
     raise RuntimeError("formal attempt monitor stop evidence is invalid")
   return recovered
@@ -6416,7 +6422,7 @@ def command_recover_formal_attempt(args):
   command_formal_attempt_complete(recovered_args)
 
 
-def command_validate_formal_closure(args):
+def validate_formal_closure(args):
   root = Path(args.output_root).resolve()
   manifest_path = Path(args.manifest).resolve()
   validate_manifest(manifest_path, args.sv_benchmarks)
@@ -7692,7 +7698,10 @@ def run_taints(
           )
       )
   ):
-    raise RuntimeError("BenchExec log event occurs after load monitor ended")
+    raise RuntimeError(
+        "BenchExec log event occurs after load monitor ended; "
+        "completed task was not fully observed"
+    )
   complete = {task for task, row in rows.items() if row_is_complete(row)}
   logged_complete = set(ends)
   extra_logged_complete = logged_complete - complete

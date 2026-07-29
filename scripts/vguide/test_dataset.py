@@ -1778,7 +1778,7 @@ verify_research_provenance "$4"
 source "$1"
 SCRIPT_DIR=$2
 RESEARCH_ROOT=$3
-FORMAL_MODE=cap8
+FORMAL_MODE=cap8-probe
 verify_frozen_research_provenance "$4" "$5"
 """
       frozen_args = [
@@ -6398,7 +6398,6 @@ copy_phase_evidence "$2"
           encoding="utf-8",
       )
       for mode, status in (
-          ("cap16", 125),
           ("cap8", 125),
           ("cap16-probe", 130),
           ("cap8-probe", 130),
@@ -8030,14 +8029,8 @@ copy_phase_evidence "$2"
               ),
           }
       )
-      dataset.command_formal_attempt_complete(recovered_args)
-      self.assertEqual(
-          json.loads(
-              Path(recovered_args.output).read_text(encoding="utf-8")
-          )["benchexec_exit"],
-          125,
-      )
-      Path(recovered_args.output).unlink()
+      with self.assertRaisesRegex(RuntimeError, "not incomplete"):
+        dataset.command_formal_attempt_complete(recovered_args)
       forged = json.loads(marker.read_text(encoding="utf-8"))
       forged["host"] = "valkyrie"
       marker.write_text(json.dumps(forged), encoding="utf-8")
