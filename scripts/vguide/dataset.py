@@ -472,6 +472,117 @@ FROZEN_CAP16_ATHENA_ATTEMPT_2_V2_RECOVERY_SELECTION = {
         ): "70d3e40b92669a4fa924c0773e5d167b0a043ae97631b9123314285144f63a50",
     },
 }
+FROZEN_CAP16_ATHENA_ATTEMPT_3_V2_RECOVERY_SELECTION = {
+    "label": "repetition-1-replacement-attempt-3",
+    "role": "replacement",
+    "repetition": 1,
+    "captured_boot_id": "c1551052-e3fb-4d61-850d-04817c261bee",
+    "result_directory": "results/repetition-1-replacement-attempt-3",
+    "result_directory_digest": (
+        "7bebd0da3e0bfff4af8a4d5c6890294bf9514e8e5aedb41b15bd3e5cd8feb882"
+    ),
+    "result_directories": (
+        "hard-case-candidates.hard-case-dataset-v2-cap16-formal-athena-"
+        "repetition-1-replacement-attempt-3.2026-07-29_15-35-43.logfiles",
+    ),
+    "files": {
+        "definition": {
+            "path": (
+                "generated/repetition-1-replacement-attempt-3/"
+                "hard-case-candidates.xml"
+            ),
+            "sha256": (
+                "63f2eaa4794037c9b0bf7e6116269405afd2dd0288fe0c2dddfea7d95e91ef57"
+            ),
+        },
+        "result": {
+            "path": (
+                "results/repetition-1-replacement-attempt-3/"
+                "hard-case-candidates.hard-case-dataset-v2-cap16-formal-"
+                "athena-repetition-1-replacement-attempt-3."
+                "2026-07-29_15-35-43.results.hard-case-candidates.official.xml"
+            ),
+            "sha256": (
+                "ea6288087da7efd4e29411725693380acc1e38749afc4fe83a9256ac9d776be4"
+            ),
+        },
+        "benchexec_log": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-3-benchexec.log"
+            ),
+            "sha256": (
+                "c5abe84944c47e25adfb3b84058a150b7b366c7c34317fc8a1e659e9c120ae1c"
+            ),
+        },
+        "benchexec_process": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-3-"
+                "benchexec.process.json"
+            ),
+            "sha256": (
+                "a240c2c94218d66d482ac7fc5a1b308e1a8b8afa4acb3b728783b9c510b26a8e"
+            ),
+        },
+        "process_descriptor": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-3-"
+                "process-descriptor.json"
+            ),
+            "sha256": (
+                "afc0cb8e41b55b5e75b599131a6a60d4bbee1cb12af09c9ba024ea9b3b9d329e"
+            ),
+        },
+        "load_monitor": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-3-"
+                "load-monitor.jsonl"
+            ),
+            "sha256": (
+                "54709e59d59c998ef7fab2b305af7589b3fbc5e448e573722c7211ec2ca60b24"
+            ),
+        },
+        "monitor_pid": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-3-"
+                "load-monitor.jsonl.pid"
+            ),
+            "sha256": (
+                "ac952b4c5f08d4cf55afa4259269d6f9bbc5d10c8aafed6e046a75df94fd2ee5"
+            ),
+        },
+        "monitor_process": {
+            "path": (
+                "provenance/repetition-1-replacement-attempt-3-"
+                "load-monitor.jsonl.process.json"
+            ),
+            "sha256": (
+                "53e0dd53977b9a9701cfd9e32cf44840f4ae7596af4b3c3510952435ac4865a2"
+            ),
+        },
+        "machine_before": {
+            "path": (
+                "provenance/machine-before-repetition-1-"
+                "replacement-attempt-3.json"
+            ),
+            "sha256": (
+                "54ab30d15209b86aecd3ce7a5b998e7517679b21d864579764c8774269bfebf6"
+            ),
+        },
+    },
+    "closure_files": {
+        (
+            "generated/repetition-1-replacement-attempt-3/"
+            "hard-case-candidates-official.set"
+        ): "7f7b9a3ac9920efa61e1dcbf7e3c13bc6da7034f47cde651a55a1f5d4f41d0da",
+        "repetition-1-replacement-attempt-2-taint.json": (
+            "027dc17df7f4ebda18ffb0d054d391738dea7658cfd23903f1b504b845d7b2af"
+        ),
+        (
+            "provenance/attempts/"
+            "repetition-1-replacement-attempt-2.json"
+        ): "23aa10ed361e08efdc16f63a7ec160ffad6367c29cfa1cd095ec4fe3d00c01e1",
+    },
+}
 
 
 def sha256_text(value):
@@ -4667,6 +4778,7 @@ def validate_markerless_recovery_identity_selection(
   selections = (
       (FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION, True),
       (FROZEN_CAP16_ATHENA_ATTEMPT_2_V2_RECOVERY_SELECTION, False),
+      (FROZEN_CAP16_ATHENA_ATTEMPT_3_V2_RECOVERY_SELECTION, False),
   )
   matches = [
       item for item in selections
