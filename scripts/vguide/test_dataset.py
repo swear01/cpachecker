@@ -20,6 +20,7 @@ import py_compile
 import random
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -1774,7 +1775,7 @@ verify_research_provenance "$4"
 source "$1"
 SCRIPT_DIR=$2
 RESEARCH_ROOT=$3
-FORMAL_MODE=cap8
+FORMAL_MODE=cap8-probe
 verify_frozen_research_provenance "$4" "$5"
 """
       frozen_args = [
@@ -2758,11 +2759,12 @@ benchexec_version() { printf 'test-benchexec\\n'; }
       script_dir.mkdir(parents=True)
       helper = script_dir / "helper.py"
       helper.write_text('VALUE = "cache"\n', encoding="utf-8")
-      py_compile.compile(
-          str(helper),
-          invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
-          doraise=True,
-      )
+      with mock.patch.object(sys, "pycache_prefix", None):
+        py_compile.compile(
+            str(helper),
+            invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
+            doraise=True,
+        )
       helper.write_text('VALUE = "source"\n', encoding="utf-8")
       output = root / "runtime.json"
       script = script_dir / "probe.py"
@@ -5610,8 +5612,12 @@ copy_phase_evidence "$2"
           "recovery=authenticated-process-gone\n",
           encoding="utf-8",
       )
+      self.assertTrue(
+          dataset.validate_monitor_stop_evidence(
+              stopped, 123, "cap16", 125
+          )
+      )
       for mode, status in (
-          ("cap16", 125),
           ("cap8", 125),
           ("cap16-probe", 130),
           ("cap8-probe", 130),

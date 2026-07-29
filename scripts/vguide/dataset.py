@@ -136,9 +136,9 @@ FROZEN_CAP8_FORMAL_PACKAGE_AGGREGATE_SHA256 = (
     "6c4592e158e037179d431f161c87cb494c7a22b00a9774d689ebe9b94b58f14c"
 )
 FROZEN_CAP8_FORMAL_TASK_COUNT = 270
-FROZEN_CAP8_RESEARCH_HEAD = "558e54c5da5982db46ffb8fbca4704f4b6e03f21"
+FROZEN_CAP8_RESEARCH_HEAD = "4cbe5478810fa3ccba8d4f11d251d4b7f383243c"
 FROZEN_CAP8_RESEARCH_INVENTORY_SHA256 = (
-    "a183f08ff2459ffa9102f1638d31183bb5c6b7fd7e8531deaf35b33e52c8f4f9"
+    "840158bcd6d6072529c428eeb31164c8c9a2948577207b7cb2dfe8aa32055f04"
 )
 FROZEN_CAP8_RUNTIME_CLOSURE = {
     "stock_lib_java_sha256":
@@ -4361,7 +4361,13 @@ def validate_monitor_stop_evidence(path, pid, mode, benchexec_exit):
           and benchexec_exit not in {0, 130}
           and (not is_strict_probe_mode(mode) or benchexec_exit != 125)
       )
-      or (recovered and benchexec_exit != 125)
+      or (
+          recovered
+          and (
+              benchexec_exit != 125
+              or (mode != "cap16" and not is_strict_probe_mode(mode))
+          )
+      )
   ):
     raise RuntimeError("formal attempt monitor stop evidence is invalid")
   return recovered
@@ -4491,7 +4497,7 @@ def formal_attempt_record(args):
   actual_check = json.loads(
       paths["machine_check"][0].read_text(encoding="utf-8")
   )
-  if recovered:
+  if recovered and not is_strict_probe_mode(args.mode):
     if not metadata["incomplete"]:
       raise RuntimeError("recovered formal attempt result is not incomplete")
     identities = {
@@ -5699,7 +5705,7 @@ def command_recover_formal_attempt(args):
   command_formal_attempt_complete(recovered_args)
 
 
-def command_validate_formal_closure(args):
+def validate_formal_closure(args):
   root = Path(args.output_root).resolve()
   manifest_path = Path(args.manifest).resolve()
   validate_manifest(manifest_path, args.sv_benchmarks)
@@ -6935,7 +6941,10 @@ def run_taints(
       timestamp > monitor_end
       for timestamp in (*starts.values(), *ends.values())
   ):
-    raise RuntimeError("BenchExec log event occurs after load monitor ended")
+    raise RuntimeError(
+        "BenchExec log event occurs after load monitor ended; "
+        "completed task was not fully observed"
+    )
   complete = {task for task, row in rows.items() if row_is_complete(row)}
   logged_complete = set(ends)
   extra_logged_complete = logged_complete - complete

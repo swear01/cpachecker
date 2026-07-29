@@ -685,15 +685,16 @@ Before creating probe output, packaging input, building CPAchecker, or
 launching BenchExec, each wrapper authenticates its completed stock formal
 source. The cap-16 adapter validates the current completion-sentinel,
 attempt-marker, saved-summary, and artifact closure. The cap-8 adapter
-deliberately does not invent those records for the frozen r8 runner at
-`558e54c5da5982db46ffb8fbca4704f4b6e03f21`, which predates them. Instead it
-authenticates the frozen 270-task formal input package, all three saved Phase-A
+authenticates the r9 recovery source closure at
+`4cbe5478810fa3ccba8d4f11d251d4b7f383243c` without inventing completion
+records for the earlier formal run. It authenticates the frozen 270-task
+formal input package, all three saved Phase-A
 manifest/result/survivor triples and their inventory, the saved research
 inventory and head, the fixed Valkyrie Python 3.10 runtime closure, final
 research/runtime/machine evidence, both repetition plans, and the complete
-artifact inventory. It invokes the saved r8 `dataset.py summarize` command and
-requires all seven summary files to reproduce byte-identically. The historical
-cap-8 label `stable_unsolved` remains unchanged; cap-16 uses
+artifact inventory. It invokes the saved r9 recovery `dataset.py summarize`
+command and requires all seven summary files to reproduce byte-identically.
+The historical cap-8 label `stable_unsolved` remains unchanged; cap-16 uses
 `stable_analysis_unsolved`.
 
 The adapters derive and save a hard-only manifest together with the formal
@@ -708,8 +709,9 @@ adjacent identity file.
 
 Both profiles use the formal load-monitor, taint, iterative replacement-plan,
 process-identity, attempt-marker, artifact-manifest, and completion-sentinel
-contracts. Markerless recovery exit `125` is valid only for the two probe
-modes. Completed uncontaminated cases remain in the plan while interrupted or
+contracts. Exit `125` is valid for authenticated cap-16 formal markerless
+recovery and for the two probe modes; it remains invalid for cap-8 formal.
+Completed uncontaminated cases remain in the plan while interrupted or
 contended cases alone are retried.
 The monitor tolerates `/proc` disappearance races. During every one-core probe
 attempt, a watchdog authenticates the exact transient unit, cgroup-v2
