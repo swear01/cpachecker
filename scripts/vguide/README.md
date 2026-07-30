@@ -588,6 +588,12 @@ topology, task-set basename, sibling task-set contents, parent manifest, and
 task-set hash still have to agree. A markerless legacy attempt with incomplete
 load-monitor coverage conservatively taints every uncovered row; new
 authorized attempts retain the stricter complete-monitor requirement.
+Load-monitor durations are serialized to millisecond resolution. Validation
+requires finite canonical millisecond values to agree with their wall-clock
+interval within the half-millisecond rounding bound plus ten microseconds of
+clock-comparison tolerance. Either contention boolean is accepted only when
+that rounding bin straddles the exact ten-second threshold; values outside it
+remain fail-closed.
 
 Task selection, host policy, concurrency, resource limits, classification,
 acceptance, recovery trust boundaries, benchmark code, configuration closure,

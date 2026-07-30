@@ -16,6 +16,7 @@ import datetime
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import signal
@@ -260,6 +261,8 @@ FORMAL_P_CORE_CPUS = tuple(range(16))
 FORMAL_FOREIGN_CPU_PERCENT = 50.0
 FORMAL_FOREIGN_CPU_SECONDS = 10.0
 FORMAL_LOAD_SAMPLE_SECONDS = 1.0
+FORMAL_LOAD_DURATION_RESOLUTION_SECONDS = 0.001
+FORMAL_LOAD_CLOCK_COMPARISON_EPSILON_SECONDS = 0.00001
 FORMAL_LOAD_MONITOR_SCHEMA = "formal-p-core-load-monitor-v1"
 FORMAL_ATTEMPT_SCHEMA = "hard-case-formal-attempt-complete-v4"
 LEGACY_FORMAL_ATTEMPT_SCHEMA = "hard-case-formal-attempt-complete-v3"
@@ -8106,7 +8109,8 @@ def load_formal_contention_intervals(path, allow_trailing_nul=False):
     if (
         not isinstance(sample, dict)
         or set(sample) != {"timestamp", "elapsed_seconds", "offenders"}
-        or not isinstance(sample["elapsed_seconds"], (int, float))
+        or type(sample["elapsed_seconds"]) not in (int, float)
+        or not math.isfinite(sample["elapsed_seconds"])
         or sample["elapsed_seconds"] <= 0
     ):
       raise RuntimeError("formal load-monitor sample topology is not exact")
@@ -8131,21 +8135,45 @@ def load_formal_contention_intervals(path, allow_trailing_nul=False):
               "since",
               "contended",
           }
-          or not isinstance(offender["pid"], int)
-          or not isinstance(offender["uid"], int)
+          or type(offender["pid"]) is not int
+          or type(offender["uid"]) is not int
           or not isinstance(offender["comm"], str)
-          or not isinstance(offender["cpu_percent"], (int, float))
-          or not isinstance(offender["duration_seconds"], (int, float))
+          or type(offender["cpu_percent"]) not in (int, float)
+          or not math.isfinite(offender["cpu_percent"])
+          or type(offender["duration_seconds"]) not in (int, float)
+          or not math.isfinite(offender["duration_seconds"])
+          or offender["duration_seconds"]
+          != round(offender["duration_seconds"], 3)
           or not isinstance(offender["contended"], bool)
       ):
         raise RuntimeError("formal load-monitor offender topology is not exact")
       since = datetime.datetime.fromisoformat(offender["since"])
-      expected = offender["duration_seconds"] >= FORMAL_FOREIGN_CPU_SECONDS
+      duration = (timestamp - since).total_seconds()
+      lower = (
+          offender["duration_seconds"]
+          - FORMAL_LOAD_DURATION_RESOLUTION_SECONDS / 2
+      )
+      upper = (
+          offender["duration_seconds"]
+          + FORMAL_LOAD_DURATION_RESOLUTION_SECONDS / 2
+      )
       if (
           since.tzinfo is None
           or since > timestamp
           or offender["cpu_percent"] < FORMAL_FOREIGN_CPU_PERCENT
-          or offender["contended"] != expected
+          or abs(offender["duration_seconds"] - duration)
+          > (
+              FORMAL_LOAD_DURATION_RESOLUTION_SECONDS / 2
+              + FORMAL_LOAD_CLOCK_COMPARISON_EPSILON_SECONDS
+          )
+          or (
+              offender["contended"]
+              and upper < FORMAL_FOREIGN_CPU_SECONDS
+          )
+          or (
+              not offender["contended"]
+              and lower >= FORMAL_FOREIGN_CPU_SECONDS
+          )
       ):
         raise RuntimeError("formal load-monitor offender is inconsistent")
       if offender["contended"]:

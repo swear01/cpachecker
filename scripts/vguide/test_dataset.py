@@ -486,6 +486,78 @@ def phase_d_source_fixture(cohort, rows, root):
 
 
 class DatasetTest(unittest.TestCase):
+  def test_load_monitor_uses_exact_timestamps_at_rounded_threshold(self):
+    with tempfile.TemporaryDirectory() as temp:
+      monitor = Path(temp) / "load.jsonl"
+      header = {
+          "schema_version": dataset.FORMAL_LOAD_MONITOR_SCHEMA,
+          "p_core_cpus": list(dataset.FORMAL_P_CORE_CPUS),
+          "foreign_process_cpu_percent": 50.0,
+          "minimum_consecutive_seconds": 10.0,
+          "sample_interval_seconds": 1.0,
+          "excluded_process_root": 123,
+      }
+      sample = {
+          "timestamp": "2026-07-30T16:40:57.033149+08:00",
+          "elapsed_seconds": 1.0,
+          "offenders": [{
+              "pid": 456,
+              "uid": 1000,
+              "comm": "foreign",
+              "cpu_percent": 101.22,
+              "duration_seconds": 10.0,
+              "since": "2026-07-30T16:40:47.033629+08:00",
+              "contended": False,
+          }],
+      }
+
+      def write():
+        monitor.write_text(
+            "\n".join(map(json.dumps, (header, sample))) + "\n",
+            encoding="utf-8",
+        )
+
+      write()
+      intervals, _, _ = dataset.load_formal_contention_intervals(monitor)
+      self.assertEqual(intervals, [])
+      sample["offenders"][0]["contended"] = True
+      write()
+      intervals, _, _ = dataset.load_formal_contention_intervals(monitor)
+      self.assertEqual(len(intervals), 1)
+      sample["offenders"][0].update({
+          "duration_seconds": 9.999,
+          "since": "2026-07-30T16:40:47.034149+08:00",
+      })
+      write()
+      with self.assertRaisesRegex(RuntimeError, "inconsistent"):
+        dataset.load_formal_contention_intervals(monitor)
+      sample["offenders"][0].update({
+          "duration_seconds": 10.001,
+          "since": "2026-07-30T16:40:47.032149+08:00",
+          "contended": False,
+      })
+      write()
+      with self.assertRaisesRegex(RuntimeError, "inconsistent"):
+        dataset.load_formal_contention_intervals(monitor)
+      sample["offenders"][0].update({
+          "duration_seconds": 9.9996,
+          "since": "2026-07-30T16:40:47.033549+08:00",
+      })
+      write()
+      with self.assertRaisesRegex(RuntimeError, "topology"):
+        dataset.load_formal_contention_intervals(monitor)
+      sample["offenders"][0]["duration_seconds"] = float("nan")
+      write()
+      with self.assertRaisesRegex(RuntimeError, "topology"):
+        dataset.load_formal_contention_intervals(monitor)
+      sample["offenders"][0].update({
+          "duration_seconds": 10.0,
+          "since": "2026-07-30T16:40:47.033899+08:00",
+      })
+      write()
+      with self.assertRaisesRegex(RuntimeError, "inconsistent"):
+        dataset.load_formal_contention_intervals(monitor)
+
   def test_phase_d_pending_pins_fail_before_output_creation(self):
     with tempfile.TemporaryDirectory() as temp:
       output = Path(temp) / "phase-d"
