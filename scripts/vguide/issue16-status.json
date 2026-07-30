@@ -1,7 +1,7 @@
 {
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785432180730454540.json",
-    "sha256": "9421f748f3eef39958229b360eb799a81a492eda76564486a23879186adeb982"
+    "path": "/var/tmp/issue16-live-state-1785432973326351111.json",
+    "sha256": "b48692d1b45385ee5e8e42c586e4397fc6d0ae65c74f6f7e5354d4c78089f552"
   },
   "blocker": "Valkyrie foreign qsyn/tail occupy physical P-core logical CPUs; no process is touched and the formal unit waits",
   "cap16": {
@@ -66,24 +66,31 @@
       "2": 0
     }
   },
-  "captured_at": "2026-07-31T01:23:00+08:00",
-  "documentation_wiki_commit": "6c889e63874dd09cc00eb651d69492c80ab0232e",
+  "captured_at": "2026-07-31T01:36:13+08:00",
+  "documentation_wiki_commit": "a420c98a579a2ee9afb5e9bf0dab5da792b745a7",
   "fleet_monitor": {
+    "configured": {
+      "athena": true,
+      "cthulhu": true,
+      "valkyrie": true
+    },
     "hosts": {
-      "athena": "idle_not_ready",
+      "athena": "idle_ready",
       "cthulhu": "busy",
       "valkyrie": "busy"
     },
     "interval_seconds": 60,
-    "invocation_id": "7235dd7bd2054e73bf3eb79d7e6725f5",
-    "script_sha256": "dbdd8ffe5fe7adfc5de3a5e70e97183e7c559644af6ba5bcc567606943b1818e",
-    "snapshot_path": "/var/tmp/issue16-fleet-availability-1785432180730454540.json",
-    "snapshot_sha256": "ced826335a87f15efdfb840576ba846d72efcf812f2e6fed2cd79a466308b9a1",
+    "invocation_id": "b91e9814f8f54bf89dbce5ed3e5d2c0e",
+    "operational_correction_report": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-fleet-availability-monitor-v2-20260731/operational-correction-report.json",
+    "operational_correction_report_sha256": "568b7e7045b666e8d26554bb3580bb067755588f7f32457c7428a07e2ae9923d",
+    "script_sha256": "523477b51141cdaa7cce4b852c1adbd25f5c49d0ba900ea2920e46168f0d6d53",
+    "snapshot_path": "/var/tmp/issue16-fleet-availability-1785432973326351111.json",
+    "snapshot_sha256": "a79598cf81c2d8b6efe56cd205f707fafb68c7fb6759149549d5bcb5c1fdeacf",
     "state": "active",
-    "unit": "vguide-three-host-availability-monitor-20260731.service"
+    "unit": "vguide-three-host-availability-monitor-v2-20260731.service"
   },
   "issue": 16,
-  "next_executable_action": "the three-host monitor polls every 60 seconds; the fixed Valkyrie waiter launches automatically only after logical P-core CPUs 0-15 pass",
+  "next_executable_action": "the corrected three-host monitor polls every 60 seconds; the fixed Valkyrie waiter launches automatically only after all logical P-core CPUs 0-15 pass its gate",
   "operational_correction": {
     "benchmark_tasks": 0,
     "measurement_cpus": "0,2,4,6,8,10,12,14",
