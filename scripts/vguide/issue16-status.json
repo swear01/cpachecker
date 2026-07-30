@@ -1,9 +1,9 @@
 {
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785430292359368681.json",
-    "sha256": "1456c6d2efa5bd6ed5c9d72d488a636ef906d908fc6ac31d09bc160f7f153b17"
+    "path": "/var/tmp/issue16-live-state-1785430654688783843.json",
+    "sha256": "35862dd108359290f2f49f85f7eb4e5e6d670b91a6e6584605c682a3dada7e7c"
   },
-  "blocker": null,
+  "blocker": "uid 1036 qsyn/tail currently exceed the fixed P-core live-gate threshold; no process is touched and the formal unit waits",
   "cap16": {
     "active": {
       "execution_state": "waiting_for_cap8_completion",
@@ -33,12 +33,12 @@
   },
   "cap8": {
     "active": {
-      "execution_state": "failed_before_new_benchmark_tasks",
-      "invocation_id": "24dbfa2945e942c69700ef176e2a9237",
-      "main_pid": 0,
-      "state": "failed",
-      "substate": "failed",
-      "unit": "vguide-cap8-load-monitor-rounding-v2-wait-20260730.service"
+      "execution_state": "waiting_for_foreign_p_core_load",
+      "invocation_id": "902cfeba27464658959a4838533c6b19",
+      "main_pid": 1842185,
+      "state": "active",
+      "substate": "running",
+      "unit": "vguide-cap8-load-monitor-rounding-v3-wait-20260731.service"
     },
     "attempt8": {
       "accepted_before_replay": 0,
@@ -66,15 +66,16 @@
       "2": 0
     }
   },
-  "captured_at": "2026-07-31T00:51:32+08:00",
+  "captured_at": "2026-07-31T00:57:34+08:00",
   "documentation_wiki_commit": "d6f63ba0d3350295b6c2c5c0c7cca00892926f15",
   "issue": 16,
-  "next_executable_action": "create a clean v3 stage, run the zero-task no-mutation preflight, then replay attempt 8 and measure only affected or pending tasks",
+  "next_executable_action": "the active v3 unit waits automatically; after the gate passes it replays attempt 8 and measures only affected or pending tasks",
   "phase": "phase_b_formal_recovery",
   "production_preflight": {
     "benchmark_tasks": 0,
-    "report_sha256": "fd6e7ec4dac1eb6f8a3ae746d2382edc60d22a05ea7371d8ad5ebee4df47b13c",
-    "state_unchanged": true
+    "report_sha256": "47198702863a68fcd7b6ce4e0157195d46e7c8528f234e1a8112b9b4ee45ee9b",
+    "state_unchanged": true,
+    "tree_unchanged": true
   },
   "release": {
     "code_commit": "977b509732437e12956a6f50a12f1428948debaf",
