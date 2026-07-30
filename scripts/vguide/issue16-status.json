@@ -1,13 +1,13 @@
 {
-  "authoritative_snapshot_sha256": "c3441f91b1b79ef3469f6aea753ecb492e3429fdf35bb556bc8b6f6dfb685d78",
-  "blocker": "cap-8 official prelaunch monitor sees foreign UID 1036 P-core contention; cap-16 is healthy",
+  "authoritative_snapshot_sha256": "348dbdbade3100a1305a7b82a0d4aace76099d6a5d92161536d2f6382cfe6df8",
+  "blocker": null,
   "cap16": {
-    "active_attempt": "repetition-1-replacement-attempt-12",
-    "boot_id": "04e10dff-12c3-4eba-9fe2-a2a679092466",
+    "active_attempt": "repetition-1-replacement-attempt-13",
+    "boot_id": "f6a75082-0b3f-49aa-b456-179d04453c61",
     "classification_counts": {
       "repetition_1": {
-        "accepted_and_reusable": 145,
-        "pending": 73,
+        "accepted_and_reusable": 153,
+        "pending": 65,
         "verifier_failure": 6
       },
       "repetition_2": {
@@ -17,25 +17,33 @@
       }
     },
     "cohort": 224,
-    "invocation_id": "519cbf7ad53f414db95a4167f9dafe0f",
+    "invocation_id": "b7fde7776207431fa6398772e29e5b88",
     "last_completed_attempt": {
-      "accepted_and_reusable": 7,
-      "attempt_marker_sha256": "5198af07ba84b5795ac806d2fe2ec4052d0d893ac0e994a8f0cc8a386fa21010",
-      "label": "repetition-1-replacement-attempt-11",
-      "result_sha256": "c710c9eaeddc61f9b6c7a7f338a17569f64b1769de9d03d3494e7265637526a6",
-      "verifier_failure": 1
+      "accepted_and_reusable": 8,
+      "attempt_marker_sha256": "cbb2b705a40f8bf48e553858818013f71ae77dd0ce820ae27c7109435e564f6c",
+      "label": "repetition-1-replacement-attempt-12",
+      "result_sha256": "5ed0b55117fea1811cd122b059b346e0f8bce137cbd318029ee0e894a54bc764",
+      "verifier_failure": 0
+    },
+    "postreboot_recovery": {
+      "attempt_13_authorization_sha256": "2416d4d313ede8febe9a3858bbb5931cecfb8cbeaa78f0c924809836953b0f35",
+      "launch_authorization_sha256": "a1c213b4ab536b7f05f585df8102f36a863b16e624e30cd62a330933511be3c5",
+      "live_gate_sha256": "ecd289a4f49f6bca12651f84ab48d88cd8bb336024933392cbbb1962c35877cd",
+      "reboot_audit_sha256": "b70ab5fee4bb5a7e443c11f8ce011892f0d948035d15649baf57855c67424d64",
+      "reboot_during_active_clean_n1_shard": false,
+      "started_at": "2026-07-30T10:23:18+08:00"
     },
     "protocol_sha256": "959bd13a33b098dbbe218731b58bb3d38e16ae5fc7fe52d985418005e8211327",
     "seed_sha256": "76ecdeb5a793feb70a2c968eeab746ae3c36b68d0356b9a9acdb374b69f1f9a7",
     "settled": {
-      "repetition_1": 151,
+      "repetition_1": 159,
       "repetition_2": 0
     },
     "state_artifact": {
-      "path": "/var/tmp/issue16-cap16-live-state-1785371958.json",
-      "sha256": "d946b81b0f2766b4a9f6d8b9993bec251dd78b1331b353df50e03b91fd191846"
+      "path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-cap16-athena-generic-recovery-stage-v4-clean-20260730/audits/recovery-state-before-launch-005.json",
+      "sha256": "5ed054a409c54c86bd95c9372f80c7ed787d6bb4bb0f8afd00d99fb5bbe1deb7"
     },
-    "unit": "vguide-cap16-generic-recovery-v4-postreboot-20260730.service"
+    "unit": "vguide-cap16-generic-recovery-launch005-20260730.service"
   },
   "cap8": {
     "active_attempt": "repetition-2-replacement-attempt-1",
@@ -74,12 +82,15 @@
         "reason": "mutable seed provenance path rejected by actual-tree replay"
       },
       "launch_006": {
-        "benchmark_tasks_run": 0,
+        "attempt_authorization_sha256": "ae971bbbc4f519b1727d1ec4ee13e9f0e5841b77cd72f2fa13730d6a477fa44e",
+        "benchmark_tasks_run": "in_progress",
         "final_authorization_sha256": "8cb1274e16b913720831486bfa98fdaa14589073a2d61aaaf0c61343e666ca6b",
         "invocation_id": "535bf0a3b2624d3bb57ea05c4b79101b",
         "live_gate_sha256": "26e16a7f032c82f766062a95bda5eaf73ca8841291abe3e92c7e5d419ec1f9a3",
         "preflight_state_sha256": "a7b834b7bdec04cb9b732811c960fe1358cd06566a6b39737d3ff35c3a57978d",
-        "state": "authorized_waiting_for_official_prelaunch_monitor",
+        "process_descriptor_sha256": "b3bab945a1299303ef53e4a03f3da44f95bac514106247f136487b3859a8d09d",
+        "started_at": "2026-07-30T09:22:32+08:00",
+        "state": "benchexec_running",
         "unit": "vguide-cap8-generic-recovery-v3-wait-launch006-20260730.service"
       }
     },
@@ -102,8 +113,8 @@
     "wiki_commit": "3f02023fc46e523419a980abe4f51173f5ce4b2d"
   },
   "issue": 16,
-  "next_action": "Preserve both units; cap-8 starts its first 16-task shard when the monitor is clean, while cap-16 continues attempt 12.",
-  "observed_at": "2026-07-30T08:42:06+08:00",
+  "next_action": "Preserve both active micro-shards; atomically accept each completion and continue deterministic pending shards.",
+  "observed_at": "2026-07-30T10:24:40+08:00",
   "phase": "phase_b_formal_recovery",
   "schema_version": "hard-case-dataset-v2-rolling-status-v2"
 }
