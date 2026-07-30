@@ -1,9 +1,9 @@
 {
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785430654688783843.json",
-    "sha256": "35862dd108359290f2f49f85f7eb4e5e6d670b91a6e6584605c682a3dada7e7c"
+    "path": "/var/tmp/issue16-live-state-1785432180730454540.json",
+    "sha256": "9421f748f3eef39958229b360eb799a81a492eda76564486a23879186adeb982"
   },
-  "blocker": "uid 1036 qsyn/tail currently exceed the fixed P-core live-gate threshold; no process is touched and the formal unit waits",
+  "blocker": "Valkyrie foreign qsyn/tail occupy physical P-core logical CPUs; no process is touched and the formal unit waits",
   "cap16": {
     "active": {
       "execution_state": "waiting_for_cap8_completion",
@@ -33,12 +33,12 @@
   },
   "cap8": {
     "active": {
-      "execution_state": "waiting_for_foreign_p_core_load",
-      "invocation_id": "902cfeba27464658959a4838533c6b19",
-      "main_pid": 1842185,
+      "execution_state": "waiting_for_foreign_physical_p_core_load",
+      "invocation_id": "7fd71a72424640f1bbe9501a3a958ff5",
+      "main_pid": 1859339,
       "state": "active",
       "substate": "running",
-      "unit": "vguide-cap8-load-monitor-rounding-v3-wait-20260731.service"
+      "unit": "vguide-cap8-load-monitor-rounding-v3-physical-pcore-wait-20260731.service"
     },
     "attempt8": {
       "accepted_before_replay": 0,
@@ -66,10 +66,30 @@
       "2": 0
     }
   },
-  "captured_at": "2026-07-31T00:57:34+08:00",
-  "documentation_wiki_commit": "d6f63ba0d3350295b6c2c5c0c7cca00892926f15",
+  "captured_at": "2026-07-31T01:23:00+08:00",
+  "documentation_wiki_commit": "6c889e63874dd09cc00eb651d69492c80ab0232e",
+  "fleet_monitor": {
+    "hosts": {
+      "athena": "idle_not_ready",
+      "cthulhu": "busy",
+      "valkyrie": "busy"
+    },
+    "interval_seconds": 60,
+    "invocation_id": "7235dd7bd2054e73bf3eb79d7e6725f5",
+    "script_sha256": "dbdd8ffe5fe7adfc5de3a5e70e97183e7c559644af6ba5bcc567606943b1818e",
+    "snapshot_path": "/var/tmp/issue16-fleet-availability-1785432180730454540.json",
+    "snapshot_sha256": "ced826335a87f15efdfb840576ba846d72efcf812f2e6fed2cd79a466308b9a1",
+    "state": "active",
+    "unit": "vguide-three-host-availability-monitor-20260731.service"
+  },
   "issue": 16,
-  "next_executable_action": "the active v3 unit waits automatically; after the gate passes it replays attempt 8 and measures only affected or pending tasks",
+  "next_executable_action": "the three-host monitor polls every 60 seconds; the fixed Valkyrie waiter launches automatically only after logical P-core CPUs 0-15 pass",
+  "operational_correction": {
+    "benchmark_tasks": 0,
+    "measurement_cpus": "0,2,4,6,8,10,12,14",
+    "observed_p_core_logical_cpus": "0-15",
+    "report_sha256": "a2e8607c39322136cd4c1c0c963fbd28771b2348bcd6c682e403c9c98f0f620c"
+  },
   "phase": "phase_b_formal_recovery",
   "production_preflight": {
     "benchmark_tasks": 0,
