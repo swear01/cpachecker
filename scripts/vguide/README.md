@@ -543,8 +543,8 @@ a new attempt without changing the protocol. Same-boot abandonment requires
 an authenticated owned process that is proven gone; an authorization with no
 lifecycle evidence is reused rather than abandoned. Historical recovery
 selectors remain read-only migration evidence; future attempts do not require
-a new selector or code revision. Current accepted/pending counts and the next
-action are recorded in `issue16-status.json`.
+a new selector or code revision. Current reusable, verifier-failure, and
+pending counts and the next action are recorded in `issue16-status.json`.
 The protocol's `source_commit` authenticates the implementation that froze
 the protocol. A later externally preregistered recovery correction must be a
 Git descendant of that commit; requiring byte equality would prevent a

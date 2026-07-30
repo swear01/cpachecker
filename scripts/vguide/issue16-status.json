@@ -1,80 +1,109 @@
 {
-  "schema_version": "hard-case-dataset-v2-rolling-status-v1",
-  "issue": 16,
-  "observed_at": "2026-07-30T07:47:26+08:00",
-  "authoritative_snapshot_sha256": "072b6b05e3571dc051ce29a461917026ff612b128689c29c92e394dc7ad201a6",
-  "phase": "phase_b_formal_recovery",
+  "authoritative_snapshot_sha256": "c3441f91b1b79ef3469f6aea753ecb492e3429fdf35bb556bc8b6f6dfb685d78",
+  "blocker": "cap-8 official prelaunch monitor sees foreign UID 1036 P-core contention; cap-16 is healthy",
+  "cap16": {
+    "active_attempt": "repetition-1-replacement-attempt-12",
+    "boot_id": "04e10dff-12c3-4eba-9fe2-a2a679092466",
+    "classification_counts": {
+      "repetition_1": {
+        "accepted_and_reusable": 145,
+        "pending": 73,
+        "verifier_failure": 6
+      },
+      "repetition_2": {
+        "accepted_and_reusable": 0,
+        "pending": 224,
+        "verifier_failure": 0
+      }
+    },
+    "cohort": 224,
+    "invocation_id": "519cbf7ad53f414db95a4167f9dafe0f",
+    "last_completed_attempt": {
+      "accepted_and_reusable": 7,
+      "attempt_marker_sha256": "5198af07ba84b5795ac806d2fe2ec4052d0d893ac0e994a8f0cc8a386fa21010",
+      "label": "repetition-1-replacement-attempt-11",
+      "result_sha256": "c710c9eaeddc61f9b6c7a7f338a17569f64b1769de9d03d3494e7265637526a6",
+      "verifier_failure": 1
+    },
+    "protocol_sha256": "959bd13a33b098dbbe218731b58bb3d38e16ae5fc7fe52d985418005e8211327",
+    "seed_sha256": "76ecdeb5a793feb70a2c968eeab746ae3c36b68d0356b9a9acdb374b69f1f9a7",
+    "settled": {
+      "repetition_1": 151,
+      "repetition_2": 0
+    },
+    "state_artifact": {
+      "path": "/var/tmp/issue16-cap16-live-state-1785371958.json",
+      "sha256": "d946b81b0f2766b4a9f6d8b9993bec251dd78b1331b353df50e03b91fd191846"
+    },
+    "unit": "vguide-cap16-generic-recovery-v4-postreboot-20260730.service"
+  },
   "cap8": {
+    "active_attempt": "repetition-2-replacement-attempt-1",
+    "classification_counts": {
+      "repetition_1": {
+        "accepted_and_reusable": 267,
+        "pending": 0,
+        "verifier_failure": 3
+      },
+      "repetition_2": {
+        "accepted_and_reusable": 80,
+        "pending": 190,
+        "verifier_failure": 0
+      }
+    },
     "cohort": 270,
-    "accepted": {
-      "repetition_1": 270,
-      "repetition_2": 80
-    },
-    "pending": {
-      "repetition_1": 0,
-      "repetition_2": 190
-    },
-    "active_attempt": null,
-    "protocol_sha256": "f77b1a55cb7dd688085eb1b46016674255d17acccb417fab6fba2ba260c73e3a",
-    "seed_sha256": "6b4f37c35ec9e3141637fb373732f622222edb4cf322d5787e85f27959bae2bc",
     "last_attempt": {
-      "label": "repetition-2-replacement-attempt-2",
-      "structurally_complete_rows": 190,
+      "accepted_rows": 0,
       "classification": {
         "complete_but_tainted": 190
       },
-      "accepted_rows": 0,
+      "label": "repetition-2-replacement-attempt-2",
       "result_sha256": "3b21bc71ef10a1ff2dfe4743457cba6d737756370e35d28f4cb68b8cfc361dca",
+      "structurally_complete_rows": 190,
       "taint_sha256": "78c0ee511de12ade52e9e95cb89e828f5c52c8253a6d5f5799d572bab64d13a0"
     },
     "launch_state": {
       "launch_003": {
-        "exit_status": 1,
         "benchmark_tasks_run": 0,
+        "exit_status": 1,
         "reason": "legacy runtime-closure pin rejected before state replay"
       },
       "launch_004": {
-        "exit_status": 1,
         "benchmark_tasks_run": 0,
+        "exit_status": 1,
         "reason": "mutable seed provenance path rejected by actual-tree replay"
       },
       "launch_006": {
-        "unit": "vguide-cap8-generic-recovery-v3-wait-launch006-20260730.service",
-        "invocation_id": "535bf0a3b2624d3bb57ea05c4b79101b",
-        "state": "waiting_for_foreign_p_core_idle",
         "benchmark_tasks_run": 0,
-        "preflight_state_sha256": "a7b834b7bdec04cb9b732811c960fe1358cd06566a6b39737d3ff35c3a57978d"
+        "final_authorization_sha256": "8cb1274e16b913720831486bfa98fdaa14589073a2d61aaaf0c61343e666ca6b",
+        "invocation_id": "535bf0a3b2624d3bb57ea05c4b79101b",
+        "live_gate_sha256": "26e16a7f032c82f766062a95bda5eaf73ca8841291abe3e92c7e5d419ec1f9a3",
+        "preflight_state_sha256": "a7b834b7bdec04cb9b732811c960fe1358cd06566a6b39737d3ff35c3a57978d",
+        "state": "authorized_waiting_for_official_prelaunch_monitor",
+        "unit": "vguide-cap8-generic-recovery-v3-wait-launch006-20260730.service"
       }
+    },
+    "protocol_sha256": "f77b1a55cb7dd688085eb1b46016674255d17acccb417fab6fba2ba260c73e3a",
+    "seed_sha256": "6b4f37c35ec9e3141637fb373732f622222edb4cf322d5787e85f27959bae2bc",
+    "settled": {
+      "repetition_1": 270,
+      "repetition_2": 80
     }
   },
-  "cap16": {
-    "cohort": 224,
-    "accepted": {
-      "repetition_1": 143,
-      "repetition_2": 0
-    },
-    "pending": {
-      "repetition_1": 81,
-      "repetition_2": 224
-    },
-    "active_attempt": "repetition-1-replacement-attempt-11",
-    "boot_id": "04e10dff-12c3-4eba-9fe2-a2a679092466",
-    "invocation_id": "519cbf7ad53f414db95a4167f9dafe0f",
-    "protocol_sha256": "959bd13a33b098dbbe218731b58bb3d38e16ae5fc7fe52d985418005e8211327",
-    "seed_sha256": "76ecdeb5a793feb70a2c968eeab746ae3c36b68d0356b9a9acdb374b69f1f9a7",
-    "unit": "vguide-cap16-generic-recovery-v4-postreboot-20260730.service"
-  },
-  "blocker": "cap-8 launch gate detects foreign UID 1036 threads consuming authenticated P-cores; cap-16 is healthy",
-  "next_action": "Preserve cap-16 attempt 11; launch-006 will start frozen cap-8 protocol v3 atomically after its first clean five-sample P-core gate.",
+  "documentation_wiki_commit": "1ec34cc94421e6ebcdf412acfb31d350017914fb",
   "generic_recovery_prereg": {
+    "archive_sha256": "6bd8bcc9033c4919b240dc720ff7e4f0d1d6250d97e65837ee59f3e49abe47a9",
     "code_commit": "c8619b6c21dc018226da695f7c832ce375917d24",
+    "fresh_download_verification_sha256": "227e9a20f07b5915a495fae6f3b14a2ad36bf5acae1056fc19a62603af3183dc",
     "generic_recovery_prereg_id": 362012768,
     "immutable": true,
-    "tag": "hard-case-dataset-v2-generic-formal-recovery-prereg-v4-20260730",
-    "wiki_commit": "3f02023fc46e523419a980abe4f51173f5ce4b2d",
     "publication_wiki_commit": "c9ea1506d859dfb90abf53d98f153c410acb3a9c",
-    "archive_sha256": "6bd8bcc9033c4919b240dc720ff7e4f0d1d6250d97e65837ee59f3e49abe47a9",
-    "fresh_download_verification_sha256": "227e9a20f07b5915a495fae6f3b14a2ad36bf5acae1056fc19a62603af3183dc"
+    "tag": "hard-case-dataset-v2-generic-formal-recovery-prereg-v4-20260730",
+    "wiki_commit": "3f02023fc46e523419a980abe4f51173f5ce4b2d"
   },
-  "documentation_wiki_commit": "1ec34cc94421e6ebcdf412acfb31d350017914fb"
+  "issue": 16,
+  "next_action": "Preserve both units; cap-8 starts its first 16-task shard when the monitor is clean, while cap-16 continues attempt 12.",
+  "observed_at": "2026-07-30T08:42:06+08:00",
+  "phase": "phase_b_formal_recovery",
+  "schema_version": "hard-case-dataset-v2-rolling-status-v2"
 }
