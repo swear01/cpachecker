@@ -7203,7 +7203,7 @@ copy_phase_evidence "$2"
       )
       primary = root / "probe-primary.xml"
       write_stock_result(
-          primary, manifest["tasks"], "athena", probe=True
+          primary, manifest["tasks"], "valkyrie", probe=True
       )
       plan_path = root / "probe-plan.json"
       dataset.command_cap16_probe_plan(
@@ -7223,7 +7223,7 @@ copy_phase_evidence "$2"
           plan_path,
           dataset.baseline.load_task_manifest(manifest_path),
           manifest_path,
-          "athena",
+          "valkyrie",
           root,
           definition_dir / "cegar-eligibility.xml",
           plan_schema=dataset.CAP16_PROBE_PLAN_SCHEMA,
@@ -8143,14 +8143,15 @@ copy_phase_evidence "$2"
           monitor_exclude_root=123,
           mode="cap16",
       ):
+        host = "valkyrie" if mode == "cap16-probe" else "athena"
         descriptor_args = SimpleNamespace(
             output_root=str(root),
             mode=mode,
             label=label,
-            host="athena",
+            host=host,
             name=(
                 (
-                    "hard-case-dataset-v2-cap16-cegar-probe-athena-"
+                    "hard-case-dataset-v2-cap16-cegar-probe-valkyrie-"
                     if mode == "cap16-probe"
                     else "hard-case-dataset-v2-cap16-formal-athena-"
                 )
@@ -8166,14 +8167,18 @@ copy_phase_evidence "$2"
             dataset_py=str(saved_dataset),
             cpachecker_dir=str(root / "cpachecker"),
             benchexec_dir=str(root / "benchexec"),
-            python_bin="/usr/bin/python3.12",
+            python_bin=(
+                "/usr/bin/python3.10"
+                if mode == "cap16-probe"
+                else "/usr/bin/python3.12"
+            ),
             java_home=str(root / "jdk"),
             p_cores=dataset.FORMAL_P_CORE_LIST,
             output=str(path),
         )
         dataset.command_write_formal_process_descriptor(descriptor_args)
         return dataset.load_formal_process_descriptor(
-            path, root, mode, label, "athena"
+            path, root, mode, label, host
         )
 
       process_descriptor = root / "repetition-1-process-descriptor.json"
@@ -8856,7 +8861,7 @@ copy_phase_evidence "$2"
       )
       probe_result = root / "probe-result.xml"
       write_stock_result(
-          probe_result, fixture.rows, "athena", probe=True
+          probe_result, fixture.rows, "valkyrie", probe=True
       )
       probe_label = "repetition-1-replacement-attempt-1"
       probe_descriptor_path = root / "probe-process-descriptor.json"
@@ -8883,9 +8888,29 @@ copy_phase_evidence "$2"
           "recovery=authenticated-process-gone\n",
           encoding="utf-8",
       )
+      probe_before = root / "probe-before.json"
+      probe_after = root / "probe-after.json"
+      probe_check = root / "probe-check.json"
+      for path in (probe_before, probe_after):
+        path.write_text(json.dumps({
+            "hostname": "valkyrie", "measurement_counters": counters
+        }), encoding="utf-8")
+      probe_check.write_text(json.dumps({
+          "hostname": "valkyrie",
+          "accepted": True,
+          "stable": True,
+          "counter_deltas": {
+              "package_throttle_count": 0,
+              "package_throttle_total_time_ms": 0,
+              "pswpin_pages": 0,
+              "pswpout_pages": 0,
+          },
+          "warnings": [],
+      }), encoding="utf-8")
       recovered_args = SimpleNamespace(
           **{
               **vars(args),
+              "host": "valkyrie",
               "mode": "cap16-probe",
               "label": probe_label,
               "role": "replacement",
@@ -8898,6 +8923,9 @@ copy_phase_evidence "$2"
               "process_descriptor": str(probe_descriptor_path),
               "monitor_process": str(probe_monitor_identity),
               "monitor_stopped": str(recovered_stopped),
+              "machine_before": str(probe_before),
+              "machine_after": str(probe_after),
+              "machine_check": str(probe_check),
               "output": str(
                   root / f"provenance/attempts/{probe_label}.json"
               ),
@@ -9715,7 +9743,7 @@ test "$(cat "$root/partial-summary/new")" = new
         shutil.copyfile(source, probe / target)
       identity = {
           "schema_version": dataset.CAP16_PROBE_INPUT_SCHEMA,
-          "host": "athena",
+          "host": "valkyrie",
           "task_count": 2,
           "formal_artifact_aggregate_sha256": artifact[
               "aggregate_sha256"
@@ -9944,6 +9972,12 @@ test "$(cat "$root/partial-summary/new")" = new
     self.assertIn('--mode "$FORMAL_MODE"', runner)
     self.assertIn("-N 8 -c 1", runner)
     self.assertIn("EXPECTED_PYTHON_REAL=/usr/bin/python3.10", runner)
+    self.assertIn("FORMAL_HOST=valkyrie", runner)
+    self.assertNotIn("FORMAL_HOST=athena", runner)
+    self.assertNotIn("python3.12", runner)
+    self.assertEqual(
+        dataset.strict_probe_profile("cap16")["host"], "valkyrie"
+    )
     self.assertIn('P_CORE_LOCK="/var/tmp/vguide-$FORMAL_HOST-pcores.lock"', runner)
     auth = runner.index('"$AUTH_FORMAL_COMMAND"')
     self.assertLess(auth, runner.index("RESUMING=false"))

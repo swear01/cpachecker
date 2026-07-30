@@ -797,11 +797,12 @@ is not an accepted paper Phase-C entry point.
 
 `run-cap8-cegar-probe.sh` and `run-cap16-cegar-probe.sh` are thin,
 fixed-profile Phase-C entry points over one shared strict runner. Neither
-accepts an arbitrary hard-case CSV or host/runtime/profile option. Cap-8 is
-fixed to Valkyrie, `/usr/bin/python3.10`, PyYAML 5.4.1 and
-`/var/tmp/vguide-valkyrie-pcores.lock`; cap-16 is fixed to Athena,
-`/usr/bin/python3.12`, PyYAML 6.0.1 and the Athena lock. Both use physical
-P-cores `0,2,4,6,8,10,12,14` with BenchExec `-N 8 -c 1`.
+accepts an arbitrary hard-case CSV or host/runtime/profile option. Both
+cohorts are fixed to Valkyrie, `/usr/bin/python3.10`, PyYAML 5.4.1,
+`/var/tmp/vguide-valkyrie-pcores.lock`, and physical P-cores
+`0,2,4,6,8,10,12,14` with BenchExec `-N 8 -c 1`. The cap-16 Phase-C host
+follows the outcome-independent Athena migration gate; no Phase-C task ran
+under the superseded Athena preparation.
 Every Phase-C helper starts with
 `-I -S -B -X pycache_prefix=/dev/null`; the saved-script parent or BenchExec
 checkout is then inserted explicitly. PyYAML is loaded directly from the

@@ -1068,7 +1068,7 @@ def strict_probe_profile(cohort):
           "operation": "cap8_zero_candidate_probe_input",
       },
       "cap16": {
-          "host": "athena",
+          "host": "valkyrie",
           "manifest_name": "candidate-manifest-cap16-probe.json",
           "input_schema": CAP16_PROBE_INPUT_SCHEMA,
           "plan_schema": CAP16_PROBE_PLAN_SCHEMA,
@@ -4256,8 +4256,6 @@ def formal_process_descriptor(args, legacy=False, descriptor_schema=None):
     raise RuntimeError("formal process descriptor inputs are invalid")
   if args.mode == "cap16":
     expected_hosts = {"athena", "valkyrie"}
-  elif args.mode == "cap16-probe":
-    expected_hosts = {"athena"}
   else:
     expected_hosts = {"valkyrie"}
   expected_python = (
