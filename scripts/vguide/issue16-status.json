@@ -1,120 +1,87 @@
 {
-  "authoritative_snapshot_sha256": "348dbdbade3100a1305a7b82a0d4aace76099d6a5d92161536d2f6382cfe6df8",
+  "authoritative_snapshot": {
+    "path": "/var/tmp/issue16-live-state-1785382723.json",
+    "sha256": "1f9c2fe7ef2474e5b9c0ca456a87075489b2dd052832f70e57c9245ee48fdeb6"
+  },
   "blocker": null,
   "cap16": {
-    "active_attempt": "repetition-1-replacement-attempt-13",
-    "boot_id": "f6a75082-0b3f-49aa-b456-179d04453c61",
-    "classification_counts": {
-      "repetition_1": {
-        "accepted_and_reusable": 153,
-        "pending": 65,
-        "verifier_failure": 6
-      },
-      "repetition_2": {
-        "accepted_and_reusable": 0,
-        "pending": 224,
-        "verifier_failure": 0
-      }
+    "active": {
+      "boot_id": "c5e8effd-b357-4584-9087-5eeda533f848",
+      "invocation_id": "2952ea28e71042248aa4f76bc01d555e",
+      "label": "repetition-1-replacement-attempt-13",
+      "launch_authorization_sha256": "825b56d227d01bb26ce23060943f7f9ef932dec38dd72d12d6c404538358e0b4",
+      "marker_sha256": "48d221ab262c5423e579f840292fafc9ee203e3d6a9be7dbf6f68f95ba351b5f",
+      "mode": "generic interrupted-attempt recovery before ledger acceptance",
+      "started_at": "2026-07-30T11:33:21+08:00",
+      "unit": "vguide-cap16-generic-recovery-v5-launch006-20260730.service"
     },
-    "cohort": 224,
-    "invocation_id": "b7fde7776207431fa6398772e29e5b88",
-    "last_completed_attempt": {
-      "accepted_and_reusable": 8,
-      "attempt_marker_sha256": "cbb2b705a40f8bf48e553858818013f71ae77dd0ce820ae27c7109435e564f6c",
-      "label": "repetition-1-replacement-attempt-12",
-      "result_sha256": "5ed0b55117fea1811cd122b059b346e0f8bce137cbd318029ee0e894a54bc764",
-      "verifier_failure": 0
+    "active_clean_n1_reboots_since_policy": 1,
+    "host": "athena",
+    "operational_corrections": {
+      "clone_failure_audit_sha256": "58cfc6e35e617054eedff18ee5c5ada1e410e26fc0e4f54d572061a2cf194836",
+      "lesson": "Valkyrie live-gate scripts are host-specific; Athena uses its authenticated self-cgroup scope evidence and host-specific gate.",
+      "live_cgroup_gate_correction_sha256": "abe74554a2805a5f8f1461b54e12f743abebce382c96b2ea27db2dc2315f4d5d"
     },
-    "postreboot_recovery": {
-      "attempt_13_authorization_sha256": "2416d4d313ede8febe9a3858bbb5931cecfb8cbeaa78f0c924809836953b0f35",
-      "launch_authorization_sha256": "a1c213b4ab536b7f05f585df8102f36a863b16e624e30cd62a330933511be3c5",
-      "live_gate_sha256": "ecd289a4f49f6bca12651f84ab48d88cd8bb336024933392cbbb1962c35877cd",
-      "reboot_audit_sha256": "b70ab5fee4bb5a7e443c11f8ce011892f0d948035d15649baf57855c67424d64",
-      "reboot_during_active_clean_n1_shard": false,
-      "started_at": "2026-07-30T10:23:18+08:00"
+    "pending": {
+      "1": 65,
+      "2": 224
     },
-    "protocol_sha256": "959bd13a33b098dbbe218731b58bb3d38e16ae5fc7fe52d985418005e8211327",
-    "seed_sha256": "76ecdeb5a793feb70a2c968eeab746ae3c36b68d0356b9a9acdb374b69f1f9a7",
+    "reboot_audit_sha256": "646a271768554d8008b580d095f8b5fd2eb8179c605ebe15560c9e443b19dcd8",
+    "reusable": {
+      "1": 153,
+      "2": 0
+    },
     "settled": {
-      "repetition_1": 159,
-      "repetition_2": 0
+      "1": 159,
+      "2": 0
     },
-    "state_artifact": {
-      "path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-cap16-athena-generic-recovery-stage-v4-clean-20260730/audits/recovery-state-before-launch-005.json",
-      "sha256": "5ed054a409c54c86bd95c9372f80c7ed787d6bb4bb0f8afd00d99fb5bbe1deb7"
-    },
-    "unit": "vguide-cap16-generic-recovery-launch005-20260730.service"
-  },
-  "cap8": {
-    "active_attempt": "repetition-2-replacement-attempt-1",
-    "classification_counts": {
-      "repetition_1": {
-        "accepted_and_reusable": 267,
-        "pending": 0,
-        "verifier_failure": 3
-      },
-      "repetition_2": {
-        "accepted_and_reusable": 80,
-        "pending": 190,
-        "verifier_failure": 0
-      }
-    },
-    "cohort": 270,
-    "last_attempt": {
-      "accepted_rows": 0,
-      "classification": {
-        "complete_but_tainted": 190
-      },
-      "label": "repetition-2-replacement-attempt-2",
-      "result_sha256": "3b21bc71ef10a1ff2dfe4743457cba6d737756370e35d28f4cb68b8cfc361dca",
-      "structurally_complete_rows": 190,
-      "taint_sha256": "78c0ee511de12ade52e9e95cb89e828f5c52c8253a6d5f5799d572bab64d13a0"
-    },
-    "launch_state": {
-      "launch_003": {
-        "benchmark_tasks_run": 0,
-        "exit_status": 1,
-        "reason": "legacy runtime-closure pin rejected before state replay"
-      },
-      "launch_004": {
-        "benchmark_tasks_run": 0,
-        "exit_status": 1,
-        "reason": "mutable seed provenance path rejected by actual-tree replay"
-      },
-      "launch_006": {
-        "attempt_authorization_sha256": "ae971bbbc4f519b1727d1ec4ee13e9f0e5841b77cd72f2fa13730d6a477fa44e",
-        "benchmark_tasks_run": "in_progress",
-        "final_authorization_sha256": "8cb1274e16b913720831486bfa98fdaa14589073a2d61aaaf0c61343e666ca6b",
-        "invocation_id": "535bf0a3b2624d3bb57ea05c4b79101b",
-        "live_gate_sha256": "26e16a7f032c82f766062a95bda5eaf73ca8841291abe3e92c7e5d419ec1f9a3",
-        "preflight_state_sha256": "a7b834b7bdec04cb9b732811c960fe1358cd06566a6b39737d3ff35c3a57978d",
-        "process_descriptor_sha256": "b3bab945a1299303ef53e4a03f3da44f95bac514106247f136487b3859a8d09d",
-        "started_at": "2026-07-30T09:22:32+08:00",
-        "state": "benchexec_running",
-        "unit": "vguide-cap8-generic-recovery-v3-wait-launch006-20260730.service"
-      }
-    },
-    "protocol_sha256": "f77b1a55cb7dd688085eb1b46016674255d17acccb417fab6fba2ba260c73e3a",
-    "seed_sha256": "6b4f37c35ec9e3141637fb373732f622222edb4cf322d5787e85f27959bae2bc",
-    "settled": {
-      "repetition_1": 270,
-      "repetition_2": 80
+    "verifier_failure": {
+      "1": 6,
+      "2": 0
     }
   },
-  "documentation_wiki_commit": "1ec34cc94421e6ebcdf412acfb31d350017914fb",
-  "generic_recovery_prereg": {
-    "archive_sha256": "6bd8bcc9033c4919b240dc720ff7e4f0d1d6250d97e65837ee59f3e49abe47a9",
-    "code_commit": "c8619b6c21dc018226da695f7c832ce375917d24",
-    "fresh_download_verification_sha256": "227e9a20f07b5915a495fae6f3b14a2ad36bf5acae1056fc19a62603af3183dc",
-    "generic_recovery_prereg_id": 362012768,
-    "immutable": true,
-    "publication_wiki_commit": "c9ea1506d859dfb90abf53d98f153c410acb3a9c",
-    "tag": "hard-case-dataset-v2-generic-formal-recovery-prereg-v4-20260730",
-    "wiki_commit": "3f02023fc46e523419a980abe4f51173f5ce4b2d"
+  "cap8": {
+    "active": {
+      "authorization_sha256": "f366ddc2d3675c8616d73b10cf544e28a2d6b062720b69266c672cbae53b790e",
+      "invocation_id": "af98a4abffa043cdbf43e26a928c162b",
+      "label": "repetition-2-replacement-attempt-3",
+      "launch_authorization_sha256": "8a77ce581db3e4fcacf68bfe7d7252ec0992747a63125a071bb48204752c7fd6",
+      "process_descriptor_sha256": "ab9419876c5ee5d8835a24d02a1b16a8626cf545d9923736d8177522a150c4a1",
+      "started_at": "2026-07-30T11:27:03+08:00",
+      "state": "benchexec_running",
+      "unit": "vguide-cap8-generic-recovery-v5-wait-launch007-20260730.service"
+    },
+    "host": "valkyrie",
+    "invalid_evidence_attempts": 1,
+    "pending": {
+      "1": 0,
+      "2": 190
+    },
+    "reusable": {
+      "1": 267,
+      "2": 80
+    },
+    "settled": {
+      "1": 270,
+      "2": 80
+    },
+    "verifier_failure": {
+      "1": 3,
+      "2": 0
+    }
   },
+  "captured_at": "2026-07-30T11:38:43+08:00",
+  "documentation_wiki_commit": "2b3f14eb9d7d2caed4716cafab3d61e0d755c013",
   "issue": 16,
-  "next_action": "Preserve both active micro-shards; atomically accept each completion and continue deterministic pending shards.",
-  "observed_at": "2026-07-30T10:24:40+08:00",
+  "next_executable_action": "Preserve both healthy units; atomically accept attempt-3/attempt-13 progress, continue frozen shards, and stop Athena for host migration if one more active-clean-N1 reboot occurs.",
   "phase": "phase_b_formal_recovery",
-  "schema_version": "hard-case-dataset-v2-rolling-status-v2"
+  "release": {
+    "archive_sha256": "3594f24bfde95f980f7b1c77e0c3b0005587cfae5b94dcc5a9d3324adaf9da08",
+    "code_commit": "cf5500ff52f3c26e143400c46e3e6abd79e31d64",
+    "fresh_verification_sha256": "7aca362ae4839197b4365098140fffbeefc3abecda0cbaea2e368033eefbcb01",
+    "id": 362164611,
+    "immutable": true,
+    "tag": "hard-case-dataset-v2-generic-formal-recovery-prereg-v5-20260730"
+  },
+  "schema_version": "hard-case-dataset-v2-rolling-status-v3"
 }
