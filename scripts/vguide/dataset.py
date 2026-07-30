@@ -145,6 +145,9 @@ FORMAL_HOST_STRATIFIED_POLICY = (
 FORMAL_HOST_MIGRATION_EXPORT_SCHEMA = (
     "hard-case-formal-host-migration-export-v1"
 )
+FORMAL_CAP16_SV_BENCHMARKS_DIRECTORY = (
+    "sv-benchmarks-cap16-athena-r2-20260728"
+)
 FORMAL_RECOVERY_SEED_SCHEMA = "hard-case-formal-recovery-seed-ledger-v1"
 FORMAL_RECOVERY_MIGRATION_SCHEMA = "hard-case-formal-recovery-migration-v1"
 FORMAL_PORTABLE_RECOVERY_MIGRATION_SCHEMA = (
@@ -6741,8 +6744,16 @@ def command_build_formal_recovery_seed(args, recovery_state=None):
     if not set(result_tasks) <= set(definition_tasks):
       raise RuntimeError("formal recovery migration result exceeds its task set")
     subset = {task: manifest[task] for task in result_tasks}
+    result_sv_benchmarks = Path(args.sv_benchmarks).resolve()
+    if args.mode == "cap16":
+      result_sv_benchmarks = result_sv_benchmarks.with_name(
+          FORMAL_CAP16_SV_BENCHMARKS_DIRECTORY
+      )
     validate_result_run_topology(
-        files["result"], subset, args.sv_benchmarks, files["definition"]
+        files["result"],
+        subset,
+        result_sv_benchmarks,
+        files["definition"],
     )
     parsed = {
         row["task"]: row
