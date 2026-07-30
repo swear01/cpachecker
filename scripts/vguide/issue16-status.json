@@ -1,39 +1,27 @@
 {
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785398671756571346.json",
-    "sha256": "40d3c1aa237b0cb0cfb227bf77686c955f8b8417d8ae527b8d07fd0d096f7084"
+    "path": "/var/tmp/issue16-live-state-1785405834948405335.json",
+    "sha256": "593c223c0ce367263696be1812d3ba74ec651f1cf7f683ba344228a9445d5da9"
   },
-  "blocker": "cap-16 waits for the active cap-8 run to release Valkyrie experiment P-cores",
+  "blocker": "foreign processes currently exceed the frozen P-core live-gate threshold; no process is touched and the formal unit waits",
   "cap16": {
-    "active": null,
-    "active_clean_n1_reboots_since_policy": 2,
-    "host": "valkyrie",
-    "migration_state": "pending_only_migration_preregistered_and_freshly_verified",
-    "operational_corrections": {
-      "clone_failure_audit_sha256": "58cfc6e35e617054eedff18ee5c5ada1e410e26fc0e4f54d572061a2cf194836",
-      "lesson": "Valkyrie live-gate scripts are host-specific; Athena uses its authenticated self-cgroup scope evidence and host-specific gate.",
-      "live_cgroup_gate_correction_sha256": "abe74554a2805a5f8f1461b54e12f743abebce382c96b2ea27db2dc2315f4d5d"
+    "active": {
+      "execution_state": "waiting_for_cap8_completion",
+      "main_pid": 1409748,
+      "state": "active",
+      "unit": "vguide-cap16-host-migration-v1-wait-20260730.service"
     },
+    "comparison_policy": "no-cross-host-runtime-threshold-comparison",
+    "host": "valkyrie",
+    "migration_scope": "pending_only_no_full_rerun",
     "pending": {
       "1": 63,
       "2": 224
     },
-    "reboot_audit_sha256": "646a271768554d8008b580d095f8b5fd2eb8179c605ebe15560c9e443b19dcd8",
     "reusable": {
       "1": 155,
       "2": 0
     },
-    "host_migration": {
-      "code_commit": "8fb50099c89afb3c557f765e20a20e89dd1aa392",
-      "comparison_policy": "no-cross-host-runtime-threshold-comparison",
-      "export_manifest_sha256": "31151a1514e78a3c5b5179bac68ca097e55c022052ffadab8456ed56508209c4",
-      "protocol_sha256": "7059921c28fc4d20699062ff24995e7b7e6be35968dbcd350fdb0d007692a846",
-      "seed_host": "athena",
-      "seed_ledger_sha256": "77b8833615d3a6d2f39b048bb1e40c048dd9210e35af86817596905664464e6e",
-      "scope": "pending_only_no_full_rerun",
-      "target_host": "valkyrie"
-    },
-    "second_reboot_audit_sha256": "39914c45469cb85581f69fd0a43ed6d2b2891fccc89b00d6b95eb7c1b8f39aad",
     "settled": {
       "1": 161,
       "2": 0
@@ -45,17 +33,22 @@
   },
   "cap8": {
     "active": {
-      "authorization_sha256": "40c77e18a77c618421cb025503415314531f615718b879ce8ca1766015ad81dc",
-      "invocation_id": "af98a4abffa043cdbf43e26a928c162b",
-      "label": "repetition-2-replacement-attempt-8",
-      "launch_authorization_sha256": "8a77ce581db3e4fcacf68bfe7d7252ec0992747a63125a071bb48204752c7fd6",
-      "process_descriptor_sha256": "01eceffc9036d23cbe7d27d90e90e917105bf155614318933c7708011f881473",
-      "started_at": "2026-07-30T15:30:08+08:00",
-      "state": "benchexec_running",
-      "unit": "vguide-cap8-generic-recovery-v5-wait-launch007-20260730.service"
+      "execution_state": "waiting_for_foreign_p_core_load",
+      "invocation_id": "24dbfa2945e942c69700ef176e2a9237",
+      "main_pid": 1522362,
+      "state": "active",
+      "substate": "running",
+      "unit": "vguide-cap8-load-monitor-rounding-v2-wait-20260730.service"
+    },
+    "attempt8": {
+      "accepted_before_replay": 0,
+      "expected_reusable": 7,
+      "expected_tainted": 9,
+      "load_monitor_sha256": "b13d206e29aab7a70b8c7778d2579b83153a13dd04866d729e4cbbb0ba2bcd7f",
+      "raw_evidence_mutated": false,
+      "result_sha256": "6fda96c464606b7084c45bb6e984d33db1bb8220502ba7f4afd385c65a9712f5"
     },
     "host": "valkyrie",
-    "invalid_evidence_attempts": 1,
     "pending": {
       "1": 0,
       "2": 110
@@ -73,18 +66,24 @@
       "2": 0
     }
   },
-  "captured_at": "2026-07-30T16:12:15+08:00",
-  "documentation_wiki_commit": "08ebe472498316964d72dd779b3db3080634f2e1",
+  "captured_at": "2026-07-30T18:03:55+08:00",
+  "documentation_wiki_commit": "5d63a4b46580e9fb8a0cf28296dbeeeb16c3d505",
   "issue": 16,
-  "next_executable_action": "Preserve the healthy cap-8 run; after it completes, clean-stage and launch the freshly verified pending-only cap-16 Valkyrie package.",
+  "next_executable_action": "the live gate launches cap8 automatically; authenticate attempt 8, preserve seven uncontended rows, and measure only nine affected rows",
   "phase": "phase_b_formal_recovery",
+  "production_preflight": {
+    "benchmark_tasks": 0,
+    "report_sha256": "fd6e7ec4dac1eb6f8a3ae746d2382edc60d22a05ea7371d8ad5ebee4df47b13c",
+    "state_unchanged": true
+  },
   "release": {
-    "code_commit": "8fb50099c89afb3c557f765e20a20e89dd1aa392",
-    "fresh_verification_sha256": "0e31a6279f5728f2dfdda1a0c3769f4c758bf6709f7dc470db6ceb83aa4e58f5",
-    "id": 362273889,
+    "code_commit": "0a9f6e75014dacffd574a4b3571adc050691e4b1",
+    "fresh_verification_sha256": "5d30932d331f00b6c67fe385221d5f8ceef30f9f855e78fed2e953dff9e4159d",
+    "id": 362329899,
     "immutable": true,
-    "outer_checksums_sha256": "275e34089057e70600a77aad3f6c54f6a0101b104781f68bf003648b2ef7a7c5",
-    "tag": "hard-case-dataset-v2-cap16-host-migration-prereg-v1-20260730"
+    "outer_checksums_sha256": "07490dc25a44c086d8cbd287f42b3c1e5bba3d03e4df3f25b12c231b09df4449",
+    "postpublication_audit_sha256": "6a25af558dce0efcc91451a7ebb91663298c9420a4b6c39a6c3b17ace727656c",
+    "tag": "hard-case-dataset-v2-load-monitor-rounding-prereg-v2-20260730"
   },
   "schema_version": "hard-case-dataset-v2-rolling-status-v3"
 }
