@@ -773,6 +773,23 @@ single_formal_result() {
   printf '%s\n' "${matches[0]}"
 }
 
+formal_recovery_taint_path() {
+  local output_root=$1
+  local marker=$2
+  local digest
+  if [[ ! -f "$marker" || -L "$marker" ]]; then
+    echo "formal recovery marker is not a regular file: $marker" >&2
+    return 1
+  fi
+  digest=$(sha256sum "$marker" | cut -d' ' -f1)
+  if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "formal recovery marker hash is invalid" >&2
+    return 1
+  fi
+  printf '%s/%s-taint-%s.json\n' \
+    "$output_root" "$(basename "$marker" .json)" "$digest"
+}
+
 formal_benchexec_workers() {
   case "$1" in
     cap8)
@@ -1622,7 +1639,8 @@ PY
         continue
       fi
       result=$(single_formal_result "$OUTPUT_DIR/results/$label")
-      taint="$OUTPUT_DIR/$label-taint.json"
+      taint=$(formal_recovery_taint_path \
+        "$OUTPUT_DIR" "$OUTPUT_DIR/provenance/attempts/$label.json")
       if [[ ! -f "$taint" ]]; then
         run_python_script "$DATASET_PY" formal-taint \
           --manifest "$PROTOCOL_MANIFEST_COPY" \

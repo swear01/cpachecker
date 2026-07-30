@@ -545,6 +545,9 @@ lifecycle evidence is reused rather than abandoned. Historical recovery
 selectors remain read-only migration evidence; future attempts do not require
 a new selector or code revision. Current reusable, verifier-failure, and
 pending counts and the next action are recorded in `issue16-status.json`.
+Attempt numbers reserve matching historical result and provenance names, and
+new taint evidence is addressed by its authenticated completion-marker hash,
+so a legacy taint file cannot be reused or overwritten.
 The protocol's `source_commit` authenticates the implementation that froze
 the protocol. A later externally preregistered recovery correction must be a
 Git descendant of that commit; requiring byte equality would prevent a

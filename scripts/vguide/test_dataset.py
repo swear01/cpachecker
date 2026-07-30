@@ -1428,6 +1428,52 @@ class DatasetTest(unittest.TestCase):
       self.assertNotEqual(missing.returncode, 0)
       self.assertIn("found 0", missing.stderr)
 
+  def test_formal_recovery_attempt_number_reserves_old_artifacts(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      for directory in (
+          root / "generated",
+          root / "results",
+          root / "provenance",
+          root / "provenance/preparations",
+          root / "provenance/authorizations",
+          root / "provenance/attempts",
+      ):
+        directory.mkdir(parents=True, exist_ok=True)
+      (root / "repetition-2-replacement-attempt-7-taint.json").touch()
+      (root / "generated/repetition-2-replacement-attempt-3").mkdir()
+      (root / "results/repetition-2-replacement-attempt-9").mkdir()
+      (root / "provenance/repetition-2-replacement-attempt-8.log").touch()
+      (root / "provenance/attempts/"
+       "repetition-1-replacement-attempt-99.json").touch()
+
+      self.assertEqual(dataset.next_formal_attempt_number(root, 2), 10)
+
+  def test_formal_recovery_taint_path_is_marker_addressed(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      label = "repetition-2-replacement-attempt-1"
+      marker = root / f"{label}.json"
+      marker.write_text('{"complete": true}\n', encoding="utf-8")
+      stale = root / f"{label}-taint.json"
+      stale.write_text("historical\n", encoding="utf-8")
+      command = (
+          'source "$1"; formal_recovery_taint_path "$2" "$3"'
+      )
+      result = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(root), str(marker)],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      expected = (
+          root
+          / f"{label}-taint-{dataset.baseline.sha256_file(marker)}.json"
+      )
+      self.assertEqual(result.stdout.strip(), str(expected))
+      self.assertEqual(stale.read_text(encoding="utf-8"), "historical\n")
+
   def test_formal_runner_rejects_dirty_benchexec_checkout(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
     with tempfile.TemporaryDirectory() as temp:

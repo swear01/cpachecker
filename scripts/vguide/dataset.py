@@ -7535,17 +7535,24 @@ def formal_recovery_shard(protocol, repetition, shard_id):
 
 def next_formal_attempt_number(root, repetition):
   pattern = re.compile(
-      rf"repetition-{repetition}-replacement-attempt-([1-9]\d*)"
+      rf"repetition-{repetition}-replacement-attempt-([1-9]\d*)(?=$|[^0-9])"
   )
+  root = Path(root).resolve()
   numbers = []
   for directory in (
-      Path(root) / "provenance/preparations",
-      Path(root) / "provenance/authorizations",
-      Path(root) / "provenance/attempts",
+      root,
+      root / "generated",
+      root / "results",
+      root / "provenance",
+      root / "provenance/preparations",
+      root / "provenance/authorizations",
+      root / "provenance/attempts",
   ):
     if directory.exists():
-      for path in directory.glob("*.json"):
-        match = pattern.fullmatch(path.stem)
+      if directory.is_symlink() or not directory.is_dir():
+        raise RuntimeError("formal recovery attempt namespace is invalid")
+      for path in directory.iterdir():
+        match = pattern.search(path.name)
         if match:
           numbers.append(int(match.group(1)))
   return max(numbers, default=0) + 1
