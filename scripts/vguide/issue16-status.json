@@ -1,14 +1,14 @@
 {
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785384380978917658.json",
-    "sha256": "e3711d24f4273d219baacc0f7e90713d2f640b3a1a7632c6bcefc5feaad2d761"
+    "path": "/var/tmp/issue16-live-state-1785398671756571346.json",
+    "sha256": "40d3c1aa237b0cb0cfb227bf77686c955f8b8417d8ae527b8d07fd0d096f7084"
   },
-  "blocker": "cap-16 hardware reassignment and host-migration policy require owner approval",
+  "blocker": "cap-16 waits for the active cap-8 run to release Valkyrie experiment P-cores",
   "cap16": {
     "active": null,
     "active_clean_n1_reboots_since_policy": 2,
-    "host": "athena",
-    "migration_state": "athena_stopped_owner_decision_required",
+    "host": "valkyrie",
+    "migration_state": "pending_only_migration_preregistered_and_freshly_verified",
     "operational_corrections": {
       "clone_failure_audit_sha256": "58cfc6e35e617054eedff18ee5c5ada1e410e26fc0e4f54d572061a2cf194836",
       "lesson": "Valkyrie live-gate scripts are host-specific; Athena uses its authenticated self-cgroup scope evidence and host-specific gate.",
@@ -23,6 +23,16 @@
       "1": 155,
       "2": 0
     },
+    "host_migration": {
+      "code_commit": "8fb50099c89afb3c557f765e20a20e89dd1aa392",
+      "comparison_policy": "no-cross-host-runtime-threshold-comparison",
+      "export_manifest_sha256": "31151a1514e78a3c5b5179bac68ca097e55c022052ffadab8456ed56508209c4",
+      "protocol_sha256": "7059921c28fc4d20699062ff24995e7b7e6be35968dbcd350fdb0d007692a846",
+      "seed_host": "athena",
+      "seed_ledger_sha256": "77b8833615d3a6d2f39b048bb1e40c048dd9210e35af86817596905664464e6e",
+      "scope": "pending_only_no_full_rerun",
+      "target_host": "valkyrie"
+    },
     "second_reboot_audit_sha256": "39914c45469cb85581f69fd0a43ed6d2b2891fccc89b00d6b95eb7c1b8f39aad",
     "settled": {
       "1": 161,
@@ -35,12 +45,12 @@
   },
   "cap8": {
     "active": {
-      "authorization_sha256": "f366ddc2d3675c8616d73b10cf544e28a2d6b062720b69266c672cbae53b790e",
+      "authorization_sha256": "40c77e18a77c618421cb025503415314531f615718b879ce8ca1766015ad81dc",
       "invocation_id": "af98a4abffa043cdbf43e26a928c162b",
-      "label": "repetition-2-replacement-attempt-3",
+      "label": "repetition-2-replacement-attempt-8",
       "launch_authorization_sha256": "8a77ce581db3e4fcacf68bfe7d7252ec0992747a63125a071bb48204752c7fd6",
-      "process_descriptor_sha256": "ab9419876c5ee5d8835a24d02a1b16a8626cf545d9923736d8177522a150c4a1",
-      "started_at": "2026-07-30T11:27:03+08:00",
+      "process_descriptor_sha256": "01eceffc9036d23cbe7d27d90e90e917105bf155614318933c7708011f881473",
+      "started_at": "2026-07-30T15:30:08+08:00",
       "state": "benchexec_running",
       "unit": "vguide-cap8-generic-recovery-v5-wait-launch007-20260730.service"
     },
@@ -48,33 +58,33 @@
     "invalid_evidence_attempts": 1,
     "pending": {
       "1": 0,
-      "2": 190
+      "2": 110
     },
     "reusable": {
       "1": 267,
-      "2": 80
+      "2": 160
     },
     "settled": {
       "1": 270,
-      "2": 80
+      "2": 160
     },
     "verifier_failure": {
       "1": 3,
       "2": 0
     }
   },
-  "captured_at": "2026-07-30T12:06:20+08:00",
-  "documentation_wiki_commit": "2b3f14eb9d7d2caed4716cafab3d61e0d755c013",
+  "captured_at": "2026-07-30T16:12:15+08:00",
+  "documentation_wiki_commit": "08ebe472498316964d72dd779b3db3080634f2e1",
   "issue": 16,
-  "next_executable_action": "Preserve the healthy cap-8 run; after owner approval, preregister a full 224-task x 2 cap-16 rerun on stable exclusive Valkyrie after cap-8 completes.",
+  "next_executable_action": "Preserve the healthy cap-8 run; after it completes, clean-stage and launch the freshly verified pending-only cap-16 Valkyrie package.",
   "phase": "phase_b_formal_recovery",
   "release": {
-    "archive_sha256": "3594f24bfde95f980f7b1c77e0c3b0005587cfae5b94dcc5a9d3324adaf9da08",
-    "code_commit": "cf5500ff52f3c26e143400c46e3e6abd79e31d64",
-    "fresh_verification_sha256": "7aca362ae4839197b4365098140fffbeefc3abecda0cbaea2e368033eefbcb01",
-    "id": 362164611,
+    "code_commit": "8fb50099c89afb3c557f765e20a20e89dd1aa392",
+    "fresh_verification_sha256": "0e31a6279f5728f2dfdda1a0c3769f4c758bf6709f7dc470db6ceb83aa4e58f5",
+    "id": 362273889,
     "immutable": true,
-    "tag": "hard-case-dataset-v2-generic-formal-recovery-prereg-v5-20260730"
+    "outer_checksums_sha256": "275e34089057e70600a77aad3f6c54f6a0101b104781f68bf003648b2ef7a7c5",
+    "tag": "hard-case-dataset-v2-cap16-host-migration-prereg-v1-20260730"
   },
   "schema_version": "hard-case-dataset-v2-rolling-status-v3"
 }
