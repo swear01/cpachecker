@@ -213,8 +213,11 @@ definitively inactive/not found. If either the exact owned process or unit is
 still alive, resume fails closed and never signals it. For an authenticated
 markerless incomplete attempt, resume atomically records an unobserved monitor
 stop, a recovery machine snapshot/check, and reserved exit `125`, then validates
-the BenchExec log against every complete XML row. Authenticated structured XML
-is the only reusable-completion oracle. Only the first frozen version-2
+the BenchExec log against every complete XML row. An authenticated markerless
+complete attempt instead reuses only its exact canonical normal monitor and
+machine teardown; partial, relocated, symlinked, or mixed completion evidence
+fails closed. Authenticated structured XML is the only reusable-completion
+oracle. Only the first frozen version-2
 selection may treat exactly one final console-log completion absent from
 incomplete XML as interrupted; its recovered load monitor must also have valid
 trailing NUL padding. The second frozen selection never enables that exception.

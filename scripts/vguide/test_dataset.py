@@ -7355,6 +7355,11 @@ copy_phase_evidence "$2"
               stopped, 123, "cap8-probe", 125
           )
       )
+      self.assertTrue(
+          dataset.validate_monitor_stop_evidence(
+              stopped, 123, "cap8", 125
+          )
+      )
       stopped.write_text(
           "pid=123\nexit=0\nsamples=4\n", encoding="utf-8"
       )
@@ -7363,17 +7368,22 @@ copy_phase_evidence "$2"
               stopped, 123, "cap16-probe", 125
           )
       )
-      with self.assertRaisesRegex(RuntimeError, "stop evidence"):
+      self.assertFalse(
+          dataset.validate_monitor_stop_evidence(
+              stopped, 123, "cap8", 125
+          )
+      )
+      self.assertFalse(
         dataset.validate_monitor_stop_evidence(
             stopped, 123, "cap16", 125
         )
+      )
       stopped.write_text(
           "pid=123\nexit=unobserved\nsamples=4\n"
           "recovery=authenticated-process-gone\n",
           encoding="utf-8",
       )
       for mode, status in (
-          ("cap8", 125),
           ("cap16-probe", 130),
           ("cap8-probe", 130),
       ):
@@ -8433,6 +8443,11 @@ copy_phase_evidence "$2"
       normal_marker = marker.read_bytes()
       normal_process_identity = process_identity.read_bytes()
       normal_benchexec_identity = benchexec_identity.read_bytes()
+      markerless_normal_args = SimpleNamespace(
+          **{**vars(args), "benchexec_exit": 125}
+      )
+      with self.assertRaisesRegex(RuntimeError, "not canonical"):
+        dataset.formal_attempt_record(markerless_normal_args)
       for name, identity_path in (
           ("monitor_process", process_identity),
           ("benchexec_process", benchexec_identity),
@@ -8505,6 +8520,8 @@ copy_phase_evidence "$2"
           + "\n",
           encoding="utf-8",
       )
+      with self.assertRaisesRegex(RuntimeError, "completion state"):
+        dataset.formal_attempt_record(markerless_normal_args)
       stopped.unlink()
       after.unlink()
       check.unlink()
@@ -8677,6 +8694,12 @@ copy_phase_evidence "$2"
       prepared_directory = recovery_directory.with_name(
           f".{recovery_head}.preparing"
       )
+      historical_stopped.write_text(
+          f"pid={owned.pid}\nexit=0\nsamples=1\n", encoding="utf-8"
+      )
+      with self.assertRaisesRegex(RuntimeError, "partial or invalid"):
+        dataset.command_recover_formal_attempt(args)
+      historical_stopped.unlink()
       with mock.patch.object(
           dataset.baseline,
           "command_machine",
@@ -9032,7 +9055,7 @@ copy_phase_evidence "$2"
               ),
           }
       )
-      with self.assertRaisesRegex(RuntimeError, "not incomplete"):
+      with self.assertRaisesRegex(RuntimeError, "completion state"):
         dataset.command_formal_attempt_complete(recovered_args)
       forged = json.loads(marker.read_text(encoding="utf-8"))
       forged["host"] = "valkyrie"

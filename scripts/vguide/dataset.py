@@ -5014,13 +5014,22 @@ def validate_monitor_stop_evidence(path, pid, mode, benchexec_exit):
       or (
           normal
           and benchexec_exit not in {0, 130}
-          and (not is_strict_probe_mode(mode) or benchexec_exit != 125)
+          and (
+              benchexec_exit != 125
+              or (
+                  mode not in {"cap8", "cap16"}
+                  and not is_strict_probe_mode(mode)
+              )
+          )
       )
       or (
           recovered
           and (
               benchexec_exit != 125
-              or (mode != "cap16" and not is_strict_probe_mode(mode))
+              or (
+                  mode not in {"cap8", "cap16"}
+                  and not is_strict_probe_mode(mode)
+              )
           )
       )
   ):
@@ -5152,9 +5161,31 @@ def formal_attempt_record(args, recovery_state=None):
   actual_check = json.loads(
       paths["machine_check"][0].read_text(encoding="utf-8")
   )
-  if recovered:
-    if not metadata["incomplete"]:
-      raise RuntimeError("recovered formal attempt result is not incomplete")
+  markerless = args.benchexec_exit == 125
+  if markerless and metadata["incomplete"] != recovered:
+    raise RuntimeError(
+        "markerless formal attempt completion state is inconsistent"
+    )
+  if markerless and not recovered:
+    historical_paths = {
+        "monitor_stopped": (
+            root / f"provenance/{args.label}-load-monitor.jsonl.stopped"
+        ),
+        "machine_after": (
+            root / f"provenance/machine-after-{args.label}.json"
+        ),
+        "machine_check": (
+            root / f"provenance/machine-check-{args.label}.json"
+        ),
+    }
+    if any(
+        paths[name][0] != historical_paths[name]
+        for name in historical_paths
+    ):
+      raise RuntimeError(
+          "markerless formal attempt historical evidence is not canonical"
+      )
+  if markerless:
     identities = {
         "benchexec-launcher": benchexec_identity,
         "load-monitor": process_identity,
@@ -5176,9 +5207,10 @@ def formal_attempt_record(args, recovery_state=None):
         paths["benchexec_log"][0],
         paths["load_monitor"][0],
         manifest,
-        allow_trailing_nul=True,
+        allow_trailing_nul=recovered,
         allow_final_log_only_completion=allow_final_log_only_completion,
     )
+  if recovered:
     binding = actual_check.get("process_boot_binding")
     if not isinstance(binding, dict):
       raise RuntimeError("formal recovery boot binding is missing")
@@ -6397,9 +6429,10 @@ def command_recover_formal_attempt(args):
       )
   complete_namespace = recovery_evidence_namespace_complete(expected_outputs)
   prepared_outputs = formal_recovery_preparation_paths(expected_outputs)
+  prepared_directory = prepared_outputs["monitor_stopped"].parent
   if (
       complete_namespace
-      and prepared_outputs["monitor_stopped"].parent.exists()
+      and (prepared_directory.exists() or prepared_directory.is_symlink())
   ):
     raise RuntimeError(
         "formal recovery preparation conflicts with published evidence"
@@ -6426,6 +6459,46 @@ def command_recover_formal_attempt(args):
       f"pid={pid}\nexit=unobserved\nsamples={samples}\n"
       "recovery=authenticated-process-gone\n"
   )
+  historical = {
+      "monitor_stopped": (
+          root / f"provenance/{args.label}-load-monitor.jsonl.stopped"
+      ),
+      "machine_after": (
+          root / f"provenance/machine-after-{args.label}.json"
+      ),
+      "machine_check": (
+          root / f"provenance/machine-check-{args.label}.json"
+      ),
+  }
+  historical_present = {
+      name: path.exists() or path.is_symlink()
+      for name, path in historical.items()
+  }
+  if any(historical_present.values()) and (
+      not all(historical_present.values())
+      or any(
+          path.is_symlink() or not path.is_file()
+          for path in historical.values()
+      )
+  ):
+    raise RuntimeError(
+        "formal recovery historical evidence is partial or invalid"
+    )
+  if all(historical_present.values()):
+    if complete_namespace:
+      validate_stored_recovery_evidence(
+          outputs, inputs["machine_before"], identities, stop_content
+      )
+    elif prepared_directory.exists() or prepared_directory.is_symlink():
+      raise RuntimeError(
+          "formal recovery historical evidence conflicts with preparation"
+      )
+    recovered_args = argparse.Namespace(**vars(args))
+    recovered_args.benchexec_exit = 125
+    for name, path in historical.items():
+      setattr(recovered_args, name, str(path))
+    command_formal_attempt_complete(recovered_args)
+    return
   if complete_namespace:
     validate_stored_recovery_evidence(
         outputs, inputs["machine_before"], identities, stop_content
