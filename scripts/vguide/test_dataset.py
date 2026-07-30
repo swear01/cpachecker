@@ -845,6 +845,44 @@ class DatasetTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "reproduce exactly"):
           dataset.validate_phase_d_output(args)
 
+  def test_marker_validation_reuses_authenticated_recovery_state(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      label = "repetition-1-replacement-attempt-1"
+      authorization = root / f"provenance/authorizations/{label}.json"
+      authorization.parent.mkdir(parents=True)
+      authorization.write_text("{}\n", encoding="utf-8")
+      state = {"authenticated": True}
+      identities = {
+          role: {"schema_version": dataset.FORMAL_PROCESS_IDENTITY_SCHEMA}
+          for role in ("benchexec-launcher", "load-monitor")
+      }
+      with mock.patch.object(
+          dataset,
+          "load_formal_recovery_ledger",
+          side_effect=AssertionError("recursive ledger load"),
+      ), mock.patch.object(
+          dataset,
+          "formal_recovery_authorization",
+          side_effect=RuntimeError("authenticated state reused"),
+      ) as validate:
+        with self.assertRaisesRegex(
+            RuntimeError, "authenticated state reused"
+        ):
+          dataset.validate_markerless_recovery_identity_selection(
+              root,
+              label,
+              "replacement",
+              1,
+              {},
+              identities,
+              root,
+              state,
+          )
+      validate.assert_called_once_with(
+          root.resolve(), authorization, state
+      )
+
   def test_benchexec_paths_preserve_working_directory_representation(self):
     with tempfile.TemporaryDirectory() as temp:
       root = Path(temp)
@@ -910,6 +948,12 @@ class DatasetTest(unittest.TestCase):
 
       dataset.validate_result_run_topology(
           result, manifest, sv_benchmarks, definition
+      )
+      relocated = root / "relocated/deeper/output/results/result.xml"
+      relocated.parent.mkdir(parents=True)
+      shutil.copy2(result, relocated)
+      dataset.validate_result_run_topology(
+          relocated, manifest, sv_benchmarks, definition
       )
 
       alias = root / "sv-benchmarks-alias"
@@ -1731,7 +1775,9 @@ class DatasetTest(unittest.TestCase):
         "a20797345df1bef6d5be5356906ee106b75b374b0d6cd2adfbc56cc5c3e65fef",
     ):
       self.assertIn(value, runner)
-    self.assertIn("FORMAL_HOST=valkyrie", runner)
+    self.assertIn(
+        'FORMAL_HOST=$(/usr/bin/python3 -I -S -B -', runner
+    )
     self.assertIn('$(hostname -s) != "$FORMAL_HOST"', runner)
     self.assertIn("LLM/VGuide environment is forbidden", runner)
     self.assertIn("output directory must be absent or empty", runner)
@@ -1745,7 +1791,9 @@ class DatasetTest(unittest.TestCase):
     self.assertIn("changed materialized skip-worktree file", runner)
     self.assertIn("validate_formal_package_topology", runner)
     self.assertIn("reject_output_overlap", runner)
+    self.assertIn("host-migration-seed", runner)
     self.assertIn('"$JAVA_HOME" "$ANT_INSTALL" "$PYTHON_BIN" "$PYTHON_STDLIB"', runner)
+
     self.assertIn(
         '"$PYTHON_DIST_PACKAGES" "$PYTHON_LOCAL_DIST_PACKAGES"', runner
     )
@@ -1853,6 +1901,45 @@ class DatasetTest(unittest.TestCase):
     self.assertIn('--repetition-plan "${PLANS[1]}"', runner)
     self.assertNotIn('--result "${RESULTS[0]}"', runner)
 
+  def test_formal_runner_accepts_only_schema_bound_migration_bundle(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temporary:
+      package = Path(temporary)
+      for name in (
+          "candidate-manifest.json",
+          "seed-ledger.json",
+          "unreach-call.prp",
+      ):
+        (package / name).write_text("{}\n", encoding="utf-8")
+      protocol = package / "protocol.json"
+      command = [
+          "bash",
+          "-c",
+          'source "$1"; validate_recovery_protocol_topology "$2"',
+          "test",
+          str(runner),
+          str(package),
+      ]
+      protocol.write_text(json.dumps({
+          "schema_version": dataset.FORMAL_RECOVERY_PROTOCOL_SCHEMA,
+      }), encoding="utf-8")
+      subprocess.run(command, check=True)
+      bundle = package / "host-migration-seed"
+      bundle.mkdir()
+      for name in (
+          "export-manifest.json",
+          "migration-manifest.json",
+          "seed-ledger.json",
+      ):
+        (bundle / name).write_text("{}\n", encoding="utf-8")
+      self.assertNotEqual(subprocess.run(command).returncode, 0)
+      protocol.write_text(json.dumps({
+          "schema_version": dataset.FORMAL_HOST_MIGRATION_PROTOCOL_SCHEMA,
+      }), encoding="utf-8")
+      subprocess.run(command, check=True)
+      (bundle / "link").symlink_to(bundle / "seed-ledger.json")
+      self.assertNotEqual(subprocess.run(command).returncode, 0)
+
   def test_formal_runner_result_lookup_is_exact_and_fail_closed(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
     with tempfile.TemporaryDirectory() as temp:
@@ -1895,6 +1982,52 @@ class DatasetTest(unittest.TestCase):
       )
       self.assertNotEqual(missing.returncode, 0)
       self.assertIn("found 0", missing.stderr)
+
+  def test_formal_recovery_attempt_number_reserves_old_artifacts(self):
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      for directory in (
+          root / "generated",
+          root / "results",
+          root / "provenance",
+          root / "provenance/preparations",
+          root / "provenance/authorizations",
+          root / "provenance/attempts",
+      ):
+        directory.mkdir(parents=True, exist_ok=True)
+      (root / "repetition-2-replacement-attempt-7-taint.json").touch()
+      (root / "generated/repetition-2-replacement-attempt-3").mkdir()
+      (root / "results/repetition-2-replacement-attempt-9").mkdir()
+      (root / "provenance/repetition-2-replacement-attempt-8.log").touch()
+      (root / "provenance/attempts/"
+       "repetition-1-replacement-attempt-99.json").touch()
+
+      self.assertEqual(dataset.next_formal_attempt_number(root, 2), 10)
+
+  def test_formal_recovery_taint_path_is_marker_addressed(self):
+    runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
+    with tempfile.TemporaryDirectory() as temp:
+      root = Path(temp)
+      label = "repetition-2-replacement-attempt-1"
+      marker = root / f"{label}.json"
+      marker.write_text('{"complete": true}\n', encoding="utf-8")
+      stale = root / f"{label}-taint.json"
+      stale.write_text("historical\n", encoding="utf-8")
+      command = (
+          'source "$1"; formal_recovery_taint_path "$2" "$3"'
+      )
+      result = subprocess.run(
+          ["bash", "-c", command, "bash", str(runner), str(root), str(marker)],
+          check=True,
+          capture_output=True,
+          text=True,
+      )
+      expected = (
+          root
+          / f"{label}-taint-{dataset.baseline.sha256_file(marker)}.json"
+      )
+      self.assertEqual(result.stdout.strip(), str(expected))
+      self.assertEqual(stale.read_text(encoding="utf-8"), "historical\n")
 
   def test_formal_runner_rejects_dirty_benchexec_checkout(self):
     runner = Path(__file__).with_name("run-stock-formal-dataset.sh")
@@ -2750,6 +2883,7 @@ exit 2
           ]) + "\n",
           encoding="utf-8",
       )
+      monitor.write_bytes(monitor.read_bytes() + (b"\0" * 16))
       taint = root / "legacy-r1-primary-taint.json"
       taint.write_text(json.dumps({
           "schema_version": dataset.FORMAL_TAINT_SCHEMA,
@@ -2794,7 +2928,8 @@ exit 2
       runtime_closure.write_text("runtime\n", encoding="utf-8")
       files["runtime_closure"] = file_entry(runtime_closure)
       migration.write_text(json.dumps({
-          "schema_version": dataset.FORMAL_RECOVERY_MIGRATION_SCHEMA,
+          "schema_version":
+              dataset.FORMAL_PORTABLE_RECOVERY_MIGRATION_SCHEMA,
           "parent_manifest_sha256": dataset.baseline.sha256_file(manifest),
           "mode": "cap8",
           "host": "valkyrie",
@@ -2820,6 +2955,11 @@ exit 2
                   "workers": 2,
                   "cores_per_worker": 4,
                   "p_cores": dataset.FORMAL_P_CORE_LIST,
+              },
+              "evidence_policy": {
+                  "allow_trailing_nul": True,
+                  "allow_final_log_only_completion": False,
+                  "allow_missing_monitor_coverage": True,
               },
               "files": files,
           }],
@@ -2959,6 +3099,177 @@ exit 2
       self.assertEqual(
           [shard["tasks"] for shard in frozen["repetitions"][0]["shards"]],
           [tasks[:8], tasks[8:]],
+      )
+
+  def test_cap16_host_migration_protocol_preserves_seed_and_pending_shards(self):
+    with tempfile.TemporaryDirectory() as temporary:
+      root = Path(temporary)
+      fixture = phase_b_fixture(root)
+      manifest = Path(fixture.parent_manifest)
+      bundle = root / "input/host-migration-seed"
+      bundle.mkdir(parents=True)
+      evidence = {}
+      for name in (
+          "definition",
+          "result",
+          "benchexec_log",
+          "load_monitor",
+          "taint_manifest",
+          "boot_evidence",
+          "runtime_closure",
+      ):
+        path = bundle / f"{name}.txt"
+        path.write_text(f"{name}\n", encoding="utf-8")
+        evidence[name] = dataset.recovery_file_entry(path, root)
+      migration = bundle / "migration-manifest.json"
+      migration.write_text("{}\n", encoding="utf-8")
+      evidence["migration_manifest"] = dataset.recovery_file_entry(
+          migration, root
+      )
+      task = fixture.rows[0]["task"]
+      seed = bundle / "seed-ledger.json"
+      seed.write_text(json.dumps({
+          "schema_version": dataset.FORMAL_RECOVERY_SEED_SCHEMA,
+          "parent_manifest_sha256": dataset.baseline.sha256_file(manifest),
+          "rows": [{
+              "repetition": 1,
+              "task": task,
+              "classification": "accepted_and_reusable",
+              "row": {
+                  "task": task,
+                  "status": "TIMEOUT",
+                  "category": "error",
+                  "classification": "timeout",
+                  "cpu_time_seconds": 900.0,
+                  "wall_time_seconds": 900.0,
+              },
+              "provenance": {
+                  "attempt_id": "athena-attempt",
+                  **evidence,
+                  "attempt_marker": None,
+                  "machine_before": None,
+                  "process_descriptor": None,
+              },
+          }],
+      }), encoding="utf-8")
+      runtime = root / "runtime.json"
+      runtime.write_text(json.dumps({
+          **dataset.FORMAL_RUNTIME_COMMITS,
+          "configuration_closure_sha256": "2" * 64,
+          "solver": "MathSAT5",
+          "limits": {
+              "cpu": "900 s",
+              "hard_cpu": "910 s",
+              "wall": "920 s",
+              "memory": "15 GB",
+              "heap": "10000M",
+          },
+          "workers": 1,
+          "cores_per_worker": 4,
+          "p_cores": dataset.FORMAL_P_CORE_LIST,
+      }), encoding="utf-8")
+      protocol = root / "protocol.json"
+      source_export = bundle / "export-manifest.json"
+      files = []
+      aggregate = hashlib.sha256()
+      for path in sorted(bundle.iterdir()):
+        if path == source_export:
+          continue
+        relative = path.relative_to(root).as_posix()
+        digest = dataset.baseline.sha256_file(path)
+        files.append({
+            "path": relative,
+            "size_bytes": path.stat().st_size,
+            "sha256": digest,
+        })
+        aggregate.update(relative.encode("utf-8"))
+        aggregate.update(b"\0")
+        aggregate.update(bytes.fromhex(digest))
+      task_count = len(dataset.baseline.load_task_manifest(manifest))
+      source_export.write_text(json.dumps({
+          "schema_version":
+              dataset.FORMAL_HOST_MIGRATION_EXPORT_SCHEMA,
+          "source": {
+              "host": "athena",
+              "protocol_sha256": "4" * 64,
+              "seed_ledger_sha256": "5" * 64,
+              "ledger_entries": [],
+          },
+          "settled": {"1": 1, "2": 0},
+          "pending": {"1": task_count - 1, "2": task_count},
+          "migration_manifest_sha256":
+              dataset.baseline.sha256_file(migration),
+          "seed_ledger_sha256": dataset.baseline.sha256_file(seed),
+          "file_count": len(files),
+          "aggregate_sha256": aggregate.hexdigest(),
+          "files": files,
+      }), encoding="utf-8")
+      dataset.command_freeze_formal_host_migration_protocol(
+          SimpleNamespace(
+              manifest=str(manifest),
+              property_file=str(root / "c/properties/unreach-call.prp"),
+              seed_ledger=str(seed),
+              runtime_closure=str(runtime),
+              source_export=str(source_export),
+              source_commit="3" * 40,
+              mode="cap16",
+              output=str(protocol),
+          )
+      )
+      frozen, _, _, rows = dataset.load_formal_recovery_protocol(
+          protocol,
+          seed,
+          manifest,
+          root / "c/properties/unreach-call.prp",
+      )
+      self.assertEqual(frozen["host"], "valkyrie")
+      self.assertEqual(frozen["seed_host"], "athena")
+      self.assertEqual(
+          frozen["comparison_policy"],
+          dataset.FORMAL_HOST_STRATIFIED_POLICY,
+      )
+      self.assertEqual(len(rows), 1)
+      self.assertNotIn(
+          task, frozen["repetitions"][0]["pending_tasks"]
+      )
+      self.assertIn(task, frozen["repetitions"][1]["pending_tasks"])
+      source_export.write_text("{}\n", encoding="utf-8")
+      with self.assertRaises(RuntimeError):
+        dataset.validate_formal_host_migration_export(
+            root, source_export, seed, manifest,
+            dataset.baseline.load_task_manifest(manifest),
+        )
+
+  def test_host_stratified_classification_never_compares_solved_times(self):
+    solved = [
+        {"category": "correct", "cpu_time_seconds": 250.0},
+        {"category": "correct", "cpu_time_seconds": 300.0},
+    ]
+    self.assertEqual(
+        dataset.classify_host_stratified_repetitions(
+            solved,
+            ["athena", "valkyrie"],
+            200,
+            dataset.FORMAL_HOST_STRATIFIED_POLICY,
+        ),
+        "cross_host_runtime_out_of_scope",
+    )
+    unsolved = [
+        {"category": "error", "classification": "timeout"},
+        {"category": "error", "classification": "timeout"},
+    ]
+    self.assertEqual(
+        dataset.classify_host_stratified_repetitions(
+            unsolved,
+            ["athena", "valkyrie"],
+            200,
+            dataset.FORMAL_HOST_STRATIFIED_POLICY,
+        ),
+        "stable_analysis_unsolved",
+    )
+    with self.assertRaises(RuntimeError):
+      dataset.classify_host_stratified_repetitions(
+          solved, ["athena", "valkyrie"], 200, None
       )
 
   def test_recovery_file_entry_rejects_symlinked_parent(self):
@@ -3380,6 +3691,50 @@ capture_research_provenance "$4"
       self.assertEqual(file_bytes(prior), prior_bytes)
       self.assertEqual(file_bytes(current), current_bytes)
 
+      def check_protocol_source(source):
+        protocol = root / "protocol.json"
+        protocol.write_text(
+            json.dumps({"source_commit": source}), encoding="utf-8"
+        )
+        return subprocess.run(
+            [
+                "bash",
+                "-c",
+                """
+source "$1"
+RESEARCH_ROOT=$2
+ACTIVE_RESEARCH_PROVENANCE=$3
+verify_protocol_source_ancestry "$4"
+""",
+                "bash",
+                str(runner),
+                str(research),
+                str(current),
+                str(protocol),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+      accepted_source = check_protocol_source(original_head)
+      self.assertEqual(accepted_source.returncode, 0, accepted_source.stderr)
+      unrelated = subprocess.check_output(
+          [
+              "git",
+              "-C",
+              research,
+              "commit-tree",
+              f"{current_head}^{{tree}}",
+          ],
+          input="unrelated\n",
+          text=True,
+      ).strip()
+      rejected_source = check_protocol_source(unrelated)
+      self.assertNotEqual(rejected_source.returncode, 0)
+      self.assertIn(
+          "does not descend from protocol source", rejected_source.stderr
+      )
+
       descriptor = dataset.formal_process_descriptor(SimpleNamespace(
           output_root=str(output),
           mode="cap16",
@@ -3473,6 +3828,27 @@ capture_research_provenance "$4"
       ]["argv"]
       self.assertEqual(
           cap8_recovery_argv[cap8_recovery_argv.index("-N") + 1], "2"
+      )
+      migrated_inputs = {
+          **descriptor["inputs"],
+          "name":
+              "hard-case-dataset-v2-cap16-formal-valkyrie-repetition-1",
+          "python_bin": "/usr/bin/python3.10",
+      }
+      migrated_descriptor = dataset.formal_process_descriptor(
+          SimpleNamespace(
+              **migrated_inputs,
+              output_root=str(output),
+              mode="cap16",
+              label="repetition-1",
+              host="valkyrie",
+          )
+      )
+      migrated_argv = migrated_descriptor["identities"][
+          "benchexec-launcher"
+      ]["argv"]
+      self.assertEqual(
+          migrated_argv[migrated_argv.index("-N") + 1], "1"
       )
 
       prior_dataset = prior / "scripts/dataset.py"
@@ -4855,9 +5231,9 @@ copy_phase_evidence "$2"
       root = Path(temp)
       tasks = [
           {
-              "task": f"c/t{index}.yml",
-              "task_path": f"c/t{index}.yml",
-              "source_paths": [f"c/s{index}.c"],
+              "task": f"c/eca-programs/t{index}.yml",
+              "task_path": f"c/eca-programs/t{index}.yml",
+              "source_paths": [f"c/eca-programs/s{index}.c"],
               "expected_verdict": "true",
               "benchmark_set": "Loops",
           }
@@ -4928,8 +5304,63 @@ copy_phase_evidence "$2"
       tainted = json.loads(output.read_text(encoding="utf-8"))["tasks"]
       self.assertEqual(
           [row["task"] for row in tainted],
-          ["c/t0.yml", "c/t1.yml"],
+          ["c/eca-programs/t0.yml", "c/eca-programs/t1.yml"],
       )
+      result_root = ET.parse(result).getroot()
+      for run in result_root.findall("run"):
+        next(
+            column for column in run.findall("column")
+            if column.get("title") == "walltime"
+        ).set("value", "8s")
+      ET.ElementTree(result_root).write(result, encoding="unicode")
+      compact_log = root / "compact-benchexec.log"
+      compact_log.write_text(
+          "\n".join([
+              "00:00:02   t0.yml    2026-07-30 00:00:10 - WARNING",
+              "00:00:12   t1.yml    TIMEOUT 900 8",
+              "00:00:22   t2.yml    TIMEOUT 900 8",
+          ]) + "\n",
+          encoding="utf-8",
+      )
+      compact_output = root / "compact-taint.json"
+      dataset.command_formal_taint(
+          SimpleNamespace(
+              manifest=str(manifest),
+              repetition=1,
+              result=str(result),
+              benchexec_log=str(compact_log),
+              load_monitor=str(monitor),
+              output=str(compact_output),
+          )
+      )
+      self.assertEqual(
+          [
+              row["task"]
+              for row in json.loads(
+                  compact_output.read_text(encoding="utf-8")
+              )["tasks"]
+          ],
+          ["c/eca-programs/t0.yml", "c/eca-programs/t1.yml"],
+      )
+      manifest_rows = {task["task"]: task for task in tasks}
+      self.assertEqual(
+          dataset.match_benchexec_log_task(
+              "eca-programs/t0.yml", manifest_rows
+          ),
+          "c/eca-programs/t0.yml",
+      )
+      with self.assertRaisesRegex(RuntimeError, "exactly one"):
+        dataset.match_benchexec_log_task(
+            "wrong/eca-programs/t0.yml", manifest_rows
+        )
+      with self.assertRaisesRegex(RuntimeError, "exactly one"):
+        dataset.match_benchexec_log_task(
+            "t0.yml",
+            {
+                **manifest_rows,
+                "c/other/t0.yml": tasks[0],
+            },
+        )
       monitor.write_text(
           "\n".join(monitor.read_text(encoding="utf-8").splitlines()[:2])
           + "\n",
@@ -8657,7 +9088,11 @@ copy_phase_evidence "$2"
     self.assertIn('main cap16 "$@"', wrapper)
     self.assertIn('source "$SCRIPT_DIR/run-stock-formal-dataset.sh"', wrapper)
     self.assertIn("CAP16_PHASE_A_OUTPUT", runner)
-    self.assertIn("FORMAL_HOST=athena", runner)
+    self.assertIn(
+        'FORMAL_HOST=$(/usr/bin/python3 -I -S -B -', runner
+    )
+    self.assertIn('if [[ "$FORMAL_HOST" == athena ]]', runner)
+    self.assertIn('elif [[ "$FORMAL_HOST" == valkyrie ]]', runner)
     self.assertIn("EXPECTED_PYTHON_REAL=/usr/bin/python3.12", runner)
     self.assertIn("validate-cap16-phase-a", runner)
     self.assertIn("render-cap16-formal", runner)

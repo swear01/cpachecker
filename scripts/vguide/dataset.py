@@ -217,8 +217,23 @@ CAP16_PROBE_STRATA = STRICT_PROBE_STRATA
 SCREEN_REPETITION_PLAN_SCHEMA = "hard-case-screen-repetition-plan-v1"
 SCREEN_TAINT_SCHEMA = "hard-case-screen-taint-v1"
 FORMAL_RECOVERY_PROTOCOL_SCHEMA = "hard-case-formal-recovery-protocol-v1"
+FORMAL_HOST_MIGRATION_PROTOCOL_SCHEMA = (
+    "hard-case-formal-host-migration-protocol-v2"
+)
+FORMAL_HOST_STRATIFIED_POLICY = (
+    "no-cross-host-runtime-threshold-comparison"
+)
+FORMAL_HOST_MIGRATION_EXPORT_SCHEMA = (
+    "hard-case-formal-host-migration-export-v1"
+)
+FORMAL_CAP16_SV_BENCHMARKS_DIRECTORY = (
+    "sv-benchmarks-cap16-athena-r2-20260728"
+)
 FORMAL_RECOVERY_SEED_SCHEMA = "hard-case-formal-recovery-seed-ledger-v1"
 FORMAL_RECOVERY_MIGRATION_SCHEMA = "hard-case-formal-recovery-migration-v1"
+FORMAL_PORTABLE_RECOVERY_MIGRATION_SCHEMA = (
+    "hard-case-formal-recovery-migration-v2"
+)
 FORMAL_RECOVERY_BOOT_EVIDENCE_SCHEMA = "hard-case-formal-boot-evidence-v1"
 FORMAL_RECOVERY_AUTHORIZATION_SCHEMA = (
     "hard-case-formal-attempt-authorization-v1"
@@ -1127,6 +1142,28 @@ def classify_repetitions(rows, hard_threshold):
   return "mixed"
 
 
+def classify_host_stratified_repetitions(
+    rows, hosts, hard_threshold, comparison_policy
+):
+  if (
+      len(rows) != len(hosts)
+      or any(host not in {"athena", "valkyrie"} for host in hosts)
+      or comparison_policy not in {None, FORMAL_HOST_STRATIFIED_POLICY}
+      or (
+          len(set(hosts)) > 1
+          and comparison_policy != FORMAL_HOST_STRATIFIED_POLICY
+      )
+  ):
+    raise RuntimeError("formal measurement-host policy is invalid")
+  if (
+      comparison_policy == FORMAL_HOST_STRATIFIED_POLICY
+      and len(set(hosts)) > 1
+      and all(row["category"] == "correct" for row in rows)
+  ):
+    return "cross_host_runtime_out_of_scope"
+  return classify_repetitions(rows, hard_threshold)
+
+
 def is_analysis_unsolved(row):
   classification = row.get("classification")
   if classification in {"timeout", "out_of_memory"}:
@@ -1914,6 +1951,7 @@ def benchexec_path_representations(
   try:
     relative = expected.relative_to(sv_benchmarks).as_posix()
     representations.add(relative)
+    representations.add(f"../../../{sv_benchmarks.name}/{relative}")
     representations.add(f"../../../../{sv_benchmarks.name}/{relative}")
   except ValueError:
     pass
@@ -1947,20 +1985,20 @@ def validate_result_run_topology(
   property_representations = benchexec_path_representations(
       official_property, sv_benchmarks, benchmark_definition, result_file
   )
+  tasks_by_path = {}
+  for task_name, candidate in manifest.items():
+    if candidate["source"] != "sv-benchmarks":
+      continue
+    for representation in benchexec_path_representations(
+        sv_benchmarks / candidate["task_path"],
+        sv_benchmarks,
+        benchmark_definition,
+        result_file,
+    ):
+      tasks_by_path.setdefault(representation, []).append(task_name)
   for run in root.findall("run"):
     run_name = run.get("name", "").replace("\\", "/")
-    matching_tasks = [
-        name
-        for name, candidate in manifest.items()
-        if candidate["source"] == "sv-benchmarks"
-        and run_name
-        in benchexec_path_representations(
-            sv_benchmarks / candidate["task_path"],
-            sv_benchmarks,
-            benchmark_definition,
-            result_file,
-        )
-    ]
+    matching_tasks = tasks_by_path.get(run_name, [])
     if len(matching_tasks) != 1:
       raise RuntimeError(f"result task path is not exact: {run_name}")
     task_name = matching_tasks[0]
@@ -4216,12 +4254,15 @@ def formal_process_descriptor(args, legacy=False, descriptor_schema=None):
       or args.monitor_exclude_root <= 0
   ):
     raise RuntimeError("formal process descriptor inputs are invalid")
-  expected_host = (
-      "athena" if args.mode in {"cap16", "cap16-probe"} else "valkyrie"
-  )
+  if args.mode == "cap16":
+    expected_hosts = {"athena", "valkyrie"}
+  elif args.mode == "cap16-probe":
+    expected_hosts = {"athena"}
+  else:
+    expected_hosts = {"valkyrie"}
   expected_python = (
       Path("/usr/bin/python3.12")
-      if args.mode in {"cap16", "cap16-probe"}
+      if args.host == "athena"
       else Path("/usr/bin/python3.10")
   )
   recovery_root = dataset_py.parent.parent
@@ -4239,7 +4280,7 @@ def formal_process_descriptor(args, legacy=False, descriptor_schema=None):
       == f"{recovery_match.group(1)}\n"
   )
   if (
-      args.host != expected_host
+      args.host not in expected_hosts
       or python_bin != expected_python
       or (
           dataset_py
@@ -4986,7 +5027,7 @@ def validate_monitor_stop_evidence(path, pid, mode, benchexec_exit):
   return recovered
 
 
-def formal_attempt_record(args):
+def formal_attempt_record(args, recovery_state=None):
   root = Path(args.output_root).resolve()
   manifest_path = Path(args.manifest).resolve()
   manifest = baseline.load_task_manifest(manifest_path)
@@ -5126,6 +5167,7 @@ def formal_attempt_record(args):
             {name: path for name, (path, _) in paths.items()},
             identities,
             args.sv_benchmarks,
+            recovery_state,
         )
     )
     run_taints(
@@ -5251,7 +5293,13 @@ def formal_attempt_record(args):
 
 
 def validate_formal_attempt_marker(
-    marker_path, root, manifest_path, sv_benchmarks, host, mode
+    marker_path,
+    root,
+    manifest_path,
+    sv_benchmarks,
+    host,
+    mode,
+    recovery_state=None,
 ):
   marker = Path(marker_path).resolve()
   record = json.loads(marker.read_text(encoding="utf-8"))
@@ -5326,7 +5374,7 @@ def validate_formal_attempt_marker(
           for name, entry in record["files"].items()
       },
   )
-  expected = formal_attempt_record(args)
+  expected = formal_attempt_record(args, recovery_state)
   if expected != record:
     raise RuntimeError("formal attempt marker content is invalid")
   return record
@@ -5792,6 +5840,7 @@ def validate_markerless_recovery_identity_selection(
     paths,
     identities,
     sv_benchmarks=None,
+    recovery_state=None,
 ):
   schemas = {identity["schema_version"] for identity in identities.values()}
   if schemas == {LEGACY_FORMAL_PROCESS_IDENTITY_SCHEMA}:
@@ -5803,19 +5852,17 @@ def validate_markerless_recovery_identity_selection(
   if authorization_path.is_file() and not authorization_path.is_symlink():
     if sv_benchmarks is None:
       raise RuntimeError("formal recovery SV-Benchmarks root is missing")
-    protocol_root = root / "input/recovery-protocol"
-    protocol_path = protocol_root / "protocol.json"
-    seed_path = protocol_root / "seed-ledger.json"
-    manifest_path = protocol_root / "candidate-manifest.json"
-    property_file = protocol_root / "unreach-call.prp"
-    state = load_formal_recovery_ledger(
-        root,
-        protocol_path,
-        seed_path,
-        manifest_path,
-        property_file,
-        sv_benchmarks,
-    )
+    if recovery_state is None:
+      protocol_root = root / "input/recovery-protocol"
+      recovery_state = load_formal_recovery_ledger(
+          root,
+          protocol_root / "protocol.json",
+          protocol_root / "seed-ledger.json",
+          protocol_root / "candidate-manifest.json",
+          protocol_root / "unreach-call.prp",
+          sv_benchmarks,
+      )
+    state = recovery_state
     authorization = formal_recovery_authorization(
         root, authorization_path, state
     )
@@ -6466,6 +6513,15 @@ def validate_formal_closure(args):
       "verifier-failure-quarantine.csv",
       "wrong-quarantine.csv",
   }
+  if (
+      generic_recovery
+      and json.loads(
+          (root / "input/recovery-protocol/protocol.json").read_text(
+              encoding="utf-8"
+          )
+      ).get("schema_version") == FORMAL_HOST_MIGRATION_PROTOCOL_SCHEMA
+  ):
+    expected_summary.add("cross-host-runtime-out-of-scope.csv")
   actual_summary = {
       path.name
       for path in (root / "summary").iterdir()
@@ -8100,10 +8156,21 @@ def load_formal_contention_intervals(path, allow_trailing_nul=False):
 
 
 def match_benchexec_log_task(name, manifest):
+  normalized = name.replace("\\", "/")
   try:
-    return baseline.match_result_task(name, manifest)
-  except RuntimeError:
-    return baseline.match_result_task(f"c/{name}", manifest)
+    return baseline.match_result_task(normalized, manifest)
+  except RuntimeError as error:
+    if "/" in normalized:
+      try:
+        return baseline.match_result_task(f"c/{normalized}", manifest)
+      except RuntimeError:
+        raise error
+    matches = [
+        task for task in manifest if Path(task).name == normalized
+    ]
+    if len(matches) != 1:
+      raise error
+    return matches[0]
 
 
 def run_taints(
@@ -8142,8 +8209,8 @@ def run_taints(
   )
   day = start_date.date()
   previous_clock = start_date.timetz().replace(tzinfo=None)
-  starts = {}
-  ends = {}
+  explicit_starts = {}
+  unmarked_events = {}
   pattern = re.compile(
       r"^(\d{2}:\d{2}:\d{2})\s+(?:(starting)\s+)?(\S+\.yml)(?:\s+.*)?$"
   )
@@ -8167,12 +8234,23 @@ def run_taints(
     previous_clock = clock
     timestamp = datetime.datetime.combine(day, clock, start_date.tzinfo)
     task = match_benchexec_log_task(match.group(3), subset)
-    target = starts if match.group(2) else ends
+    target = explicit_starts if match.group(2) else unmarked_events
     if task in target:
       raise RuntimeError(f"duplicate BenchExec log event for {task}")
     target[task] = timestamp
-  if set(ends) - set(starts):
+  if explicit_starts and set(unmarked_events) - set(explicit_starts):
     raise RuntimeError("BenchExec log completes a task that it never started")
+  starts = dict(explicit_starts)
+  ends = {}
+  for task, timestamp in unmarked_events.items():
+    if explicit_starts:
+      ends[task] = timestamp
+    else:
+      starts[task] = timestamp
+      if row_is_complete(rows[task]):
+        ends[task] = timestamp + datetime.timedelta(
+            seconds=rows[task]["wall_time_seconds"]
+        )
   if any(ended < starts[task] for task, ended in ends.items()):
     raise RuntimeError("BenchExec log completes a task before it starts")
   if (
@@ -8577,12 +8655,15 @@ def validate_formal_boot_evidence(path, attempt_id, host):
   return data
 
 
-def command_build_formal_recovery_seed(args):
+def command_build_formal_recovery_seed(args, recovery_state=None):
   root = Path(args.output_root).resolve()
   manifest_path = Path(args.manifest).resolve()
   manifest = baseline.load_task_manifest(manifest_path)
   migration_path = Path(args.migration_manifest).resolve()
   migration = json.loads(migration_path.read_text(encoding="utf-8"))
+  migration_schema = (
+      migration.get("schema_version") if isinstance(migration, dict) else None
+  )
   expected_host = "athena" if args.mode == "cap16" else "valkyrie"
   if (
       not isinstance(migration, dict)
@@ -8593,7 +8674,11 @@ def command_build_formal_recovery_seed(args):
           "host",
           "attempts",
       }
-      or migration["schema_version"] != FORMAL_RECOVERY_MIGRATION_SCHEMA
+      or migration_schema
+      not in {
+          FORMAL_RECOVERY_MIGRATION_SCHEMA,
+          FORMAL_PORTABLE_RECOVERY_MIGRATION_SCHEMA,
+      }
       or migration["parent_manifest_sha256"]
       != baseline.sha256_file(manifest_path)
       or migration["mode"] != args.mode
@@ -8617,16 +8702,19 @@ def command_build_formal_recovery_seed(args):
       "machine_before",
   }
   for attempt in migration["attempts"]:
+    attempt_keys = {
+        "id",
+        "repetition",
+        "completion_state",
+        "task_set_sha256",
+        "runtime",
+        "files",
+    }
+    if migration_schema == FORMAL_PORTABLE_RECOVERY_MIGRATION_SCHEMA:
+      attempt_keys.add("evidence_policy")
     if (
         not isinstance(attempt, dict)
-        or set(attempt) != {
-            "id",
-            "repetition",
-            "completion_state",
-            "task_set_sha256",
-            "runtime",
-            "files",
-        }
+        or set(attempt) != attempt_keys
         or not isinstance(attempt["id"], str)
         or not attempt["id"]
         or attempt["id"] in attempt_ids
@@ -8637,6 +8725,34 @@ def command_build_formal_recovery_seed(args):
         or set(attempt["files"]) != file_keys
     ):
       raise RuntimeError("formal recovery migration attempt is invalid")
+    if migration_schema == FORMAL_PORTABLE_RECOVERY_MIGRATION_SCHEMA:
+      policy = attempt["evidence_policy"]
+      if (
+          not isinstance(policy, dict)
+          or set(policy)
+          != {
+              "allow_trailing_nul",
+              "allow_final_log_only_completion",
+              "allow_missing_monitor_coverage",
+          }
+          or any(not isinstance(value, bool) for value in policy.values())
+          or (
+              (
+                  policy["allow_trailing_nul"]
+                  or policy["allow_final_log_only_completion"]
+              )
+              and attempt["completion_state"] != "interrupted"
+          )
+          or (
+              policy["allow_final_log_only_completion"]
+              and not policy["allow_trailing_nul"]
+          )
+      ):
+        raise RuntimeError(
+            "formal recovery migration evidence policy is invalid"
+        )
+    else:
+      policy = None
     validate_formal_migration_runtime(attempt["runtime"], args.mode)
     attempt_ids.add(attempt["id"])
     files = {}
@@ -8682,8 +8798,16 @@ def command_build_formal_recovery_seed(args):
     if not set(result_tasks) <= set(definition_tasks):
       raise RuntimeError("formal recovery migration result exceeds its task set")
     subset = {task: manifest[task] for task in result_tasks}
+    result_sv_benchmarks = Path(args.sv_benchmarks).resolve()
+    if args.mode == "cap16":
+      result_sv_benchmarks = result_sv_benchmarks.with_name(
+          FORMAL_CAP16_SV_BENCHMARKS_DIRECTORY
+      )
     validate_result_run_topology(
-        files["result"], subset, args.sv_benchmarks, files["definition"]
+        files["result"],
+        subset,
+        result_sv_benchmarks,
+        files["definition"],
     )
     parsed = {
         row["task"]: row
@@ -8717,6 +8841,7 @@ def command_build_formal_recovery_seed(args):
           args.sv_benchmarks,
           expected_host,
           args.mode,
+          recovery_state,
       )
       expected_marker_files = {
           "definition": files["definition"],
@@ -8757,19 +8882,49 @@ def command_build_formal_recovery_seed(args):
           raise RuntimeError(
               "formal recovery migration process boot record differs"
           )
+    marker_policy = {
+        "allow_trailing_nul": (
+            marker is not None and marker["benchexec_exit"] == 125
+        ),
+        "allow_final_log_only_completion": (
+            marker is not None
+            and marker_authorizes_final_log_only_completion(marker)
+        ),
+        "allow_missing_monitor_coverage": marker is None,
+    }
+    if policy is None:
+      policy = marker_policy
+    elif marker is not None and policy != marker_policy:
+      raise RuntimeError(
+          "formal recovery migration evidence policy differs from marker"
+      )
+    if policy["allow_final_log_only_completion"]:
+      selection = FROZEN_CAP16_ATHENA_V2_RECOVERY_SELECTION
+      if (
+          attempt["id"] != selection["label"]
+          or attempt["repetition"] != selection["repetition"]
+          or any(
+              attempt["files"][name] is None
+              or attempt["files"][name]["sha256"]
+              != selection["files"][name]["sha256"]
+              for name in ("result", "benchexec_log", "load_monitor")
+          )
+      ):
+        raise RuntimeError(
+            "formal recovery migration final-log policy is not frozen"
+        )
     recomputed_taint = run_taints(
         files["result"],
         files["benchexec_log"],
         files["load_monitor"],
         manifest,
-        allow_trailing_nul=(
-            marker is not None and marker["benchexec_exit"] == 125
-        ),
+        allow_trailing_nul=policy["allow_trailing_nul"],
         allow_final_log_only_completion=(
-            marker is not None
-            and marker_authorizes_final_log_only_completion(marker)
+            policy["allow_final_log_only_completion"]
         ),
-        allow_missing_monitor_coverage=marker is None,
+        allow_missing_monitor_coverage=(
+            policy["allow_missing_monitor_coverage"]
+        ),
     )
     if tainted != recomputed_taint:
       raise RuntimeError("formal recovery migration taint differs")
@@ -8830,6 +8985,510 @@ def command_build_formal_recovery_seed(args):
       args.mode,
   )
   print(output)
+
+
+def validate_formal_host_migration_export(
+    root, export_path, seed_path, manifest_path, manifest
+):
+  root = Path(root).resolve()
+  export_path = Path(export_path).resolve()
+  seed_path = Path(seed_path).resolve()
+  bundle = root / "input/host-migration-seed"
+  if (
+      export_path != bundle / "export-manifest.json"
+      or export_path.is_symlink()
+      or not export_path.is_file()
+  ):
+    raise RuntimeError("formal host migration export path is invalid")
+  export = json.loads(export_path.read_text(encoding="utf-8"))
+  source = export.get("source") if isinstance(export, dict) else None
+  if (
+      not isinstance(export, dict)
+      or set(export) != {
+          "schema_version",
+          "source",
+          "settled",
+          "pending",
+          "migration_manifest_sha256",
+          "seed_ledger_sha256",
+          "file_count",
+          "aggregate_sha256",
+          "files",
+      }
+      or export["schema_version"] != FORMAL_HOST_MIGRATION_EXPORT_SCHEMA
+      or not isinstance(source, dict)
+      or set(source)
+      != {
+          "host",
+          "protocol_sha256",
+          "seed_ledger_sha256",
+          "ledger_entries",
+      }
+      or source["host"] != "athena"
+      or any(
+          not re.fullmatch(r"[0-9a-f]{64}", source[name])
+          for name in ("protocol_sha256", "seed_ledger_sha256")
+      )
+      or not isinstance(source["ledger_entries"], list)
+      or not isinstance(export["files"], list)
+      or not isinstance(export["file_count"], int)
+      or not re.fullmatch(r"[0-9a-f]{64}", export["aggregate_sha256"])
+  ):
+    raise RuntimeError("formal host migration export identity is invalid")
+  ledger_entries = source["ledger_entries"]
+  if any(
+      not isinstance(entry, dict)
+      or set(entry) != {"path", "sha256"}
+      or not isinstance(entry["path"], str)
+      or Path(entry["path"]).is_absolute()
+      or ".." in Path(entry["path"]).parts
+      or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
+      for entry in ledger_entries
+  ) or ledger_entries != sorted(
+      ledger_entries, key=lambda entry: entry["path"]
+  ) or len({
+      (entry["path"], entry["sha256"]) for entry in ledger_entries
+  }) != len(ledger_entries):
+    raise RuntimeError("formal host migration source ledgers are invalid")
+  _, seed_rows = load_formal_recovery_seed(
+      seed_path, manifest_path, manifest
+  )
+  for row in seed_rows.values():
+    for label, entry in row["provenance"].items():
+      if label == "attempt_id" or entry is None:
+        continue
+      evidence_path = validate_recovery_file_entry(
+          root, entry, f"formal host migration {label}"
+      )
+      try:
+        evidence_path.relative_to(bundle)
+      except ValueError as error:
+        raise RuntimeError(
+            "formal host migration seed evidence escapes its bundle"
+        ) from error
+  settled = {
+      str(repetition): sum(
+          candidate_repetition == repetition
+          for candidate_repetition, _ in seed_rows
+      )
+      for repetition in (1, 2)
+  }
+  pending = {
+      str(repetition): len(manifest) - settled[str(repetition)]
+      for repetition in (1, 2)
+  }
+  migration_path = bundle / "migration-manifest.json"
+  bundle_seed = bundle / "seed-ledger.json"
+  if (
+      export["settled"] != settled
+      or export["pending"] != pending
+      or export["migration_manifest_sha256"]
+      != baseline.sha256_file(migration_path)
+      or export["seed_ledger_sha256"] != baseline.sha256_file(bundle_seed)
+      or baseline.sha256_file(seed_path) != export["seed_ledger_sha256"]
+  ):
+    raise RuntimeError("formal host migration export state differs")
+  entries = []
+  aggregate = hashlib.sha256()
+  for entry in export["files"]:
+    if (
+        not isinstance(entry, dict)
+        or set(entry) != {"path", "size_bytes", "sha256"}
+        or not isinstance(entry["path"], str)
+        or Path(entry["path"]).is_absolute()
+        or ".." in Path(entry["path"]).parts
+        or not isinstance(entry["size_bytes"], int)
+        or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
+    ):
+      raise RuntimeError("formal host migration export file is invalid")
+    path = root / entry["path"]
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.stat().st_size != entry["size_bytes"]
+        or baseline.sha256_file(path) != entry["sha256"]
+    ):
+      raise RuntimeError("formal host migration export file differs")
+    entries.append(entry["path"])
+    aggregate.update(entry["path"].encode("utf-8"))
+    aggregate.update(b"\0")
+    aggregate.update(bytes.fromhex(entry["sha256"]))
+  actual = []
+  for path in bundle.rglob("*"):
+    mode = path.lstat().st_mode
+    if stat.S_ISDIR(mode):
+      continue
+    if not stat.S_ISREG(mode):
+      raise RuntimeError("formal host migration export node is invalid")
+    if path != export_path:
+      actual.append(path.relative_to(root).as_posix())
+  actual.sort()
+  if (
+      entries != sorted(entries)
+      or len(entries) != len(set(entries))
+      or entries != actual
+      or export["file_count"] != len(entries)
+      or export["aggregate_sha256"] != aggregate.hexdigest()
+  ):
+    raise RuntimeError("formal host migration export closure differs")
+  return export
+
+
+def command_export_formal_host_migration_seed(args):
+  source = Path(args.source_root).resolve()
+  destination = Path(args.destination_root).resolve()
+  require_absent_or_empty_output(destination)
+  state = load_formal_recovery_ledger(
+      source,
+      args.protocol,
+      args.seed_ledger,
+      args.manifest,
+      args.property_file,
+      args.sv_benchmarks,
+  )
+  if (
+      state["protocol"]["mode"] != "cap16"
+      or state["protocol"]["host"] != "athena"
+      or state["pending"][1] == []
+      or len(state["pending"][2]) != len(state["manifest"])
+  ):
+    raise RuntimeError("formal host migration source state is invalid")
+  bundle = destination / "input/host-migration-seed"
+  evidence = bundle / "evidence"
+  evidence.mkdir(parents=True)
+
+  def copy_entry(entry, label):
+    path = validate_recovery_file_entry(source, entry, label)
+    target = evidence / entry["sha256"] / path.name
+    target.parent.mkdir(exist_ok=True)
+    if target.exists():
+      if (
+          target.is_symlink()
+          or not target.is_file()
+          or baseline.sha256_file(target) != entry["sha256"]
+      ):
+        raise RuntimeError("formal host migration evidence conflicts")
+    else:
+      shutil.copy2(path, target)
+    return recovery_file_entry(target, destination)
+
+  def copy_result_entry(entry, label):
+    path = validate_recovery_file_entry(source, entry, label)
+    target = bundle / f"result-{entry['sha256']}-{path.name}"
+    if target.exists():
+      if (
+          target.is_symlink()
+          or not target.is_file()
+          or baseline.sha256_file(target) != entry["sha256"]
+      ):
+        raise RuntimeError("formal host migration result conflicts")
+    else:
+      shutil.copy2(path, target)
+    return recovery_file_entry(target, destination)
+
+  def copy_definition_entry(entry, label):
+    path = validate_recovery_file_entry(source, entry, label)
+    copied = copy_entry(entry, label)
+    target = destination / copied["path"]
+    definition = ET.parse(path).getroot()
+    for group in definition.findall("./rundefinition/tasks"):
+      includes = group.findall("includesfile")
+      expected_name = f"hard-case-candidates-{group.get('name')}.set"
+      if (
+          len(includes) != 1
+          or not includes[0].text
+          or Path(includes[0].text).name != expected_name
+      ):
+        raise RuntimeError(
+            "formal host migration definition task set is invalid"
+        )
+      task_set = path.parent / expected_name
+      if task_set.is_symlink() or not task_set.is_file():
+        raise RuntimeError(
+            "formal host migration definition task set is missing"
+        )
+      copied_task_set = target.parent / expected_name
+      if copied_task_set.exists():
+        if (
+            copied_task_set.is_symlink()
+            or not copied_task_set.is_file()
+            or copied_task_set.read_bytes() != task_set.read_bytes()
+        ):
+          raise RuntimeError(
+              "formal host migration definition task set conflicts"
+          )
+      else:
+        shutil.copy2(task_set, copied_task_set)
+    return copied
+
+  attempts = []
+  attempt_ids = set()
+  seed_migrations = {
+      (
+          entry["provenance"]["migration_manifest"]["path"],
+          entry["provenance"]["migration_manifest"]["sha256"],
+      ): validate_recovery_file_entry(
+          source,
+          entry["provenance"]["migration_manifest"],
+          "host migration source manifest",
+      )
+      for entry in state["settled"].values()
+      if entry["provenance"].get("migration_manifest") is not None
+  }
+
+  def evidence_policy(attempt, marker):
+    if "evidence_policy" in attempt:
+      return attempt["evidence_policy"]
+    return {
+        "allow_trailing_nul": (
+            marker is not None and marker["benchexec_exit"] == 125
+        ),
+        "allow_final_log_only_completion": (
+            marker is not None
+            and marker_authorizes_final_log_only_completion(marker)
+        ),
+        "allow_missing_monitor_coverage": marker is None,
+    }
+
+  for migration_path in seed_migrations.values():
+    migration = json.loads(migration_path.read_text(encoding="utf-8"))
+    for attempt in migration["attempts"]:
+      if attempt["id"] in attempt_ids:
+        raise RuntimeError("formal host migration attempt is duplicated")
+      attempt_ids.add(attempt["id"])
+      marker_entry = attempt["files"]["attempt_marker"]
+      marker = (
+          None
+          if marker_entry is None
+          else json.loads(
+              validate_recovery_file_entry(
+                  source,
+                  marker_entry,
+                  f"host migration {attempt['id']} marker",
+              ).read_text(encoding="utf-8")
+          )
+      )
+      attempts.append({
+          **attempt,
+          "evidence_policy": evidence_policy(attempt, marker),
+          "files": {
+              label: (
+                  None
+                  if label in {
+                      "attempt_marker",
+                      "process_descriptor",
+                      "machine_before",
+                  }
+                  else (
+                      copy_definition_entry
+                      if label == "definition"
+                      else (
+                          copy_result_entry
+                          if label == "result"
+                          else copy_entry
+                      )
+                  )(
+                      entry, f"host migration {attempt['id']} {label}"
+                  )
+              )
+              for label, entry in attempt["files"].items()
+          },
+      })
+
+  runtime_closure = source / "provenance/runtime-closure.txt"
+  if (
+      runtime_closure.is_symlink()
+      or not runtime_closure.is_file()
+      or baseline.sha256_file(runtime_closure)
+      != state["protocol"]["runtime"]["configuration_closure_sha256"]
+  ):
+    raise RuntimeError("formal host migration runtime closure differs")
+  runtime_entry = copy_entry(
+      recovery_file_entry(runtime_closure, source),
+      "host migration runtime closure",
+  )
+  for ledger_path, ledger in state["attempts"]:
+    settled_rows = [row for row in ledger["rows"] if row["settled"]]
+    if not settled_rows:
+      continue
+    authorization_path = validate_recovery_file_entry(
+        source, ledger["authorization"], "host migration authorization"
+    )
+    marker_path = validate_recovery_file_entry(
+        source, ledger["attempt_marker"], "host migration marker"
+    )
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    label = authorization["label"]
+    if label in attempt_ids:
+      raise RuntimeError("formal host migration attempt is duplicated")
+    attempt_ids.add(label)
+    identities = [
+        json.loads(
+            validate_recovery_file_entry(
+                source,
+                marker["files"][name],
+                f"host migration {label} {name}",
+            ).read_text(encoding="utf-8")
+        )
+        for name in ("benchexec_process", "monitor_process")
+    ]
+    boot_ids = {identity.get("boot_id") for identity in identities}
+    if boot_ids != {authorization["boot_id"]}:
+      raise RuntimeError("formal host migration process boot differs")
+    boot_record = {
+        "schema_version": FORMAL_RECOVERY_BOOT_EVIDENCE_SCHEMA,
+        "attempt_id": label,
+        "host": "athena",
+        "boot_id": authorization["boot_id"],
+        "method": "owned_process_identity",
+        "records": identities,
+    }
+    boot_content = (
+        json.dumps(boot_record, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    boot_sha256 = hashlib.sha256(boot_content).hexdigest()
+    boot_path = evidence / boot_sha256 / f"{label}-boot-evidence.json"
+    boot_path.parent.mkdir(exist_ok=True)
+    if boot_path.exists() and boot_path.read_bytes() != boot_content:
+      raise RuntimeError("formal host migration boot evidence conflicts")
+    boot_path.write_bytes(boot_content)
+    attempts.append({
+        "id": label,
+        "repetition": authorization["repetition"],
+        "completion_state": (
+            "interrupted" if marker["result_incomplete"] else "complete"
+        ),
+        "task_set_sha256": authorization["task_set_sha256"],
+        "runtime": state["protocol"]["runtime"],
+        "evidence_policy": evidence_policy({}, marker),
+        "files": {
+            "definition": copy_definition_entry(
+                marker["files"]["definition"],
+                f"host migration {label} definition",
+            ),
+            "result": copy_result_entry(
+                marker["files"]["result"],
+                f"host migration {label} result",
+            ),
+            "benchexec_log": copy_entry(
+                marker["files"]["benchexec_log"],
+                f"host migration {label} BenchExec log",
+            ),
+            "load_monitor": copy_entry(
+                marker["files"]["load_monitor"],
+                f"host migration {label} load monitor",
+            ),
+            "taint_manifest": copy_entry(
+                ledger["taint_manifest"],
+                f"host migration {label} taint manifest",
+            ),
+            "boot_evidence": recovery_file_entry(
+                boot_path, destination
+            ),
+            "runtime_closure": runtime_entry,
+            "attempt_marker": None,
+            "process_descriptor": None,
+            "machine_before": None,
+        },
+    })
+  migration = {
+      "schema_version": FORMAL_PORTABLE_RECOVERY_MIGRATION_SCHEMA,
+      "parent_manifest_sha256": baseline.sha256_file(Path(args.manifest)),
+      "mode": "cap16",
+      "host": "athena",
+      "attempts": attempts,
+  }
+  migration_path = bundle / "migration-manifest.json"
+  migration_path.write_text(
+      json.dumps(migration, indent=2, sort_keys=True) + "\n",
+      encoding="utf-8",
+  )
+  seed_path = bundle / "seed-ledger.json"
+  command_build_formal_recovery_seed(argparse.Namespace(
+      output_root=str(destination),
+      migration_manifest=str(migration_path),
+      manifest=str(Path(args.manifest).resolve()),
+      sv_benchmarks=str(Path(args.sv_benchmarks).resolve()),
+      mode="cap16",
+      output=str(seed_path),
+  ))
+  _, exported = load_formal_recovery_seed(
+      seed_path, args.manifest, state["manifest"]
+  )
+  expected = {
+      identity: (entry["classification"], entry["row"])
+      for identity, entry in state["settled"].items()
+  }
+  actual = {
+      identity: (entry["classification"], entry["row"])
+      for identity, entry in exported.items()
+  }
+  if actual != expected:
+    raise RuntimeError("formal host migration seed differs from source ledger")
+  files = []
+  aggregate = hashlib.sha256()
+  for path in sorted(bundle.rglob("*")):
+    if not path.is_file() or path.name == "export-manifest.json":
+      continue
+    relative = path.relative_to(destination).as_posix()
+    digest = baseline.sha256_file(path)
+    files.append({
+        "path": relative,
+        "size_bytes": path.stat().st_size,
+        "sha256": digest,
+    })
+    aggregate.update(relative.encode("utf-8"))
+    aggregate.update(b"\0")
+    aggregate.update(bytes.fromhex(digest))
+  export = {
+      "schema_version": FORMAL_HOST_MIGRATION_EXPORT_SCHEMA,
+      "source": {
+          "host": "athena",
+          "protocol_sha256": state["protocol_sha256"],
+          "seed_ledger_sha256": state["seed_sha256"],
+          "ledger_entries": [
+              recovery_file_entry(path, source)
+              for path, _ in state["attempts"]
+          ],
+      },
+      "settled": {
+          str(repetition): sum(
+              candidate_repetition == repetition
+              for candidate_repetition, _ in state["settled"]
+          )
+          for repetition in (1, 2)
+      },
+      "pending": {
+          str(repetition): len(state["pending"][repetition])
+          for repetition in (1, 2)
+      },
+      "migration_manifest_sha256": baseline.sha256_file(migration_path),
+      "seed_ledger_sha256": baseline.sha256_file(seed_path),
+      "file_count": len(files),
+      "aggregate_sha256": aggregate.hexdigest(),
+      "files": files,
+  }
+  export_path = bundle / "export-manifest.json"
+  export_path.write_text(
+      json.dumps(export, indent=2, sort_keys=True) + "\n",
+      encoding="utf-8",
+  )
+  validate_formal_host_migration_export(
+      destination,
+      export_path,
+      seed_path,
+      args.manifest,
+      state["manifest"],
+  )
+  print(json.dumps({
+      "export_manifest": str(export_path),
+      "export_manifest_sha256": baseline.sha256_file(export_path),
+      "seed_ledger": str(seed_path),
+      "seed_ledger_sha256": baseline.sha256_file(seed_path),
+      "settled": export["settled"],
+      "pending": export["pending"],
+  }, sort_keys=True))
 
 
 def validate_formal_runtime(runtime, allowed_workers):
@@ -8897,25 +9556,56 @@ def load_formal_recovery_protocol(
       seed_path, manifest_path, manifest
   )
   data = json.loads(path.read_text(encoding="utf-8"))
+  schema = data.get("schema_version") if isinstance(data, dict) else None
+  base_keys = {
+      "schema_version",
+      "source_commit",
+      "mode",
+      "host",
+      "parent_manifest_sha256",
+      "property_sha256",
+      "seed_ledger_sha256",
+      "runtime",
+      "shard_size",
+      "repetitions",
+  }
+  if schema == FORMAL_RECOVERY_PROTOCOL_SCHEMA:
+    expected_keys = base_keys
+    expected_host = "athena" if data.get("mode") == "cap16" else "valkyrie"
+    seed_host = expected_host
+    comparison_policy = None
+  elif schema == FORMAL_HOST_MIGRATION_PROTOCOL_SCHEMA:
+    expected_keys = base_keys | {
+        "seed_host",
+        "comparison_policy",
+        "source_export_sha256",
+    }
+    expected_host = "valkyrie"
+    seed_host = data.get("seed_host")
+    comparison_policy = data.get("comparison_policy")
+  else:
+    expected_keys = set()
+    expected_host = None
+    seed_host = None
+    comparison_policy = None
   if (
       not isinstance(data, dict)
-      or set(data) != {
-          "schema_version",
-          "source_commit",
-          "mode",
-          "host",
-          "parent_manifest_sha256",
-          "property_sha256",
-          "seed_ledger_sha256",
-          "runtime",
-          "shard_size",
-          "repetitions",
-      }
-      or data["schema_version"] != FORMAL_RECOVERY_PROTOCOL_SCHEMA
+      or set(data) != expected_keys
       or not re.fullmatch(r"[0-9a-f]{40}", data["source_commit"])
       or data["mode"] not in {"cap8", "cap16"}
-      or data["host"]
-      != ("athena" if data["mode"] == "cap16" else "valkyrie")
+      or data["host"] != expected_host
+      or (
+          data["schema_version"] == FORMAL_HOST_MIGRATION_PROTOCOL_SCHEMA
+          and (
+              data["mode"] != "cap16"
+              or seed_host != "athena"
+              or comparison_policy != FORMAL_HOST_STRATIFIED_POLICY
+              or not seed_rows
+              or not re.fullmatch(
+                  r"[0-9a-f]{64}", data["source_export_sha256"]
+              )
+          )
+      )
       or data["parent_manifest_sha256"]
       != baseline.sha256_file(manifest_path)
       or data["property_sha256"] != baseline.sha256_file(property_file)
@@ -8963,10 +9653,14 @@ def load_formal_recovery_protocol(
       })
     if record["shards"] != expected_shards:
       raise RuntimeError("formal recovery shard partition differs")
+  data["seed_host"] = seed_host
+  data["comparison_policy"] = comparison_policy
   return data, seed, manifest, seed_rows
 
 
-def command_freeze_formal_recovery_protocol(args):
+def freeze_formal_recovery_protocol(
+    args, schema, host, seed_host=None, comparison_policy=None
+):
   output = Path(args.output).resolve()
   if output.exists() or output.is_symlink():
     raise RuntimeError("formal recovery protocol output already exists")
@@ -9005,10 +9699,10 @@ def command_freeze_formal_recovery_protocol(args):
         "shards": shards,
     })
   protocol = {
-      "schema_version": FORMAL_RECOVERY_PROTOCOL_SCHEMA,
+      "schema_version": schema,
       "source_commit": args.source_commit,
       "mode": args.mode,
-      "host": "athena" if args.mode == "cap16" else "valkyrie",
+      "host": host,
       "parent_manifest_sha256": baseline.sha256_file(manifest_path),
       "property_sha256": baseline.sha256_file(property_file),
       "seed_ledger_sha256": baseline.sha256_file(Path(args.seed_ledger)),
@@ -9016,6 +9710,20 @@ def command_freeze_formal_recovery_protocol(args):
       "shard_size": shard_size,
       "repetitions": repetitions,
   }
+  if schema == FORMAL_HOST_MIGRATION_PROTOCOL_SCHEMA:
+    source_export = Path(args.source_export).resolve()
+    validate_formal_host_migration_export(
+        source_export.parents[2],
+        source_export,
+        Path(args.seed_ledger),
+        manifest_path,
+        manifest,
+    )
+    protocol["seed_host"] = seed_host
+    protocol["comparison_policy"] = comparison_policy
+    protocol["source_export_sha256"] = baseline.sha256_file(
+        source_export
+    )
   output.parent.mkdir(parents=True, exist_ok=True)
   output.write_text(
       json.dumps(protocol, indent=2, sort_keys=True) + "\n",
@@ -9027,6 +9735,24 @@ def command_freeze_formal_recovery_protocol(args):
   print(output)
 
 
+def command_freeze_formal_recovery_protocol(args):
+  freeze_formal_recovery_protocol(
+      args,
+      FORMAL_RECOVERY_PROTOCOL_SCHEMA,
+      "athena" if args.mode == "cap16" else "valkyrie",
+  )
+
+
+def command_freeze_formal_host_migration_protocol(args):
+  freeze_formal_recovery_protocol(
+      args,
+      FORMAL_HOST_MIGRATION_PROTOCOL_SCHEMA,
+      "valkyrie",
+      seed_host="athena",
+      comparison_policy=FORMAL_HOST_STRATIFIED_POLICY,
+  )
+
+
 def validate_seed_evidence(
     root,
     seed_rows,
@@ -9035,6 +9761,7 @@ def validate_seed_evidence(
     manifest_path,
     sv_benchmarks,
     mode,
+    recovery_state=None,
 ):
   root = Path(root).resolve()
   migrations = {}
@@ -9048,14 +9775,17 @@ def validate_seed_evidence(
     )
   expected_rows = {}
   for migration_path in migrations.values():
-    rebuilt = command_build_formal_recovery_seed(argparse.Namespace(
-        output_root=str(root),
-        migration_manifest=str(migration_path),
-        manifest=str(Path(manifest_path).resolve()),
-        sv_benchmarks=str(Path(sv_benchmarks).resolve()),
-        mode=mode,
-        output=None,
-    ))
+    rebuilt = command_build_formal_recovery_seed(
+        argparse.Namespace(
+            output_root=str(root),
+            migration_manifest=str(migration_path),
+            manifest=str(Path(manifest_path).resolve()),
+            sv_benchmarks=str(Path(sv_benchmarks).resolve()),
+            mode=mode,
+            output=None,
+        ),
+        recovery_state,
+    )
     for row in rebuilt["rows"]:
       identity = (row["repetition"], row["task"])
       if identity in expected_rows:
@@ -9156,15 +9886,6 @@ def load_formal_recovery_ledger(
   protocol, seed, manifest, seed_rows = load_formal_recovery_protocol(
       protocol_path, seed_path, manifest_path, property_file
   )
-  validate_seed_evidence(
-      root,
-      seed_rows,
-      manifest,
-      protocol["host"],
-      manifest_path,
-      sv_benchmarks,
-      protocol["mode"],
-  )
   protocol_sha256 = baseline.sha256_file(Path(protocol_path))
   seed_sha256 = baseline.sha256_file(Path(seed_path))
   validation_state = {
@@ -9175,6 +9896,32 @@ def load_formal_recovery_ledger(
       "manifest_path": Path(manifest_path).resolve(),
       "sv_benchmarks": Path(sv_benchmarks).resolve(),
   }
+  if protocol["schema_version"] == FORMAL_HOST_MIGRATION_PROTOCOL_SCHEMA:
+    source_export = root / "input/host-migration-seed/export-manifest.json"
+    if (
+        source_export.is_symlink()
+        or not source_export.is_file()
+        or baseline.sha256_file(source_export)
+        != protocol["source_export_sha256"]
+    ):
+      raise RuntimeError("formal host-migration source export differs")
+    validate_formal_host_migration_export(
+        root,
+        source_export,
+        seed_path,
+        manifest_path,
+        manifest,
+    )
+  validate_seed_evidence(
+      root,
+      seed_rows,
+      manifest,
+      protocol["seed_host"],
+      manifest_path,
+      sv_benchmarks,
+      protocol["mode"],
+      validation_state,
+  )
   settled = dict(seed_rows)
   attempts = []
   entries = root / "provenance/formal-ledger/entries"
@@ -9223,6 +9970,7 @@ def load_formal_recovery_ledger(
           sv_benchmarks,
           protocol["host"],
           protocol["mode"],
+          validation_state,
       )
       for identity_name in ("benchexec_process", "monitor_process"):
         identity_path = validate_recovery_file_entry(
@@ -9567,17 +10315,24 @@ def formal_recovery_shard(protocol, repetition, shard_id):
 
 def next_formal_attempt_number(root, repetition):
   pattern = re.compile(
-      rf"repetition-{repetition}-replacement-attempt-([1-9]\d*)"
+      rf"repetition-{repetition}-replacement-attempt-([1-9]\d*)(?=$|[^0-9])"
   )
+  root = Path(root).resolve()
   numbers = []
   for directory in (
-      Path(root) / "provenance/preparations",
-      Path(root) / "provenance/authorizations",
-      Path(root) / "provenance/attempts",
+      root,
+      root / "generated",
+      root / "results",
+      root / "provenance",
+      root / "provenance/preparations",
+      root / "provenance/authorizations",
+      root / "provenance/attempts",
   ):
     if directory.exists():
-      for path in directory.glob("*.json"):
-        match = pattern.fullmatch(path.stem)
+      if directory.is_symlink() or not directory.is_dir():
+        raise RuntimeError("formal recovery attempt namespace is invalid")
+      for path in directory.iterdir():
+        match = pattern.search(path.name)
         if match:
           numbers.append(int(match.group(1)))
   return max(numbers, default=0) + 1
@@ -10302,6 +11057,7 @@ def command_accept_formal_recovery_attempt(args):
         args.sv_benchmarks,
         state["protocol"]["host"],
         state["protocol"]["mode"],
+        state,
     )
     if (
         marker["repetition"] != authorization["repetition"]
@@ -10473,6 +11229,7 @@ def load_formal_recovery_plan(path, sv_benchmarks):
   if record != expected:
     raise RuntimeError("formal recovery plan content differs")
   result_entries = {}
+  result_hosts = {}
   row_sources = []
   rows = {}
   for entry in record["rows"]:
@@ -10484,11 +11241,25 @@ def load_formal_recovery_plan(path, sv_benchmarks):
     provenance = entry["provenance"]
     result = provenance["result"]
     result_entries.setdefault(result["path"], result)
+    source = (
+        "formal_recovery_seed"
+        if provenance.get("migration_manifest") is not None
+        else "formal_recovery_ledger"
+    )
+    measurement_host = (
+        state["protocol"]["seed_host"]
+        if source == "formal_recovery_seed"
+        else state["protocol"]["host"]
+    )
+    previous_host = result_hosts.setdefault(result["path"], measurement_host)
+    if previous_host != measurement_host:
+      raise RuntimeError("formal recovery result has conflicting hosts")
     row_sources.append({
         "task": task,
-        "source": "formal_recovery_ledger",
+        "source": source,
         "classification": entry["classification"],
         **provenance,
+        "measurement_host": measurement_host,
     })
   metadata = []
   result_hashes = []
@@ -10499,7 +11270,7 @@ def load_formal_recovery_plan(path, sv_benchmarks):
     parsed = result_metadata(
         result, FORMAL_DISPLAY, "900 s", allow_incomplete=True
     )
-    if parsed["host"] != state["protocol"]["host"]:
+    if parsed["host"] != result_hosts[relative]:
       raise RuntimeError("formal recovery plan result host differs")
     metadata.append(parsed)
     result_hashes.append(entry["sha256"])
@@ -10521,6 +11292,7 @@ def load_formal_recovery_plan(path, sv_benchmarks):
       "replacement_metadata": metadata[1:],
       "rows": rows,
       "row_sources": row_sources,
+      "comparison_policy": state["protocol"]["comparison_policy"],
   }
 
 
@@ -11233,10 +12005,28 @@ def command_summarize(args):
       json.dumps(provenance, indent=2) + "\n", encoding="utf-8"
   )
   details = {row["task"]: row for row in full_manifest["tasks"]}
+  comparison_policies = {
+      plan.get("comparison_policy") for plan in plans
+  }
+  if len(comparison_policies) != 1:
+    raise RuntimeError("formal plans have conflicting comparison policies")
+  comparison_policy = comparison_policies.pop()
   rows = []
   for task in sorted(manifest):
     runs = [plan["rows"][task] for plan in plans]
-    classification = classify_repetitions(runs, args.hard_threshold)
+    measurement_hosts = [
+        next(
+            row["measurement_host"]
+            for row in plan["row_sources"]
+            if row["task"] == task
+        )
+        if plan.get("generic_recovery")
+        else host
+        for plan in plans
+    ]
+    classification = classify_host_stratified_repetitions(
+        runs, measurement_hosts, args.hard_threshold, comparison_policy
+    )
     family = details[task]["family"]
     rows.append(
         {
@@ -11248,6 +12038,7 @@ def command_summarize(args):
             "split": split_for_family(f"{details[task]['source']}:{family}"),
             "cpu_seconds": ";".join(str(run["cpu_time_seconds"]) for run in runs),
             "statuses": ";".join(run["status"] for run in runs),
+            "measurement_hosts": ";".join(measurement_hosts),
             "result_sources": ";".join(
                 next(
                     row["source"]
@@ -11270,10 +12061,11 @@ def command_summarize(args):
           "split",
           "cpu_seconds",
           "statuses",
+          "measurement_hosts",
           "result_sources",
       ]
   )
-  for filename, subset in (
+  outputs = [
       ("classification.csv", rows),
       (
           "hard-portfolio.csv",
@@ -11297,7 +12089,17 @@ def command_summarize(args):
           ],
       ),
       ("mixed.csv", [row for row in rows if row["classification"] == "mixed"]),
-  ):
+  ]
+  if comparison_policy == FORMAL_HOST_STRATIFIED_POLICY:
+    outputs.append((
+        "cross-host-runtime-out-of-scope.csv",
+        [
+            row
+            for row in rows
+            if row["classification"] == "cross_host_runtime_out_of_scope"
+        ],
+    ))
+  for filename, subset in outputs:
     with (output / filename).open("w", newline="", encoding="utf-8") as target:
       writer = csv.DictWriter(target, fieldnames=fieldnames)
       writer.writeheader()
@@ -11330,6 +12132,12 @@ def command_summarize(args):
       ],
       "row_provenance_sha256": baseline.sha256_file(provenance_path),
       "host": host,
+      "measurement_hosts": sorted({
+          measurement_host
+          for row in rows
+          for measurement_host in row["measurement_hosts"].split(";")
+      }),
+      "comparison_policy": comparison_policy,
       "manifest_sha256": baseline.sha256_file(manifest_path),
       "benchmark_definition_sha256": baseline.sha256_file(
           Path(args.benchmark_definition)
@@ -11875,6 +12683,20 @@ def main():
   freeze_recovery.set_defaults(
       function=command_freeze_formal_recovery_protocol
   )
+  freeze_host_migration = commands.add_parser(
+      "freeze-formal-host-migration-protocol"
+  )
+  freeze_host_migration.add_argument("--manifest", required=True)
+  freeze_host_migration.add_argument("--property-file", required=True)
+  freeze_host_migration.add_argument("--seed-ledger", required=True)
+  freeze_host_migration.add_argument("--runtime-closure", required=True)
+  freeze_host_migration.add_argument("--source-export", required=True)
+  freeze_host_migration.add_argument("--source-commit", required=True)
+  freeze_host_migration.add_argument("--output", required=True)
+  freeze_host_migration.set_defaults(
+      function=command_freeze_formal_host_migration_protocol,
+      mode="cap16",
+  )
   build_recovery_seed = commands.add_parser(
       "build-formal-recovery-seed"
   )
@@ -11888,6 +12710,19 @@ def main():
   build_recovery_seed.add_argument("--output", required=True)
   build_recovery_seed.set_defaults(
       function=command_build_formal_recovery_seed
+  )
+  export_host_migration = commands.add_parser(
+      "export-formal-host-migration-seed"
+  )
+  export_host_migration.add_argument("--source-root", required=True)
+  export_host_migration.add_argument("--destination-root", required=True)
+  export_host_migration.add_argument("--protocol", required=True)
+  export_host_migration.add_argument("--seed-ledger", required=True)
+  export_host_migration.add_argument("--manifest", required=True)
+  export_host_migration.add_argument("--property-file", required=True)
+  export_host_migration.add_argument("--sv-benchmarks", required=True)
+  export_host_migration.set_defaults(
+      function=command_export_formal_host_migration_seed
   )
   prepare_recovery = commands.add_parser(
       "prepare-formal-recovery-shard"

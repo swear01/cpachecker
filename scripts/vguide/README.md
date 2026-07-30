@@ -182,9 +182,10 @@ summary counts and portable artifact aggregate. It selects no task from an
 augmented result and does not accept a separately supplied survivor file. The
 authenticated Phase-A survivor manifest is the only formal input.
 
-The formal execution remains on Athena and reuses the existing two-repetition
-recovery implementation: 900 s CPU, 910 s hard-CPU and 920 s wall time,
-physical P-cores `0,2,4,6,8,10,12,14`, two four-core slots, the same sustained
+The preserved attempts described in this section ran on Athena with the
+existing two-repetition recovery implementation: 900 s CPU, 910 s hard-CPU and 920 s wall time,
+physical P-cores `0,2,4,6,8,10,12,14`, initially two four-core slots and then
+the preregistered single four-core slot, the same sustained
 foreign-load monitor, and hashed per-case taint/replacement plans. A nonzero
 BenchExec interruption that leaves an incomplete XML is preserved. Reinvoking
 the same output authenticates its saved inputs, retains every completed
@@ -377,7 +378,8 @@ The research checkout containing this runner must be frozen and published
 before launching formal measurements. `summarize-cap16-formal` classifies the
 two authenticated repetitions as `stable_hard_solved`,
 `stable_analysis_unsolved`, `stable_solved_fast`, wrong, verifier failure,
-infrastructure failure or mixed; only the first two enter
+infrastructure failure, mixed, or
+`cross_host_runtime_out_of_scope`; only the first two enter
 `hard-portfolio.csv`.
 
 The r4 runner at commit
@@ -541,10 +543,19 @@ hashes, or an unauthorized task fail closed. A launcher failure before any
 task starts is recorded as a checksummed pre-task abandonment and advances to
 a new attempt without changing the protocol. Same-boot abandonment requires
 an authenticated owned process that is proven gone; an authorization with no
-lifecycle evidence is reused rather than abandoned. Historical recovery selectors
-remain read-only migration evidence; future attempts do not require a new
-selector or code revision. Current accepted/pending counts and the next action
-are recorded in `issue16-status.json`.
+lifecycle evidence is reused rather than abandoned. Historical recovery
+selectors remain read-only migration evidence; future attempts do not require
+a new selector or code revision. Current reusable, verifier-failure, and
+pending counts and the next action are recorded in `issue16-status.json`.
+Attempt numbers reserve matching historical result and provenance names, and
+new taint evidence is addressed by its authenticated completion-marker hash,
+so a legacy taint file cannot be reused or overwritten.
+The protocol's `source_commit` authenticates the implementation that froze
+the protocol. A later externally preregistered recovery correction must be a
+Git descendant of that commit; requiring byte equality would prevent a
+published append-only correction from resuming the frozen protocol. The saved
+revision-addressed research provenance and immutable external release pin the
+exact later implementation.
 The environment-gated
 `test_formal_recovery_migration_against_actual_interrupted_trees` requires a
 JSON list at `VGUIDE_FORMAL_RECOVERY_ACTUAL_AUDITS`; each host-local entry
@@ -552,6 +563,25 @@ pins an actual output root, manifest, SV-Benchmarks checkout, seed, expected
 row count, and seed hash. Preregistration validation runs it once for cap-8
 and once for cap-16, replaying every migration against both append-only
 interrupted trees.
+
+The cap-16 host-migration protocol exports only settled Athena rows into
+hash-addressed evidence and proves that the exported seed exactly matches the
+authenticated source ledger. Its target host is Valkyrie, but the seed rows
+retain Athena as their measurement host; only pending rows run on Valkyrie in
+the frozen 8-task shards with `-N 1 -c 4`. The summary never compares solved
+CPU times across those hosts: a correct/correct mixed-host pair is
+`cross_host_runtime_out_of_scope`. Repeated timeout, out-of-memory, or semantic
+UNKNOWN observations may still be `stable_analysis_unsolved` because that
+classification does not use a cross-host runtime threshold.
+The migration protocol package contains the usual four protocol files plus
+the exact exported `host-migration-seed/` bundle; the runner copies that bundle
+to `input/host-migration-seed` before authenticating any pending shard.
+Portable migration v2 records the already authenticated per-attempt crash
+policy for trailing NUL padding, final-log handling, and monitor coverage.
+Final-log-only acceptance remains restricted to the exact frozen historical
+selector; exported result and definition closures retain their original path
+spellings and hashes.
+
 Migration alone accepts an exact historical definition whose absolute path
 prefix changed when its result tree was preserved: the XML hash, fixed
 topology, task-set basename, sibling task-set contents, parent manifest, and
@@ -653,6 +683,13 @@ authenticated abrupt-recovery case above fails closed. Before each primary or
 replacement run, launch waits until the monitor has ten samples and its latest
 sample contains no sustained contender; brief activity below the frozen
 threshold does not block launch.
+BenchExec console logs may omit the canonical leading `c/` from an otherwise
+exact task path. They may also shorten a nested task to its basename; that form
+is accepted only when it resolves to exactly one task in the authenticated
+shard. Every other path token must match the authenticated task identity.
+For sequential `-N 1` output without explicit `starting` records, the logged
+timestamp is the start and the authenticated XML wall time bounds completion;
+concurrent output must retain its separate start and completion records.
 
 The runner builds stock CPAchecker, performs the ten-second machine preflight,
 generates the fixed 900/910/920 definition with `render-formal`, and executes
