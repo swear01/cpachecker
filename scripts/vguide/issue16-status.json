@@ -1,9 +1,9 @@
 {
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785405834948405335.json",
-    "sha256": "593c223c0ce367263696be1812d3ba74ec651f1cf7f683ba344228a9445d5da9"
+    "path": "/var/tmp/issue16-live-state-1785430292359368681.json",
+    "sha256": "1456c6d2efa5bd6ed5c9d72d488a636ef906d908fc6ac31d09bc160f7f153b17"
   },
-  "blocker": "foreign processes currently exceed the frozen P-core live-gate threshold; no process is touched and the formal unit waits",
+  "blocker": null,
   "cap16": {
     "active": {
       "execution_state": "waiting_for_cap8_completion",
@@ -33,11 +33,11 @@
   },
   "cap8": {
     "active": {
-      "execution_state": "waiting_for_foreign_p_core_load",
+      "execution_state": "failed_before_new_benchmark_tasks",
       "invocation_id": "24dbfa2945e942c69700ef176e2a9237",
-      "main_pid": 1522362,
-      "state": "active",
-      "substate": "running",
+      "main_pid": 0,
+      "state": "failed",
+      "substate": "failed",
       "unit": "vguide-cap8-load-monitor-rounding-v2-wait-20260730.service"
     },
     "attempt8": {
@@ -66,10 +66,10 @@
       "2": 0
     }
   },
-  "captured_at": "2026-07-30T18:03:55+08:00",
-  "documentation_wiki_commit": "5d63a4b46580e9fb8a0cf28296dbeeeb16c3d505",
+  "captured_at": "2026-07-31T00:51:32+08:00",
+  "documentation_wiki_commit": "d6f63ba0d3350295b6c2c5c0c7cca00892926f15",
   "issue": 16,
-  "next_executable_action": "the live gate launches cap8 automatically; authenticate attempt 8, preserve seven uncontended rows, and measure only nine affected rows",
+  "next_executable_action": "create a clean v3 stage, run the zero-task no-mutation preflight, then replay attempt 8 and measure only affected or pending tasks",
   "phase": "phase_b_formal_recovery",
   "production_preflight": {
     "benchmark_tasks": 0,
@@ -77,13 +77,13 @@
     "state_unchanged": true
   },
   "release": {
-    "code_commit": "0a9f6e75014dacffd574a4b3571adc050691e4b1",
-    "fresh_verification_sha256": "5d30932d331f00b6c67fe385221d5f8ceef30f9f855e78fed2e953dff9e4159d",
-    "id": 362329899,
+    "code_commit": "977b509732437e12956a6f50a12f1428948debaf",
+    "fresh_verification_sha256": "f090f998fa436a86edc5e27ad2301eb7dabd83e5b5c83507f4414338effa1d05",
+    "id": 362580781,
     "immutable": true,
-    "outer_checksums_sha256": "07490dc25a44c086d8cbd287f42b3c1e5bba3d03e4df3f25b12c231b09df4449",
-    "postpublication_audit_sha256": "6a25af558dce0efcc91451a7ebb91663298c9420a4b6c39a6c3b17ace727656c",
-    "tag": "hard-case-dataset-v2-load-monitor-rounding-prereg-v2-20260730"
+    "outer_checksums_sha256": "2c3baace9906767228f98795c8045e4a12820fd976483dff85da23ba163b7558",
+    "postpublication_audit_sha256": "0cbca8e975b2475eb06770624d95a2b005b07a2fe375c921468c59c8fed2bb88",
+    "tag": "hard-case-dataset-v2-load-monitor-rounding-prereg-v3-20260731"
   },
   "schema_version": "hard-case-dataset-v2-rolling-status-v3"
 }
