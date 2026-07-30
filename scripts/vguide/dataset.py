@@ -262,7 +262,7 @@ FORMAL_FOREIGN_CPU_PERCENT = 50.0
 FORMAL_FOREIGN_CPU_SECONDS = 10.0
 FORMAL_LOAD_SAMPLE_SECONDS = 1.0
 FORMAL_LOAD_DURATION_RESOLUTION_SECONDS = 0.001
-FORMAL_LOAD_CLOCK_COMPARISON_EPSILON_SECONDS = 0.00001
+FORMAL_LOAD_CLOCK_COMPARISON_EPSILON_SECONDS = 0.00005
 FORMAL_LOAD_MONITOR_SCHEMA = "formal-p-core-load-monitor-v1"
 FORMAL_ATTEMPT_SCHEMA = "hard-case-formal-attempt-complete-v4"
 LEGACY_FORMAL_ATTEMPT_SCHEMA = "hard-case-formal-attempt-complete-v3"
@@ -8279,8 +8279,8 @@ def run_taints(
         )
   if any(ended < starts[task] for task, ended in ends.items()):
     raise RuntimeError("BenchExec log completes a task before it starts")
-  if (
-      (monitor_end is None and not allow_missing_monitor_coverage)
+  if not allow_missing_monitor_coverage and (
+      monitor_end is None
       or (
           monitor_end is not None
           and any(

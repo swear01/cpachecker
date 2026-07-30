@@ -590,7 +590,7 @@ load-monitor coverage conservatively taints every uncovered row; new
 authorized attempts retain the stricter complete-monitor requirement.
 Load-monitor durations are serialized to millisecond resolution. Validation
 requires finite canonical millisecond values to agree with their wall-clock
-interval within the half-millisecond rounding bound plus ten microseconds of
+interval within the half-millisecond rounding bound plus fifty microseconds of
 clock-comparison tolerance. Either contention boolean is accepted only when
 that rounding bin straddles the exact ten-second threshold; values outside it
 remain fail-closed.

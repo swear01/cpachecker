@@ -531,6 +531,22 @@ class DatasetTest(unittest.TestCase):
       write()
       with self.assertRaisesRegex(RuntimeError, "inconsistent"):
         dataset.load_formal_contention_intervals(monitor)
+      sample.update({
+          "timestamp": "2026-07-29T19:50:00.115127+08:00",
+          "offenders": [{
+              "pid": 456,
+              "uid": 1000,
+              "comm": "foreign",
+              "cpu_percent": 101.22,
+              "duration_seconds": 1493.191,
+              "since": "2026-07-29T19:25:06.923588+08:00",
+              "contended": True,
+          }],
+      })
+      write()
+      intervals, _, _ = dataset.load_formal_contention_intervals(monitor)
+      self.assertEqual(len(intervals), 1)
+      sample["timestamp"] = "2026-07-30T16:40:57.033149+08:00"
       sample["offenders"][0].update({
           "duration_seconds": 10.001,
           "since": "2026-07-30T16:40:47.032149+08:00",
@@ -5449,6 +5465,19 @@ copy_phase_evidence "$2"
                 output=str(root / "unobserved-taint.json"),
             )
         )
+      self.assertEqual(
+          dataset.run_taints(
+              result,
+              log,
+              monitor,
+              manifest_rows,
+              allow_missing_monitor_coverage=True,
+          ),
+          {
+              task["task"]: "missing_load_monitor_coverage"
+              for task in tasks
+          },
+      )
 
   def test_recovered_taint_uses_xml_for_one_trailing_log_completion(self):
     with tempfile.TemporaryDirectory() as temp:
