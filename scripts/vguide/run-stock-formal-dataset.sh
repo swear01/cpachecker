@@ -148,7 +148,23 @@ validate_recovery_protocol_topology() {
   local package=$1
   local actual
   local expected
-  actual=$(find -P "$package" -mindepth 1 -printf '%y %P\n' | sort)
+  local migration
+  migration=$(/usr/bin/python3 -I -S -B - \
+    "$package/protocol.json" <<'PY'
+import json
+import sys
+
+schema = json.load(open(sys.argv[1], encoding="utf-8")).get("schema_version")
+if schema == "hard-case-formal-recovery-protocol-v1":
+  print("false")
+elif schema == "hard-case-formal-host-migration-protocol-v2":
+  print("true")
+else:
+  raise SystemExit("formal recovery protocol schema is invalid")
+PY
+  )
+  actual=$(find -P "$package" -mindepth 1 -maxdepth 1 \
+    -printf '%y %P\n' | sort)
   expected=$(
     printf '%s\n' \
       "f candidate-manifest.json" \
@@ -156,6 +172,17 @@ validate_recovery_protocol_topology() {
       "f seed-ledger.json" \
       "f unreach-call.prp"
   )
+  if [[ "$migration" == true ]]; then
+    expected=$(printf '%s\nd host-migration-seed\n' "$expected" | sort)
+    if [[ -n $(find -P "$package/host-migration-seed" -mindepth 1 \
+      ! -type d ! -type f -print -quit) ||
+      ! -f "$package/host-migration-seed/export-manifest.json" ||
+      ! -f "$package/host-migration-seed/migration-manifest.json" ||
+      ! -f "$package/host-migration-seed/seed-ledger.json" ]]; then
+      echo "formal host migration evidence topology is invalid" >&2
+      return 1
+    fi
+  fi
   if [[ "$actual" != "$expected" ]]; then
     echo "formal recovery protocol package topology is not exact" >&2
     return 1
@@ -855,6 +882,19 @@ main() {
     RECOVERY_PROTOCOL_PACKAGE=$(realpath "${16}")
   fi
   validate_recovery_protocol_topology "$RECOVERY_PROTOCOL_PACKAGE"
+  FORMAL_HOST=$(/usr/bin/python3 -I -S -B - \
+    "$RECOVERY_PROTOCOL_PACKAGE/protocol.json" "$FORMAL_MODE" <<'PY'
+import json
+import sys
+
+protocol = json.load(open(sys.argv[1], encoding="utf-8"))
+if protocol.get("mode") != sys.argv[2] or protocol.get("host") not in {
+    "athena", "valkyrie"
+}:
+  raise SystemExit("formal recovery protocol host or mode is invalid")
+print(protocol["host"])
+PY
+  )
   SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
   RESEARCH_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 
@@ -868,7 +908,7 @@ main() {
   EXPECTED_PYTHON_DIST_PACKAGES=/usr/lib/python3/dist-packages
   EXPECTED_PYTHON_LOCAL_DIST_PACKAGES_DIGEST=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
   EXPECTED_PYYAML_FILE=/usr/lib/python3/dist-packages/yaml/__init__.py
-  if [[ "$FORMAL_MODE" == cap16 ]]; then
+  if [[ "$FORMAL_HOST" == athena ]]; then
     EXPECTED_PYTHON_REAL=/usr/bin/python3.12
     EXPECTED_PYTHON_SHA256=1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118
     EXPECTED_PYTHON_VERSION="Python 3.12.3"
@@ -883,9 +923,7 @@ main() {
       PyYAML-6.0.1.dist-info
     )
     EXPECTED_PYYAML_PACKAGE_DIGEST=9148a8dc1759caac2f87132749a8f29de2cf8ee71b6ddead932d027613045627
-    FORMAL_HOST=athena
-    FORMAL_BENCHMARK_SCOPE=-cap16
-  else
+  elif [[ "$FORMAL_HOST" == valkyrie ]]; then
     EXPECTED_PYTHON_REAL=/usr/bin/python3.10
     EXPECTED_PYTHON_SHA256=7d51cd6b48b521277f5caa4610a82126e315fa2be4df069823a8b1eeb5bd4a86
     EXPECTED_PYTHON_VERSION="Python 3.10.12"
@@ -900,8 +938,13 @@ main() {
       PyYAML-5.4.1.egg-info
     )
     EXPECTED_PYYAML_PACKAGE_DIGEST=9dd464e236b90eaa25fc9576bb22442b07817d16e086f9e3754d61c3328d9bbd
-    FORMAL_HOST=valkyrie
-    FORMAL_BENCHMARK_SCOPE=
+  else
+    echo "unsupported formal host: $FORMAL_HOST" >&2
+    exit 1
+  fi
+  FORMAL_BENCHMARK_SCOPE=
+  if [[ "$FORMAL_MODE" == cap16 ]]; then
+    FORMAL_BENCHMARK_SCOPE=-cap16
   fi
   EXPECTED_BENCHEXEC_ARCHIVE=75e3332253429e6f9186352a255cd96c0aff6154a95e2fdd3b737c143ba018bc
   EXPECTED_BENCHEXEC_VERSION="benchexec 3.35-dev"
@@ -1013,14 +1056,49 @@ main() {
       FORMAL_MANIFEST="$OUTPUT_DIR/input/formal/candidate-manifest-valkyrie-formal.json"
     fi
   fi
-  if [[ -e "$OUTPUT_DIR/input/recovery-protocol" ]]; then
-    diff -r -- "$RECOVERY_PROTOCOL_PACKAGE" \
-      "$OUTPUT_DIR/input/recovery-protocol"
-  else
-    cp -a -- "$RECOVERY_PROTOCOL_PACKAGE" \
-      "$OUTPUT_DIR/input/recovery-protocol"
-  fi
   PROTOCOL_ROOT="$OUTPUT_DIR/input/recovery-protocol"
+  if [[ -L "$PROTOCOL_ROOT" ||
+    ( -e "$PROTOCOL_ROOT" && ! -d "$PROTOCOL_ROOT" ) ]]; then
+    echo "saved formal recovery protocol root is invalid" >&2
+    return 1
+  fi
+  mkdir -p "$PROTOCOL_ROOT"
+  for protocol_file in \
+    candidate-manifest.json protocol.json seed-ledger.json unreach-call.prp; do
+    if [[ -e "$PROTOCOL_ROOT/$protocol_file" ||
+      -L "$PROTOCOL_ROOT/$protocol_file" ]]; then
+      cmp -- "$RECOVERY_PROTOCOL_PACKAGE/$protocol_file" \
+        "$PROTOCOL_ROOT/$protocol_file"
+    else
+      cp -a -- "$RECOVERY_PROTOCOL_PACKAGE/$protocol_file" \
+        "$PROTOCOL_ROOT/$protocol_file"
+    fi
+  done
+  if [[ $(find -P "$PROTOCOL_ROOT" -mindepth 1 -maxdepth 1 \
+    -printf '%y %f\n' | sort) != $(
+      printf '%s\n' \
+        "f candidate-manifest.json" \
+        "f protocol.json" \
+        "f seed-ledger.json" \
+        "f unreach-call.prp"
+    ) ]]; then
+    echo "saved formal recovery protocol topology is not exact" >&2
+    return 1
+  fi
+  if [[ -d "$RECOVERY_PROTOCOL_PACKAGE/host-migration-seed" ]]; then
+    if [[ -e "$OUTPUT_DIR/input/host-migration-seed" ||
+      -L "$OUTPUT_DIR/input/host-migration-seed" ]]; then
+      diff -r -- "$RECOVERY_PROTOCOL_PACKAGE/host-migration-seed" \
+        "$OUTPUT_DIR/input/host-migration-seed"
+    else
+      cp -a -- "$RECOVERY_PROTOCOL_PACKAGE/host-migration-seed" \
+        "$OUTPUT_DIR/input/host-migration-seed"
+    fi
+  elif [[ -e "$OUTPUT_DIR/input/host-migration-seed" ||
+    -L "$OUTPUT_DIR/input/host-migration-seed" ]]; then
+    echo "unexpected formal host migration evidence" >&2
+    return 1
+  fi
   PROTOCOL_COPY="$PROTOCOL_ROOT/protocol.json"
   SEED_LEDGER_COPY="$PROTOCOL_ROOT/seed-ledger.json"
   PROTOCOL_MANIFEST_COPY="$PROTOCOL_ROOT/candidate-manifest.json"

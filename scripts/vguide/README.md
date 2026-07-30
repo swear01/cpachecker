@@ -182,9 +182,10 @@ summary counts and portable artifact aggregate. It selects no task from an
 augmented result and does not accept a separately supplied survivor file. The
 authenticated Phase-A survivor manifest is the only formal input.
 
-The formal execution remains on Athena and reuses the existing two-repetition
-recovery implementation: 900 s CPU, 910 s hard-CPU and 920 s wall time,
-physical P-cores `0,2,4,6,8,10,12,14`, two four-core slots, the same sustained
+The preserved attempts described in this section ran on Athena with the
+existing two-repetition recovery implementation: 900 s CPU, 910 s hard-CPU and 920 s wall time,
+physical P-cores `0,2,4,6,8,10,12,14`, initially two four-core slots and then
+the preregistered single four-core slot, the same sustained
 foreign-load monitor, and hashed per-case taint/replacement plans. A nonzero
 BenchExec interruption that leaves an incomplete XML is preserved. Reinvoking
 the same output authenticates its saved inputs, retains every completed
@@ -377,7 +378,8 @@ The research checkout containing this runner must be frozen and published
 before launching formal measurements. `summarize-cap16-formal` classifies the
 two authenticated repetitions as `stable_hard_solved`,
 `stable_analysis_unsolved`, `stable_solved_fast`, wrong, verifier failure,
-infrastructure failure or mixed; only the first two enter
+infrastructure failure, mixed, or
+`cross_host_runtime_out_of_scope`; only the first two enter
 `hard-portfolio.csv`.
 
 The r4 runner at commit
@@ -561,6 +563,25 @@ pins an actual output root, manifest, SV-Benchmarks checkout, seed, expected
 row count, and seed hash. Preregistration validation runs it once for cap-8
 and once for cap-16, replaying every migration against both append-only
 interrupted trees.
+
+The cap-16 host-migration protocol exports only settled Athena rows into
+hash-addressed evidence and proves that the exported seed exactly matches the
+authenticated source ledger. Its target host is Valkyrie, but the seed rows
+retain Athena as their measurement host; only pending rows run on Valkyrie in
+the frozen 8-task shards with `-N 1 -c 4`. The summary never compares solved
+CPU times across those hosts: a correct/correct mixed-host pair is
+`cross_host_runtime_out_of_scope`. Repeated timeout, out-of-memory, or semantic
+UNKNOWN observations may still be `stable_analysis_unsolved` because that
+classification does not use a cross-host runtime threshold.
+The migration protocol package contains the usual four protocol files plus
+the exact exported `host-migration-seed/` bundle; the runner copies that bundle
+to `input/host-migration-seed` before authenticating any pending shard.
+Portable migration v2 records the already authenticated per-attempt crash
+policy for trailing NUL padding, final-log handling, and monitor coverage.
+Final-log-only acceptance remains restricted to the exact frozen historical
+selector; exported result and definition closures retain their original path
+spellings and hashes.
+
 Migration alone accepts an exact historical definition whose absolute path
 prefix changed when its result tree was preserved: the XML hash, fixed
 topology, task-set basename, sibling task-set contents, parent manifest, and
