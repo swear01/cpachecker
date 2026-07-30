@@ -1,38 +1,31 @@
 {
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785382723.json",
-    "sha256": "1f9c2fe7ef2474e5b9c0ca456a87075489b2dd052832f70e57c9245ee48fdeb6"
+    "path": "/var/tmp/issue16-live-state-1785384380978917658.json",
+    "sha256": "e3711d24f4273d219baacc0f7e90713d2f640b3a1a7632c6bcefc5feaad2d761"
   },
-  "blocker": null,
+  "blocker": "cap-16 hardware reassignment and host-migration policy require owner approval",
   "cap16": {
-    "active": {
-      "boot_id": "c5e8effd-b357-4584-9087-5eeda533f848",
-      "invocation_id": "2952ea28e71042248aa4f76bc01d555e",
-      "label": "repetition-1-replacement-attempt-13",
-      "launch_authorization_sha256": "825b56d227d01bb26ce23060943f7f9ef932dec38dd72d12d6c404538358e0b4",
-      "marker_sha256": "48d221ab262c5423e579f840292fafc9ee203e3d6a9be7dbf6f68f95ba351b5f",
-      "mode": "generic interrupted-attempt recovery before ledger acceptance",
-      "started_at": "2026-07-30T11:33:21+08:00",
-      "unit": "vguide-cap16-generic-recovery-v5-launch006-20260730.service"
-    },
-    "active_clean_n1_reboots_since_policy": 1,
+    "active": null,
+    "active_clean_n1_reboots_since_policy": 2,
     "host": "athena",
+    "migration_state": "athena_stopped_owner_decision_required",
     "operational_corrections": {
       "clone_failure_audit_sha256": "58cfc6e35e617054eedff18ee5c5ada1e410e26fc0e4f54d572061a2cf194836",
       "lesson": "Valkyrie live-gate scripts are host-specific; Athena uses its authenticated self-cgroup scope evidence and host-specific gate.",
       "live_cgroup_gate_correction_sha256": "abe74554a2805a5f8f1461b54e12f743abebce382c96b2ea27db2dc2315f4d5d"
     },
     "pending": {
-      "1": 65,
+      "1": 63,
       "2": 224
     },
     "reboot_audit_sha256": "646a271768554d8008b580d095f8b5fd2eb8179c605ebe15560c9e443b19dcd8",
     "reusable": {
-      "1": 153,
+      "1": 155,
       "2": 0
     },
+    "second_reboot_audit_sha256": "39914c45469cb85581f69fd0a43ed6d2b2891fccc89b00d6b95eb7c1b8f39aad",
     "settled": {
-      "1": 159,
+      "1": 161,
       "2": 0
     },
     "verifier_failure": {
@@ -70,10 +63,10 @@
       "2": 0
     }
   },
-  "captured_at": "2026-07-30T11:38:43+08:00",
+  "captured_at": "2026-07-30T12:06:20+08:00",
   "documentation_wiki_commit": "2b3f14eb9d7d2caed4716cafab3d61e0d755c013",
   "issue": 16,
-  "next_executable_action": "Preserve both healthy units; atomically accept attempt-3/attempt-13 progress, continue frozen shards, and stop Athena for host migration if one more active-clean-N1 reboot occurs.",
+  "next_executable_action": "Preserve the healthy cap-8 run; after owner approval, preregister a full 224-task x 2 cap-16 rerun on stable exclusive Valkyrie after cap-8 completes.",
   "phase": "phase_b_formal_recovery",
   "release": {
     "archive_sha256": "3594f24bfde95f980f7b1c77e0c3b0005587cfae5b94dcc5a9d3324adaf9da08",
