@@ -6,21 +6,18 @@
     "correction_sha256": "4df633b1f3b4a702f3c38fddd860577eaee5cfd0316f4451eeaef48f766e796c"
   },
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785469182898829553.json",
-    "sha256": "093e94b71598c8251abc04c623676ce2865d8c145955a1888396ba6e3018229a"
+    "path": "/var/tmp/issue16-live-state-1785470538351192118.json",
+    "sha256": "5bf504dd105a0d8f5af7ef662556a34a83f2d6e64983a4010a804df4f9962670"
   },
-  "blocker": "Athena launch 007 ended in an abrupt reboot before any benchmark task; launch 008 is active after removing two erroneous HAPI restart loops",
+  "blocker": "Athena rebooted again after the HAPI correction; Cthulhu currently has only two free physical P-cores, while Valkyrie has one usable c4 slot",
   "cap16": {
     "active": {
-      "boot_id": "2ee5e46a-4f4d-4b26-a1e1-719e36de441b",
-      "execution_state": "generic_recovery_state_derivation_then_pending_microshards",
+      "benchmark_tasks_started": 0,
+      "execution_state": "stopped_after_repeated_reboot",
       "host": "athena",
-      "invocation_id": "6cc47aa6bad34a5bb93b92fa36423501",
-      "main_pid": 40924,
+      "last_boot_id": "a723bb7f-6ff7-4d22-967d-e0299c58ae7c",
       "mode": "exploration_progression",
-      "state": "active",
-      "substate": "running",
-      "unit": "vguide-cap16-athena-relaxed-exploration-launch008-20260731.service"
+      "state": "inactive"
     },
     "comparison_policy": "no-cross-host-runtime-threshold-comparison",
     "exploratory_host": "athena",
@@ -46,12 +43,19 @@
   },
   "cap8": {
     "active": {
-      "execution_state": "waiting_for_foreign_physical_p_core_load",
-      "invocation_id": "7fd71a72424640f1bbe9501a3a958ff5",
-      "main_pid": 1859339,
+      "cores_per_worker": 4,
+      "execution_state": "exploratory_microshard_running",
+      "host": "valkyrie",
+      "invocation_id": "965faa8c08da43ba8fd5111b868185f1",
+      "main_pid": 2492074,
+      "mode": "exploratory_only",
+      "repetition": 2,
+      "selected_p_cores": "0,2,4,6",
       "state": "active",
       "substate": "running",
-      "unit": "vguide-cap8-load-monitor-rounding-v3-physical-pcore-wait-20260731.service"
+      "task_count": 16,
+      "unit": "vguide-cap8-valkyrie-dynamic-exploration-shard001-retry1-20260731.service",
+      "workers": 1
     },
     "attempt8": {
       "accepted_before_replay": 0,
@@ -79,7 +83,17 @@
       "2": 0
     }
   },
-  "captured_at": "2026-07-31T11:39:42+08:00",
+  "capacity_scheduling": {
+    "cthulhu_free_physical_p_cores": 2,
+    "cthulhu_workers": 0,
+    "exploratory_shard_policy_sha256": "a1bf410084929a5d2e21b2873df44afc943d88a0e404c3c3efc98a00ce5b739a",
+    "formula": "floor(free physical P-cores / 4)",
+    "serial_cap16_waiter": "stopped",
+    "strict_cap8_waiter": "stopped",
+    "valkyrie_foreign_cpu_equivalents": 1.536,
+    "valkyrie_workers": 1
+  },
+  "captured_at": "2026-07-31T12:02:18+08:00",
   "documentation_wiki_commit": "a14daf2",
   "exploration_clearance": {
     "exclusive_experiment_process_required": true,
@@ -103,7 +117,7 @@
       "valkyrie": true
     },
     "hosts": {
-      "athena": "busy",
+      "athena": "idle_ready",
       "cthulhu": "busy",
       "valkyrie": "busy"
     },
@@ -121,12 +135,12 @@
   "last_interruption": {
     "accepted_progress": 0,
     "benchmark_tasks_started": 0,
-    "new_boot_id": "2ee5e46a-4f4d-4b26-a1e1-719e36de441b",
-    "old_boot_id": "1d19da47-3fe1-412f-954b-326461e4dd8f",
+    "new_boot_id": "a723bb7f-6ff7-4d22-967d-e0299c58ae7c",
+    "old_boot_id": "2ee5e46a-4f4d-4b26-a1e1-719e36de441b",
     "phase": "recovery_state_derivation",
-    "unit": "vguide-cap16-athena-relaxed-exploration-launch007-20260731.service"
+    "unit": "vguide-cap16-athena-relaxed-exploration-launch008-20260731.service"
   },
-  "next_executable_action": "monitor launch 008 through recovery-state derivation and pending cap-16 N1/c4 micro-shards",
+  "next_executable_action": "finish Valkyrie shard 001, retain it as exploratory-only, then schedule the next authenticated pending shard using the current free-core capacity",
   "operational_correction": {
     "benchmark_tasks": 0,
     "measurement_cpus": "0,2,4,6,8,10,12,14",
