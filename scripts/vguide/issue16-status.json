@@ -6,10 +6,10 @@
     "correction_sha256": "4df633b1f3b4a702f3c38fddd860577eaee5cfd0316f4451eeaef48f766e796c"
   },
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785470538351192118.json",
-    "sha256": "5bf504dd105a0d8f5af7ef662556a34a83f2d6e64983a4010a804df4f9962670"
+    "path": "/var/tmp/issue16-live-state-1785485416549493951.json",
+    "sha256": "0a37dcbec05763de24982be92bc8e12b84abbb8e9b778d937df4482ce01cb7c4"
   },
-  "blocker": "Athena rebooted again after the HAPI correction; Cthulhu currently has only two free physical P-cores, while Valkyrie has one usable c4 slot",
+  "blocker": "none for Valkyrie exploration; Athena remains stopped after repeated reboot and Cthulhu lacks a c4 slot",
   "cap16": {
     "active": {
       "benchmark_tasks_started": 0,
@@ -46,15 +46,16 @@
       "cores_per_worker": 4,
       "execution_state": "exploratory_microshard_running",
       "host": "valkyrie",
-      "invocation_id": "965faa8c08da43ba8fd5111b868185f1",
-      "main_pid": 2492074,
+      "invocation_id": "0d1a111326624103853e63679fe5f0ce",
+      "main_pid": 2726661,
       "mode": "exploratory_only",
       "repetition": 2,
       "selected_p_cores": "0,2,4,6",
+      "shard_id": "shard-002",
       "state": "active",
       "substate": "running",
       "task_count": 16,
-      "unit": "vguide-cap8-valkyrie-dynamic-exploration-shard001-retry1-20260731.service",
+      "unit": "vguide-cap8-valkyrie-dynamic-exploration-shard002-20260731.service",
       "workers": 1
     },
     "attempt8": {
@@ -86,14 +87,14 @@
   "capacity_scheduling": {
     "cthulhu_free_physical_p_cores": 2,
     "cthulhu_workers": 0,
-    "exploratory_shard_policy_sha256": "a1bf410084929a5d2e21b2873df44afc943d88a0e404c3c3efc98a00ce5b739a",
+    "exploratory_shard_policy_sha256": "df19502b1e9229df2c048d29705c80785c1db31c815a948965db72a9a0a325a0",
     "formula": "floor(free physical P-cores / 4)",
     "serial_cap16_waiter": "stopped",
     "strict_cap8_waiter": "stopped",
     "valkyrie_foreign_cpu_equivalents": 1.536,
     "valkyrie_workers": 1
   },
-  "captured_at": "2026-07-31T12:02:18+08:00",
+  "captured_at": "2026-07-31T16:10:16+08:00",
   "documentation_wiki_commit": "a14daf2",
   "exploration_clearance": {
     "exclusive_experiment_process_required": true,
@@ -110,6 +111,21 @@
     "whole_machine_idle_required": false,
     "wiki_commit": "a14daf2"
   },
+  "exploration_completed_shards": [
+    {
+      "mode": "exploratory_only",
+      "monitor_sha256": "11ddd53e2c061f9ecc4144e97d92fb0adfc9c6ee8fc7dadf663df9fa3d239910",
+      "result_sha256": "7b221b4e28471a734a19bd6aafed62f971a3205ce1391d6082bb7cc946dda750",
+      "row_count": 16,
+      "shard_id": "shard-001",
+      "status_counts": {
+        "OUT OF MEMORY": 1,
+        "TIMEOUT": 12,
+        "true": 3
+      },
+      "structurally_complete": true
+    }
+  ],
   "fleet_monitor": {
     "configured": {
       "athena": true,
@@ -140,7 +156,7 @@
     "phase": "recovery_state_derivation",
     "unit": "vguide-cap16-athena-relaxed-exploration-launch008-20260731.service"
   },
-  "next_executable_action": "finish Valkyrie shard 001, retain it as exploratory-only, then schedule the next authenticated pending shard using the current free-core capacity",
+  "next_executable_action": "complete shard 002, summarize it structurally, and continue with the next pending shard at current capacity",
   "operational_correction": {
     "benchmark_tasks": 0,
     "measurement_cpus": "0,2,4,6,8,10,12,14",
