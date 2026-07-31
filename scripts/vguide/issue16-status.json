@@ -1,17 +1,23 @@
 {
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785432973326351111.json",
-    "sha256": "b48692d1b45385ee5e8e42c586e4397fc6d0ae65c74f6f7e5354d4c78089f552"
+    "path": "/var/tmp/issue16-live-state-1785466465141801010.json",
+    "sha256": "32cc5b8cc9534c2283455b3ce3b480a669938ee17705d4578825e6bab2001495"
   },
-  "blocker": "Valkyrie foreign qsyn/tail occupy physical P-core logical CPUs; no process is touched and the formal unit waits",
+  "blocker": "none for Athena exploration; Valkyrie formal cap-8 remains gated by foreign P-core load",
   "cap16": {
     "active": {
-      "execution_state": "waiting_for_cap8_completion",
-      "main_pid": 1409748,
+      "execution_state": "generic_recovery_state_derivation_then_pending_microshards",
+      "host": "athena",
+      "invocation_id": "8aad706dac534187afde3b3c72c5d73e",
+      "main_pid": 32624,
+      "mode": "exploration_progression",
       "state": "active",
-      "unit": "vguide-cap16-host-migration-v1-wait-20260730.service"
+      "substate": "running",
+      "unit": "vguide-cap16-athena-relaxed-exploration-launch007-20260731.service"
     },
     "comparison_policy": "no-cross-host-runtime-threshold-comparison",
+    "exploratory_host": "athena",
+    "final_confirmation_host": "valkyrie",
     "host": "valkyrie",
     "migration_scope": "pending_only_no_full_rerun",
     "pending": {
@@ -66,8 +72,23 @@
       "2": 0
     }
   },
-  "captured_at": "2026-07-31T01:36:13+08:00",
-  "documentation_wiki_commit": "a420c98a579a2ee9afb5e9bf0dab5da792b745a7",
+  "captured_at": "2026-07-31T10:54:25+08:00",
+  "documentation_wiki_commit": "a14daf2",
+  "exploration_clearance": {
+    "exclusive_experiment_process_required": true,
+    "final_boundary": "relaxed-clearance evidence remains exploratory until final strict audit",
+    "isolated_copy_probe": {
+      "benchmark_tasks": 0,
+      "reason": "authenticated process descriptors are absolute-root-bound",
+      "result": "rejected_before_output_initialization"
+    },
+    "policy_sha256": "331994fb6a7cb224ff4831d743f73d6cdbd66794e271b9131cf8c0b1f4c76d6b",
+    "reboot_policy": "preserve complete rows; retry only incomplete work",
+    "resource_setting": "unchanged_N1_c4",
+    "schema_version": "hard-case-dataset-v2-relaxed-exploration-resume-v1",
+    "whole_machine_idle_required": false,
+    "wiki_commit": "a14daf2"
+  },
   "fleet_monitor": {
     "configured": {
       "athena": true,
@@ -75,7 +96,7 @@
       "valkyrie": true
     },
     "hosts": {
-      "athena": "idle_ready",
+      "athena": "busy",
       "cthulhu": "busy",
       "valkyrie": "busy"
     },
@@ -90,14 +111,14 @@
     "unit": "vguide-three-host-availability-monitor-v2-20260731.service"
   },
   "issue": 16,
-  "next_executable_action": "the corrected three-host monitor polls every 60 seconds; the fixed Valkyrie waiter launches automatically only after all logical P-core CPUs 0-15 pass its gate",
+  "next_executable_action": "allow Athena generic recovery to finish state derivation and execute only pending micro-shards; monitor all three hosts every 60 seconds",
   "operational_correction": {
     "benchmark_tasks": 0,
     "measurement_cpus": "0,2,4,6,8,10,12,14",
     "observed_p_core_logical_cpus": "0-15",
     "report_sha256": "a2e8607c39322136cd4c1c0c963fbd28771b2348bcd6c682e403c9c98f0f620c"
   },
-  "phase": "phase_b_formal_recovery",
+  "phase": "phase_b_exploration_progression",
   "production_preflight": {
     "benchmark_tasks": 0,
     "report_sha256": "47198702863a68fcd7b6ce4e0157195d46e7c8528f234e1a8112b9b4ee45ee9b",
