@@ -90,9 +90,35 @@
     "interval": "wall-clock :00 and :30",
     "latest_capture": "2026-08-01T01:23:36+08:00",
     "latest_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/latest.json",
+    "launch_policy": "summarize structurally complete predecessor; launch next frozen-order shard only with no active experiment and one free sibling-complete c4 slot",
     "log_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/availability-30min.jsonl",
     "next_run": "Sat 2026-08-01 01:30:00 CST",
-    "service_sha256": "bf4940171988998e30ce3bbd6152e4f5d55e8a9aab3bc3c3de68e7876f95868d",
+    "prepared_shards": {
+      "shard-003": {
+        "task_set_sha256": "e4d6160a5cf2de65a706416c8ebf2a2a94e3190d1c786e5f6cd8f752bf974255",
+        "tasks": 16
+      },
+      "shard-004": {
+        "task_set_sha256": "83efb7ef70a3de3093a0ccb57881fecb6f622d63642a7fa13ef3f8a428099e0e",
+        "tasks": 16
+      },
+      "shard-005": {
+        "task_set_sha256": "b2e49339229f88a5fc17b670474ca03ea8ad69e1f88f1784158a97481fc6bf2c",
+        "tasks": 16
+      },
+      "shard-006": {
+        "task_set_sha256": "80a89b26d3f9dfc20327693f3ad763b64fe45e058e6177be43f7100766dd94d7",
+        "tasks": 16
+      },
+      "shard-007": {
+        "task_set_sha256": "f0b1097bc6978d942e61a58a58c1b42efaf0411cc953cc3bb43c1f473c4ad730",
+        "tasks": 14
+      }
+    },
+    "scheduler_last_action": "wait:no_free_c4_slot",
+    "scheduler_log_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/scheduler.jsonl",
+    "scheduler_sha256": "580f74ecd60897549dd8394c0910a8be7973c7d9743cbd3ec20632c7fc7d90b6",
+    "service_sha256": "a70fd2dcbd6b2329898569378db3d2fd5a3373669abcc5a76745ab2ef68169d8",
     "state": "active_waiting",
     "timer_sha256": "5a1b79af77bf7b7596e1d708ca41a58127a0f4b16eabb8eaaa861cfa151214be",
     "timer_unit": "vguide-three-host-capacity-check-30min.timer"
@@ -110,8 +136,8 @@
     "valkyrie_free_physical_p_cores": 0,
     "valkyrie_workers": 0
   },
-  "captured_at": "2026-08-01T01:24:20+08:00",
-  "documentation_wiki_commit": "2d34d0761c0f9cdc6806a2149423278e18b8e743",
+  "captured_at": "2026-08-01T01:27:48+08:00",
+  "documentation_wiki_commit": "078e662eaf12609b754a6641405049d64229ae71",
   "exploration_clearance": {
     "exclusive_experiment_process_required": true,
     "final_boundary": "relaxed-clearance evidence remains exploratory until final strict audit",
