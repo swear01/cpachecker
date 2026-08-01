@@ -9,7 +9,7 @@
     "path": "/var/tmp/issue16-live-state-1785485416549493951.json",
     "sha256": "0a37dcbec05763de24982be92bc8e12b84abbb8e9b778d937df4482ce01cb7c4"
   },
-  "blocker": "no currently eligible c4 slot; shard 003 retry 1 is prepared after quarantining two configuration-failure attempts",
+  "blocker": "none for active shard-004-retry1; no additional c4 slot is currently available",
   "cap16": {
     "active": {
       "benchmark_tasks_started": 0,
@@ -43,14 +43,20 @@
   },
   "cap8": {
     "active": {
-      "benchmark_tasks_started": 0,
-      "execution_state": "waiting_for_capacity",
+      "execution_state": "exploratory_microshard_running",
       "host": "valkyrie",
       "mode": "exploratory_only",
+      "partial_status_counts": {
+        "TIMEOUT": 4
+      },
+      "partial_structurally_complete_rows": 4,
       "repetition": 2,
-      "shard_id": "shard-003-retry1",
-      "state": "prepared",
-      "task_count": 16
+      "selected_p_cores": "0,2,4,6",
+      "shard_id": "shard-004-retry1",
+      "started_at": "2026-08-01T19:00:05+08:00",
+      "state": "active",
+      "task_count": 16,
+      "unit": "vguide-cap8-valkyrie-dynamic-exploration-shard004retry1-20260801.service"
     },
     "attempt8": {
       "accepted_before_replay": 0,
@@ -87,11 +93,11 @@
     "error_statuses_fail_closed": true,
     "host_guard": "valkyrie",
     "interval": "wall-clock :00 and :30",
-    "latest_capture": "2026-08-01T01:23:36+08:00",
+    "latest_capture": "2026-08-01T20:00:00+08:00",
     "latest_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/latest.json",
     "launch_policy": "summarize structurally complete predecessor; launch next frozen-order shard only with no active experiment and one free sibling-complete c4 slot",
     "log_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/availability-30min.jsonl",
-    "next_run": "Sat 2026-08-01 13:30:00 CST",
+    "next_run": "Sat 2026-08-01 20:30:00 CST",
     "prepared_retry": "shard-003-retry1",
     "prepared_shards": {
       "shard-003": {
@@ -115,7 +121,7 @@
         "tasks": 14
       }
     },
-    "scheduler_last_action": "wait:no_free_c4_slot",
+    "scheduler_last_action": "wait:experiment_active",
     "scheduler_log_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/scheduler.jsonl",
     "scheduler_sha256": "44322c40a4d43af4a5a8ad67eeab8d6205b09ef124c9ce0edf2535d946355037",
     "service_sha256": "a70fd2dcbd6b2329898569378db3d2fd5a3373669abcc5a76745ab2ef68169d8",
@@ -136,7 +142,7 @@
     "valkyrie_free_physical_p_cores": 3,
     "valkyrie_workers": 0
   },
-  "captured_at": "2026-08-01T13:22:19+08:00",
+  "captured_at": "2026-08-01T20:06:23+08:00",
   "documentation_wiki_commit": "41583a0dbb07bccbe7f9c9117c3362421fa7c15b",
   "exploration_clearance": {
     "exclusive_experiment_process_required": true,
@@ -178,6 +184,18 @@
         "TIMEOUT": 8,
         "TIMEOUT (OUT OF JAVA MEMORY)": 1,
         "false(unreach-call)": 5
+      },
+      "structurally_complete": true
+    },
+    {
+      "mode": "exploratory_only",
+      "monitor_sha256": "34fc25d16d83f91bca74f3c63718a52893cabdd6246e745f128a4b20de347be9",
+      "result_sha256": "231af60b66af702def9b390af476399578af122b72c45155c79aafd728362a58",
+      "row_count": 16,
+      "shard_id": "shard-003-retry1",
+      "status_counts": {
+        "TIMEOUT": 15,
+        "false(unreach-call)": 1
       },
       "structurally_complete": true
     }
@@ -232,7 +250,7 @@
     "phase": "recovery_state_derivation",
     "unit": "vguide-cap16-athena-relaxed-exploration-launch008-20260731.service"
   },
-  "next_executable_action": "launch append-only shard-003-retry1 automatically when Valkyrie has four free physical P-cores; do not reuse or rewrite shard-003/shard-004 ERROR rows",
+  "next_executable_action": "preserve active shard-004-retry1, summarize it structurally after completion, then launch shard 005 at the next free c4 window",
   "operational_correction": {
     "benchmark_tasks": 0,
     "measurement_cpus": "0,2,4,6,8,10,12,14",
