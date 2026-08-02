@@ -9,7 +9,7 @@
     "path": "/var/tmp/issue16-live-state-1785485416549493951.json",
     "sha256": "0a37dcbec05763de24982be92bc8e12b84abbb8e9b778d937df4482ce01cb7c4"
   },
-  "blocker": "none for active shard 006; no additional c4 slot is scheduled on Valkyrie",
+  "blocker": "none; final cap-8 exploratory shard 007 is active on Valkyrie",
   "cap16": {
     "active": {
       "benchmark_tasks_started": 0,
@@ -46,17 +46,14 @@
       "execution_state": "exploratory_microshard_running",
       "host": "valkyrie",
       "mode": "exploratory_only",
-      "partial_status_counts": {
-        "TIMEOUT": 1
-      },
-      "partial_structurally_complete_rows": 1,
+      "partial_structurally_complete_rows": 0,
       "repetition": 2,
       "selected_p_cores": "0,2,4,6",
-      "shard_id": "shard-006",
-      "started_at": "2026-08-02T11:30:05+08:00",
+      "shard_id": "shard-007",
+      "started_at": "2026-08-02T14:00:05+08:00",
       "state": "active",
-      "task_count": 16,
-      "unit": "vguide-cap8-valkyrie-dynamic-exploration-shard006-20260801.service"
+      "task_count": 14,
+      "unit": "vguide-cap8-valkyrie-dynamic-exploration-shard007-20260801.service"
     },
     "attempt8": {
       "accepted_before_replay": 0,
@@ -93,11 +90,11 @@
     "error_statuses_fail_closed": true,
     "host_guard": "valkyrie",
     "interval": "wall-clock :00 and :30",
-    "latest_capture": "2026-08-02T11:30:00+08:00",
+    "latest_capture": "2026-08-02T14:00:00+08:00",
     "latest_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/latest.json",
     "launch_policy": "summarize structurally complete predecessor; launch next frozen-order shard only with no active experiment and one free sibling-complete c4 slot",
     "log_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/availability-30min.jsonl",
-    "next_run": "Sun 2026-08-02 12:00:00 CST",
+    "next_run": "Sun 2026-08-02 14:30:00 CST",
     "prepared_retry": "shard-003-retry1",
     "prepared_shards": {
       "shard-003": {
@@ -121,7 +118,7 @@
         "tasks": 14
       }
     },
-    "scheduler_last_action": "launched:shard-006",
+    "scheduler_last_action": "launched:shard-007",
     "scheduler_log_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/scheduler.jsonl",
     "scheduler_sha256": "44322c40a4d43af4a5a8ad67eeab8d6205b09ef124c9ce0edf2535d946355037",
     "service_sha256": "a70fd2dcbd6b2329898569378db3d2fd5a3373669abcc5a76745ab2ef68169d8",
@@ -139,10 +136,10 @@
     "formula": "floor(free physical P-cores / 4)",
     "serial_cap16_waiter": "stopped",
     "strict_cap8_waiter": "stopped",
-    "valkyrie_free_physical_p_cores": 4,
+    "valkyrie_free_physical_p_cores": 6,
     "valkyrie_workers": 0
   },
-  "captured_at": "2026-08-02T11:59:18+08:00",
+  "captured_at": "2026-08-02T14:13:29+08:00",
   "documentation_wiki_commit": "41583a0dbb07bccbe7f9c9117c3362421fa7c15b",
   "exploration_clearance": {
     "exclusive_experiment_process_required": true,
@@ -225,15 +222,28 @@
         "true": 4
       },
       "structurally_complete": true
+    },
+    {
+      "mode": "exploratory_only",
+      "monitor_sha256": "cc54e61c5ca9f672a3cec93d0c93e42ad84a48a98a9939061b06303d66ac7892",
+      "result_sha256": "b25d3ae41c0039cfde86e53ee2f63ff428e9761af08eccc59546d783f6a37074",
+      "row_count": 16,
+      "shard_id": "shard-006",
+      "status_counts": {
+        "OUT OF MEMORY": 2,
+        "TIMEOUT": 10,
+        "false(unreach-call)": 2,
+        "true": 2
+      },
+      "structurally_complete": true
     }
   ],
   "exploration_progress": {
-    "active_shard": "shard-006",
+    "active_shard": "shard-007",
     "formal_ledger_unchanged": true,
     "quarantined_configuration_failure_rows": 32,
-    "remaining_prepared_rows": 30,
+    "remaining_prepared_rows": 14,
     "remaining_shards": [
-      "shard-006",
       "shard-007"
     ],
     "valid_completed_shards": [
@@ -241,9 +251,10 @@
       "shard-002",
       "shard-003-retry1",
       "shard-004-retry1",
-      "shard-005"
+      "shard-005",
+      "shard-006"
     ],
-    "valid_structurally_complete_rows": 80
+    "valid_structurally_complete_rows": 96
   },
   "fleet_monitor": {
     "configured": {
@@ -295,7 +306,7 @@
     "phase": "recovery_state_derivation",
     "unit": "vguide-cap16-athena-relaxed-exploration-launch008-20260731.service"
   },
-  "next_executable_action": "preserve active shard 006, summarize it structurally after completion, then launch final shard 007 at the next free c4 window",
+  "next_executable_action": "preserve active final shard 007 and summarize it structurally at the first 30-minute check after completion",
   "operational_correction": {
     "benchmark_tasks": 0,
     "measurement_cpus": "0,2,4,6,8,10,12,14",
