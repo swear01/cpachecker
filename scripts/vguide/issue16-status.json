@@ -6,10 +6,10 @@
     "correction_sha256": "4df633b1f3b4a702f3c38fddd860577eaee5cfd0316f4451eeaef48f766e796c"
   },
   "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785485416549493951.json",
-    "sha256": "0a37dcbec05763de24982be92bc8e12b84abbb8e9b778d937df4482ce01cb7c4"
+    "path": "/var/tmp/issue16-live-state-1785660809533619051.json",
+    "sha256": "9cdf9963fa017e40ce731142d4dc26335c0497f5211c2797bda24dc03f93c94a"
   },
-  "blocker": "none; final cap-8 exploratory shard 007 is active on Valkyrie",
+  "blocker": "cap-8 exploration complete; cap-16 pending-only execution is not active",
   "cap16": {
     "active": {
       "benchmark_tasks_started": 0,
@@ -43,17 +43,12 @@
   },
   "cap8": {
     "active": {
-      "execution_state": "exploratory_microshard_running",
+      "execution_state": "full_exploratory_pending_population_complete",
       "host": "valkyrie",
       "mode": "exploratory_only",
-      "partial_structurally_complete_rows": 0,
       "repetition": 2,
-      "selected_p_cores": "0,2,4,6",
-      "shard_id": "shard-007",
-      "started_at": "2026-08-02T14:00:05+08:00",
-      "state": "active",
-      "task_count": 14,
-      "unit": "vguide-cap8-valkyrie-dynamic-exploration-shard007-20260801.service"
+      "state": "inactive",
+      "task_count": 0
     },
     "attempt8": {
       "accepted_before_replay": 0,
@@ -90,11 +85,11 @@
     "error_statuses_fail_closed": true,
     "host_guard": "valkyrie",
     "interval": "wall-clock :00 and :30",
-    "latest_capture": "2026-08-02T14:00:00+08:00",
+    "latest_capture": "2026-08-02T16:30:00+08:00",
     "latest_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/latest.json",
     "launch_policy": "summarize structurally complete predecessor; launch next frozen-order shard only with no active experiment and one free sibling-complete c4 slot",
     "log_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/availability-30min.jsonl",
-    "next_run": "Sun 2026-08-02 14:30:00 CST",
+    "next_run": "Sun 2026-08-02 17:00:00 CST",
     "prepared_retry": "shard-003-retry1",
     "prepared_shards": {
       "shard-003": {
@@ -118,7 +113,7 @@
         "tasks": 14
       }
     },
-    "scheduler_last_action": "launched:shard-007",
+    "scheduler_last_action": "complete:all_prepared_cap8_exploration_shards_complete",
     "scheduler_log_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/scheduler.jsonl",
     "scheduler_sha256": "44322c40a4d43af4a5a8ad67eeab8d6205b09ef124c9ce0edf2535d946355037",
     "service_sha256": "a70fd2dcbd6b2329898569378db3d2fd5a3373669abcc5a76745ab2ef68169d8",
@@ -139,8 +134,8 @@
     "valkyrie_free_physical_p_cores": 6,
     "valkyrie_workers": 0
   },
-  "captured_at": "2026-08-02T14:13:29+08:00",
-  "documentation_wiki_commit": "41583a0dbb07bccbe7f9c9117c3362421fa7c15b",
+  "captured_at": "2026-08-02T16:53:29+08:00",
+  "documentation_wiki_commit": "29999ab7acbed94ba86ec20ccb368cce3dd9e346",
   "exploration_clearance": {
     "exclusive_experiment_process_required": true,
     "final_boundary": "relaxed-clearance evidence remains exploratory until final strict audit",
@@ -236,25 +231,48 @@
         "true": 2
       },
       "structurally_complete": true
+    },
+    {
+      "mode": "exploratory_only",
+      "monitor_sha256": "30bad90ef5d87e77fc8cc9617d6a5668b7719198c83ec3133d0748d649145a31",
+      "result_sha256": "97b0a53089e192b4c4f1ce6588930465e74ebcfff69611b695aac25ccb0e7d3c",
+      "row_count": 14,
+      "shard_id": "shard-007",
+      "status_counts": {
+        "OUT OF MEMORY": 5,
+        "TIMEOUT": 8,
+        "true": 1
+      },
+      "structurally_complete": true
     }
   ],
   "exploration_progress": {
-    "active_shard": "shard-007",
+    "active_shard": null,
+    "aggregate_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-cap8-valkyrie-dynamic-exploration-v1-20260731/cap8-exploration-aggregate.json",
+    "aggregate_sha256": "788847e699cbaf936ce426a0c61196d215bd730cdcef3b59e94b87087fe013be",
     "formal_ledger_unchanged": true,
     "quarantined_configuration_failure_rows": 32,
-    "remaining_prepared_rows": 14,
-    "remaining_shards": [
-      "shard-007"
-    ],
+    "remaining_prepared_rows": 0,
+    "remaining_shards": [],
+    "status_counts": {
+      "OUT OF JAVA MEMORY": 2,
+      "OUT OF MEMORY": 15,
+      "SEGMENTATION FAULT": 2,
+      "TIMEOUT": 66,
+      "TIMEOUT (OUT OF JAVA MEMORY)": 1,
+      "false(unreach-call)": 13,
+      "true": 11
+    },
     "valid_completed_shards": [
       "shard-001-retry1",
       "shard-002",
       "shard-003-retry1",
       "shard-004-retry1",
       "shard-005",
-      "shard-006"
+      "shard-006",
+      "shard-007"
     ],
-    "valid_structurally_complete_rows": 96
+    "valid_structurally_complete_rows": 110
   },
   "fleet_monitor": {
     "configured": {
@@ -306,7 +324,7 @@
     "phase": "recovery_state_derivation",
     "unit": "vguide-cap16-athena-relaxed-exploration-launch008-20260731.service"
   },
-  "next_executable_action": "preserve active final shard 007 and summarize it structurally at the first 30-minute check after completion",
+  "next_executable_action": "freeze the cap-8 exploratory aggregate boundary and launch the first cap-16 pending-only Valkyrie micro-shard when one sibling-complete c4 slot is available",
   "operational_correction": {
     "benchmark_tasks": 0,
     "measurement_cpus": "0,2,4,6,8,10,12,14",
