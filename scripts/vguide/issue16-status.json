@@ -1,351 +1,110 @@
 {
-  "athena_operational_correction": {
-    "athena_hapi_hub": "disabled_inactive",
-    "athena_hapi_runner": "enabled_active",
-    "athena_hapi_tunnel": "disabled_inactive",
-    "correction_sha256": "4df633b1f3b4a702f3c38fddd860577eaee5cfd0316f4451eeaef48f766e796c"
-  },
-  "authoritative_snapshot": {
-    "path": "/var/tmp/issue16-live-state-1785660809533619051.json",
-    "sha256": "9cdf9963fa017e40ce731142d4dc26335c0497f5211c2797bda24dc03f93c94a"
-  },
-  "blocker": "cap-8 exploration complete; cap-16 pending-only execution is not active",
+  "active_run": null,
+  "blocker": "valkyrie has no sibling-complete four-P-core slot below 50% at latest capture",
   "cap16": {
-    "active": {
-      "benchmark_tasks_started": 0,
-      "execution_state": "stopped_after_repeated_reboot",
-      "host": "athena",
-      "last_boot_id": "a723bb7f-6ff7-4d22-967d-e0299c58ae7c",
-      "mode": "exploration_progression",
-      "state": "inactive"
-    },
-    "comparison_policy": "no-cross-host-runtime-threshold-comparison",
-    "exploratory_host": "athena",
-    "final_confirmation_host": "valkyrie",
+    "cores_per_worker": 4,
     "host": "valkyrie",
-    "migration_scope": "pending_only_no_full_rerun",
+    "manifest_sha256": "7ad21cb5ca4360689f00dca6f3a5eb7ec2385b9793315cfe5828892ded0ab49f",
+    "next_shard": "r1-s000-1ceca25345a4",
+    "next_shard_tasks": 8,
     "pending": {
       "1": 63,
       "2": 224
     },
-    "reusable": {
+    "protocol_sha256": "7059921c28fc4d20699062ff24995e7b7e6be35968dbcd350fdb0d007692a846",
+    "runtime_closure_sha256": "89810b77875526c1c10a80cfd9214c3e324e2ca5d4a738f246e043abf4e41630",
+    "scheduler_sha256": "a2ac959f56bcb533728ccf08f6737e6c459c1d0e760a63eb11f7880d3d720c46",
+    "seed_ledger_sha256": "77b8833615d3a6d2f39b048bb1e40c048dd9210e35af86817596905664464e6e",
+    "seed_reusable": {
       "1": 155,
       "2": 0
     },
-    "settled": {
+    "seed_settled": {
       "1": 161,
       "2": 0
     },
-    "verifier_failure": {
+    "seed_verifier_failure": {
       "1": 6,
       "2": 0
-    }
+    },
+    "state": "preregistered_waiting_for_capacity",
+    "workers": 1
   },
   "cap8": {
-    "active": {
-      "execution_state": "full_exploratory_pending_population_complete",
-      "host": "valkyrie",
-      "mode": "exploratory_only",
-      "repetition": 2,
-      "state": "inactive",
-      "task_count": 0
+    "classification_counts": {
+      "stable_hard_solved": 26,
+      "stable_solved_fast": 19,
+      "stable_unsolved": 222,
+      "verifier_failure_quarantine": 3
     },
-    "attempt8": {
-      "accepted_before_replay": 0,
-      "expected_reusable": 7,
-      "expected_tainted": 9,
-      "load_monitor_sha256": "b13d206e29aab7a70b8c7778d2579b83153a13dd04866d729e4cbbb0ba2bcd7f",
-      "raw_evidence_mutated": false,
-      "result_sha256": "6fda96c464606b7084c45bb6e984d33db1bb8220502ba7f4afd385c65a9712f5"
-    },
-    "host": "valkyrie",
-    "pending": {
-      "1": 0,
-      "2": 110
-    },
-    "reusable": {
-      "1": 267,
-      "2": 160
-    },
-    "settled": {
-      "1": 270,
-      "2": 160
-    },
-    "verifier_failure": {
-      "1": 3,
-      "2": 0
-    }
+    "classification_sha256": "d317e13e303f73796f2543905f489406477f945c9e92738796896c357370acac",
+    "formal_ledger_mutated": false,
+    "hard_portfolio_sha256": "63bb7f344dcb34fea6a7cd45fce5c62b0143b737711057c1628350286f9e1150",
+    "policy_sha256": "190265a51213103bbf6c9d548caa7452230b0ca688ec6a1fbb89426f26a14e2e",
+    "post_hoc_relaxed_rows": 110,
+    "primary_hard_candidate_count": 248,
+    "row_provenance_sha256": "67922d9b8038692cf328c2b0cc889a86cc5b88f0975922187076e1967f6fcbb8",
+    "state": "candidate_complete_no_further_formal_rerun",
+    "task_count": 270
   },
-  "capacity_check_30min": {
-    "configured_hosts": [
-      "valkyrie",
+  "capacity_check_15min": {
+    "hosts_observed": [
       "athena",
-      "cthulhu"
+      "cthulhu",
+      "valkyrie"
     ],
-    "error_statuses_fail_closed": true,
-    "host_guard": "valkyrie",
-    "interval": "wall-clock :00 and :30",
-    "latest_capture": "2026-08-02T16:30:00+08:00",
-    "latest_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/latest.json",
-    "launch_policy": "summarize structurally complete predecessor; launch next frozen-order shard only with no active experiment and one free sibling-complete c4 slot",
-    "log_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/availability-30min.jsonl",
-    "next_run": "Sun 2026-08-02 17:00:00 CST",
-    "prepared_retry": "shard-003-retry1",
-    "prepared_shards": {
-      "shard-003": {
-        "task_set_sha256": "e4d6160a5cf2de65a706416c8ebf2a2a94e3190d1c786e5f6cd8f752bf974255",
-        "tasks": 16
+    "latest_hosts": {
+      "athena": {
+        "apparmor_unprivileged_userns": 0,
+        "boot_id": "a723bb7f-6ff7-4d22-967d-e0299c58ae7c",
+        "delegation_ready": true,
+        "selected_free_p_cores": [
+          0,
+          2,
+          4,
+          6
+        ],
+        "status": "idle_ready"
       },
-      "shard-004": {
-        "task_set_sha256": "83efb7ef70a3de3093a0ccb57881fecb6f622d63642a7fa13ef3f8a428099e0e",
-        "tasks": 16
+      "cthulhu": {
+        "apparmor_unprivileged_userns": 0,
+        "boot_id": "d6096e75-ca77-46f0-8247-a63d75431bf1",
+        "delegation_ready": true,
+        "selected_free_p_cores": [
+          0,
+          12
+        ],
+        "status": "busy"
       },
-      "shard-005": {
-        "task_set_sha256": "b2e49339229f88a5fc17b670474ca03ea8ad69e1f88f1784158a97481fc6bf2c",
-        "tasks": 16
-      },
-      "shard-006": {
-        "task_set_sha256": "80a89b26d3f9dfc20327693f3ad763b64fe45e058e6177be43f7100766dd94d7",
-        "tasks": 16
-      },
-      "shard-007": {
-        "task_set_sha256": "f0b1097bc6978d942e61a58a58c1b42efaf0411cc953cc3bb43c1f473c4ad730",
-        "tasks": 14
+      "valkyrie": {
+        "apparmor_unprivileged_userns": 0,
+        "boot_id": "f447e638-f9ab-45c6-b04a-ba3b5bf8cf0c",
+        "delegation_ready": true,
+        "selected_free_p_cores": [],
+        "status": "busy"
       }
     },
-    "scheduler_last_action": "complete:all_prepared_cap8_exploration_shards_complete",
-    "scheduler_log_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-30min-capacity-check-v1-20260731/scheduler.jsonl",
-    "scheduler_sha256": "44322c40a4d43af4a5a8ad67eeab8d6205b09ef124c9ce0edf2535d946355037",
-    "service_sha256": "a70fd2dcbd6b2329898569378db3d2fd5a3373669abcc5a76745ab2ef68169d8",
-    "state": "active_waiting",
-    "timer_sha256": "5a1b79af77bf7b7596e1d708ca41a58127a0f4b16eabb8eaaa861cfa151214be",
-    "timer_unit": "vguide-three-host-capacity-check-30min.timer"
+    "launch_host": "valkyrie",
+    "service_sha256": "b66f9666f411ac4ca622a4dc72eb0e950b43790f812c93e9064af27d008199c3",
+    "timer_sha256": "3999bcc163d15323061c784fe8b8a561c2d6ab01dbbb748056af6fb957320057",
+    "timer_state": "prepared_not_installed_pending_immutable_publication",
+    "wall_clock_minutes": [
+      0,
+      15,
+      30,
+      45
+    ]
   },
-  "capacity_scheduling": {
-    "athena_blocker": "repeated abrupt reboot",
-    "athena_free_physical_p_cores": 8,
-    "athena_workers": 0,
-    "cthulhu_free_physical_p_cores": 2,
-    "cthulhu_workers": 0,
-    "exploratory_shard_policy_sha256": "df19502b1e9229df2c048d29705c80785c1db31c815a948965db72a9a0a325a0",
-    "formula": "floor(free physical P-cores / 4)",
-    "serial_cap16_waiter": "stopped",
-    "strict_cap8_waiter": "stopped",
-    "valkyrie_free_physical_p_cores": 6,
-    "valkyrie_workers": 0
+  "captured_at": "2026-08-02T17:40:26+08:00",
+  "documentation": {
+    "wiki_commit": "75089e63a5e1e5e15b6cbfd8df2c86920bbd99bf"
   },
-  "captured_at": "2026-08-02T16:53:29+08:00",
-  "documentation_wiki_commit": "29999ab7acbed94ba86ec20ccb368cce3dd9e346",
-  "exploration_clearance": {
-    "exclusive_experiment_process_required": true,
-    "final_boundary": "relaxed-clearance evidence remains exploratory until final strict audit",
-    "isolated_copy_probe": {
-      "benchmark_tasks": 0,
-      "reason": "authenticated process descriptors are absolute-root-bound",
-      "result": "rejected_before_output_initialization"
-    },
-    "policy_sha256": "0f4bb9ca5991dcb401677db800131a06ec90a3b755d6525ebabebcdddbdf1c68",
-    "reboot_policy": "preserve complete rows; retry only incomplete work",
-    "resource_setting": "unchanged_N1_c4",
-    "schema_version": "hard-case-dataset-v2-relaxed-exploration-resume-v1",
-    "whole_machine_idle_required": false,
-    "wiki_commit": "a14daf2"
+  "next_action": "publish and fresh-verify immutable amendment, install 15-minute timer, then wait or launch the first cap-16 shard at the next UTC-quarter-aligned local slot",
+  "old_timer": "vguide-three-host-capacity-check-30min.timer active until 15-minute replacement is published and verified",
+  "publication": {
+    "package_inventory_sha256": "568c0b2841ab399f9aca081580a30e9a17e4149efab41f4725f2b0aba6b9aa86",
+    "state": "prepared_pending_immutable_release",
+    "tarball_sha256": "6f4490ca2e2936c05485fc0bc820a48f13d86a422634b710023a223d383ccd73"
   },
-  "exploration_completed_shards": [
-    {
-      "mode": "exploratory_only",
-      "monitor_sha256": "11ddd53e2c061f9ecc4144e97d92fb0adfc9c6ee8fc7dadf663df9fa3d239910",
-      "result_sha256": "7b221b4e28471a734a19bd6aafed62f971a3205ce1391d6082bb7cc946dda750",
-      "row_count": 16,
-      "shard_id": "shard-001",
-      "status_counts": {
-        "OUT OF MEMORY": 1,
-        "TIMEOUT": 12,
-        "true": 3
-      },
-      "structurally_complete": true
-    },
-    {
-      "mode": "exploratory_only",
-      "monitor_sha256": "5d8510b14b8cf3f1eef75b0ceaa45bbe0c5c7a82207c9f3e554e8e9c81d0ac33",
-      "result_sha256": "384a4ba88bee1507bb9648a722c3a7f4c2cf7360f5f8f9da388ca6e2d6637d80",
-      "row_count": 16,
-      "shard_id": "shard-002",
-      "status_counts": {
-        "SEGMENTATION FAULT": 2,
-        "TIMEOUT": 8,
-        "TIMEOUT (OUT OF JAVA MEMORY)": 1,
-        "false(unreach-call)": 5
-      },
-      "structurally_complete": true
-    },
-    {
-      "mode": "exploratory_only",
-      "monitor_sha256": "34fc25d16d83f91bca74f3c63718a52893cabdd6246e745f128a4b20de347be9",
-      "result_sha256": "231af60b66af702def9b390af476399578af122b72c45155c79aafd728362a58",
-      "row_count": 16,
-      "shard_id": "shard-003-retry1",
-      "status_counts": {
-        "TIMEOUT": 15,
-        "false(unreach-call)": 1
-      },
-      "structurally_complete": true
-    },
-    {
-      "mode": "exploratory_only",
-      "monitor_sha256": "9438ad2e172a65b3e02d72c0ef5c64223ca68a3f10f03ca8852e75d6034b42f5",
-      "result_sha256": "375c3d44dff3ee098a20477d3bc3f7fcf44a10a3f20078ec82379e90d43b0d70",
-      "row_count": 16,
-      "shard_id": "shard-004-retry1",
-      "status_counts": {
-        "OUT OF MEMORY": 7,
-        "TIMEOUT": 8,
-        "true": 1
-      },
-      "structurally_complete": true
-    },
-    {
-      "mode": "exploratory_only",
-      "monitor_sha256": "afcc44bac6994c49a78fbf88d0d71f18e6906901861675d315009d67ec67c628",
-      "result_sha256": "bf6c997f71fd058ea5c2d26e890fe52471324f15ae8cc3c0a9d3e80e548add9a",
-      "row_count": 16,
-      "shard_id": "shard-005",
-      "status_counts": {
-        "OUT OF JAVA MEMORY": 2,
-        "TIMEOUT": 5,
-        "false(unreach-call)": 5,
-        "true": 4
-      },
-      "structurally_complete": true
-    },
-    {
-      "mode": "exploratory_only",
-      "monitor_sha256": "cc54e61c5ca9f672a3cec93d0c93e42ad84a48a98a9939061b06303d66ac7892",
-      "result_sha256": "b25d3ae41c0039cfde86e53ee2f63ff428e9761af08eccc59546d783f6a37074",
-      "row_count": 16,
-      "shard_id": "shard-006",
-      "status_counts": {
-        "OUT OF MEMORY": 2,
-        "TIMEOUT": 10,
-        "false(unreach-call)": 2,
-        "true": 2
-      },
-      "structurally_complete": true
-    },
-    {
-      "mode": "exploratory_only",
-      "monitor_sha256": "30bad90ef5d87e77fc8cc9617d6a5668b7719198c83ec3133d0748d649145a31",
-      "result_sha256": "97b0a53089e192b4c4f1ce6588930465e74ebcfff69611b695aac25ccb0e7d3c",
-      "row_count": 14,
-      "shard_id": "shard-007",
-      "status_counts": {
-        "OUT OF MEMORY": 5,
-        "TIMEOUT": 8,
-        "true": 1
-      },
-      "structurally_complete": true
-    }
-  ],
-  "exploration_progress": {
-    "active_shard": null,
-    "aggregate_path": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-cap8-valkyrie-dynamic-exploration-v1-20260731/cap8-exploration-aggregate.json",
-    "aggregate_sha256": "788847e699cbaf936ce426a0c61196d215bd730cdcef3b59e94b87087fe013be",
-    "formal_ledger_unchanged": true,
-    "quarantined_configuration_failure_rows": 32,
-    "remaining_prepared_rows": 0,
-    "remaining_shards": [],
-    "status_counts": {
-      "OUT OF JAVA MEMORY": 2,
-      "OUT OF MEMORY": 15,
-      "SEGMENTATION FAULT": 2,
-      "TIMEOUT": 66,
-      "TIMEOUT (OUT OF JAVA MEMORY)": 1,
-      "false(unreach-call)": 13,
-      "true": 11
-    },
-    "valid_completed_shards": [
-      "shard-001-retry1",
-      "shard-002",
-      "shard-003-retry1",
-      "shard-004-retry1",
-      "shard-005",
-      "shard-006",
-      "shard-007"
-    ],
-    "valid_structurally_complete_rows": 110
-  },
-  "fleet_monitor": {
-    "configured": {
-      "athena": true,
-      "cthulhu": true,
-      "valkyrie": true
-    },
-    "hosts": {
-      "athena": "idle_ready",
-      "cthulhu": "busy",
-      "valkyrie": "busy"
-    },
-    "interval_seconds": 60,
-    "invocation_id": "b91e9814f8f54bf89dbce5ed3e5d2c0e",
-    "operational_correction_report": "/var/tmp/swear01-cpachecker-paper/hard-case-v2-fleet-availability-monitor-v2-20260731/operational-correction-report.json",
-    "operational_correction_report_sha256": "568b7e7045b666e8d26554bb3580bb067755588f7f32457c7428a07e2ae9923d",
-    "script_sha256": "523477b51141cdaa7cce4b852c1adbd25f5c49d0ba900ea2920e46168f0d6d53",
-    "snapshot_path": "/var/tmp/issue16-fleet-availability-1785432973326351111.json",
-    "snapshot_sha256": "a79598cf81c2d8b6efe56cd205f707fafb68c7fb6759149549d5bcb5c1fdeacf",
-    "state": "active",
-    "unit": "vguide-three-host-availability-monitor-v2-20260731.service"
-  },
-  "invalid_exploration_attempts": [
-    {
-      "classification": "configuration_failure",
-      "result_sha256": "ccb9c2d19a0059402529c057979046a2d30de5f7e2f3aa3bdf1971b2c489c32d",
-      "root_cause": "BenchExec option values encoded as ignored XML value attributes",
-      "row_count": 16,
-      "shard_id": "shard-003",
-      "status": "ERROR (1)",
-      "summary_sha256": "66daae3854e059e59eab8cf1505966777cf14bd73123826cdd0871adb5e62efb"
-    },
-    {
-      "classification": "configuration_failure",
-      "result_sha256": "a0ccc782359fbf4e90db4769e493031b25cd4661148bdc73d91a31bfceb37fec",
-      "root_cause": "BenchExec option values encoded as ignored XML value attributes",
-      "row_count": 16,
-      "shard_id": "shard-004",
-      "status": "ERROR (1)",
-      "summary_sha256": "dafd493ed74d08c9cda7ed0c8aa8892e33ef4397fafe534facf25a048feec201"
-    }
-  ],
-  "issue": 16,
-  "last_interruption": {
-    "accepted_progress": 0,
-    "benchmark_tasks_started": 0,
-    "new_boot_id": "a723bb7f-6ff7-4d22-967d-e0299c58ae7c",
-    "old_boot_id": "2ee5e46a-4f4d-4b26-a1e1-719e36de441b",
-    "phase": "recovery_state_derivation",
-    "unit": "vguide-cap16-athena-relaxed-exploration-launch008-20260731.service"
-  },
-  "next_executable_action": "freeze the cap-8 exploratory aggregate boundary and launch the first cap-16 pending-only Valkyrie micro-shard when one sibling-complete c4 slot is available",
-  "operational_correction": {
-    "benchmark_tasks": 0,
-    "measurement_cpus": "0,2,4,6,8,10,12,14",
-    "observed_p_core_logical_cpus": "0-15",
-    "report_sha256": "a2e8607c39322136cd4c1c0c963fbd28771b2348bcd6c682e403c9c98f0f620c"
-  },
-  "phase": "phase_b_exploration_progression",
-  "production_preflight": {
-    "benchmark_tasks": 0,
-    "report_sha256": "47198702863a68fcd7b6ce4e0157195d46e7c8528f234e1a8112b9b4ee45ee9b",
-    "state_unchanged": true,
-    "tree_unchanged": true
-  },
-  "release": {
-    "code_commit": "977b509732437e12956a6f50a12f1428948debaf",
-    "fresh_verification_sha256": "f090f998fa436a86edc5e27ad2301eb7dabd83e5b5c83507f4414338effa1d05",
-    "id": 362580781,
-    "immutable": true,
-    "outer_checksums_sha256": "2c3baace9906767228f98795c8045e4a12820fd976483dff85da23ba163b7558",
-    "postpublication_audit_sha256": "0cbca8e975b2475eb06770624d95a2b005b07a2fe375c921468c59c8fed2bb88",
-    "tag": "hard-case-dataset-v2-load-monitor-rounding-prereg-v3-20260731"
-  },
-  "schema_version": "hard-case-dataset-v2-rolling-status-v3"
+  "schema_version": "issue16-rolling-status-v3"
 }
