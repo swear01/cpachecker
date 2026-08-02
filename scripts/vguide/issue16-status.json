@@ -1,6 +1,6 @@
 {
   "active_run": null,
-  "blocker": "valkyrie has no sibling-complete four-P-core slot below 50% at latest capture",
+  "blocker": "valkyrie has only one sibling-complete P-core below 50%; four are required",
   "cap16": {
     "cores_per_worker": 4,
     "host": "valkyrie",
@@ -53,6 +53,8 @@
       "cthulhu",
       "valkyrie"
     ],
+    "last_action": "wait:no_free_c4_slot",
+    "last_trigger": "2026-08-02T18:15:00+08:00",
     "latest_hosts": {
       "athena": {
         "apparmor_unprivileged_userns": 0,
@@ -80,12 +82,14 @@
         "apparmor_unprivileged_userns": 0,
         "boot_id": "f447e638-f9ab-45c6-b04a-ba3b5bf8cf0c",
         "delegation_ready": true,
-        "selected_free_p_cores": [],
+        "selected_free_p_cores": [
+          8
+        ],
         "status": "busy"
       }
     },
     "launch_host": "valkyrie",
-    "next_trigger": "Sun 2026-08-02 18:15:00 CST 12min left n/a n/a vguide-three-host-capacity-check-15min.timer vguide-three-host-capacity-check-15min.service",
+    "next_trigger": "2026-08-02T18:30:00+08:00",
     "service_sha256": "b66f9666f411ac4ca622a4dc72eb0e950b43790f812c93e9064af27d008199c3",
     "timer_sha256": "3999bcc163d15323061c784fe8b8a561c2d6ab01dbbb748056af6fb957320057",
     "timer_state": "enabled_active",
@@ -96,7 +100,7 @@
       45
     ]
   },
-  "captured_at": "2026-08-02T18:02:28+08:00",
+  "captured_at": "2026-08-02T18:15:02+08:00",
   "documentation": {
     "wiki_commit": "fb3c962f0b55b49abfe0b9c8ad22d4f13b90e346"
   },
