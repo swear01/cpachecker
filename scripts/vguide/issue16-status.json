@@ -12,8 +12,8 @@
       "2": 224
     },
     "protocol_sha256": "7059921c28fc4d20699062ff24995e7b7e6be35968dbcd350fdb0d007692a846",
-    "runtime_closure_sha256": "89810b77875526c1c10a80cfd9214c3e324e2ca5d4a738f246e043abf4e41630",
-    "scheduler_sha256": "a2ac959f56bcb533728ccf08f6737e6c459c1d0e760a63eb11f7880d3d720c46",
+    "runtime_closure_sha256": "02aa20b6077e1fb07572220be08eac07741a7310f2742556558a1fe0ef68982b",
+    "scheduler_sha256": "e814c083a6667108d28dea72f3f39ddd74bc1b302c0b84e53326cd34d89671e6",
     "seed_ledger_sha256": "77b8833615d3a6d2f39b048bb1e40c048dd9210e35af86817596905664464e6e",
     "seed_reusable": {
       "1": 155,
@@ -97,14 +97,15 @@
   },
   "captured_at": "2026-08-02T17:40:26+08:00",
   "documentation": {
-    "wiki_commit": "75089e63a5e1e5e15b6cbfd8df2c86920bbd99bf"
+    "wiki_commit": "99f147e309569159701c76ef339058e136b36e9e"
   },
   "next_action": "publish and fresh-verify immutable amendment, install 15-minute timer, then wait or launch the first cap-16 shard at the next UTC-quarter-aligned local slot",
   "old_timer": "vguide-three-host-capacity-check-30min.timer active until 15-minute replacement is published and verified",
   "publication": {
-    "package_inventory_sha256": "568c0b2841ab399f9aca081580a30e9a17e4149efab41f4725f2b0aba6b9aa86",
+    "package_inventory_sha256": "e14cf015bf89b13d779fda4786fbfcb4b9df247e22a5015e8d24b85084213652",
+    "package_revision": 2,
     "state": "prepared_pending_immutable_release",
-    "tarball_sha256": "6f4490ca2e2936c05485fc0bc820a48f13d86a422634b710023a223d383ccd73"
+    "tarball_sha256": "95253dcdf31741e8aa47b696e6557c44af96ec7349b932eda71cf9039d61a65e"
   },
   "schema_version": "issue16-rolling-status-v3"
 }
