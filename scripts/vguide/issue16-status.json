@@ -72,7 +72,7 @@
         "delegation_ready": true,
         "selected_free_p_cores": [
           0,
-          12
+          2
         ],
         "status": "busy"
       },
@@ -85,9 +85,10 @@
       }
     },
     "launch_host": "valkyrie",
+    "next_trigger": "Sun 2026-08-02 18:15:00 CST 12min left n/a n/a vguide-three-host-capacity-check-15min.timer vguide-three-host-capacity-check-15min.service",
     "service_sha256": "b66f9666f411ac4ca622a4dc72eb0e950b43790f812c93e9064af27d008199c3",
     "timer_sha256": "3999bcc163d15323061c784fe8b8a561c2d6ab01dbbb748056af6fb957320057",
-    "timer_state": "prepared_not_installed_pending_immutable_publication",
+    "timer_state": "enabled_active",
     "wall_clock_minutes": [
       0,
       15,
@@ -95,17 +96,21 @@
       45
     ]
   },
-  "captured_at": "2026-08-02T17:40:26+08:00",
+  "captured_at": "2026-08-02T18:02:28+08:00",
   "documentation": {
     "wiki_commit": "fb3c962f0b55b49abfe0b9c8ad22d4f13b90e346"
   },
-  "next_action": "publish and fresh-verify immutable amendment, install 15-minute timer, then wait or launch the first cap-16 shard at the next UTC-quarter-aligned local slot",
-  "old_timer": "vguide-three-host-capacity-check-30min.timer active until 15-minute replacement is published and verified",
+  "next_action": "15-minute timer checks all three hosts at the next quarter-hour and launches the first frozen cap-16 shard only if Valkyrie has a valid c4 slot",
+  "old_timer": "vguide-three-host-capacity-check-30min.timer disabled_inactive",
   "publication": {
+    "fresh_verification_sha256": "f6fd0652b9fcd53e409d96a0b028ca179ed6b654eb1326dc2b4e67ad072b3473",
     "package_inventory_sha256": "85c7f0ba677d89dff2823ac939aa6dfaf68130eef71cb7dd4dba17b5c3955b9c",
     "package_revision": 3,
-    "state": "prepared_pending_immutable_release",
-    "tarball_sha256": "1ecec2038e69e92df5cc3cdaa05cf84c9e5c8b9a17e7726f317f03051ec07c49"
+    "release_id": 363753386,
+    "state": "published_and_fresh_verified",
+    "tag": "hard-case-dataset-v2-relaxed-evidence-amendment-v1-20260802",
+    "tarball_sha256": "1ecec2038e69e92df5cc3cdaa05cf84c9e5c8b9a17e7726f317f03051ec07c49",
+    "target_commit": "ef516a9f8e62eea3a5d1b7eada2ef6da11ea6728"
   },
   "schema_version": "issue16-rolling-status-v3"
 }
