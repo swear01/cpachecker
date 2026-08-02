@@ -1,11 +1,11 @@
 {
   "active_run": null,
-  "blocker": "valkyrie has no sibling-complete four-P-core slot below 50% at the 23:00 check",
+  "blocker": "15-minute timer is intentionally paused until the zero-task property-path correction is preregistered",
   "cap16": {
     "cores_per_worker": 4,
     "host": "valkyrie",
     "manifest_sha256": "7ad21cb5ca4360689f00dca6f3a5eb7ec2385b9793315cfe5828892ded0ab49f",
-    "next_attempt": "r1-r1-s000-1ceca25345a4-a002",
+    "next_attempt": "r1-r1-s000-1ceca25345a4-a003",
     "next_shard": "r1-s000-1ceca25345a4",
     "next_shard_tasks": 8,
     "pending": {
@@ -13,8 +13,8 @@
       "2": 224
     },
     "protocol_sha256": "7059921c28fc4d20699062ff24995e7b7e6be35968dbcd350fdb0d007692a846",
-    "runtime_closure_sha256": "e6ea19e9dbf7e2f95afe65312b87f278ec3fce7f4f32d30c6a275eb13172a067",
-    "scheduler_sha256": "b05a5db8734e926259026c1cef69d5f41138f2ca12756badd45e1b3cfdb3cd36",
+    "runtime_closure_sha256": "7758da851bd871808d0630d120f092ec33553106291311afcd46e28ac3a9ba47",
+    "scheduler_sha256": "8ad3ccf8bb334c6592e85b3e09eef5b0cf7736b13dc63619148c8d2d09b5b89a",
     "seed_ledger_sha256": "77b8833615d3a6d2f39b048bb1e40c048dd9210e35af86817596905664464e6e",
     "seed_reusable": {
       "1": 155,
@@ -28,7 +28,7 @@
       "1": 6,
       "2": 0
     },
-    "state": "operational_correction_applied_waiting_for_capacity",
+    "state": "zero_task_operational_correction_preregistered_timer_paused",
     "workers": 1
   },
   "cap8": {
@@ -54,8 +54,8 @@
       "cthulhu",
       "valkyrie"
     ],
-    "last_action": "wait:no_free_c4_slot",
-    "last_trigger": "2026-08-02T23:00:00+08:00",
+    "last_action": "blocked:a002_zero_task_result_not_yet_terminalized",
+    "last_trigger": "2026-08-03T07:15:00+08:00",
     "latest_hosts": {
       "athena": {
         "apparmor_unprivileged_userns": 0,
@@ -75,7 +75,7 @@
         "delegation_ready": true,
         "selected_free_p_cores": [
           0,
-          8
+          2
         ],
         "status": "busy"
       },
@@ -83,15 +83,20 @@
         "apparmor_unprivileged_userns": 0,
         "boot_id": "f447e638-f9ab-45c6-b04a-ba3b5bf8cf0c",
         "delegation_ready": true,
-        "selected_free_p_cores": [],
+        "selected_free_p_cores": [
+          0,
+          2,
+          4,
+          6
+        ],
         "status": "busy"
       }
     },
     "launch_host": "valkyrie",
-    "next_trigger": "2026-08-02T23:15:00+08:00",
+    "next_trigger": "2026-08-03T07:45:00+08:00 after timer resume",
     "service_sha256": "b66f9666f411ac4ca622a4dc72eb0e950b43790f812c93e9064af27d008199c3",
     "timer_sha256": "3999bcc163d15323061c784fe8b8a561c2d6ab01dbbb748056af6fb957320057",
-    "timer_state": "enabled_active",
+    "timer_state": "enabled_inactive_for_preregistration",
     "wall_clock_minutes": [
       0,
       15,
@@ -99,27 +104,45 @@
       45
     ]
   },
-  "captured_at": "2026-08-02T23:00:02+08:00",
+  "captured_at": "2026-08-03T07:37:28+08:00",
   "documentation": {
-    "wiki_commit": "bf0287ab3976770f9064a74fc26c1cd8b06c9c52"
+    "wiki_commit": "0eab5ded5d4836c2387ab291b3f1ea7a67fa0fcc"
   },
-  "next_action": "15-minute timer retries the unchanged first cap-16 shard as attempt a002 when Valkyrie exposes a valid c4 slot",
+  "next_action": "after this rolling-status preregistration, resume the 15-minute timer; it will terminalize zero-task a002 and launch the unchanged first shard as a003 if Valkyrie still has c4 capacity",
   "old_timer": "vguide-three-host-capacity-check-30min.timer disabled_inactive",
-  "operational_correction": {
-    "attempt": "r1-r1-s000-1ceca25345a4-a001",
-    "benchmark_tasks_started": 0,
-    "classification": "pre_task_launcher_failure_zero_benchmark_tasks",
-    "corrected_runtime_closure_sha256": "e6ea19e9dbf7e2f95afe65312b87f278ec3fce7f4f32d30c6a275eb13172a067",
-    "corrected_scheduler_sha256": "b05a5db8734e926259026c1cef69d5f41138f2ca12756badd45e1b3cfdb3cd36",
-    "correction_id": "launch-inventory-working-directory-v1",
-    "evidence_sha256": "77c509c677491dbdd994102f37cf90c117d6f23cc84e4e3ae7a9f176d0a6f9f3",
-    "experimental_revision_changed": false,
-    "incomplete_terminal_sha256": "03352bada9c7474c9183991b86f7314e47b69440693105506f1bc6676f029895",
-    "old_scheduler_sha256": "b16b8c64cbed16a13338487474e85f2cec3cf92e87ade65e1a7694d9f21a1e8e",
-    "registry_sha256": "18299ef5c0c96904a77e9c0bff4f13da99a521e8ee01c30bcadbd83599cd67c4",
-    "release_created": false,
-    "terminal_anchor_sha256": "d76432deb4caa4ea1cc2f094416474898bd39a59df82dba4f0d869070c482f78"
-  },
+  "operational_corrections": [
+    {
+      "attempt": "r1-r1-s000-1ceca25345a4-a001",
+      "benchmark_tasks_started": 0,
+      "classification": "pre_task_launcher_failure_zero_benchmark_tasks",
+      "corrected_runtime_closure_sha256": "e6ea19e9dbf7e2f95afe65312b87f278ec3fce7f4f32d30c6a275eb13172a067",
+      "corrected_scheduler_sha256": "b05a5db8734e926259026c1cef69d5f41138f2ca12756badd45e1b3cfdb3cd36",
+      "correction_id": "launch-inventory-working-directory-v1",
+      "evidence_sha256": "77c509c677491dbdd994102f37cf90c117d6f23cc84e4e3ae7a9f176d0a6f9f3",
+      "experimental_revision_changed": false,
+      "incomplete_terminal_sha256": "03352bada9c7474c9183991b86f7314e47b69440693105506f1bc6676f029895",
+      "old_scheduler_sha256": "b16b8c64cbed16a13338487474e85f2cec3cf92e87ade65e1a7694d9f21a1e8e",
+      "registry_sha256": "18299ef5c0c96904a77e9c0bff4f13da99a521e8ee01c30bcadbd83599cd67c4",
+      "release_created": false,
+      "terminal_anchor_sha256": "d76432deb4caa4ea1cc2f094416474898bd39a59df82dba4f0d869070c482f78"
+    },
+    {
+      "attempt": "r1-r1-s000-1ceca25345a4-a002",
+      "benchmark_tasks_started": 0,
+      "classification": "pre_task_benchexec_zero_tasks",
+      "corrected_runtime_closure_sha256": "7758da851bd871808d0630d120f092ec33553106291311afcd46e28ac3a9ba47",
+      "corrected_scheduler_sha256": "8ad3ccf8bb334c6592e85b3e09eef5b0cf7736b13dc63619148c8d2d09b5b89a",
+      "correction_id": "canonical-property-identity-v1",
+      "evidence_sha256": "92c48dba34ac7db468baf039ce640d6643b57e17895d23ce945496424b7593b2",
+      "experimental_revision_changed": false,
+      "measurement_rows": 0,
+      "old_scheduler_sha256": "b05a5db8734e926259026c1cef69d5f41138f2ca12756badd45e1b3cfdb3cd36",
+      "registry_sha256": "8f03badfc71bdad3b90d47ff0b499c8f6c89b212bb3ac28f6f438c6436ce50e4",
+      "release_created": false,
+      "result_text_sha256": "1c2c1c090510667f4fe952118049f265049a55d8a3be164d16715063d239a79b",
+      "terminal_state": "pending_atomic_incomplete_terminal"
+    }
+  ],
   "publication": {
     "fresh_verification_sha256": "f6fd0652b9fcd53e409d96a0b028ca179ed6b654eb1326dc2b4e67ad072b3473",
     "package_inventory_sha256": "85c7f0ba677d89dff2823ac939aa6dfaf68130eef71cb7dd4dba17b5c3955b9c",
