@@ -1,36 +1,28 @@
 {
-  "active_run": {
-    "attempt": "r1-r1-s000-1ceca25345a4-a003",
-    "authorization_sha256": "b485f7d796d058386493c1fc6bffef2c5e8fd7b27a4094dca56910834ef4f8bd",
-    "host": "valkyrie",
-    "property_path": "/var/tmp/swear01-cpachecker-paper/sv-benchmarks/c/properties/unreach-call.prp",
-    "repetition": 1,
-    "selected_p_cores": [
-      0,
-      2,
-      4,
-      6
-    ],
-    "shard": "r1-s000-1ceca25345a4",
-    "started_at": "2026-08-03T07:45:06+08:00",
-    "state": "executing_1_of_8",
-    "task_count": 8
-  },
-  "blocker": null,
+  "active_run": null,
+  "blocker": "15-minute timer is intentionally paused until the monitor-race row-level recovery is preregistered",
   "cap16": {
     "cores_per_worker": 4,
     "host": "valkyrie",
     "manifest_sha256": "7ad21cb5ca4360689f00dca6f3a5eb7ec2385b9793315cfe5828892ded0ab49f",
-    "next_attempt": null,
+    "next_attempt": "r1-r1-s000-1ceca25345a4-a004",
     "next_shard": "r1-s000-1ceca25345a4",
-    "next_shard_tasks": 8,
+    "next_shard_tasks": 2,
     "pending": {
       "1": 63,
       "2": 224
     },
+    "proposed_recovery": {
+      "accepted_rows": 6,
+      "attempt": "r1-r1-s000-1ceca25345a4-a003",
+      "pending_rows": 2,
+      "status_counts": {
+        "TIMEOUT": 6
+      }
+    },
     "protocol_sha256": "7059921c28fc4d20699062ff24995e7b7e6be35968dbcd350fdb0d007692a846",
-    "runtime_closure_sha256": "7758da851bd871808d0630d120f092ec33553106291311afcd46e28ac3a9ba47",
-    "scheduler_sha256": "8ad3ccf8bb334c6592e85b3e09eef5b0cf7736b13dc63619148c8d2d09b5b89a",
+    "runtime_closure_sha256": "d53700e3a30abbc741ccbb5724031e78a562788af2d350ec409236ea668fa571",
+    "scheduler_sha256": "612c7a9d051691af9362c9bc0f0cbea42448d2c8a7dea6f22508d0dfc7251c62",
     "seed_ledger_sha256": "77b8833615d3a6d2f39b048bb1e40c048dd9210e35af86817596905664464e6e",
     "seed_reusable": {
       "1": 155,
@@ -44,7 +36,7 @@
       "1": 6,
       "2": 0
     },
-    "state": "active_repetition_1_shard_000",
+    "state": "monitor_partial_recovery_preregistered_timer_paused",
     "workers": 1
   },
   "cap8": {
@@ -70,8 +62,8 @@
       "cthulhu",
       "valkyrie"
     ],
-    "last_action": "launched:r1-r1-s000-1ceca25345a4-a003",
-    "last_trigger": "2026-08-03T07:45:00+08:00",
+    "last_action": "blocked:a003_same_boot_monitor_exit_1",
+    "last_trigger": "2026-08-03T15:45:00+08:00",
     "latest_hosts": {
       "athena": {
         "apparmor_unprivileged_userns": 0,
@@ -99,20 +91,15 @@
         "apparmor_unprivileged_userns": 0,
         "boot_id": "f447e638-f9ab-45c6-b04a-ba3b5bf8cf0c",
         "delegation_ready": true,
-        "selected_free_p_cores": [
-          0,
-          2,
-          4,
-          6
-        ],
+        "selected_free_p_cores": [],
         "status": "busy"
       }
     },
     "launch_host": "valkyrie",
-    "next_trigger": "2026-08-03T08:00:00+08:00",
+    "next_trigger": "2026-08-03T16:15:00+08:00 after timer resume",
     "service_sha256": "b66f9666f411ac4ca622a4dc72eb0e950b43790f812c93e9064af27d008199c3",
     "timer_sha256": "3999bcc163d15323061c784fe8b8a561c2d6ab01dbbb748056af6fb957320057",
-    "timer_state": "enabled_active",
+    "timer_state": "enabled_inactive_for_preregistration",
     "wall_clock_minutes": [
       0,
       15,
@@ -120,11 +107,11 @@
       45
     ]
   },
-  "captured_at": "2026-08-03T07:45:56+08:00",
+  "captured_at": "2026-08-03T15:52:21+08:00",
   "documentation": {
-    "wiki_commit": "0eab5ded5d4836c2387ab291b3f1ea7a67fa0fcc"
+    "wiki_commit": "968c4e0dddc5199dbfe8133a41e01e56043303bb"
   },
-  "next_action": "leave healthy a003 running; the 15-minute timer observes all three hosts and, after atomic structural acceptance, launches only the deterministic next pending cap-16 shard",
+  "next_action": "after this rolling-status preregistration, resume the timer; it will accept only the six structurally complete monitored a003 rows and keep the two uncovered tasks pending for a004",
   "old_timer": "vguide-three-host-capacity-check-30min.timer disabled_inactive",
   "operational_corrections": [
     {
@@ -159,6 +146,24 @@
       "result_text_sha256": "1c2c1c090510667f4fe952118049f265049a55d8a3be164d16715063d239a79b",
       "terminal_anchor_sha256": "c7b921967dad71721e25687fdbf12275a6043b0363a308f3b63096880a22fe4e",
       "terminal_state": "authenticated_incomplete"
+    },
+    {
+      "accepted_rows": 6,
+      "attempt": "r1-r1-s000-1ceca25345a4-a003",
+      "benchmark_tasks_started": 8,
+      "classification": "runtime_monitor_proc_race_partial_rows",
+      "corrected_runtime_closure_sha256": "d53700e3a30abbc741ccbb5724031e78a562788af2d350ec409236ea668fa571",
+      "corrected_scheduler_sha256": "612c7a9d051691af9362c9bc0f0cbea42448d2c8a7dea6f22508d0dfc7251c62",
+      "correction_id": "monitor-proc-race-partial-coverage-v1",
+      "evidence_sha256": "e6d3e38cee0635b6a29e63ea72150fd5849be90ad5c70bbc11f2146f22707781",
+      "experimental_revision_changed": false,
+      "monitor_fix_sha256": "d1038e6b92663dc4a7b1484f643826eee5dced41bd965d275fc1815f280cb8a3",
+      "old_scheduler_sha256": "8ad3ccf8bb334c6592e85b3e09eef5b0cf7736b13dc63619148c8d2d09b5b89a",
+      "pending_rows": 2,
+      "registry_sha256": "3407cebdbba9943006550b8fa6e1f7c58eee6efb043400370b07554e6a435ce9",
+      "release_created": false,
+      "result_rows": 8,
+      "terminal_state": "pending_atomic_partial_summary"
     }
   ],
   "publication": {
