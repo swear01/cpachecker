@@ -1,6 +1,6 @@
 {
   "active_run": null,
-  "blocker": "15-minute timer is intentionally paused until the monitor-race row-level recovery is preregistered",
+  "blocker": "Valkyrie had no sibling-complete c4 slot below 50% at the 16:00 check",
   "cap16": {
     "cores_per_worker": 4,
     "host": "valkyrie",
@@ -9,16 +9,8 @@
     "next_shard": "r1-s000-1ceca25345a4",
     "next_shard_tasks": 2,
     "pending": {
-      "1": 63,
+      "1": 57,
       "2": 224
-    },
-    "proposed_recovery": {
-      "accepted_rows": 6,
-      "attempt": "r1-r1-s000-1ceca25345a4-a003",
-      "pending_rows": 2,
-      "status_counts": {
-        "TIMEOUT": 6
-      }
     },
     "protocol_sha256": "7059921c28fc4d20699062ff24995e7b7e6be35968dbcd350fdb0d007692a846",
     "runtime_closure_sha256": "d53700e3a30abbc741ccbb5724031e78a562788af2d350ec409236ea668fa571",
@@ -36,7 +28,11 @@
       "1": 6,
       "2": 0
     },
-    "state": "monitor_partial_recovery_preregistered_timer_paused",
+    "settled": {
+      "1": 6,
+      "2": 0
+    },
+    "state": "monitor_recovery_applied_waiting_for_capacity",
     "workers": 1
   },
   "cap8": {
@@ -62,8 +58,8 @@
       "cthulhu",
       "valkyrie"
     ],
-    "last_action": "blocked:a003_same_boot_monitor_exit_1",
-    "last_trigger": "2026-08-03T15:45:00+08:00",
+    "last_action": "wait:no_free_c4_slot",
+    "last_trigger": "2026-08-03T16:00:11+08:00",
     "latest_hosts": {
       "athena": {
         "apparmor_unprivileged_userns": 0,
@@ -82,8 +78,8 @@
         "boot_id": "d6096e75-ca77-46f0-8247-a63d75431bf1",
         "delegation_ready": true,
         "selected_free_p_cores": [
-          0,
-          2
+          10,
+          12
         ],
         "status": "busy"
       },
@@ -96,10 +92,10 @@
       }
     },
     "launch_host": "valkyrie",
-    "next_trigger": "2026-08-03T16:15:00+08:00 after timer resume",
+    "next_trigger": "2026-08-03T16:15:00+08:00",
     "service_sha256": "b66f9666f411ac4ca622a4dc72eb0e950b43790f812c93e9064af27d008199c3",
     "timer_sha256": "3999bcc163d15323061c784fe8b8a561c2d6ab01dbbb748056af6fb957320057",
-    "timer_state": "enabled_inactive_for_preregistration",
+    "timer_state": "enabled_active",
     "wall_clock_minutes": [
       0,
       15,
@@ -107,11 +103,11 @@
       45
     ]
   },
-  "captured_at": "2026-08-03T15:52:21+08:00",
+  "captured_at": "2026-08-03T16:00:19+08:00",
   "documentation": {
     "wiki_commit": "968c4e0dddc5199dbfe8133a41e01e56043303bb"
   },
-  "next_action": "after this rolling-status preregistration, resume the timer; it will accept only the six structurally complete monitored a003 rows and keep the two uncovered tasks pending for a004",
+  "next_action": "the 15-minute timer retries the two uncovered shard-000 tasks as a004 when Valkyrie exposes a valid c4 slot; the six accepted a003 rows will not rerun",
   "old_timer": "vguide-three-host-capacity-check-30min.timer disabled_inactive",
   "operational_corrections": [
     {
@@ -163,7 +159,9 @@
       "registry_sha256": "3407cebdbba9943006550b8fa6e1f7c58eee6efb043400370b07554e6a435ce9",
       "release_created": false,
       "result_rows": 8,
-      "terminal_state": "pending_atomic_partial_summary"
+      "summary_sha256": "e48ae7726e24c5a1c0fecb5caa007bcf35ef9d9480d5fa5e48b1d5ff6008451f",
+      "terminal_anchor_sha256": "8e2a9027f9ff8c9e495a6a55833eb9bb62e3347e315f2491f71013f1fa63adc6",
+      "terminal_state": "authenticated_partial_summary"
     }
   ],
   "publication": {
