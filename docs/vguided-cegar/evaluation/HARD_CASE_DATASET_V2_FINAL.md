@@ -19,4 +19,4 @@ Six registered operational corrections are included with evidence. They preserve
 
 ## Use by subsequent agents
 
-Treat the final release's `final-summary.json` and `FINALIZATION-SHA256SUMS` as the authority for this dataset. Before using it in any new validation, download the release, verify its outer SHA-256 and `FINALIZATION-SHA256SUMS`, and keep the 224-task manifest fixed. Issue [#2](https://github.com/swear01/cpachecker/issues/2) owns the next A/B/C/D evaluation contract; augmented outcomes must not alter this dataset.
+Treat the final release's `final-summary.json` and `FINALIZATION-SHA256SUMS` as the authority for this dataset. Before using it in any new validation, download the release, verify its outer SHA-256 and `FINALIZATION-SHA256SUMS`, and keep the 224-task manifest fixed. Issue [#2](https://github.com/swear01/cpachecker/issues/2) owns the next two-arm core-only evaluation: matched Stock-Core versus Augmented-Core. No Full-portfolio arms are planned; augmented outcomes must not alter this dataset.
