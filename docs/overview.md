@@ -32,3 +32,4 @@ CPAchecker is a configurable software verifier for C programs, used in SV-COMP c
 - LLM API: DeepSeek V4 — see `docs/vguided-cegar/llm/LLM_API.md`
 - Architecture: `docs/vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`
 - Run instructions: `docs/vguided-cegar/RUN_EXPERIMENTS.md`
+- Final hard-case Dataset v2 evidence: `docs/vguided-cegar/evaluation/HARD_CASE_DATASET_V2_FINAL.md`
