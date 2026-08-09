@@ -27,19 +27,23 @@ final class StructuredCounterexampleBuilder {
       ImmutableList<LoopHeadInfo> loopHeads,
       List<? extends AbstractState> abstractionTrace,
       String relationSummary) {
+    ImmutableList<LoopHeadInfo> nonNullLoopHeads =
+        loopHeads == null ? ImmutableList.of() : loopHeads;
+    List<? extends AbstractState> nonNullTrace =
+        abstractionTrace == null ? List.of() : abstractionTrace;
     Map<CFANode, LoopHeadInfo> heads =
-        loopHeads.stream()
+        nonNullLoopHeads.stream()
             .filter(head -> head != null && head.node() != null)
             .collect(Collectors.toMap(LoopHeadInfo::node, head -> head, (first, ignored) -> first));
     List<TraceSegment> segments = new ArrayList<>();
-    for (AbstractState state : abstractionTrace) {
+    for (AbstractState state : nonNullTrace) {
       if (!(state instanceof AbstractStateWithLocation located)) {
         continue;
       }
       CFANode node = located.getLocationNode();
       LoopHeadInfo head = heads.get(node);
-      TraceSegment next =
-          new TraceSegment(node.getNodeNumber(), node.getFunctionName(), head == null ? "" : head.label(), 1);
+      String label = head == null || head.label() == null ? "" : head.label();
+      TraceSegment next = new TraceSegment(node.getNodeNumber(), node.getFunctionName(), label, 1);
       if (!segments.isEmpty() && segments.get(segments.size() - 1).sameLocation(next)) {
         segments.set(segments.size() - 1, segments.get(segments.size() - 1).increment());
       } else {

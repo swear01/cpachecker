@@ -58,6 +58,8 @@ public class StructuredCounterexampleBuilderTest {
             "a\r\tb", ImmutableList.of(), ImmutableList.of(), "c\r\td");
     assertThat(escaped).contains("\"assertion\":\"a\\r\\tb\"");
     assertThat(escaped).contains("\"relations\":\"c\\r\\td\"");
+    assertThat(StructuredCounterexampleBuilder.build("", null, null, ""))
+        .contains("\"trace\":[]");
   }
 
   private record LocState(CFANode node) implements AbstractStateWithLocation {
