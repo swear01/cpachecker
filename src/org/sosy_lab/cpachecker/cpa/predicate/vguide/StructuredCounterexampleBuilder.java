@@ -93,7 +93,14 @@ final class StructuredCounterexampleBuilder {
         case '\n' -> escaped.append("\\n");
         case '\r' -> escaped.append("\\r");
         case '\t' -> escaped.append("\\t");
-        default -> escaped.append(value.charAt(i));
+        default -> {
+          char character = value.charAt(i);
+          if (character < 0x20) {
+            escaped.append(String.format("\\u%04x", (int) character));
+          } else {
+            escaped.append(character);
+          }
+        }
       }
     }
     return escaped.toString();

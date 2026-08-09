@@ -86,6 +86,8 @@ public class StructuredCounterexampleBuilderTest {
             "a\r\tb", ImmutableList.of(), ImmutableList.of(), "c\r\td");
     assertThat(escaped).contains("\"assertion\":\"a\\r\\tb\"");
     assertThat(escaped).contains("\"relations\":\"c\\r\\td\"");
+    assertThat(StructuredCounterexampleBuilder.build("a\u0001b", ImmutableList.of(), ImmutableList.of(), ""))
+        .contains("\"assertion\":\"a\\u0001b\"");
     assertThat(StructuredCounterexampleBuilder.build("", null, null, ""))
         .contains("\"trace\":[]");
     assertThat(
