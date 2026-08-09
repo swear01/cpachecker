@@ -53,6 +53,11 @@ public class StructuredCounterexampleBuilderTest {
     assertThat(json).contains("\"assertion\":\"\"");
     assertThat(json).contains("\"relations\":\"\"");
     assertThat(json).contains("\"loop_head\":\"N" + head.getNodeNumber() + "\"");
+    String escaped =
+        StructuredCounterexampleBuilder.build(
+            "a\r\tb", ImmutableList.of(), ImmutableList.of(), "c\r\td");
+    assertThat(escaped).contains("\"assertion\":\"a\\r\\tb\"");
+    assertThat(escaped).contains("\"relations\":\"c\\r\\td\"");
   }
 
   private record LocState(CFANode node) implements AbstractStateWithLocation {

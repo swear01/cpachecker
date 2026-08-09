@@ -76,7 +76,20 @@ final class StructuredCounterexampleBuilder {
     if (value == null) {
       return "";
     }
-    return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+    StringBuilder escaped = new StringBuilder(value.length());
+    for (int i = 0; i < value.length(); i++) {
+      switch (value.charAt(i)) {
+        case '\\' -> escaped.append("\\\\");
+        case '"' -> escaped.append("\\\"");
+        case '\b' -> escaped.append("\\b");
+        case '\f' -> escaped.append("\\f");
+        case '\n' -> escaped.append("\\n");
+        case '\r' -> escaped.append("\\r");
+        case '\t' -> escaped.append("\\t");
+        default -> escaped.append(value.charAt(i));
+      }
+    }
+    return escaped.toString();
   }
 
   private record TraceSegment(int nodeNumber, String functionName, String loopHead, int repeatCount) {
