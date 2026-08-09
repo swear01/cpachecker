@@ -28,7 +28,9 @@ final class StructuredCounterexampleBuilder {
       List<? extends AbstractState> abstractionTrace,
       String relationSummary) {
     Map<CFANode, LoopHeadInfo> heads =
-        loopHeads.stream().collect(Collectors.toMap(LoopHeadInfo::node, h -> h));
+        loopHeads.stream()
+            .filter(head -> head != null && head.node() != null)
+            .collect(Collectors.toMap(LoopHeadInfo::node, head -> head, (first, ignored) -> first));
     List<TraceSegment> segments = new ArrayList<>();
     for (AbstractState state : abstractionTrace) {
       if (!(state instanceof AbstractStateWithLocation located)) {
@@ -65,12 +67,15 @@ final class StructuredCounterexampleBuilder {
       out.append(",\"repeat_count\":").append(segment.repeatCount()).append('}');
     }
     return out.append("],\"relations\":\"")
-        .append(escape(relationSummary.strip()))
+        .append(escape(relationSummary == null ? "" : relationSummary.strip()))
         .append("\",\"unavailable\":[\"branch_conditions\",\"ssa_values\",\"assignments\"]}")
         .toString();
   }
 
   private static String escape(String value) {
+    if (value == null) {
+      return "";
+    }
     return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
   }
 

@@ -38,6 +38,23 @@ public class StructuredCounterexampleBuilderTest {
     assertThat(json).contains("\"unavailable\":[\"branch_conditions\",\"ssa_values\",\"assignments\"]");
   }
 
+  @Test
+  public void toleratesDuplicateLoopHeadsAndMissingText() {
+    CFANode head = newDummyCFANode("main");
+    String json =
+        StructuredCounterexampleBuilder.build(
+            null,
+            ImmutableList.of(
+                new LoopHeadInfo(head, "ignored", "main"),
+                new LoopHeadInfo(head, "ignored", "main")),
+            ImmutableList.of(new LocState(head)),
+            null);
+
+    assertThat(json).contains("\"assertion\":\"\"");
+    assertThat(json).contains("\"relations\":\"\"");
+    assertThat(json).contains("\"loop_head\":\"N" + head.getNodeNumber() + "\"");
+  }
+
   private record LocState(CFANode node) implements AbstractStateWithLocation {
     @Override
     public CFANode getLocationNode() {
