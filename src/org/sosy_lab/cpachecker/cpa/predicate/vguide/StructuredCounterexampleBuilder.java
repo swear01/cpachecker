@@ -94,7 +94,7 @@ final class StructuredCounterexampleBuilder {
 
   private record TraceSegment(int nodeNumber, String functionName, String loopHead, int repeatCount) {
     boolean sameLocation(TraceSegment other) {
-      return nodeNumber == other.nodeNumber && functionName.equals(other.functionName());
+      return nodeNumber == other.nodeNumber;
     }
 
     TraceSegment increment() {
