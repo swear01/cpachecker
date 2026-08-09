@@ -22,6 +22,7 @@
 | `docs/vguided-cegar/evaluation/` | Benchmark definitions, frozen replay |
 | `docs/vguided-cegar/evaluation/nla_oracle_smoke_candidates.json` | 12-task reference polynomial candidates + frozen source/YAML hashes |
 | `docs/vguided-cegar/evaluation/predicate_usefulness_gate_frozen_20260711.json` | Frozen commits, config/manifest hashes, gate constants, model/solver, and primary resource protocol |
+| `docs/vguided-cegar/evaluation/HARD_CASE_DATASET_V2_FINAL.md` | Final Issue #16 dataset identity, counts, release verification, and downstream-use boundary |
 | `docs/vguided-cegar/benchmark_sets/` | `.list` manifests read by `run.sh` |
 | `docs/vguided-cegar/predicate_sets/` | Frozen predicates for NO_SPURIOUS replay |
 | `docs/vguided-cegar/reports/` | Experiment result records (not design specs) |
