@@ -39,6 +39,34 @@ public class StructuredCounterexampleBuilderTest {
   }
 
   @Test
+  public void preservesNestedLoopHeadOrderAndCompressesLongTrace() {
+    CFANode outer = newDummyCFANode("main");
+    CFANode branch = newDummyCFANode("main");
+    CFANode inner = newDummyCFANode("main");
+    ImmutableList.Builder<org.sosy_lab.cpachecker.core.interfaces.AbstractState> trace =
+        ImmutableList.builder();
+    trace.add(new LocState(outer));
+    for (int i = 0; i < 100; i++) {
+      trace.add(new LocState(branch));
+    }
+    trace.add(new LocState(inner));
+    String json =
+        StructuredCounterexampleBuilder.build(
+            "x < n",
+            ImmutableList.of(
+                new LoopHeadInfo(outer, "ignored", "main"),
+                new LoopHeadInfo(inner, "ignored", "main")),
+            trace.build(),
+            "");
+
+    assertThat(json).contains("\"loop_head\":\"N" + outer.getNodeNumber() + "\"");
+    assertThat(json).contains("\"loop_head\":\"N" + inner.getNodeNumber() + "\"");
+    assertThat(json).contains("\"repeat_count\":100");
+    assertThat(json.indexOf("\"node\":" + outer.getNodeNumber()))
+        .isLessThan(json.indexOf("\"node\":" + inner.getNodeNumber()));
+  }
+
+  @Test
   public void toleratesDuplicateLoopHeadsAndMissingText() {
     CFANode head = newDummyCFANode("main");
     String json =
