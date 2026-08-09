@@ -36,7 +36,7 @@ public class ProposalPromptBuilderTest {
     PredicateBudget budget = new PredicateBudget(8, 16);
     PromptMessages safe = builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
     assertThat(safe.user()).contains("Return between 8 and 16 predicates");
-    assertThat(safe.user()).contains("SPURIOUS CE SUMMARY");
+    assertThat(safe.user()).contains("STRUCTURED SPURIOUS COUNTEREXAMPLE");
     assertThat(safe.user()).contains("L@N1:");
     assertThat(safe.system()).contains("\"predicates\"");
   }

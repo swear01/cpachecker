@@ -73,9 +73,11 @@ public final class ContextPackBuilder {
     String assertion = extractAssertion(source);
     var varContract = VarContractBuilder.build(encodedVars);
     ImmutableList<LoopHeadInfo> loopHeads = loopHeadIndex.getLoopHeads();
-    String ceSummary =
+    String relationSummary =
         CeSummaryBuilder.build(
             fmgr, formulas, itps, loopHeads, varContract, assertion, abstractionTrace);
+    String ceSummary =
+        StructuredCounterexampleBuilder.build(assertion, loopHeads, abstractionTrace, relationSummary);
     return new ContextPack(
         refinementIndex,
         source,
