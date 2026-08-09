@@ -82,7 +82,7 @@ public final class ProposalPromptBuilder {
   }
 
   private static String buildDynamicTail(ContextPack pack, PredicateBudget budget, PromptProfile profile) {
-    return "\nSPURIOUS CE SUMMARY (source variable names only, read-only):\n"
+    return "\nSTRUCTURED SPURIOUS COUNTEREXAMPLE (read-only):\n"
         + pack.ceSummary()
         + "\n"
         + predicateBudgetBlock(budget, profile);

@@ -22,6 +22,7 @@
 org.sosy_lab.cpachecker.cpa.predicate.vguide
   VGuideRefinementBridge      // 唯一入口，掛在 PredicateCPARefiner
   ContextPackBuilder          // source + CE + loop_heads + var_contract
+  StructuredCounterexampleBuilder // versioned deterministic CE prompt artifact
   PredicateProposalClient     // DeepSeek HttpClient，可 parallel variants
   LlmResponseCache            // paired record/replay；per-task namespace，無live fallback
   PredicateValidationPipeline // L1 contract, L2 parse (L3 implemented, not used)
