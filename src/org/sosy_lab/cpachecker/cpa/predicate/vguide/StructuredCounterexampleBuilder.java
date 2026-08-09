@@ -41,6 +41,9 @@ final class StructuredCounterexampleBuilder {
         continue;
       }
       CFANode node = located.getLocationNode();
+      if (node == null) {
+        continue;
+      }
       LoopHeadInfo head = heads.get(node);
       String label = head == null || head.label() == null ? "" : head.label();
       TraceSegment next = new TraceSegment(node.getNodeNumber(), node.getFunctionName(), label, 1);
