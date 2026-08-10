@@ -360,6 +360,43 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
     assertThat(outcome.rejections()).isEmpty();
   }
 
+  @Test
+  public void conflictingCandidateDoesNotPoisonGroupCheckForLaterCandidates() {
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, true);
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(ENCODED_F1_X, block),
+            ImmutableList.of(
+                new LoopHeadCandidate(
+                    ImmutableList.of(headA.label()),
+                    "(= x (_ bv1 32))",
+                    "initiation",
+                    ImmutableList.of()),
+                new LoopHeadCandidate(
+                    ImmutableList.of(headA.label()),
+                    "(= x (_ bv2 32))",
+                    "supporting",
+                    ImmutableList.of()),
+                new LoopHeadCandidate(
+                    ImmutableList.of(headA.label()),
+                    "(bvsge x (_ bv0 32))",
+                    "bound",
+                    ImmutableList.of())),
+            trace(headA.node()));
+
+    assertThat(outcome.validation().validated()).hasSize(3);
+    assertThat(outcome.validation().validated().get(0).groupConflict()).isFalse();
+    assertThat(outcome.validation().validated().get(1).groupConflict()).isTrue();
+    // The conflicting candidate must not poison the group set: the third candidate
+    // is checked only against the consistent prefix (initiation).
+    assertThat(outcome.validation().validated().get(2).groupConflict()).isFalse();
+    assertThat(outcome.rejections()).isEmpty();
+  }
+
   private record LocState(CFANode node) implements AbstractStateWithLocation {
     @Override
     public CFANode getLocationNode() {

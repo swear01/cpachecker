@@ -81,6 +81,11 @@ public final class PredicateValidationPipeline {
     List<CandidateRejection> rejections = new ArrayList<>();
     Set<String> validatedPairs = new HashSet<>();
     for (LoopHeadCandidate candidate : orderedByRole(candidates)) {
+      if (Thread.currentThread().isInterrupted()) {
+        // Do not keep issuing solver queries after interruption; the CEGAR loop
+        // observes the interrupt on its next check.
+        break;
+      }
       List<LoopHeadInfo> heads = new ArrayList<>();
       for (String label : candidate.loopHeads()) {
         LoopHeadInfo head = findHead(pack, label);
@@ -157,17 +162,12 @@ public final class PredicateValidationPipeline {
           continue;
         }
         BooleanFormula block = blockByNode.get(head.node());
+        Set<String> blockVars =
+            blockVarsCache.computeIfAbsent(head.node(), node -> fmgr.extractVariableNames(block));
         boolean overSpecific =
             !freeVars.isEmpty()
                 && freeVars.stream()
-                    .anyMatch(
-                        v ->
-                            pack.encodedVars().contains(v)
-                                && !blockVarsCache
-                                    .computeIfAbsent(
-                                        head.node(),
-                                        node -> fmgr.extractVariableNames(blockByNode.get(node)))
-                                    .contains(v));
+                    .anyMatch(v -> pack.encodedVars().contains(v) && !blockVars.contains(v));
         ValidatedPredicate.Classification cls =
             enableL3Entailment
                 ? classify(block, parsed, bfmgr)
@@ -175,12 +175,14 @@ public final class PredicateValidationPipeline {
         boolean groupConflict = false;
         if (enableL3Entailment) {
           List<BooleanFormula> previous = validatedAtHead.get(head.node());
-          if (previous != null
-              && !previous.isEmpty()
-              && !consistentWithGroup(block, previous, parsed)) {
-            groupConflict = true;
+          if (previous != null && !previous.isEmpty()) {
+            groupConflict = !consistentWithGroup(block, previous, parsed);
           }
-          validatedAtHead.computeIfAbsent(head.node(), node -> new ArrayList<>()).add(parsed);
+          if (!groupConflict) {
+            // Keep the accumulated set consistent so one conflict does not poison
+            // the group check for every later candidate at this head.
+            validatedAtHead.computeIfAbsent(head.node(), node -> new ArrayList<>()).add(parsed);
+          }
         }
         out.add(
             new ValidatedPredicate(
