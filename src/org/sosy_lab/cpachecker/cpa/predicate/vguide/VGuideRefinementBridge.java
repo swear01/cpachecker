@@ -41,6 +41,7 @@ import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision;
 import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
 import org.sosy_lab.cpachecker.util.LoopStructure;
 import org.sosy_lab.cpachecker.util.Precisions;
+import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
@@ -63,6 +64,7 @@ public final class VGuideRefinementBridge {
   private final WallClockBudget wallBudget;
   private final LlmCallScheduler llmScheduler;
   private final CeHistoryStore ceHistoryStore;
+  private final RefinementOutcomeStore refinementOutcomeStore = new RefinementOutcomeStore();
   private final Set<String> llmOwnedKeys = new HashSet<>();
   private final NativePredicateContextBuilder nativeContextBuilder =
       new NativePredicateContextBuilder(llmOwnedKeys);
@@ -98,7 +100,9 @@ public final class VGuideRefinementBridge {
   List<VGuideAnalysisDumper.DumpValidatedPredicate> validated = List.of();
   List<CandidateRejection> rejections = List.of();
   CeHistoryStore.@Nullable Snapshot ceHistorySnapshot;
+  @Nullable String refinementOutcomeLine;
   NativePredicateContextBuilder.@Nullable Context nativeContext;
+  Set<String> precisionBeforeSnapshot = Set.of();
   PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision;
   }
 
@@ -343,6 +347,11 @@ public final class VGuideRefinementBridge {
     ContextPack pack =
         contextPackBuilder.build(refinementIndex, formulas, counterexample, abstractionStatesTrace);
     int loopHeadVisits = countLoopHeadVisits(abstractionStatesTrace, pack.loopHeads());
+    refinementOutcomeStore.recordStarted(
+        refinementIndex,
+        loopHeadVisits,
+        counterexample.getInterpolants() == null ? 0 : counterexample.getInterpolants().size(),
+        formulas.getSize());
     logger.log(
         Level.INFO,
         "VGuide peel: refinement #"
@@ -352,6 +361,7 @@ public final class VGuideRefinementBridge {
             + " traceLen="
             + (abstractionStatesTrace == null ? 0 : abstractionStatesTrace.size()));
     PendingRefinementDump dump = new PendingRefinementDump();
+    dump.precisionBeforeSnapshot = canonicalPrecisionSet(reachedBefore);
     dump.refinementIndex = refinementIndex;
     dump.pack = pack;
     dump.trace = abstractionStatesTrace;
@@ -413,6 +423,10 @@ public final class VGuideRefinementBridge {
         ceHistoryStore.record(refinementIndex, pack.ceSummary());
         dump.ceHistorySnapshot = ceHistoryStore.snapshot();
       }
+      String refinementOutcomeText =
+          options.isRefinementOutcomeContextEnabled()
+              ? refinementOutcomeStore.buildContext()
+              : "";
       String nativeContextText = "";
       if (options.isNativePredicateContextEnabled()) {
         dump.nativeContext = buildNativeContext(reachedBefore, pack);
@@ -434,6 +448,7 @@ public final class VGuideRefinementBridge {
                 samplesPerProfile,
                 rejectedAll,
                 ceHistory,
+                refinementOutcomeText,
                 nativeContextText);
         apiResults.addAll(safe.apiResults());
         safeAccepted = safe.hasAccepted();
@@ -449,6 +464,7 @@ public final class VGuideRefinementBridge {
                 samplesPerProfile,
                 rejectedAll,
                 ceHistory,
+                refinementOutcomeText,
                 nativeContextText);
         apiResults.addAll(bug.apiResults());
         bugAccepted = bug.hasAccepted();
@@ -473,6 +489,7 @@ public final class VGuideRefinementBridge {
                 samplesPerProfile,
                 rejectedAll,
                 ceHistory,
+                refinementOutcomeText,
                 nativeContextText);
         apiResults.addAll(safe.apiResults());
         safeAccepted = safe.hasAccepted();
@@ -534,6 +551,7 @@ public final class VGuideRefinementBridge {
                   repairProfile,
                   refinementIndex,
                   ceHistory,
+                  refinementOutcomeText,
                   nativeContextText);
           logger.log(Level.INFO, "VGuide: both profiles empty; one repair LLM call");
           LlmProposalResult repair = llmClient.proposeWithUsage(repairMessages);
@@ -580,6 +598,13 @@ public final class VGuideRefinementBridge {
       dump.validated =
           buildValidatedDump(pack, rawPreds, lastValidation, abstractionStatesTrace, profileByRaw);
       dump.rejections = validationOutcome.rejections();
+      if (lastValidation != null) {
+        refinementOutcomeStore.recordLlmOutcome(
+            refinementIndex,
+            lastValidation.validated().size(),
+            lastValidation.precisionOnly().size(),
+            validationOutcome.rejections().size());
+      }
       if (options.isPredicateUsefulnessGateEnabled()) {
         PredicateUsefulnessGate.Decision usefulnessDecision =
             PredicateUsefulnessGate.evaluate(loopHeadVisits, lastValidation, fmgr);
@@ -619,6 +644,9 @@ public final class VGuideRefinementBridge {
   /** Called after {@code strategy.performRefinement} to inject PRECISION_ONLY predicates. */
   public void onSpuriousAfterRefinement(int refinementIndex, ARGReachedSet reached) {
     if (pendingDump != null && pendingDump.refinementIndex == refinementIndex) {
+      int nativeDelta = nativePrecisionDelta(pendingDump.precisionBeforeSnapshot, reached);
+      refinementOutcomeStore.recordCompleted(refinementIndex, nativeDelta);
+      pendingDump.refinementOutcomeLine = refinementOutcomeStore.completedLineFor(refinementIndex);
       List<VGuideAnalysisDumper.DumpValidatedPredicate> injected = List.of();
       if (lastValidation != null) {
         ImmutableList<ValidatedPredicate> toInject =
@@ -653,6 +681,7 @@ public final class VGuideRefinementBridge {
             pendingDump.llmCalled ? injected : null,
             pendingDump.llmCalled ? pendingDump.rejections : null,
             pendingDump.ceHistorySnapshot,
+            pendingDump.refinementOutcomeLine,
             pendingDump.llmCalled ? pendingDump.nativeContext : null,
             options.isPredicateUsefulnessGateEnabled(),
             pendingDump.usefulnessGateDecision);
@@ -734,11 +763,18 @@ public final class VGuideRefinementBridge {
       int samplesConfigured,
       List<String> rejectedOut,
       String ceHistory,
+      String refinementOutcomes,
       String nativePredicateContext)
       throws IOException, InterruptedException {
     PromptMessages messages =
         promptBuilder.buildPrompt(
-            pack, budget, profile, refinementIndex, ceHistory, nativePredicateContext);
+            pack,
+            budget,
+            profile,
+            refinementIndex,
+            ceHistory,
+            refinementOutcomes,
+            nativePredicateContext);
     String promptKind = promptKindBase + "_" + profile.promptKindSuffix();
     List<LlmProposalResult> results = new ArrayList<>();
     LlmProposalResult primary = llmClient.proposeWithUsage(messages);
@@ -789,6 +825,45 @@ public final class VGuideRefinementBridge {
     ImmutableList<LoopHeadCandidate> merged =
         LlmEnsembleMerger.mergeCandidates(rawResponses, budget);
     return new ProfileInvokeResult(results, merged, !merged.isEmpty());
+  }
+
+  private int nativePrecisionDelta(Set<String> beforeSnapshot, ARGReachedSet after) {
+    Set<String> afterSet = canonicalPrecisionSet(after);
+    afterSet.removeAll(beforeSnapshot);
+    return afterSet.size();
+  }
+
+  private Set<String> canonicalPrecisionSet(ARGReachedSet reached) {
+    Set<String> out = new HashSet<>();
+    if (reached == null) {
+      return out;
+    }
+    AbstractState firstState = reached.asReachedSet().getFirstState();
+    if (firstState == null) {
+      return out;
+    }
+    PredicatePrecision predPrec =
+        Precisions.extractPrecisionByType(
+            reached.asReachedSet().getPrecision(firstState), PredicatePrecision.class);
+    if (predPrec == null) {
+      return out;
+    }
+    for (AbstractionPredicate ap : predPrec.getGlobalPredicates()) {
+      if (ap != null && ap.getSymbolicAtom() != null) {
+        out.add("g|" + canonical(ap.getSymbolicAtom()));
+      }
+    }
+    for (var e : predPrec.getFunctionPredicates().entries()) {
+      if (e.getValue() != null && e.getValue().getSymbolicAtom() != null) {
+        out.add("f|" + e.getKey() + "|" + canonical(e.getValue().getSymbolicAtom()));
+      }
+    }
+    for (var e : predPrec.getLocalPredicates().entries()) {
+      if (e.getKey() != null && e.getValue() != null && e.getValue().getSymbolicAtom() != null) {
+        out.add("l|N" + e.getKey().getNodeNumber() + "|" + canonical(e.getValue().getSymbolicAtom()));
+      }
+    }
+    return out;
   }
 
   private NativePredicateContextBuilder.@Nullable Context buildNativeContext(

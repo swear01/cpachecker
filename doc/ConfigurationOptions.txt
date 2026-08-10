@@ -6020,6 +6020,10 @@ vguide.nativePredicateContext = false
 # every_n / interval trigger. 0 = off.
 vguide.peelLoopHeadThreshold = 0
 
+# Expose bounded CEGAR refinement outcomes (visits, interpolants, LLM
+# outcome, native precision delta) to the LLM as read-only context (Issue #7)
+vguide.refinementOutcomeContext = false
+
 # Fire LLM before any CEGAR round using source-code only (no CE context).
 # Predicates injected into initial precision. Replaces first-spurious
 # trigger.

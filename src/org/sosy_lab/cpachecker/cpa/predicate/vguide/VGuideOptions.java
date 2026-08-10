@@ -137,6 +137,13 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
+          "Expose bounded CEGAR refinement outcomes (visits, interpolants, LLM outcome,"
+              + " native precision delta) to the LLM as read-only context (Issue #7)")
+  private boolean refinementOutcomeContext = false;
+
+  @Option(
+      secure = true,
+      description =
           "Expose the current native CEGAR predicate precision (globals, loop-head-owning"
               + " functions, loop-head locals) to the LLM as read-only context (Issue #6)")
   private boolean nativePredicateContext = false;
@@ -274,6 +281,10 @@ public class VGuideOptions {
 
   public int getPeelLoopHeadThreshold() {
     return peelLoopHeadThreshold;
+  }
+
+  public boolean isRefinementOutcomeContextEnabled() {
+    return refinementOutcomeContext;
   }
 
   public boolean isPredicateUsefulnessGateEnabled() {

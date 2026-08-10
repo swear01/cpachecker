@@ -98,6 +98,7 @@ public class ProposalPromptBuilderTest {
             PromptProfile.SAFE,
             1,
             "",
+            "",
             "[local N1 | native] (bvslt i n)\n");
     assertThat(with.user()).contains("NATIVE CEGAR PRECISION (read-only)");
     assertThat(with.user()).contains("[local N1 | native] (bvslt i n)");

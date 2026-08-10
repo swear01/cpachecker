@@ -51,7 +51,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "7";
+  public static final String SCHEMA_VERSION = "8";
   private static final ObjectMapper JSON = new ObjectMapper();
   static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -137,6 +137,7 @@ public final class VGuideAnalysisDumper {
       @Nullable List<DumpValidatedPredicate> injectedPredicates,
       @Nullable List<CandidateRejection> candidateRejections,
       CeHistoryStore.@Nullable Snapshot ceHistorySnapshot,
+      @Nullable String refinementOutcomeLine,
       NativePredicateContextBuilder.@Nullable Context nativeContext,
       boolean usefulnessGateEnabled,
       PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision) {
@@ -189,6 +190,10 @@ public final class VGuideAnalysisDumper {
           ceHistorySnapshot == null ? JSON.createArrayNode() : ceHistoryJson(ceHistorySnapshot));
       if (ceHistorySnapshot != null) {
         row.put("ce_history_omitted", ceHistorySnapshot.omitted());
+      }
+      if (refinementOutcomeLine != null) {
+        row.put("refinement_outcome", refinementOutcomeLine);
+        row.put("refinement_outcome_unavailable", RefinementOutcomeStore.UNAVAILABLE);
       }
       row.set(
           "native_predicate_context",
