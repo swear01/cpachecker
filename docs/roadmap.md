@@ -6,7 +6,8 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
 - **Epic #11 Phase 1（hard-case 研究線）**：#3 structured CE ✅（PR #20）、**#4 per-loop-head
   invariant candidates ✅（PR #21/#22/#23）**、**#5 bounded CE history ✅（PR，
-  `vguide.ceHistoryMode`）**；下一步 #6（native predicates）、#7/#8（refinement outcomes、
+  `vguide.ceHistoryMode`）**、**#6 native predicate context ✅（PR，
+  `vguide.nativePredicateContext`）**；下一步 #7/#8（refinement outcomes、
   LLM-predicate lifecycle），之後才進 #2 core-only 評估（448 runs）。契約見
   `vguided-cegar/LOOP_HEAD_INVARIANT_PLAN.md`、`vguided-cegar/CE_HISTORY_PLAN.md`。
 - **Predicate usefulness gating**：final PDR/KI-PDR oracle matrix已all zero而STOP。Fixed first-call signature已fresh回收7/7 losses、保留2/2 wins、0 wrong；exact-response paired smoke為0/7→7/7且hash-prefix一致。下一步只做threshold-frozen prospective full764與真正held-out，不再調rule。
@@ -31,6 +32,10 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
 ## Recently Done
 
+- **Issue #6 native CEGAR predicate context — DONE**（epic #11 Phase 1）—
+  `NativePredicateContextBuilder`（relevance-filtered、origin split native/llm、
+  deterministic、40/3000 cap）、`vguide.nativePredicateContext`（default false）、dump
+  schema-7。計劃 `vguided-cegar/NATIVE_PREDICATE_CONTEXT_PLAN.md`。（2026-08-10）
 - **Issue #5 bounded CE history — DONE**（epic #11 Phase 1）— `CeHistoryStore`（fingerprint
   dedup、bounded eviction、deterministic context、current-vs-previous delta）、
   `vguide.ceHistoryMode`（OFF/LATEST/BOUNDED/BOUNDED_WITH_DELTA，default OFF）、dump

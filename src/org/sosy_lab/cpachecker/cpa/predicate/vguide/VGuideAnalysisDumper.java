@@ -51,7 +51,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "6";
+  public static final String SCHEMA_VERSION = "7";
   private static final ObjectMapper JSON = new ObjectMapper();
   static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -137,6 +137,7 @@ public final class VGuideAnalysisDumper {
       @Nullable List<DumpValidatedPredicate> injectedPredicates,
       @Nullable List<CandidateRejection> candidateRejections,
       CeHistoryStore.@Nullable Snapshot ceHistorySnapshot,
+      NativePredicateContextBuilder.@Nullable Context nativeContext,
       boolean usefulnessGateEnabled,
       PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision) {
     if (llmCalled && llmRoundIndex != null) {
@@ -189,6 +190,9 @@ public final class VGuideAnalysisDumper {
       if (ceHistorySnapshot != null) {
         row.put("ce_history_omitted", ceHistorySnapshot.omitted());
       }
+      row.set(
+          "native_predicate_context",
+          nativeContext == null ? JSON.nullNode() : nativeContextJson(nativeContext));
     }
     row.set("precision_local_after", precisionLocalJson(reachedAfter));
     appendJsonLine(refinementsFile, row);
@@ -531,6 +535,20 @@ public final class VGuideAnalysisDumper {
     o.put("block_formula_smt", dumpFormula(p.blockFormula()));
     if (!p.sourceProfile().isEmpty()) {
       o.put("source_profile", p.sourceProfile());
+    }
+    return o;
+  }
+
+  private ObjectNode nativeContextJson(NativePredicateContextBuilder.Context context) {
+    ObjectNode o = JSON.createObjectNode();
+    o.put("selection_rule", context.selectionRule());
+    o.put("omitted", context.omitted());
+    ArrayNode arr = o.putArray("predicates");
+    for (NativePredicateContextBuilder.Entry e : context.entries()) {
+      ObjectNode p = arr.addObject();
+      p.put("scope", e.scope());
+      p.put("origin", e.origin());
+      p.put("smt", e.smt());
     }
     return o;
   }
