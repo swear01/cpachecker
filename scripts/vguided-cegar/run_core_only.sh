@@ -102,7 +102,7 @@ cat >"$OUT/run_meta.json" <<EOF
   "heap": "$HEAP",
   "spec": "$SPEC",
   "model": "${DEEPSEEK_MODEL:-deepseek-v4-pro}",
-  "started_at": "$(date -Iseconds)"
+  "started_at": "$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")"
 }
 EOF
 
@@ -157,9 +157,7 @@ export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMEL
 # 4. Run each task (no header row in tasks.tsv), merge per-task records in order,
 #    then verify completeness.
 # Null-delimited so task names with spaces/special chars are safe.
-while IFS= read -r -d '' line || [[ -n "$line" ]]; do
-  printf '%s\0' "$line"
-done <"$OUT/tasks.tsv" | xargs -0 -P "$PARALLEL" -I{} bash -c 'run_one "$1"' _ {}
+tr '\n' '\0' <"$OUT/tasks.tsv" | xargs -0 -P "$PARALLEL" -I{} bash -c 'run_one "$1"' _ {}
 
 rm -f "$OUT/records.jsonl"
 while IFS= read -r line || [[ -n "$line" ]]; do

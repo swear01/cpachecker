@@ -97,6 +97,7 @@ def record_from_run(
     memory_mb = ""
     solver = ""
     saw_result = False
+    has_oom = has_hang = has_exc = has_cpu = False
     if log.is_file():
         # Single line-by-line pass: logs can be huge, never read them whole.
         with open(log, encoding="utf-8", errors="replace") as f:
@@ -126,6 +127,14 @@ def record_from_run(
                     m = SOLVER_RE.search(line)
                     if m:
                         solver = f"{m.group(1)} {m.group(2)}"
+                if "OutOfMemoryError" in line or "Out of memory" in line:
+                    has_oom = True
+                elif "forcing immediate termination" in line:
+                    has_hang = True
+                elif "Exception in thread" in line or "java.lang." in line:
+                    has_exc = True
+                elif "CPU-time limit of" in line:
+                    has_cpu = True
 
     llm_calls = 0
     validated = 0
@@ -153,18 +162,6 @@ def record_from_run(
     elif saw_result and result in ("TRUE", "FALSE"):
         failure = "ok"
     else:
-        # second targeted pass: failure markers (logs are line-scanned, never slurped)
-        with open(log, encoding="utf-8", errors="replace") as f:
-            has_oom = has_hang = has_exc = has_cpu = False
-            for line in f:
-                if "OutOfMemoryError" in line or "Out of memory" in line:
-                    has_oom = True
-                elif "forcing immediate termination" in line:
-                    has_hang = True
-                elif "Exception in thread" in line or "java.lang." in line:
-                    has_exc = True
-                elif "CPU-time limit of" in line:
-                    has_cpu = True
         if has_oom:
             failure = "out_of_memory"
         elif has_hang:
