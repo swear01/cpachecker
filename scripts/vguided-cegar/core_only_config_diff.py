@@ -41,7 +41,7 @@ def _parse_inline(path: Path, top_dir: Path, seen: set, out: dict) -> None:
     if p in seen:
         return
     seen.add(p)
-    for raw in p.read_text().splitlines():
+    for raw in p.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line:
             continue

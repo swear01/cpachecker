@@ -33,7 +33,7 @@ def sha256_file(path: Path) -> str:
 
 def tasks_from_manifest(manifest_path: Path, sv_benchmarks: Path, verify: bool = True):
     """Yield dicts of the frozen 224 tasks; verify source hashes by default."""
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     tasks = manifest["tasks"]
     if manifest.get("task_count") is not None and len(tasks) != manifest["task_count"]:
         raise SystemExit(
@@ -123,10 +123,11 @@ def record_from_run(
         task_dump = dump_dir / Path(task_row["source"]).stem
         llm_file = task_dump / "llm_rounds.jsonl"
         if llm_file.is_file():
-            llm_calls = sum(1 for _ in llm_file.open(errors="replace"))
+            with open(llm_file, encoding="utf-8", errors="replace") as f:
+                llm_calls = sum(1 for _ in f)
         ref_file = task_dump / "refinements.jsonl"
         if ref_file.is_file():
-            for line in ref_file.open(errors="replace"):
+            for line in open(ref_file, encoding="utf-8", errors="replace"):
                 try:
                     row = json.loads(line)
                 except json.JSONDecodeError:
@@ -200,7 +201,7 @@ def main() -> int:
         rows = tasks_from_manifest(
             args.manifest, args.sv_benchmarks, verify=not args.no_verify
         )
-        with open(args.out, "w") as f:
+        with open(args.out, "w", encoding="utf-8") as f:
             for r in rows:
                 f.write(
                     "\t".join(
@@ -221,7 +222,7 @@ def main() -> int:
 
     if args.cmd == "record":
         task_row = {}
-        with open(args.task) as f:
+        with open(args.task, encoding="utf-8") as f:
             parts = f.readline().rstrip("\n").split("\t")
             if len(parts) == 1 and not parts[0].strip():
                 parts = f.readline().rstrip("\n").split("\t")
@@ -244,7 +245,7 @@ def main() -> int:
             args.arm,
             args.timelimit,
         )
-        with open(args.out, "a") as f:
+        with open(args.out, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
         return 0
 
