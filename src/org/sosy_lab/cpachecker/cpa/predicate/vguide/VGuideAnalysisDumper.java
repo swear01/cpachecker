@@ -191,6 +191,10 @@ public final class VGuideAnalysisDumper {
       if (ceHistorySnapshot != null) {
         row.put("ce_history_omitted", ceHistorySnapshot.omitted());
       }
+      if (refinementOutcomeLine != null) {
+        row.put("refinement_outcome", refinementOutcomeLine);
+        row.put("refinement_outcome_unavailable", RefinementOutcomeStore.UNAVAILABLE);
+      }
       row.set(
           "native_predicate_context",
           nativeContext == null ? JSON.nullNode() : nativeContextJson(nativeContext));
