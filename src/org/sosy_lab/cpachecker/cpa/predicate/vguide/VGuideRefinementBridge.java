@@ -400,9 +400,12 @@ public final class VGuideRefinementBridge {
       Map<String, String> profileByRaw = new LinkedHashMap<>();
       boolean safeAccepted = false;
       boolean bugAccepted = false;
-      String ceHistory = ceHistoryStore.buildContext(options.getCeHistoryMode(), pack.ceSummary());
-      ceHistoryStore.record(refinementIndex, pack.ceSummary());
-      dump.ceHistorySnapshot = ceHistoryStore.snapshot();
+      String ceHistory = "";
+      if (options.getCeHistoryMode() != VGuideOptions.CeHistoryMode.OFF) {
+        ceHistory = ceHistoryStore.buildContext(options.getCeHistoryMode(), pack.ceSummary());
+        ceHistoryStore.record(refinementIndex, pack.ceSummary());
+        dump.ceHistorySnapshot = ceHistoryStore.snapshot();
+      }
 
       if (options.isDualPromptMode()) {
         ProfileInvokeResult safe =

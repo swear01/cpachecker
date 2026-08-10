@@ -200,19 +200,12 @@ public final class CeHistoryStore {
     if (end < 0) {
       end = compact.length();
     }
-    List<String> tokens =
-        Splitter.on(CharMatcher.whitespace())
-            .omitEmptyStrings()
-            .trimResults()
-            .splitToList(compact.substring(start, end));
-    for (int i = 0; i + 1 < tokens.size(); i += 2) {
-      Matcher m = COUNT_PATTERN.matcher(tokens.get(i + 1));
-      if (m.matches()) {
-        out.put(tokens.get(i), Integer.parseInt(m.group(1)));
-      }
+    Matcher m = VISITS_PATTERN.matcher(compact.substring(start, end));
+    while (m.find()) {
+      out.put(m.group(1), Integer.parseInt(m.group(2)));
     }
     return out;
   }
 
-  private static final Pattern COUNT_PATTERN = Pattern.compile("x(\\d+)");
+  private static final Pattern VISITS_PATTERN = Pattern.compile("(\\S+) x(\\d+)");
 }
