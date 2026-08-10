@@ -5,9 +5,10 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 ## Active
 
 - **Epic #11 Phase 1（hard-case 研究線）**：#3 structured CE ✅（PR #20）、**#4 per-loop-head
-  invariant candidates ✅（PR #21/#22/#23）**；下一步 #5（bounded CE history）、#6（native
-  predicates）、#7/#8（refinement outcomes、LLM-predicate lifecycle），之後才進 #2 core-only
-  評估（448 runs）。契約見 `vguided-cegar/LOOP_HEAD_INVARIANT_PLAN.md`。
+  invariant candidates ✅（PR #21/#22/#23）**、**#5 bounded CE history ✅（PR，
+  `vguide.ceHistoryMode`）**；下一步 #6（native predicates）、#7/#8（refinement outcomes、
+  LLM-predicate lifecycle），之後才進 #2 core-only 評估（448 runs）。契約見
+  `vguided-cegar/LOOP_HEAD_INVARIANT_PLAN.md`、`vguided-cegar/CE_HISTORY_PLAN.md`。
 - **Predicate usefulness gating**：final PDR/KI-PDR oracle matrix已all zero而STOP。Fixed first-call signature已fresh回收7/7 losses、保留2/2 wins、0 wrong；exact-response paired smoke為0/7→7/7且hash-prefix一致。下一步只做threshold-frozen prospective full764與真正held-out，不再調rule。
 
 ## Backlog
@@ -30,6 +31,10 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
 ## Recently Done
 
+- **Issue #5 bounded CE history — DONE**（epic #11 Phase 1）— `CeHistoryStore`（fingerprint
+  dedup、bounded eviction、deterministic context、current-vs-previous delta）、
+  `vguide.ceHistoryMode`（OFF/LATEST/BOUNDED/BOUNDED_WITH_DELTA，default OFF）、dump
+  schema-6（`ce_history`）。計劃 `vguided-cegar/CE_HISTORY_PLAN.md`。（2026-08-10）
 - **Issue #4 per-loop-head invariant candidates — DONE**（epic #11 Phase 1）— `loop-head-candidate-v1`
   契約（location 必填、無 broadcast、rejections 可觀察）、scope 驗證、`over_specific`/`group_conflict`
   diagnostics、dump schema-5。PR #21/#22/#23 merged、Gemini review 乾淨。契約與驗收基準：

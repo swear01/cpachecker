@@ -44,6 +44,33 @@ public class ProposalPromptBuilderTest {
   }
 
   @Test
+  public void historyBlockInsertedWhenProvided() {
+    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads);
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "int i,n;\nwhile(i<n){i++;}\n",
+            "i",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "L@N1: (bvslt i n)\n",
+            "");
+    PredicateBudget budget = new PredicateBudget(8, 16);
+
+    PromptMessages without = builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
+    assertThat(without.user()).doesNotContain("PRIOR CE HISTORY");
+
+    PromptMessages with =
+        builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1, "[refinement 1] loop visits: N1 x2\n");
+    assertThat(with.user()).contains("PRIOR CE HISTORY (bounded, read-only)");
+    assertThat(with.user()).contains("loop visits: N1 x2");
+  }
+
+  @Test
   public void safeAndBugShareSourcePrefix() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
     ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads);

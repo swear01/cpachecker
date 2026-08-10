@@ -23,11 +23,20 @@ public final class ProposalPromptBuilder {
 
   public PromptMessages buildPrompt(
       ContextPack pack, PredicateBudget budget, PromptProfile profile, int refinementIndex) {
+    return buildPrompt(pack, budget, profile, refinementIndex, "");
+  }
+
+  public PromptMessages buildPrompt(
+      ContextPack pack,
+      PredicateBudget budget,
+      PromptProfile profile,
+      int refinementIndex,
+      String ceHistory) {
     String user =
         buildSharedUserPrefix(pack)
             + buildSourceBlock(pack)
             + buildProfileBlock(pack, profile, refinementIndex)
-            + buildDynamicTail(pack, budget, profile);
+            + buildDynamicTail(pack, budget, profile, ceHistory);
     return new PromptMessages(buildSystemMessage(budget), user);
   }
 
@@ -37,11 +46,21 @@ public final class ProposalPromptBuilder {
       PredicateBudget budget,
       PromptProfile profile,
       int refinementIndex) {
+    return buildRepair(pack, rejectedPredicates, budget, profile, refinementIndex, "");
+  }
+
+  public PromptMessages buildRepair(
+      ContextPack pack,
+      List<String> rejectedPredicates,
+      PredicateBudget budget,
+      PromptProfile profile,
+      int refinementIndex,
+      String ceHistory) {
     String user =
         buildSharedUserPrefix(pack)
             + buildSourceBlock(pack)
             + buildProfileBlock(pack, profile, refinementIndex)
-            + buildDynamicTail(pack, budget, profile)
+            + buildDynamicTail(pack, budget, profile, ceHistory)
             + buildRepairTail(rejectedPredicates, profile);
     return new PromptMessages(buildSystemMessage(budget), user);
   }
@@ -81,10 +100,16 @@ public final class ProposalPromptBuilder {
     return assertionLine + "\n" + role + "\n" + task + profileExamples(pack.sourceCode(), pack.assertion(), profile);
   }
 
-  private static String buildDynamicTail(ContextPack pack, PredicateBudget budget, PromptProfile profile) {
+  private static String buildDynamicTail(
+      ContextPack pack, PredicateBudget budget, PromptProfile profile, String ceHistory) {
+    String historyBlock =
+        ceHistory == null || ceHistory.isBlank()
+            ? ""
+            : "\nPRIOR CE HISTORY (bounded, read-only):\n" + ceHistory;
     return "\nSTRUCTURED SPURIOUS COUNTEREXAMPLE (read-only):\n"
         + pack.ceSummary()
         + "\n"
+        + historyBlock
         + predicateBudgetBlock(budget, profile);
   }
 

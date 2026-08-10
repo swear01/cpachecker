@@ -51,9 +51,9 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "5";
+  public static final String SCHEMA_VERSION = "6";
   private static final ObjectMapper JSON = new ObjectMapper();
-  private static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
+  static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
   private final LogManager logger;
   private final Path runRoot;
@@ -136,6 +136,7 @@ public final class VGuideAnalysisDumper {
       @Nullable List<DumpValidatedPredicate> validatedPredicates,
       @Nullable List<DumpValidatedPredicate> injectedPredicates,
       @Nullable List<CandidateRejection> candidateRejections,
+      CeHistoryStore.@Nullable Snapshot ceHistorySnapshot,
       boolean usefulnessGateEnabled,
       PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision) {
     if (llmCalled && llmRoundIndex != null) {
@@ -182,6 +183,12 @@ public final class VGuideAnalysisDumper {
           candidateRejections == null
               ? JSON.createArrayNode()
               : candidateRejectionsJson(candidateRejections));
+      row.set(
+          "ce_history",
+          ceHistorySnapshot == null ? JSON.createArrayNode() : ceHistoryJson(ceHistorySnapshot));
+      if (ceHistorySnapshot != null) {
+        row.put("ce_history_omitted", ceHistorySnapshot.omitted());
+      }
     }
     row.set("precision_local_after", precisionLocalJson(reachedAfter));
     appendJsonLine(refinementsFile, row);
@@ -526,6 +533,18 @@ public final class VGuideAnalysisDumper {
       o.put("source_profile", p.sourceProfile());
     }
     return o;
+  }
+
+  private ArrayNode ceHistoryJson(CeHistoryStore.Snapshot snapshot) {
+    ArrayNode arr = JSON.createArrayNode();
+    for (CeHistoryStore.Entry e : snapshot.entries()) {
+      ObjectNode o = JSON.createObjectNode();
+      o.put("refinement_index", e.refinementIndex());
+      o.put("fingerprint", e.fingerprint());
+      o.put("repeat_count", e.repeatCount());
+      arr.add(o);
+    }
+    return arr;
   }
 
   private ArrayNode candidateRejectionsJson(List<CandidateRejection> rejections) {
