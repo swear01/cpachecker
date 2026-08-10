@@ -2,7 +2,7 @@
 
 | Path | Purpose |
 |------|---------|
-| `src/org/sosy_lab/cpachecker/cpa/predicate/vguide/` | **VGuide Java implementation** — LLM bridge, validator, precision injector, usefulness gate, fail-closed paired-response cache |
+| `src/org/sosy_lab/cpachecker/cpa/predicate/vguide/` | **VGuide Java implementation** — LLM bridge, per-loop-head candidate contract (loop-head-candidate-v1), validator + scope check, precision injector, usefulness gate, fail-closed paired-response cache, schema-5 analysis dump |
 | `config/vguide.properties` | Runtime defaults: LLM scheduling; **L3 off** (not used after ablation) |
 | `config/predicateAnalysis-vguide.properties` | PredicateCPA + VGuide entry config |
 | `config/vguide-experiment-usefulness-gate-{off,on}.properties` | Frozen paired experiment configs; general default remains off |

@@ -4,6 +4,13 @@
 
 **Predicate 驗證**：L1 contract + L2 parse 必跑；**L3 不用**（消融整體較差，`enableL3Entailment=false`）。
 
+**Per-loop-head candidate contract（Issue #4，已完成）**：LLM 輸出必須為
+`loop-head-candidate-v1`（每個候選帶 `loop_head`/`loop_heads`）；無 location 一律 reject
+且原因可觀察（`missing_loop_head` 等）。Scope 驗證（free variables 必須在 trace vocabulary
+且 function 相符）、`over_specific`/`group_conflict` advisory diagnostics、dump schema-5
+（`candidate_rejections`）。實作：PR #21/#22/#23；契約見
+[LOOP_HEAD_INVARIANT_PLAN.md](LOOP_HEAD_INVARIANT_PLAN.md)。
+
 **Predicate usefulness gate**：validation後、injection前，若目前trace的loop-head visits ≤8且
 至少2個unique formulas含`bvmul`，整批precision predicates不注入並停止後續LLM rounds；standard
 refinement照常。General default為off，只由`vguide-experiment-usefulness-gate-on.properties`

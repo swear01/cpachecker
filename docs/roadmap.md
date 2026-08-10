@@ -4,6 +4,10 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
 ## Active
 
+- **Epic #11 Phase 1（hard-case 研究線）**：#3 structured CE ✅（PR #20）、**#4 per-loop-head
+  invariant candidates ✅（PR #21/#22/#23）**；下一步 #5（bounded CE history）、#6（native
+  predicates）、#7/#8（refinement outcomes、LLM-predicate lifecycle），之後才進 #2 core-only
+  評估（448 runs）。契約見 `vguided-cegar/LOOP_HEAD_INVARIANT_PLAN.md`。
 - **Predicate usefulness gating**：final PDR/KI-PDR oracle matrix已all zero而STOP。Fixed first-call signature已fresh回收7/7 losses、保留2/2 wins、0 wrong；exact-response paired smoke為0/7→7/7且hash-prefix一致。下一步只做threshold-frozen prospective full764與真正held-out，不再調rule。
 
 ## Backlog
@@ -26,6 +30,11 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 
 ## Recently Done
 
+- **Issue #4 per-loop-head invariant candidates — DONE**（epic #11 Phase 1）— `loop-head-candidate-v1`
+  契約（location 必填、無 broadcast、rejections 可觀察）、scope 驗證、`over_specific`/`group_conflict`
+  diagnostics、dump schema-5。PR #21/#22/#23 merged、Gemini review 乾淨。契約與驗收基準：
+  `vguided-cegar/LOOP_HEAD_INVARIANT_PLAN.md`。（2026-08-10）
+- **Issue #3 structured CE — DONE**（epic #11 Phase 1）— PR #20。（2026-08-09）
 - **Ordinary + final PDR/KI-PDR oracle-capacity — STOP** — exact-BV/MathSAT、exact NIA/Z3、per-location conjunction、KI-PDR與direct PDR oracle arms全部0/12 delta；0 wrong。Reports `reports/2026-07-11_nla_oracle_capacity_smoke.md`、`reports/2026-07-11_pdr_oracle_capacity_matrix.md`。（2026-07-11）
 - **ReachSafety LLM-improvement exploration — PAUSED at v1.7.1 (+22 / 0 wrong, 504/764)** — cheap LLM-on-predicate levers exhausted. Investigated & deferred/rejected: A2 CPU isolation (rejected), nla-digbench nonlinear (out of mechanism scope, ~70% of remaining UNKNOWN), peel-aware prompt (low confidence), FALSE/bug-finding (v1.5 wrong-artifact; SOTA = LLM-directed fuzzing but CPAchecker has no fuzzer). Further gains need a new capability (nonlinear / new injection point / execution-based bug-finding), all high-cost. Summary: `reports/2026-06-20_reachsafety_exploration_summary.md`. (2026-06-20)
 - **v1.7.1 ReachSafety peel trigger — IMPLEMENTED + validated; +11 over v1.7.0, 0 wrong** — fire the LLM early (refinement #2+) when the CE unrolls a loop (loop-head visits ≥ `vguide.peelLoopHeadThreshold`=4), recovering v1.7.0's #1-need regressions (`heapsort`/`nested9`/`iftelse`/`sumt4`). `countLoopHeadVisits` in the bridge + `peelFire` OR-branch in the scheduler. Full 764 `svcomp27-vguide` (only peel threshold differs 0→4): 493 → **504 (+11 = +18 new − 7 lost), 0 wrong**; cumulative **+22 vs old schedule (482→504)**. Unit tests 12/12. Report `reports/2026-06-20_reachsafety_peel_trigger.md`. (2026-06-20)

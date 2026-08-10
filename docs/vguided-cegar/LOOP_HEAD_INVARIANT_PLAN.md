@@ -1,8 +1,9 @@
 # Loop-Head Invariant Candidates — Implementation Plan (Issue #4)
 
-> Status: planning. 對應 [Issue #4](https://github.com/swear01/cpachecker/issues/4)
-> （epic #11 Phase 1）。依賴 #3（structured CE）已 merged（PR #20）。
-> 本文件先寫計劃，實作前需 user 確認。
+> Status: **implemented**（PR #21 contract/parser/mapping、PR #22 scope/group diagnostics、
+> PR #23 dump schema-5，皆已 merged 且 Gemini review 乾淨）。對應
+> [Issue #4](https://github.com/swear01/cpachecker/issues/4)（epic #11 Phase 1）。
+> 依賴 #3（structured CE）已 merged（PR #20）。本文件為契約與驗收基準，非 plan-only。
 
 ## 0. Goal 與 Scope
 
@@ -181,18 +182,20 @@ Unit-level（沿用現有 vguide tests 的 synthetic pack / CFA 方式）：
 - `STRUCTURED_COUNTEREXAMPLE_CONTEXT.md`：cross-ref（CE 的 loop_head 欄位 ↔ 候選綁定）
 - `docs/roadmap.md` / `docs/plan.md`：狀態更新
 
-## 11. 執行順序與 PR 計劃
+## 11. 執行結果（2026-08-10 完成）
 
-單一 PR（branch `issue4-loop-head-invariants`，從更新後 main 開），commit 順序：
+以 4 個 PR 拆分（皆 merged、Gemini review 乾淨）：
 
-1. Candidate contract + parser（§2–3）+ parser tests
-2. Scope/visibility validation + multi-head mapping + supporting group（§4–6）+ tests
-3. Dedup/conflict flags + dump schema-5（§7–8）+ tests
-4. Docs（§10）
+1. **PR #21** `issue4-loop-head-invariants` — candidate contract + parser + prompt + mapping
+   （§2–3、§5）+ tests
+2. **PR #22** `issue4-candidate-scope-validation` — scope/visibility 驗證 + supporting group +
+   dedup/conflict/over-specificity diagnostics（§4、§6–7）+ tests
+3. **PR #23** `issue4-dump-schema5` — dump schema-5（§8）+ PREDICATE_ANALYSIS_PLAN schema 表
+4. **PR（docs sweep）** — 本文件狀態、architecture、README、roadmap/plan、structure、notes
 
-驗證：`ant build-project` + `ant tests -Dtest.only=...`（新增與受影響 tests）；
-跑既有 vguide unit tests 全綠才動。後續 dev-split smoke 依
-`CORE_ONLY_EVALUATION_PLAN.md` 的 gate（Phase 1 完成後，非本 PR）。
+驗證：`ant build-project` + checkstyle + spotbugs 綠；vguide unit tests 全綠；full JUnit 的
+10 個 native-solver crash 與未修改 main 逐檔相同（環境 pre-existing）。後續 dev-split smoke
+依 `CORE_ONLY_EVALUATION_PLAN.md` 的 gate（#5–#8 完成後，非本 issue）。
 
 ## 12. 風險與緩解
 

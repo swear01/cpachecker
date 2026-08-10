@@ -26,9 +26,10 @@ org.sosy_lab.cpachecker.cpa.predicate.vguide
   LoopHeadCandidateParser     // loop-head-candidate-v1 契約：location 必填、rejections 可觀察
   PredicateProposalClient     // DeepSeek HttpClient，可 parallel variants
   LlmResponseCache            // paired record/replay；per-task namespace，無live fallback
-  PredicateValidationPipeline // L1 contract, L2 parse, L3 per named loop head (L3 預設 off)
+  PredicateValidationPipeline // L1 contract, L2 parse, scope check, L3 per named loop head (L3 預設 off)
   LoopHeadPrecisionInjector   // local inject only
   FrozenPredicateLoader       // NO_SPURIOUS exception
+  VGuideAnalysisDumper        // schema-5：validated diagnostics + candidate_rejections
   VGuideOutcome               // FIRST_SPURIOUS | FROZEN_SEED | NO_SPURIOUS_GIVE_UP
 ```
 
@@ -71,11 +72,16 @@ LLM 輸出必須是 location-explicit 的 per-loop-head candidates（Issue #4）
 
 - **無隱式 broadcast**：候選只在其自指的 loop heads 驗證與注入；無 location 的候選
   一律 reject（`missing_loop_head`）且原因可觀察。
-- 舊 `{"predicates":[...]}` 格式不再隱含 broadcast；會被逐條 reject 為
-  `missing_loop_head`。
-- role（initiation/supporting/relational/bound）與 variables 是 metadata，
-  不影響 soundness（L1/L2/L3 仍由 solver 決定）。
-- 詳細契約與 failure reasons 見 `LOOP_HEAD_INVARIANT_PLAN.md` §2–§8。
+- **Scope 驗證**：每個 free variable 必須在 encoded trace vocabulary 內，且
+  function-qualified 名稱的 function 必須等於 head 的 function；違反 →
+  `variable_not_in_scope`（per head，不 block 同候選其他 heads）。
+- **Diagnostics（advisory，不影響 soundness）**：`over_specific`（變數不在 head
+  block formula；不需 solver）；`group_conflict`（與同 head 已驗證集合矛盾；
+  僅 `enableL3Entailment=true` 時計算，且不污染累積集合）。
+- role（initiation/supporting/relational/bound）與 variables 是 metadata；
+  initiation 先於 supporting 驗證。
+- 詳細契約與 failure reasons 見 `LOOP_HEAD_INVARIANT_PLAN.md` §2–§8；
+  dump schema-5 見 `analysis/PREDICATE_ANALYSIS_PLAN.md` §4.4–4.5。
 
 ## 主要設定（`config/vguide.properties`）
 
