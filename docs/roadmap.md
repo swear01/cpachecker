@@ -25,10 +25,11 @@ See `docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
 ## Current Order
 
 1. ~~Fresh與paired loss7 runtime確認multiplicative short-peel gate。~~ **DONE**
-2. 以record/replay做frozen-rule prospective full764，不再調threshold。
-3. 另建真正未曝光family/content-deduplicated holdout；完整764不得稱held-out。
-4. Pure arm達GO門檻後才做portfolio validation。
-5. 其他 branch/hook 全部 defer，避免同時開多條高成本研究線。
+2. ~~以record/replay做frozen-rule prospective full764~~ — **STOPPED（2026-08-10）**；764 線
+   不再執行。
+3. **#2 core-only 448-run（224 tasks）**：harness 已就緒（PR #29）→ 取得 pinned
+   sv-benchmarks checkout → §4 development smoke → §5 held-out 兩 arm 各一次。
+4. 其餘 branch/hook 全部 defer。
 
 ## Recently Done
 

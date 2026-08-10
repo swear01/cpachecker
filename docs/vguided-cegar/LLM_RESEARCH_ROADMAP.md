@@ -7,6 +7,9 @@
 > Final PDR/KI-PDR consumer matrix也為0 delta，已轉predicate usefulness gating。Fresh targeted
 > confirmation回收7/7 losses並保留2/2 direct wins；threshold凍結等待held-out/full764。本文件
 > 其餘property/domain/FALSE/witness/offline方向保留為backlog，不同時執行。
+>
+> **2026-08-10：764 線 STOPPED。** prospective full764 / usefulness-gate full-set 評估不再執行；
+> 現行 task = #2 core-only 448-run（224 tasks，Hard-case Dataset v2）。
 
 兩份既有計劃的關係：
 
