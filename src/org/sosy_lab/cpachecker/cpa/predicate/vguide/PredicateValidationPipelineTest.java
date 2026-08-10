@@ -24,16 +24,31 @@ import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
 import org.sosy_lab.cpachecker.util.predicates.smt.SolverViewBasedTest0;
 import org.sosy_lab.java_smt.api.BooleanFormula;
 
-/** Mapping policy: candidates validate only at their named loop heads; no implicit broadcast. */
+/**
+ * Mapping policy: candidates validate only at their named loop heads; no implicit broadcast;
+ * variables must be visible at the named head; initiation candidates are processed before
+ * supporting ones for group-consistency diagnostics.
+ */
 public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
 
   private static final LogManager LOGGER = LogManager.createNullLogManager();
+  private static final ImmutableSet<String> ENCODED_F1_X = ImmutableSet.of("f1::x@N5");
 
   private LoopHeadInfo headA;
   private LoopHeadInfo headB;
   private LoopHeadInfo headOffTrace;
 
-  private ContextPack pack(BooleanFormula... blocks) {
+  private void makeHeads() {
+    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
+    headB = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
+    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
+  }
+
+  private BooleanFormula parse(String formula, ImmutableSet<String> encoded) {
+    return VocabularyGuide.parsePredicate(formula, mgrv, encoded);
+  }
+
+  private ContextPack pack(ImmutableSet<String> encoded, BooleanFormula... blocks) {
     ImmutableList<LoopHeadInfo> heads = ImmutableList.of(headA, headB, headOffTrace);
     return new ContextPack(
         1,
@@ -41,7 +56,7 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
         "",
         heads,
         ImmutableMap.of(),
-        ImmutableSet.of(),
+        encoded,
         new BlockFormulas(ImmutableList.copyOf(blocks)),
         ImmutableList.of(),
         "",
@@ -62,17 +77,14 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
 
   @Test
   public void validatesCandidateOnlyAtItsNamedHead_noBroadcast() {
-    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
-    headB = new LoopHeadInfo(newDummyCFANode("f2"), "ignored", "f2");
-    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
-    BooleanFormula block =
-        VocabularyGuide.parsePredicate("(= x (_ bv1 32))", mgrv, ImmutableSet.of());
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
         new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
 
     var outcome =
         pipeline.validateCandidates(
-            pack(block, block),
+            pack(ENCODED_F1_X, block, block),
             ImmutableList.of(candidate(headA.label(), "(= x (_ bv1 32))")),
             trace(headA.node(), headB.node()));
 
@@ -83,17 +95,14 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
 
   @Test
   public void multiHeadCandidateValidatedAtEachNamedHead() {
-    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
-    headB = new LoopHeadInfo(newDummyCFANode("f2"), "ignored", "f2");
-    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
-    BooleanFormula block =
-        VocabularyGuide.parsePredicate("(= x (_ bv1 32))", mgrv, ImmutableSet.of());
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
         new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
 
     var outcome =
         pipeline.validateCandidates(
-            pack(block, block),
+            pack(ENCODED_F1_X, block, block),
             ImmutableList.of(
                 new LoopHeadCandidate(
                     ImmutableList.of(headA.label(), headB.label()),
@@ -111,17 +120,14 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
 
   @Test
   public void unknownLoopHeadRejected() {
-    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
-    headB = new LoopHeadInfo(newDummyCFANode("f2"), "ignored", "f2");
-    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
-    BooleanFormula block =
-        VocabularyGuide.parsePredicate("(= x (_ bv1 32))", mgrv, ImmutableSet.of());
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
         new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
 
     var outcome =
         pipeline.validateCandidates(
-            pack(block),
+            pack(ENCODED_F1_X, block),
             ImmutableList.of(candidate("N999", "(= x (_ bv1 32))")),
             trace(headA.node()));
 
@@ -133,17 +139,14 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
 
   @Test
   public void headNotOnTraceRejected() {
-    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
-    headB = new LoopHeadInfo(newDummyCFANode("f2"), "ignored", "f2");
-    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
-    BooleanFormula block =
-        VocabularyGuide.parsePredicate("(= x (_ bv1 32))", mgrv, ImmutableSet.of());
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
         new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
 
     var outcome =
         pipeline.validateCandidates(
-            pack(block),
+            pack(ENCODED_F1_X, block),
             ImmutableList.of(candidate(headOffTrace.label(), "(= x (_ bv1 32))")),
             trace(headA.node()));
 
@@ -155,17 +158,14 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
 
   @Test
   public void parseErrorRejected() {
-    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
-    headB = new LoopHeadInfo(newDummyCFANode("f2"), "ignored", "f2");
-    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
-    BooleanFormula block =
-        VocabularyGuide.parsePredicate("(= x (_ bv1 32))", mgrv, ImmutableSet.of());
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
         new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
 
     var outcome =
         pipeline.validateCandidates(
-            pack(block),
+            pack(ENCODED_F1_X, block),
             ImmutableList.of(candidate(headA.label(), "(= x")),
             trace(headA.node()));
 
@@ -177,17 +177,14 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
 
   @Test
   public void l3EntailmentClassifiesEntailedAndPrecisionOnly() {
-    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
-    headB = new LoopHeadInfo(newDummyCFANode("f2"), "ignored", "f2");
-    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
-    BooleanFormula block =
-        VocabularyGuide.parsePredicate("(= x (_ bv1 32))", mgrv, ImmutableSet.of());
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
         new PredicateValidationPipeline(LOGGER, solver, mgrv, true);
 
     var outcome =
         pipeline.validateCandidates(
-            pack(block),
+            pack(ENCODED_F1_X, block),
             ImmutableList.of(
                 candidate(headA.label(), "(bvsge x (_ bv0 32))"),
                 candidate(headA.label(), "(= x (_ bv2 32))")),
@@ -203,17 +200,14 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
 
   @Test
   public void rejectedHeadsDoNotBlockOtherHeadsOfSameCandidate() {
-    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
-    headB = new LoopHeadInfo(newDummyCFANode("f2"), "ignored", "f2");
-    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
-    BooleanFormula block =
-        VocabularyGuide.parsePredicate("(= x (_ bv1 32))", mgrv, ImmutableSet.of());
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
         new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
 
     var outcome =
         pipeline.validateCandidates(
-            pack(block),
+            pack(ENCODED_F1_X, block),
             ImmutableList.of(
                 new LoopHeadCandidate(
                     ImmutableList.of(headA.label(), headOffTrace.label()),
@@ -231,17 +225,14 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
 
   @Test
   public void duplicateHeadPredicatePairsValidatedOnce() {
-    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
-    headB = new LoopHeadInfo(newDummyCFANode("f2"), "ignored", "f2");
-    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
-    BooleanFormula block =
-        VocabularyGuide.parsePredicate("(= x (_ bv1 32))", mgrv, ImmutableSet.of());
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
         new PredicateValidationPipeline(LOGGER, solver, mgrv, true);
 
     var outcome =
         pipeline.validateCandidates(
-            pack(block, block),
+            pack(ENCODED_F1_X, block, block),
             ImmutableList.of(
                 candidate(headA.label(), "(= x (_ bv1 32))"),
                 new LoopHeadCandidate(
@@ -256,6 +247,116 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
     assertThat(
             outcome.validation().validated().stream().map(v -> v.loopHeadNode()).toList())
         .containsExactly(headA.node(), headB.node());
+    assertThat(outcome.rejections()).isEmpty();
+  }
+
+  @Test
+  public void variableNotInEncodedVocabularyRejected() {
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
+
+    // "w" is neither an encoded variable nor a source name of any encoded variable.
+    var outcome =
+        pipeline.validateCandidates(
+            pack(ENCODED_F1_X, block),
+            ImmutableList.of(candidate(headA.label(), "(bvsge w (_ bv0 32))")),
+            trace(headA.node()));
+
+    assertThat(outcome.validation().validated()).isEmpty();
+    assertThat(outcome.rejections()).hasSize(1);
+    assertThat(outcome.rejections().get(0).reason())
+        .isEqualTo(PredicateValidationPipeline.REASON_VARIABLE_NOT_IN_SCOPE);
+  }
+
+  @Test
+  public void variableFromOtherFunctionRejectedAtHead() {
+    makeHeads();
+    // x only exists in function f2; the named head is in f1.
+    ImmutableSet<String> encoded = ImmutableSet.of("f2::x@N5");
+    BooleanFormula block = parse("(= x (_ bv1 32))", encoded);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(encoded, block),
+            ImmutableList.of(candidate(headA.label(), "(bvsge x (_ bv0 32))")),
+            trace(headA.node()));
+
+    assertThat(outcome.validation().validated()).isEmpty();
+    assertThat(outcome.rejections()).hasSize(1);
+    assertThat(outcome.rejections().get(0).reason())
+        .isEqualTo(PredicateValidationPipeline.REASON_VARIABLE_NOT_IN_SCOPE);
+  }
+
+  @Test
+  public void variableVisibleAtNamedHeadAccepted() {
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(ENCODED_F1_X, block),
+            ImmutableList.of(candidate(headA.label(), "(bvsge x (_ bv0 32))")),
+            trace(headA.node()));
+
+    assertThat(outcome.validation().validated()).hasSize(1);
+    assertThat(outcome.rejections()).isEmpty();
+  }
+
+  @Test
+  public void overSpecificFlaggedWhenVariableAbsentFromHeadBlock() {
+    makeHeads();
+    // y is on the trace (encoded vocabulary) but absent from the head block formula.
+    ImmutableSet<String> encoded = ImmutableSet.of("f1::x@N5", "f1::y@N9");
+    BooleanFormula block = parse("(= x (_ bv1 32))", encoded);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(encoded, block),
+            ImmutableList.of(candidate(headA.label(), "(bvsge y (_ bv0 32))")),
+            trace(headA.node()));
+
+    assertThat(outcome.validation().validated()).hasSize(1);
+    assertThat(outcome.validation().validated().get(0).overSpecific()).isTrue();
+    assertThat(outcome.rejections()).isEmpty();
+  }
+
+  @Test
+  public void supportingCandidateConflictingWithInitiationSetFlagged() {
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, true);
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(ENCODED_F1_X, block),
+            // supporting candidate listed first must still be processed after initiation.
+            ImmutableList.of(
+                new LoopHeadCandidate(
+                    ImmutableList.of(headA.label()),
+                    "(= x (_ bv2 32))",
+                    "supporting",
+                    ImmutableList.of()),
+                new LoopHeadCandidate(
+                    ImmutableList.of(headA.label()),
+                    "(= x (_ bv1 32))",
+                    "initiation",
+                    ImmutableList.of())),
+            trace(headA.node()));
+
+    assertThat(outcome.validation().validated()).hasSize(2);
+    assertThat(outcome.validation().validated().get(0).role()).isEqualTo("initiation");
+    assertThat(outcome.validation().validated().get(0).groupConflict()).isFalse();
+    assertThat(outcome.validation().validated().get(1).role()).isEqualTo("supporting");
+    assertThat(outcome.validation().validated().get(1).groupConflict()).isTrue();
     assertThat(outcome.rejections()).isEmpty();
   }
 
