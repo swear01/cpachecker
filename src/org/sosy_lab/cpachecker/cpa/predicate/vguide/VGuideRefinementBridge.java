@@ -596,11 +596,13 @@ public final class VGuideRefinementBridge {
       dump.validated =
           buildValidatedDump(pack, rawPreds, lastValidation, abstractionStatesTrace, profileByRaw);
       dump.rejections = validationOutcome.rejections();
-      refinementOutcomeStore.recordLlmOutcome(
-          refinementIndex,
-          lastValidation.validated().size(),
-          lastValidation.precisionOnly().size(),
-          validationOutcome.rejections().size());
+      if (lastValidation != null) {
+        refinementOutcomeStore.recordLlmOutcome(
+            refinementIndex,
+            lastValidation.validated().size(),
+            lastValidation.precisionOnly().size(),
+            validationOutcome.rejections().size());
+      }
       if (options.isPredicateUsefulnessGateEnabled()) {
         PredicateUsefulnessGate.Decision usefulnessDecision =
             PredicateUsefulnessGate.evaluate(loopHeadVisits, lastValidation, fmgr);
