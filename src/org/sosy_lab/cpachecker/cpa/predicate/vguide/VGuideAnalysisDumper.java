@@ -225,9 +225,11 @@ public final class VGuideAnalysisDumper {
       row.putNull("usage");
     }
     row.put("response_raw", api.content());
-    var parse = LlmResponseParser.parseWithRejects(api.content());
+    var parse = LoopHeadCandidateParser.parseWithRejects(api.content());
     row.put("response_parse_ok", !parse.accepted().isEmpty());
-    row.set("predicates_raw", stringArray(parse.accepted()));
+    row.set(
+        "predicates_raw",
+        stringArray(parse.accepted().stream().map(LoopHeadCandidate::predicate).toList()));
     row.set("predicates_rejected", stringArray(rejectedPredicates));
     row.put("schedule", options.getLlmCallSchedule().name());
     row.put("every_n", options.getLlmEveryNSpuriousRefinements());

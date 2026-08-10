@@ -6,5 +6,6 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
-/** One raw predicate string and the prompt profile that produced it. */
-public record AttributedRawPredicate(String raw, PromptProfile profile) {}
+/** An observable rejection of one loop-head invariant candidate. */
+public record CandidateRejection(
+    String rawJson, String loopHead, String predicate, String reason, String detail) {}

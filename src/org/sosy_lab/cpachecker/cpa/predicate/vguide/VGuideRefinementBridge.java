@@ -9,11 +9,13 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -181,26 +183,26 @@ public final class VGuideRefinementBridge {
     BudgetResolution budgetRes = new BudgetResolution(budget, "source_prior", -1);
     long t0 = System.currentTimeMillis();
     try {
-      List<String> rawPreds = new ArrayList<>();
+      List<LoopHeadCandidate> rawCandidates = new ArrayList<>();
       PromptMessages safeMessages =
           promptBuilder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
       LlmProposalResult safeResult = llmClient.proposeWithUsage(safeMessages);
-      rawPreds.addAll(LlmResponseParser.parsePredicates(safeResult.content()));
+      rawCandidates.addAll(LoopHeadCandidateParser.parse(safeResult.content()));
       if (options.isDualPromptMode()) {
         PromptMessages bugMessages =
             promptBuilder.buildPrompt(pack, budget, PromptProfile.BUG_HUNT, 1);
         LlmProposalResult bugResult = llmClient.proposeWithUsage(bugMessages);
-        rawPreds.addAll(LlmResponseParser.parsePredicates(bugResult.content()));
+        rawCandidates.addAll(LoopHeadCandidateParser.parse(bugResult.content()));
       }
       long latency = System.currentTimeMillis() - t0;
       wallBudget.recordLlmCall(latency);
       llmScheduler.recordCallCompleted();
-      preCegarValidated = validateSourceOnly(pack, rawPreds);
+      preCegarValidated = validateSourceOnly(pack, rawCandidates);
       outcome = VGuideOutcome.SOURCE_PRIOR_LLM;
       logger.log(
           Level.INFO,
           "VGuide source-prior LLM: raw=",
-          rawPreds.size(),
+          rawCandidates.size(),
           " validated=",
           preCegarValidated.size(),
           " latencyMs=",
@@ -218,27 +220,45 @@ public final class VGuideRefinementBridge {
     }
   }
 
-  private List<ValidatedPredicate> validateSourceOnly(ContextPack pack, List<String> rawPreds) {
+  private List<ValidatedPredicate> validateSourceOnly(
+      ContextPack pack, List<LoopHeadCandidate> candidates) {
     BooleanFormulaManager bfmgr = fmgr.getBooleanFormulaManager();
     List<ValidatedPredicate> out = new ArrayList<>();
     Set<String> seen = new HashSet<>();
-    for (String raw : rawPreds) {
-      if (!PredicateContractValidator.isValid(raw)) {
+    for (LoopHeadCandidate candidate : candidates) {
+      List<LoopHeadInfo> heads = new ArrayList<>();
+      for (String label : candidate.loopHeads()) {
+        LoopHeadInfo head = PredicateValidationPipeline.findHead(pack, label);
+        if (head != null && !heads.contains(head)) {
+          heads.add(head);
+        }
+      }
+      if (heads.isEmpty()) {
+        logger.log(
+            Level.FINE,
+            "VGuide source-prior: drop candidate with unknown loop head(s): ",
+            candidate.loopHeads());
         continue;
       }
-      BooleanFormula parsed = VocabularyGuide.parsePredicate(raw, fmgr, Set.of());
+      BooleanFormula parsed =
+          VocabularyGuide.parsePredicate(candidate.predicate(), fmgr, ImmutableSet.of());
       if (parsed == null || bfmgr.isTrue(parsed) || bfmgr.isFalse(parsed)) {
         continue;
       }
-      if (!seen.add(raw.strip())) {
-        continue;
-      }
-      for (LoopHeadInfo head : pack.loopHeads()) {
+      for (LoopHeadInfo head : heads) {
+        String pairKey = head.node().getNodeNumber() + "#" + candidate.predicate();
+        if (!seen.add(pairKey)) {
+          continue;
+        }
         out.add(
             new ValidatedPredicate(
-                parsed, head.node(), ValidatedPredicate.Classification.PRECISION_ONLY));
+                parsed,
+                head.node(),
+                ValidatedPredicate.Classification.PRECISION_ONLY,
+                candidate.role(),
+                candidate.variables()));
       }
-      logger.log(Level.INFO, "VGuide source-prior L1/L2 validated: ", raw);
+      logger.log(Level.INFO, "VGuide source-prior L1/L2 validated: ", candidate.predicate());
     }
     return out;
   }
@@ -370,7 +390,8 @@ public final class VGuideRefinementBridge {
       int samplesPerProfile = options.getLlmSamplesForRefinement(refinementIndex);
       List<String> rejectedAll = new ArrayList<>();
       List<LlmProposalResult> apiResults = new ArrayList<>();
-      ImmutableList<AttributedRawPredicate> attributedMerged = ImmutableList.of();
+      ImmutableList<LoopHeadCandidate> mergedCandidates = ImmutableList.of();
+      Map<String, String> profileByRaw = new LinkedHashMap<>();
       boolean safeAccepted = false;
       boolean bugAccepted = false;
 
@@ -401,10 +422,14 @@ public final class VGuideRefinementBridge {
                 rejectedAll);
         apiResults.addAll(bug.apiResults());
         bugAccepted = bug.hasAccepted();
-        attributedMerged =
-            LlmEnsembleMerger.mergeDualUnion(
-                LlmEnsembleMerger.attributeAll(safe.mergedRaw(), PromptProfile.SAFE),
-                LlmEnsembleMerger.attributeAll(bug.mergedRaw(), PromptProfile.BUG_HUNT));
+        mergedCandidates =
+            LlmEnsembleMerger.mergeDualUnionCandidates(safe.candidates(), bug.candidates());
+        for (LoopHeadCandidate c : safe.candidates()) {
+          profileByRaw.putIfAbsent(c.predicate(), PromptProfile.SAFE.name());
+        }
+        for (LoopHeadCandidate c : bug.candidates()) {
+          profileByRaw.putIfAbsent(c.predicate(), PromptProfile.BUG_HUNT.name());
+        }
       } else {
         ProfileInvokeResult safe =
             invokeProfileLlm(
@@ -419,7 +444,10 @@ public final class VGuideRefinementBridge {
                 rejectedAll);
         apiResults.addAll(safe.apiResults());
         safeAccepted = safe.hasAccepted();
-        attributedMerged = LlmEnsembleMerger.attributeAll(safe.mergedRaw(), PromptProfile.SAFE);
+        mergedCandidates = safe.candidates();
+        for (LoopHeadCandidate c : safe.candidates()) {
+          profileByRaw.putIfAbsent(c.predicate(), PromptProfile.SAFE.name());
+        }
       }
 
       long latency = System.currentTimeMillis() - t0;
@@ -450,15 +478,17 @@ public final class VGuideRefinementBridge {
           latency);
 
       List<String> rawPreds = new ArrayList<>();
-      for (AttributedRawPredicate a : attributedMerged) {
-        rawPreds.add(a.raw());
+      Set<String> seenPreds = new LinkedHashSet<>();
+      for (LoopHeadCandidate c : mergedCandidates) {
+        if (seenPreds.add(c.predicate())) {
+          rawPreds.add(c.predicate());
+        }
       }
-      Map<String, String> profileByRaw = profileMap(attributedMerged);
 
       if (rawPreds.isEmpty() && !safeAccepted && !bugAccepted) {
         List<String> rejectedForRepair = new ArrayList<>();
         for (LlmProposalResult r : apiResults) {
-          rejectedForRepair.addAll(LlmResponseParser.parseWithRejects(r.content()).rejected());
+          rejectedForRepair.addAll(rejectedTexts(r.content()));
         }
         rejectedForRepair = rejectedForRepair.stream().distinct().limit(5).toList();
         if (!rejectedForRepair.isEmpty()) {
@@ -482,18 +512,33 @@ public final class VGuideRefinementBridge {
                 rejectedForRepair,
                 budgetRes);
           }
-          ImmutableList<String> repairPreds = LlmResponseParser.parsePredicates(repair.content());
-          if (!repairPreds.isEmpty()) {
-            attributedMerged = LlmEnsembleMerger.attributeAll(repairPreds, repairProfile);
-            rawPreds = repairPreds;
-            profileByRaw = profileMap(attributedMerged);
+          ImmutableList<LoopHeadCandidate> repairCandidates =
+              LoopHeadCandidateParser.parse(repair.content());
+          if (!repairCandidates.isEmpty()) {
+            mergedCandidates = repairCandidates;
+            rawPreds = repairCandidates.stream().map(LoopHeadCandidate::predicate).distinct().toList();
+            profileByRaw.clear();
+            for (LoopHeadCandidate c : repairCandidates) {
+              profileByRaw.put(c.predicate(), repairProfile.name());
+            }
             apiResults.add(repair);
           }
         }
       }
 
-      lastValidation =
-          validationPipeline.validate(pack, rawPreds, abstractionStatesTrace);
+      PredicateValidationPipeline.CandidateValidationOutcome validationOutcome =
+          validationPipeline.validateCandidates(pack, mergedCandidates, abstractionStatesTrace);
+      lastValidation = validationOutcome.validation();
+      for (CandidateRejection rejection : validationOutcome.rejections()) {
+        logger.log(
+            Level.FINE,
+            "VGuide candidate rejected: ",
+            rejection.reason(),
+            " predicate=",
+            rejection.predicate(),
+            " loop_head=",
+            rejection.loopHead());
+      }
       dump.validated =
           buildValidatedDump(pack, rawPreds, lastValidation, abstractionStatesTrace, profileByRaw);
       if (options.isPredicateUsefulnessGateEnabled()) {
@@ -627,7 +672,7 @@ public final class VGuideRefinementBridge {
 
   private record ProfileInvokeResult(
       List<LlmProposalResult> apiResults,
-      ImmutableList<String> mergedRaw,
+      ImmutableList<LoopHeadCandidate> candidates,
       boolean hasAccepted) {}
 
   private ProfileInvokeResult invokeProfileLlm(
@@ -647,7 +692,7 @@ public final class VGuideRefinementBridge {
     List<LlmProposalResult> results = new ArrayList<>();
     LlmProposalResult primary = llmClient.proposeWithUsage(messages);
     results.add(primary);
-    List<String> primaryRejected = LlmResponseParser.parseWithRejects(primary.content()).rejected();
+    List<String> primaryRejected = rejectedTexts(primary.content());
     rejectedOut.addAll(primaryRejected);
     if (analysisDumper != null) {
       analysisDumper.recordLlmApiCall(
@@ -668,7 +713,7 @@ public final class VGuideRefinementBridge {
           llmClient.proposeParallelExtrasWithUsage(
               messages, extra, options.getLlmSampleParallelism());
       for (LlmProposalResult extraResult : extras) {
-        List<String> rejected = LlmResponseParser.parseWithRejects(extraResult.content()).rejected();
+        List<String> rejected = rejectedTexts(extraResult.content());
         rejectedOut.addAll(rejected);
         if (analysisDumper != null) {
           analysisDumper.recordLlmApiCall(
@@ -690,23 +735,16 @@ public final class VGuideRefinementBridge {
     for (LlmProposalResult r : results) {
       rawResponses.add(r.content());
     }
-    ImmutableList<String> merged = LlmEnsembleMerger.unionValidate(rawResponses, budget);
-    boolean hasAccepted = false;
-    for (LlmProposalResult r : results) {
-      if (!LlmResponseParser.parsePredicates(r.content()).isEmpty()) {
-        hasAccepted = true;
-        break;
-      }
-    }
-    return new ProfileInvokeResult(results, merged, hasAccepted);
+    ImmutableList<LoopHeadCandidate> merged =
+        LlmEnsembleMerger.mergeCandidates(rawResponses, budget);
+    return new ProfileInvokeResult(results, merged, !merged.isEmpty());
   }
 
-  private static Map<String, String> profileMap(ImmutableList<AttributedRawPredicate> attributed) {
-    Map<String, String> map = new LinkedHashMap<>();
-    for (AttributedRawPredicate a : attributed) {
-      map.putIfAbsent(a.raw(), a.profile().name());
-    }
-    return map;
+  private static List<String> rejectedTexts(String content) {
+    return LoopHeadCandidateParser.parseWithRejects(content).rejected().stream()
+        .map(CandidateRejection::predicate)
+        .filter(p -> !p.isEmpty())
+        .toList();
   }
 
   private List<VGuideAnalysisDumper.DumpValidatedPredicate> buildValidatedDump(

@@ -8,8 +8,10 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import org.sosy_lab.common.log.LogManager;
 
@@ -24,8 +26,19 @@ import org.sosy_lab.java_smt.api.ProverEnvironment;
 import org.sosy_lab.java_smt.api.SolverContext.ProverOptions;
 import org.sosy_lab.java_smt.api.SolverException;
 
-/** L1 contract + L2 parse + L3 SMT entailment per loop head. */
+/**
+ * L1 contract + L2 parse + L3 SMT entailment per named loop head.
+ *
+ * <p>Mapping policy: a candidate is validated only at the loop heads it names; no implicit
+ * broadcast. A named head that does not exist or is not on the spurious trace is recorded as an
+ * observable rejection.
+ */
 public final class PredicateValidationPipeline {
+
+  public static final String REASON_UNKNOWN_LOOP_HEAD = "unknown_loop_head";
+  public static final String REASON_HEAD_NOT_ON_TRACE = "head_not_on_trace";
+  public static final String REASON_PARSE_ERROR = "parse_error";
+  public static final String REASON_CONTRACT_VIOLATION = "contract_violation";
 
   private final LogManager logger;
   private final Solver solver;
@@ -45,55 +58,100 @@ public final class PredicateValidationPipeline {
     }
   }
 
-  public ValidationResult validate(
-      ContextPack pack, List<String> rawPredicates, List<? extends AbstractState> absTrace) {
+  public record CandidateValidationOutcome(
+      ValidationResult validation, ImmutableList<CandidateRejection> rejections) {}
+
+  public CandidateValidationOutcome validateCandidates(
+      ContextPack pack, List<LoopHeadCandidate> candidates, List<? extends AbstractState> absTrace) {
     BooleanFormulaManager bfmgr = fmgr.getBooleanFormulaManager();
     Map<CFANode, BooleanFormula> blockByNode =
         LoopHeadBlockFormulaIndex.fromTrace(pack.blockFormulas(), absTrace);
     List<ValidatedPredicate> out = new ArrayList<>();
-    for (String raw : rawPredicates) {
-      if (!PredicateContractValidator.isValid(raw)) {
-        logger.log(Level.FINE, "VGuide reject L1: ", raw);
+    List<CandidateRejection> rejections = new ArrayList<>();
+    Set<String> validatedPairs = new HashSet<>();
+    for (LoopHeadCandidate candidate : candidates) {
+      List<LoopHeadInfo> heads = new ArrayList<>();
+      for (String label : candidate.loopHeads()) {
+        LoopHeadInfo head = findHead(pack, label);
+        if (head == null) {
+          rejections.add(
+              new CandidateRejection(
+                  candidate.toString(),
+                  label,
+                  candidate.predicate(),
+                  REASON_UNKNOWN_LOOP_HEAD,
+                  "no loop head labeled " + label));
+          continue;
+        }
+        if (!blockByNode.containsKey(head.node())) {
+          rejections.add(
+              new CandidateRejection(
+                  candidate.toString(),
+                  label,
+                  candidate.predicate(),
+                  REASON_HEAD_NOT_ON_TRACE,
+                  "loop head not on spurious trace"));
+          continue;
+        }
+        heads.add(head);
+      }
+      if (heads.isEmpty()) {
         continue;
       }
       BooleanFormula parsed =
-          VocabularyGuide.parsePredicate(raw, fmgr, pack.encodedVars());
+          VocabularyGuide.parsePredicate(candidate.predicate(), fmgr, pack.encodedVars());
       if (parsed == null) {
-        logger.log(Level.FINE, "VGuide reject L2 parse: ", raw);
+        rejections.add(
+            new CandidateRejection(
+                candidate.toString(),
+                heads.get(0).label(),
+                candidate.predicate(),
+                REASON_PARSE_ERROR,
+                "SMT-LIB parse failed"));
         continue;
       }
       if (bfmgr.isTrue(parsed) || bfmgr.isFalse(parsed)) {
+        rejections.add(
+            new CandidateRejection(
+                candidate.toString(),
+                heads.get(0).label(),
+                candidate.predicate(),
+                REASON_CONTRACT_VIOLATION,
+                "trivially true or false"));
         continue;
       }
       String formulaText = fmgr.dumpFormula(parsed).toString().replace('\n', ' ');
       StringBuilder perHead = new StringBuilder();
-      boolean classified = false;
-      for (LoopHeadInfo head : pack.loopHeads()) {
-        BooleanFormula block = blockByNode.get(head.node());
-        if (block == null) {
-          logger.log(
-              Level.FINE,
-              "VGuide: loop head ",
-              head.label(),
-              " not on spurious trace; skip SMT for this head");
+      for (LoopHeadInfo head : heads) {
+        String pairKey = head.node().getNodeNumber() + "#" + formulaText;
+        if (!validatedPairs.add(pairKey)) {
           continue;
         }
+        BooleanFormula block = blockByNode.get(head.node());
         ValidatedPredicate.Classification cls =
             enableL3Entailment
                 ? classify(block, parsed, bfmgr)
                 : ValidatedPredicate.Classification.PRECISION_ONLY;
-        out.add(new ValidatedPredicate(parsed, head.node(), cls));
-        classified = true;
+        out.add(new ValidatedPredicate(parsed, head.node(), cls, candidate.role(), candidate.variables()));
         if (!perHead.isEmpty()) {
           perHead.append(' ');
         }
         perHead.append(head.label()).append('=').append(cls);
       }
-      if (classified) {
-        logger.log(Level.INFO, "VGuide predicate ", formulaText, " [", perHead, "]");
+      logger.log(Level.INFO, "VGuide predicate ", formulaText, " [", perHead, "]");
+    }
+    return new CandidateValidationOutcome(
+        new ValidationResult(ImmutableList.copyOf(out)), ImmutableList.copyOf(rejections));
+  }
+
+  static @org.checkerframework.checker.nullness.qual.Nullable LoopHeadInfo findHead(
+      ContextPack pack, String label) {
+    for (LoopHeadInfo head : pack.loopHeads()) {
+      if (head.label().equals(label)) {
+        return head;
       }
     }
-    return new ValidationResult(ImmutableList.copyOf(out));
+    return null;
   }
 
   private ValidatedPredicate.Classification classify(
@@ -111,5 +169,4 @@ public final class PredicateValidationPipeline {
     }
     return ValidatedPredicate.Classification.PRECISION_ONLY;
   }
-
 }

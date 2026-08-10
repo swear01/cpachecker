@@ -65,5 +65,5 @@
 
 - `VGuideOptions.getPredicateBudget()` → fixed `PredicateBudget(min, max)`
 - `PredicateBudgetResolver.resolve(ContextPack, refinementIndex)` → adaptive tiers（`enableAdaptivePredicateBudget=true`）
-- `LlmEnsembleMerger.unionValidate(responses, budget)`
+- `LlmEnsembleMerger.mergeCandidates(responses, budget)`（per-loop-head candidates，dedup key = heads+predicate）
 - `VGuideRefinementBridge`：每輪 resolve budget；repair 路徑亦 `budget.capOrdered(...)`
