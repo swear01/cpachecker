@@ -132,7 +132,8 @@ run_one() {
   fi
   set +e
   if [[ "$ARM" == "augmented" ]]; then
-    VGUIDE_LLM_CACHE_NAMESPACE="$task" VGUIDE_ANALYSIS_DUMP_DIR="$OUT/dumps" \
+    # Per-task dump root: benchmark base names can collide across families.
+    VGUIDE_LLM_CACHE_NAMESPACE="$task" VGUIDE_ANALYSIS_DUMP_DIR="$OUT/dumps/${task_name}" \
       "${cmd[@]}" >"$log" 2>&1
   else
     "${cmd[@]}" >"$log" 2>&1
@@ -140,7 +141,7 @@ run_one() {
   set -e
   # One JSON record per task (also for failures — never silently dropped).
   local dump_dir=""
-  [[ "$ARM" == "augmented" ]] && dump_dir="$OUT/dumps"
+  [[ "$ARM" == "augmented" ]] && dump_dir="$OUT/dumps/${task_name}"
   python3 "$RECORDS_PY" record \
     --task-row "$line" \
     --log "$log" \
@@ -156,8 +157,9 @@ export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMEL
 
 # 4. Run each task (no header row in tasks.tsv), merge per-task records in order,
 #    then verify completeness.
-# Null-delimited so task names with spaces/special chars are safe.
-tr '\n' '\0' <"$OUT/tasks.tsv" | xargs -0 -P "$PARALLEL" -I{} bash -c 'run_one "$1"' _ {}
+# Null-delimited so task names with spaces/special chars are safe
+# (-n 1 keeps BSD/macOS xargs happy instead of -I).
+tr '\n' '\0' <"$OUT/tasks.tsv" | xargs -0 -n 1 -P "$PARALLEL" bash -c 'run_one "$1"' _
 
 rm -f "$OUT/records.jsonl"
 while IFS= read -r line || [[ -n "$line" ]]; do

@@ -136,7 +136,7 @@ def test_record_from_run_parses_log_and_dump(tmp_path):
         "Verification result: UNKNOWN, incomplete analysis.\n"
     )
     dump_root = tmp_path / "dumps"
-    dump = dump_root / "a"
+    dump = dump_root / "tasks" / "a"
     dump.mkdir(parents=True)
     (dump / "llm_rounds.jsonl").write_text("{}\n{}\n")
     (dump / "refinements.jsonl").write_text(

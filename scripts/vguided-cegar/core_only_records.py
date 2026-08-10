@@ -140,7 +140,8 @@ def record_from_run(
     validated = 0
     injected = 0
     if dump_dir is not None and dump_dir.is_dir():
-        task_dump = dump_dir / Path(task_row["source"]).stem
+        # VGuideAnalysisDumper writes <dump_dir>/tasks/<benchmark base name>/...
+        task_dump = dump_dir / "tasks" / Path(task_row["source"]).stem
         llm_file = task_dump / "llm_rounds.jsonl"
         if llm_file.is_file():
             with open(llm_file, encoding="utf-8", errors="replace") as f:

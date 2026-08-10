@@ -47,6 +47,8 @@ def _parse_inline(path: Path, top_dir: Path, seen: set, out: dict) -> None:
             continue
         if line.startswith("#include"):
             inc = line[len("#include") :].strip()
+            if len(inc) >= 2 and inc[0] == inc[-1] and inc[0] in ("'", '"'):
+                inc = inc[1:-1]
             resolved = None
             for base in (p.parent, top_dir, Path.cwd()):
                 candidate = (base / inc).resolve()
