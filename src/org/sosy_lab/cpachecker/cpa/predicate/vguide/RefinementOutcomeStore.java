@@ -35,6 +35,9 @@ public final class RefinementOutcomeStore {
 
   public void recordStarted(
       int refinementIndex, int loopHeadVisits, int interpolantCount, int blockCount) {
+    // Rounds are sequential; any still-pending older round will never complete
+    // (aborted/failed refinement) — drop it to bound the map.
+    pending.keySet().removeIf(round -> round < refinementIndex);
     StringBuilder sb = new StringBuilder("round ")
         .append(refinementIndex)
         .append(": visits=")
