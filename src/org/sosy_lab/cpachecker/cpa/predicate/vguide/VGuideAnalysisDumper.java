@@ -51,7 +51,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "6";
+  public static final String SCHEMA_VERSION = "8";
   private static final ObjectMapper JSON = new ObjectMapper();
   static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -137,6 +137,7 @@ public final class VGuideAnalysisDumper {
       @Nullable List<DumpValidatedPredicate> injectedPredicates,
       @Nullable List<CandidateRejection> candidateRejections,
       CeHistoryStore.@Nullable Snapshot ceHistorySnapshot,
+      @Nullable String refinementOutcomeLine,
       boolean usefulnessGateEnabled,
       PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision) {
     if (llmCalled && llmRoundIndex != null) {

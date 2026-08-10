@@ -137,6 +137,13 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
+          "Expose bounded CEGAR refinement outcomes (visits, interpolants, LLM outcome,"
+              + " native precision delta) to the LLM as read-only context (Issue #7)")
+  private boolean refinementOutcomeContext = false;
+
+  @Option(
+      secure = true,
+      description =
           "Directory containing predicate_sets/<benchmark>.md or .json for NO_SPURIOUS"
               + " exception path")
   @FileOption(FileOption.Type.OPTIONAL_INPUT_FILE)
@@ -267,6 +274,10 @@ public class VGuideOptions {
 
   public int getPeelLoopHeadThreshold() {
     return peelLoopHeadThreshold;
+  }
+
+  public boolean isRefinementOutcomeContextEnabled() {
+    return refinementOutcomeContext;
   }
 
   public boolean isPredicateUsefulnessGateEnabled() {
