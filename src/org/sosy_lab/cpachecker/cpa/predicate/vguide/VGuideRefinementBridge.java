@@ -629,8 +629,10 @@ public final class VGuideRefinementBridge {
         if (!suppressCurrentPrecisionInjection) {
           precisionInjector.inject(reached, toInject);
           for (ValidatedPredicate vp : toInject) {
-            llmOwnedKeys.add(
-                "local N" + vp.loopHeadNode().getNodeNumber() + "|" + canonical(vp.formula()));
+            if (vp.loopHeadNode() != null && vp.formula() != null) {
+              llmOwnedKeys.add(
+                  "local N" + vp.loopHeadNode().getNodeNumber() + "|" + canonical(vp.formula()));
+            }
           }
         }
       }
@@ -810,11 +812,15 @@ public final class VGuideRefinementBridge {
             .toList();
     HashMultimap<String, String> functions = HashMultimap.create();
     for (var e : predPrec.getFunctionPredicates().entries()) {
-      functions.put(e.getKey(), canonical(e.getValue().getSymbolicAtom()));
+      if (e.getValue() != null && e.getValue().getSymbolicAtom() != null) {
+        functions.put(e.getKey(), canonical(e.getValue().getSymbolicAtom()));
+      }
     }
     HashMultimap<String, String> locals = HashMultimap.create();
     for (var e : predPrec.getLocalPredicates().entries()) {
-      locals.put("N" + e.getKey().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+      if (e.getKey() != null && e.getValue() != null && e.getValue().getSymbolicAtom() != null) {
+        locals.put("N" + e.getKey().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+      }
     }
     return nativeContextBuilder.build(globals, functions, locals, pack.loopHeads());
   }
