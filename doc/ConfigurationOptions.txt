@@ -6015,6 +6015,11 @@ vguide.minPredicatesPerCall = 3
 # every_n / interval trigger. 0 = off.
 vguide.peelLoopHeadThreshold = 0
 
+# Replace prior-round LLM-owned predicates in active precision on each new
+# LLM round (P_active(t) = P_native(t) u P_LLM(t)) instead of accumulating
+# (Issue #8)
+vguide.replaceLlmPredicates = false
+
 # Fire LLM before any CEGAR round using source-code only (no CE context).
 # Predicates injected into initial precision. Replaces first-spurious
 # trigger.

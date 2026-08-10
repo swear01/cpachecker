@@ -119,7 +119,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
 
     JsonNode manifest =
         JSON.readTree(tmp.getRoot().toPath().resolve("run_manifest.json").toFile());
-    assertThat(manifest.path("schema_version").asText()).isEqualTo("6");
+    assertThat(manifest.path("schema_version").asText()).isEqualTo("9");
   }
 
   @Test

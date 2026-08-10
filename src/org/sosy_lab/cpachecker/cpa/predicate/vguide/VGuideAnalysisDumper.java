@@ -51,7 +51,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "6";
+  public static final String SCHEMA_VERSION = "9";
   private static final ObjectMapper JSON = new ObjectMapper();
   static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 

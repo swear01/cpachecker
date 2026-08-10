@@ -137,6 +137,13 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
+          "Replace prior-round LLM-owned predicates in active precision on each new LLM round"
+              + " (P_active(t) = P_native(t) u P_LLM(t)) instead of accumulating (Issue #8)")
+  private boolean replaceLlmPredicates = false;
+
+  @Option(
+      secure = true,
+      description =
           "Directory containing predicate_sets/<benchmark>.md or .json for NO_SPURIOUS"
               + " exception path")
   @FileOption(FileOption.Type.OPTIONAL_INPUT_FILE)
@@ -267,6 +274,10 @@ public class VGuideOptions {
 
   public int getPeelLoopHeadThreshold() {
     return peelLoopHeadThreshold;
+  }
+
+  public boolean isReplaceLlmPredicates() {
+    return replaceLlmPredicates;
   }
 
   public boolean isPredicateUsefulnessGateEnabled() {
