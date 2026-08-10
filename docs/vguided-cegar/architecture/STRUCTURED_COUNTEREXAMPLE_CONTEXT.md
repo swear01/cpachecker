@@ -23,3 +23,11 @@ The artifact is prompt context, not a verification witness or truth source. Bran
 ## Limits
 
 The current schema has no raw log input and no cross-round history. Counterexample history, native predicates, refinement outcomes, and predicate lifecycle remain owned by Issues #5–#8.
+
+## Relation to Issue #4
+
+The `loop_head` labels in the structured CE are the same labels the LLM must reuse in
+`loop-head-candidate-v1` candidates (`loop_head`/`loop_heads` keys, see
+[`LOOP_HEAD_INVARIANT_PLAN.md`](../LOOP_HEAD_INVARIANT_PLAN.md)): a candidate naming a label
+that is not in the `LOOP HEADS` list is rejected with `unknown_loop_head`, and a candidate naming
+an existing head that is not on the trace is rejected with `head_not_on_trace`.
