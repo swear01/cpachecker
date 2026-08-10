@@ -127,13 +127,14 @@ def record_from_run(
                 llm_calls = sum(1 for _ in f)
         ref_file = task_dump / "refinements.jsonl"
         if ref_file.is_file():
-            for line in open(ref_file, encoding="utf-8", errors="replace"):
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                validated += len(row.get("validated_predicates") or [])
-                injected += len(row.get("precision_injected") or [])
+            with open(ref_file, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    validated += len(row.get("validated_predicates") or [])
+                    injected += len(row.get("precision_injected") or [])
 
     failure = "ok"
     if not text.strip():

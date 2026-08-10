@@ -151,17 +151,27 @@ run_one() {
     --commit "$COMMIT" \
     --arm "$ARM" \
     --timelimit "$TIMELIMIT" \
-    --out "$OUT/records.jsonl"
+    --out "$OUT/logs/${task_name}.json"
   rm -f "$rowfile"
 }
 export -f run_one
 export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMELIMIT TIMEOUT_GRACE HEAP COMMIT CONFIG_SHA
 
-# tasks.tsv has a header row; skip it.
-tail -n +2 "$OUT/tasks.tsv" | xargs -P "$PARALLEL" -I{} bash -c 'run_one "$1"' _ {}
+# 4. Run each task (no header row in tasks.tsv), merge per-task records in order,
+#    then verify completeness.
+cat "$OUT/tasks.tsv" | xargs -P "$PARALLEL" -I{} bash -c 'run_one "$1"' _ {}
 
-# 4. Verify completeness: one record per task.
-N_TASKS="$(tail -n +2 "$OUT/tasks.tsv" | wc -l | tr -d ' ')"
+rm -f "$OUT/records.jsonl"
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ -n "$line" ]] || continue
+  task="$(echo "$line" | cut -f1)"
+  rec="$OUT/logs/${task//\//_}.json"
+  [[ -f "$rec" ]] || die "missing record for $task"
+  cat "$rec" >>"$OUT/records.jsonl"
+  rm -f "$rec"
+done <"$OUT/tasks.tsv"
+
+N_TASKS="$(wc -l <"$OUT/tasks.tsv" | tr -d ' ')"
 N_RECORDS="$(wc -l <"$OUT/records.jsonl" | tr -d ' ')"
 [[ "$N_RECORDS" == "$N_TASKS" ]] || die "record mismatch: $N_RECORDS records for $N_TASKS tasks"
 echo "core-only $ARM arm complete: $N_RECORDS records"
