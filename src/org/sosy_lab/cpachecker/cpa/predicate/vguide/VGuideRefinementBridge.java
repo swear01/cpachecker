@@ -245,10 +245,11 @@ public final class VGuideRefinementBridge {
       if (parsed == null || bfmgr.isTrue(parsed) || bfmgr.isFalse(parsed)) {
         continue;
       }
-      if (!seen.add(candidate.dedupKey())) {
-        continue;
-      }
       for (LoopHeadInfo head : heads) {
+        String pairKey = head.node().getNodeNumber() + "#" + candidate.predicate();
+        if (!seen.add(pairKey)) {
+          continue;
+        }
         out.add(
             new ValidatedPredicate(
                 parsed,
@@ -515,7 +516,7 @@ public final class VGuideRefinementBridge {
               LoopHeadCandidateParser.parse(repair.content());
           if (!repairCandidates.isEmpty()) {
             mergedCandidates = repairCandidates;
-            rawPreds = repairCandidates.stream().map(LoopHeadCandidate::predicate).toList();
+            rawPreds = repairCandidates.stream().map(LoopHeadCandidate::predicate).distinct().toList();
             profileByRaw.clear();
             for (LoopHeadCandidate c : repairCandidates) {
               profileByRaw.put(c.predicate(), repairProfile.name());

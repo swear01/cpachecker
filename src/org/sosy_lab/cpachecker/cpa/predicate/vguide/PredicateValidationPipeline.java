@@ -8,8 +8,10 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import org.sosy_lab.common.log.LogManager;
 
@@ -66,6 +68,7 @@ public final class PredicateValidationPipeline {
         LoopHeadBlockFormulaIndex.fromTrace(pack.blockFormulas(), absTrace);
     List<ValidatedPredicate> out = new ArrayList<>();
     List<CandidateRejection> rejections = new ArrayList<>();
+    Set<String> validatedPairs = new HashSet<>();
     for (LoopHeadCandidate candidate : candidates) {
       List<LoopHeadInfo> heads = new ArrayList<>();
       for (String label : candidate.loopHeads()) {
@@ -120,6 +123,10 @@ public final class PredicateValidationPipeline {
       String formulaText = fmgr.dumpFormula(parsed).toString().replace('\n', ' ');
       StringBuilder perHead = new StringBuilder();
       for (LoopHeadInfo head : heads) {
+        String pairKey = head.node().getNodeNumber() + "#" + formulaText;
+        if (!validatedPairs.add(pairKey)) {
+          continue;
+        }
         BooleanFormula block = blockByNode.get(head.node());
         ValidatedPredicate.Classification cls =
             enableL3Entailment

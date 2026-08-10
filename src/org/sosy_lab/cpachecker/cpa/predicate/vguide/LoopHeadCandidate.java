@@ -19,7 +19,8 @@ public record LoopHeadCandidate(
     ImmutableList<String> loopHeads, String predicate, String role, ImmutableList<String> variables) {
 
   public LoopHeadCandidate {
-    loopHeads = loopHeads == null ? ImmutableList.of() : loopHeads;
+    loopHeads =
+        loopHeads == null ? ImmutableList.of() : ImmutableList.sortedCopyOf(loopHeads);
     predicate = predicate == null ? "" : predicate;
     role = role == null ? "" : role;
     variables = variables == null ? ImmutableList.of() : variables;

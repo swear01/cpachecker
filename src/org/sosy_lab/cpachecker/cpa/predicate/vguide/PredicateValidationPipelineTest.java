@@ -229,6 +229,36 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
         .isEqualTo(PredicateValidationPipeline.REASON_HEAD_NOT_ON_TRACE);
   }
 
+  @Test
+  public void duplicateHeadPredicatePairsValidatedOnce() {
+    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1");
+    headB = new LoopHeadInfo(newDummyCFANode("f2"), "ignored", "f2");
+    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
+    BooleanFormula block =
+        VocabularyGuide.parsePredicate("(= x (_ bv1 32))", mgrv, ImmutableSet.of());
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, true);
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(block, block),
+            ImmutableList.of(
+                candidate(headA.label(), "(= x (_ bv1 32))"),
+                new LoopHeadCandidate(
+                    ImmutableList.of(headA.label(), headB.label()),
+                    "(= x (_ bv1 32))",
+                    "",
+                    ImmutableList.of())),
+            trace(headA.node(), headB.node()));
+
+    // (headA, formula) proposed twice but validated once; (headB, formula) once.
+    assertThat(outcome.validation().validated()).hasSize(2);
+    assertThat(
+            outcome.validation().validated().stream().map(v -> v.loopHeadNode()).toList())
+        .containsExactly(headA.node(), headB.node());
+    assertThat(outcome.rejections()).isEmpty();
+  }
+
   private record LocState(CFANode node) implements AbstractStateWithLocation {
     @Override
     public CFANode getLocationNode() {
