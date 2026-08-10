@@ -808,6 +808,7 @@ public final class VGuideRefinementBridge {
     }
     List<String> globals =
         predPrec.getGlobalPredicates().stream()
+            .filter(ap -> ap != null && ap.getSymbolicAtom() != null)
             .map(ap -> canonical(ap.getSymbolicAtom()))
             .toList();
     HashMultimap<String, String> functions = HashMultimap.create();
