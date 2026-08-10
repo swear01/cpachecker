@@ -8,9 +8,11 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
 
+import com.google.common.base.Predicates;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSetMultimap;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,6 +44,7 @@ import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
 import org.sosy_lab.cpachecker.util.LoopStructure;
 import org.sosy_lab.cpachecker.util.Precisions;
 import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision.LocationInstance;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
@@ -103,6 +106,7 @@ public final class VGuideRefinementBridge {
   @Nullable String refinementOutcomeLine;
   NativePredicateContextBuilder.@Nullable Context nativeContext;
   Set<String> precisionBeforeSnapshot = Set.of();
+  int llmPrecisionRemoved = -1;
   PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision;
   }
 
@@ -655,11 +659,14 @@ public final class VGuideRefinementBridge {
                 : lastValidation.precisionOnly();
         injected = markInjected(pendingDump.validated, toInject);
         if (!suppressCurrentPrecisionInjection) {
+          if (options.isReplaceLlmPredicates()) {
+            pendingDump.llmPrecisionRemoved = removeLlmOwnedPrecision(reached);
+            llmOwnedKeys.clear();
+          }
           precisionInjector.inject(reached, toInject);
           for (ValidatedPredicate vp : toInject) {
-            if (vp.loopHeadNode() != null && vp.formula() != null) {
-              llmOwnedKeys.add(
-                  "local N" + vp.loopHeadNode().getNodeNumber() + "|" + canonical(vp.formula()));
+            if (vp != null && vp.loopHeadNode() != null && vp.formula() != null) {
+              llmOwnedKeys.add(llmOwnedKey(vp.loopHeadNode().getNodeNumber(), canonical(vp.formula())));
             }
           }
         }
@@ -683,6 +690,7 @@ public final class VGuideRefinementBridge {
             pendingDump.ceHistorySnapshot,
             pendingDump.refinementOutcomeLine,
             pendingDump.llmCalled ? pendingDump.nativeContext : null,
+            pendingDump.llmPrecisionRemoved,
             options.isPredicateUsefulnessGateEnabled(),
             pendingDump.usefulnessGateDecision);
       }
@@ -825,6 +833,83 @@ public final class VGuideRefinementBridge {
     ImmutableList<LoopHeadCandidate> merged =
         LlmEnsembleMerger.mergeCandidates(rawResponses, budget);
     return new ProfileInvokeResult(results, merged, !merged.isEmpty());
+  }
+
+  /**
+   * Removes all LLM-owned local predicates from the active precision (Issue #8). The precision
+   * is immutable, so this rebuilds a filtered PredicatePrecision and applies it in one atomic
+   * update; existing ARG states keep their abstractions, later refinements use the filtered
+   * precision. Returns the number of removed predicates.
+   */
+  private int removeLlmOwnedPrecision(ARGReachedSet reached) {
+    if (llmOwnedKeys.isEmpty()) {
+      return 0;
+    }
+    AbstractState firstState = reached.asReachedSet().getFirstState();
+    if (firstState == null) {
+      return 0;
+    }
+    PredicatePrecision current =
+        Precisions.extractPrecisionByType(
+            reached.asReachedSet().getPrecision(firstState), PredicatePrecision.class);
+    if (current == null) {
+      return 0;
+    }
+    ImmutableSetMultimap.Builder<CFANode, AbstractionPredicate> locals = ImmutableSetMultimap.builder();
+    // The local and location-instance maps both contain eagerly merged predicates,
+    // so track removed keys uniquely to avoid double-counting.
+    Set<String> removedKeys = new HashSet<>();
+    for (var e : current.getLocalPredicates().entries()) {
+      if (e.getValue() == null || e.getValue().getSymbolicAtom() == null) {
+        // defensive: never insert nulls into the ImmutableSetMultimap builder
+        continue;
+      }
+      String key = llmOwnedKey(e.getKey().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+      if (llmOwnedKeys.contains(key)) {
+        removedKeys.add(key);
+      } else {
+        locals.put(e.getKey(), e.getValue());
+      }
+    }
+    // The PredicatePrecision constructor eagerly merges local predicates into the
+    // location-instance map, so LLM-owned predicates must be filtered there too,
+    // otherwise they persist in the rebuilt precision.
+    ImmutableSetMultimap.Builder<LocationInstance, AbstractionPredicate> locInstances =
+        ImmutableSetMultimap.builder();
+    for (var e : current.getLocationInstancePredicates().entries()) {
+      if (e.getValue() == null || e.getValue().getSymbolicAtom() == null) {
+        continue;
+      }
+      String key =
+          llmOwnedKey(e.getKey().getLocation().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+      if (llmOwnedKeys.contains(key)) {
+        removedKeys.add(key);
+      } else {
+        locInstances.put(e.getKey(), e.getValue());
+      }
+    }
+    int removed = removedKeys.size();
+    if (removed == 0) {
+      return 0;
+    }
+    PredicatePrecision filtered =
+        new PredicatePrecision(
+            locInstances.build(),
+            locals.build(),
+            current.getFunctionPredicates(),
+            current.getGlobalPredicates());
+    reached.updatePrecisionGlobally(filtered, Predicates.instanceOf(PredicatePrecision.class));
+    logger.log(
+        Level.INFO,
+        "VGuide replaced LLM precision: removed ",
+        removed,
+        " stale predicates before injecting the new round");
+    return removed;
+  }
+
+  /** Canonical ownership key for one (loop head, formula) LLM predicate. */
+  static String llmOwnedKey(int nodeNumber, String canonicalSmt) {
+    return "local N" + nodeNumber + "|" + canonicalSmt;
   }
 
   private int nativePrecisionDelta(Set<String> beforeSnapshot, ARGReachedSet after) {

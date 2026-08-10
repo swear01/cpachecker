@@ -137,6 +137,13 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
+          "Replace prior-round LLM-owned predicates in active precision on each new LLM round"
+              + " (P_active(t) = P_native(t) u P_LLM(t)) instead of accumulating (Issue #8)")
+  private boolean replaceLlmPredicates = false;
+
+  @Option(
+      secure = true,
+      description =
           "Expose bounded CEGAR refinement outcomes (visits, interpolants, LLM outcome,"
               + " native precision delta) to the LLM as read-only context (Issue #7)")
   private boolean refinementOutcomeContext = false;
@@ -281,6 +288,10 @@ public class VGuideOptions {
 
   public int getPeelLoopHeadThreshold() {
     return peelLoopHeadThreshold;
+  }
+
+  public boolean isReplaceLlmPredicates() {
+    return replaceLlmPredicates;
   }
 
   public boolean isRefinementOutcomeContextEnabled() {

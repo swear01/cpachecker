@@ -51,7 +51,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "8";
+  public static final String SCHEMA_VERSION = "9";
   private static final ObjectMapper JSON = new ObjectMapper();
   static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -139,6 +139,7 @@ public final class VGuideAnalysisDumper {
       CeHistoryStore.@Nullable Snapshot ceHistorySnapshot,
       @Nullable String refinementOutcomeLine,
       NativePredicateContextBuilder.@Nullable Context nativeContext,
+      int llmPrecisionRemoved,
       boolean usefulnessGateEnabled,
       PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision) {
     if (llmCalled && llmRoundIndex != null) {
@@ -198,6 +199,10 @@ public final class VGuideAnalysisDumper {
       row.set(
           "native_predicate_context",
           nativeContext == null ? JSON.nullNode() : nativeContextJson(nativeContext));
+      if (llmPrecisionRemoved >= 0) {
+        row.put("llm_precision_replaced", options.isReplaceLlmPredicates());
+        row.put("llm_precision_removed", llmPrecisionRemoved);
+      }
     }
     row.set("precision_local_after", precisionLocalJson(reachedAfter));
     appendJsonLine(refinementsFile, row);
