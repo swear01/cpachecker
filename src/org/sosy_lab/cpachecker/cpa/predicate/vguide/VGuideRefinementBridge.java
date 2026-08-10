@@ -245,7 +245,7 @@ public final class VGuideRefinementBridge {
       if (parsed == null || bfmgr.isTrue(parsed) || bfmgr.isFalse(parsed)) {
         continue;
       }
-      if (!seen.add(candidate.predicate().strip())) {
+      if (!seen.add(candidate.dedupKey())) {
         continue;
       }
       for (LoopHeadInfo head : heads) {

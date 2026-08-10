@@ -146,6 +146,19 @@ public class LoopHeadCandidateParserTest {
   }
 
   @Test
+  public void toleratesProseAroundFencedJson() {
+    var outcome =
+        LoopHeadCandidateParser.parseWithRejects(
+            "Here is the JSON you asked for:\n```json\n"
+                + "{\"schema_version\":\"loop-head-candidate-v1\",\"candidates\":["
+                + "{\"loop_head\":\"N12\",\"predicate\":\"(bvslt i n)\"}]}\n```\n"
+                + "Hope this helps.");
+
+    assertThat(outcome.accepted()).hasSize(1);
+    assertThat(outcome.rejected()).isEmpty();
+  }
+
+  @Test
   public void unknownRoleAndMissingVariablesAreTolerated() {
     var outcome =
         LoopHeadCandidateParser.parseWithRejects(

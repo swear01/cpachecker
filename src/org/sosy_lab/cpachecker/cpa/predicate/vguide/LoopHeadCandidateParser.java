@@ -46,7 +46,7 @@ public final class LoopHeadCandidateParser {
     }
     JsonNode root;
     try {
-      root = JSON.readTree(stripFences(response));
+      root = JSON.readTree(extractJson(response));
     } catch (Exception e) {
       return new ParseOutcome(
           ImmutableList.of(),
@@ -164,11 +164,28 @@ public final class LoopHeadCandidateParser {
     return new ParseOutcome(ImmutableList.copyOf(accepted), ImmutableList.copyOf(rejects));
   }
 
-  private static String stripFences(String response) {
+  /**
+   * Locates the first balanced JSON object in a possibly noisy response (markdown fences,
+   * conversational prose around the JSON). Returns the whole response when no object is found.
+   */
+  private static String extractJson(String response) {
     String trimmed = response.strip();
-    if (trimmed.startsWith("```")) {
-      trimmed = trimmed.replaceAll("(?s)```(?:json)?\\s*", " ").replace("```", " ").strip();
+    int start = trimmed.indexOf('{');
+    if (start < 0) {
+      return trimmed;
     }
-    return trimmed;
+    int depth = 0;
+    for (int i = start; i < trimmed.length(); i++) {
+      char c = trimmed.charAt(i);
+      if (c == '{') {
+        depth++;
+      } else if (c == '}') {
+        depth--;
+        if (depth == 0) {
+          return trimmed.substring(start, i + 1);
+        }
+      }
+    }
+    return trimmed.substring(start);
   }
 }
