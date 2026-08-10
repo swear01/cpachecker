@@ -92,29 +92,29 @@ def record_from_run(
     """One JSONL record per task: hashes, commit, resource use, verdict, metrics."""
     text = log.read_text(errors="replace") if log.is_file() else ""
     result = ""
-    m = re.search(r"Verification result:\s*([A-Za-z]+)", text)
-    if m:
-        result = m.group(1).upper()
+    result_match = re.search(r"Verification result:\s*([A-Za-z]+)", text)
+    if result_match:
+        result = result_match.group(1).upper()
     refs = 0
-    m = re.search(r"Number of predicate refinements:\s*(\d+)", text)
-    if m:
-        refs = int(m.group(1))
+    refs_match = re.search(r"Number of predicate refinements:\s*(\d+)", text)
+    if refs_match:
+        refs = int(refs_match.group(1))
     wall_s = 0.0
-    m = re.search(r"Total time for CPAchecker:\s*([0-9.]+)", text)
-    if m:
-        wall_s = float(m.group(1))
+    wall_match = re.search(r"Total time for CPAchecker:\s*([0-9.]+)", text)
+    if wall_match:
+        wall_s = float(wall_match.group(1))
     cpu_s = 0.0
-    m = re.search(r"Total CPU time for CPAchecker:\s*([0-9.]+)", text)
-    if m:
-        cpu_s = float(m.group(1))
+    cpu_match = re.search(r"Total CPU time for CPAchecker:\s*([0-9.]+)", text)
+    if cpu_match:
+        cpu_s = float(cpu_match.group(1))
     memory_mb = ""
-    m = re.search(r"Memory consumption for CPAchecker:\s*([0-9.]+)\s*MB", text)
-    if m:
-        memory_mb = m.group(1)
+    memory_match = re.search(r"Memory consumption for CPAchecker:\s*([0-9.]+)\s*MB", text)
+    if memory_match:
+        memory_mb = memory_match.group(1)
     solver = ""
-    m = SOLVER_RE.search(text)
-    if m:
-        solver = f"{m.group(1)} {m.group(2)}"
+    solver_match = SOLVER_RE.search(text)
+    if solver_match:
+        solver = f"{solver_match.group(1)} {solver_match.group(2)}"
 
     llm_calls = 0
     validated = 0
@@ -135,9 +135,12 @@ def record_from_run(
                 injected += len(row.get("precision_injected") or [])
 
     failure = "ok"
-    if not m and result != "TRUE" and result != "FALSE":
-        failure = "incomplete"
-    if "OutOfMemoryError" in text or "Out of memory" in text:
+    if not text.strip():
+        failure = "no_log"
+    elif result_match and result in ("TRUE", "FALSE"):
+        # completed with a definitive verdict
+        failure = "ok"
+    elif "OutOfMemoryError" in text or "Out of memory" in text:
         failure = "out_of_memory"
     elif "forcing immediate termination" in text:
         failure = "smt_hang"
@@ -145,8 +148,8 @@ def record_from_run(
         failure = "crash"
     elif "CPU-time limit of" in text or wall_s >= timelimit:
         failure = "timeout"
-    if not text.strip():
-        failure = "no_log"
+    else:
+        failure = "incomplete"
 
     return {
         "task": task_row["task"],
