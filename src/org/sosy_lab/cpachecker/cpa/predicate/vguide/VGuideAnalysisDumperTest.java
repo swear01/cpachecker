@@ -101,6 +101,9 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         ImmutableList.of(dumpPred),
         ImmutableList.of(rejection),
         null,
+        null,
+        null,
+        -1,
         false,
         null);
 
@@ -119,7 +122,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
 
     JsonNode manifest =
         JSON.readTree(tmp.getRoot().toPath().resolve("run_manifest.json").toFile());
-    assertThat(manifest.path("schema_version").asText()).isEqualTo("6");
+    assertThat(manifest.path("schema_version").asText()).isEqualTo("9");
   }
 
   @Test
@@ -176,6 +179,9 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         ImmutableList.of(dumpPred),
         ImmutableList.of(),
         store.snapshot(),
+        null,
+        null,
+        -1,
         false,
         null);
 

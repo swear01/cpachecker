@@ -8,8 +8,11 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
 
+import com.google.common.base.Predicates;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSetMultimap;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,6 +34,7 @@ import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.CPAcheckerResult.Result;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
+import org.sosy_lab.cpachecker.core.interfaces.Precision;
 import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
@@ -38,6 +42,9 @@ import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractionManager;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision;
 import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
 import org.sosy_lab.cpachecker.util.LoopStructure;
+import org.sosy_lab.cpachecker.util.Precisions;
+import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision.LocationInstance;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
@@ -60,6 +67,10 @@ public final class VGuideRefinementBridge {
   private final WallClockBudget wallBudget;
   private final LlmCallScheduler llmScheduler;
   private final CeHistoryStore ceHistoryStore;
+  private final RefinementOutcomeStore refinementOutcomeStore = new RefinementOutcomeStore();
+  private final Set<String> llmOwnedKeys = new HashSet<>();
+  private final NativePredicateContextBuilder nativeContextBuilder =
+      new NativePredicateContextBuilder(llmOwnedKeys);
   private final CFA cfa;
   private final FormulaManagerView fmgr;
   private final @Nullable VGuideAnalysisDumper analysisDumper;
@@ -92,6 +103,10 @@ public final class VGuideRefinementBridge {
   List<VGuideAnalysisDumper.DumpValidatedPredicate> validated = List.of();
   List<CandidateRejection> rejections = List.of();
   CeHistoryStore.@Nullable Snapshot ceHistorySnapshot;
+  @Nullable String refinementOutcomeLine;
+  NativePredicateContextBuilder.@Nullable Context nativeContext;
+  Set<String> precisionBeforeSnapshot = Set.of();
+  int llmPrecisionRemoved = -1;
   PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision;
   }
 
@@ -336,6 +351,11 @@ public final class VGuideRefinementBridge {
     ContextPack pack =
         contextPackBuilder.build(refinementIndex, formulas, counterexample, abstractionStatesTrace);
     int loopHeadVisits = countLoopHeadVisits(abstractionStatesTrace, pack.loopHeads());
+    refinementOutcomeStore.recordStarted(
+        refinementIndex,
+        loopHeadVisits,
+        counterexample.getInterpolants() == null ? 0 : counterexample.getInterpolants().size(),
+        formulas.getSize());
     logger.log(
         Level.INFO,
         "VGuide peel: refinement #"
@@ -345,6 +365,7 @@ public final class VGuideRefinementBridge {
             + " traceLen="
             + (abstractionStatesTrace == null ? 0 : abstractionStatesTrace.size()));
     PendingRefinementDump dump = new PendingRefinementDump();
+    dump.precisionBeforeSnapshot = canonicalPrecisionSet(reachedBefore);
     dump.refinementIndex = refinementIndex;
     dump.pack = pack;
     dump.trace = abstractionStatesTrace;
@@ -406,6 +427,17 @@ public final class VGuideRefinementBridge {
         ceHistoryStore.record(refinementIndex, pack.ceSummary());
         dump.ceHistorySnapshot = ceHistoryStore.snapshot();
       }
+      String refinementOutcomeText =
+          options.isRefinementOutcomeContextEnabled()
+              ? refinementOutcomeStore.buildContext()
+              : "";
+      String nativeContextText = "";
+      if (options.isNativePredicateContextEnabled()) {
+        dump.nativeContext = buildNativeContext(reachedBefore, pack);
+        if (dump.nativeContext != null) {
+          nativeContextText = NativePredicateContextBuilder.format(dump.nativeContext);
+        }
+      }
 
       if (options.isDualPromptMode()) {
         ProfileInvokeResult safe =
@@ -419,7 +451,9 @@ public final class VGuideRefinementBridge {
                 budgetRes,
                 samplesPerProfile,
                 rejectedAll,
-                ceHistory);
+                ceHistory,
+                refinementOutcomeText,
+                nativeContextText);
         apiResults.addAll(safe.apiResults());
         safeAccepted = safe.hasAccepted();
         ProfileInvokeResult bug =
@@ -433,7 +467,9 @@ public final class VGuideRefinementBridge {
                 budgetRes,
                 samplesPerProfile,
                 rejectedAll,
-                ceHistory);
+                ceHistory,
+                refinementOutcomeText,
+                nativeContextText);
         apiResults.addAll(bug.apiResults());
         bugAccepted = bug.hasAccepted();
         mergedCandidates =
@@ -456,7 +492,9 @@ public final class VGuideRefinementBridge {
                 budgetRes,
                 samplesPerProfile,
                 rejectedAll,
-                ceHistory);
+                ceHistory,
+                refinementOutcomeText,
+                nativeContextText);
         apiResults.addAll(safe.apiResults());
         safeAccepted = safe.hasAccepted();
         mergedCandidates = safe.candidates();
@@ -511,7 +549,14 @@ public final class VGuideRefinementBridge {
               options.isDualPromptMode() ? PromptProfile.BUG_HUNT : PromptProfile.SAFE;
           PromptMessages repairMessages =
               promptBuilder.buildRepair(
-                  pack, rejectedForRepair, budget, repairProfile, refinementIndex, ceHistory);
+                  pack,
+                  rejectedForRepair,
+                  budget,
+                  repairProfile,
+                  refinementIndex,
+                  ceHistory,
+                  refinementOutcomeText,
+                  nativeContextText);
           logger.log(Level.INFO, "VGuide: both profiles empty; one repair LLM call");
           LlmProposalResult repair = llmClient.proposeWithUsage(repairMessages);
           if (analysisDumper != null) {
@@ -557,6 +602,13 @@ public final class VGuideRefinementBridge {
       dump.validated =
           buildValidatedDump(pack, rawPreds, lastValidation, abstractionStatesTrace, profileByRaw);
       dump.rejections = validationOutcome.rejections();
+      if (lastValidation != null) {
+        refinementOutcomeStore.recordLlmOutcome(
+            refinementIndex,
+            lastValidation.validated().size(),
+            lastValidation.precisionOnly().size(),
+            validationOutcome.rejections().size());
+      }
       if (options.isPredicateUsefulnessGateEnabled()) {
         PredicateUsefulnessGate.Decision usefulnessDecision =
             PredicateUsefulnessGate.evaluate(loopHeadVisits, lastValidation, fmgr);
@@ -596,6 +648,9 @@ public final class VGuideRefinementBridge {
   /** Called after {@code strategy.performRefinement} to inject PRECISION_ONLY predicates. */
   public void onSpuriousAfterRefinement(int refinementIndex, ARGReachedSet reached) {
     if (pendingDump != null && pendingDump.refinementIndex == refinementIndex) {
+      int nativeDelta = nativePrecisionDelta(pendingDump.precisionBeforeSnapshot, reached);
+      refinementOutcomeStore.recordCompleted(refinementIndex, nativeDelta);
+      pendingDump.refinementOutcomeLine = refinementOutcomeStore.completedLineFor(refinementIndex);
       List<VGuideAnalysisDumper.DumpValidatedPredicate> injected = List.of();
       if (lastValidation != null) {
         ImmutableList<ValidatedPredicate> toInject =
@@ -604,7 +659,16 @@ public final class VGuideRefinementBridge {
                 : lastValidation.precisionOnly();
         injected = markInjected(pendingDump.validated, toInject);
         if (!suppressCurrentPrecisionInjection) {
+          if (options.isReplaceLlmPredicates()) {
+            pendingDump.llmPrecisionRemoved = removeLlmOwnedPrecision(reached);
+            llmOwnedKeys.clear();
+          }
           precisionInjector.inject(reached, toInject);
+          for (ValidatedPredicate vp : toInject) {
+            if (vp != null && vp.loopHeadNode() != null && vp.formula() != null) {
+              llmOwnedKeys.add(llmOwnedKey(vp.loopHeadNode().getNodeNumber(), canonical(vp.formula())));
+            }
+          }
         }
       }
       if (analysisDumper != null) {
@@ -624,6 +688,9 @@ public final class VGuideRefinementBridge {
             pendingDump.llmCalled ? injected : null,
             pendingDump.llmCalled ? pendingDump.rejections : null,
             pendingDump.ceHistorySnapshot,
+            pendingDump.refinementOutcomeLine,
+            pendingDump.llmCalled ? pendingDump.nativeContext : null,
+            pendingDump.llmPrecisionRemoved,
             options.isPredicateUsefulnessGateEnabled(),
             pendingDump.usefulnessGateDecision);
       }
@@ -703,10 +770,19 @@ public final class VGuideRefinementBridge {
       BudgetResolution budgetRes,
       int samplesConfigured,
       List<String> rejectedOut,
-      String ceHistory)
+      String ceHistory,
+      String refinementOutcomes,
+      String nativePredicateContext)
       throws IOException, InterruptedException {
     PromptMessages messages =
-        promptBuilder.buildPrompt(pack, budget, profile, refinementIndex, ceHistory);
+        promptBuilder.buildPrompt(
+            pack,
+            budget,
+            profile,
+            refinementIndex,
+            ceHistory,
+            refinementOutcomes,
+            nativePredicateContext);
     String promptKind = promptKindBase + "_" + profile.promptKindSuffix();
     List<LlmProposalResult> results = new ArrayList<>();
     LlmProposalResult primary = llmClient.proposeWithUsage(messages);
@@ -757,6 +833,161 @@ public final class VGuideRefinementBridge {
     ImmutableList<LoopHeadCandidate> merged =
         LlmEnsembleMerger.mergeCandidates(rawResponses, budget);
     return new ProfileInvokeResult(results, merged, !merged.isEmpty());
+  }
+
+  /**
+   * Removes all LLM-owned local predicates from the active precision (Issue #8). The precision
+   * is immutable, so this rebuilds a filtered PredicatePrecision and applies it in one atomic
+   * update; existing ARG states keep their abstractions, later refinements use the filtered
+   * precision. Returns the number of removed predicates.
+   */
+  private int removeLlmOwnedPrecision(ARGReachedSet reached) {
+    if (llmOwnedKeys.isEmpty()) {
+      return 0;
+    }
+    AbstractState firstState = reached.asReachedSet().getFirstState();
+    if (firstState == null) {
+      return 0;
+    }
+    PredicatePrecision current =
+        Precisions.extractPrecisionByType(
+            reached.asReachedSet().getPrecision(firstState), PredicatePrecision.class);
+    if (current == null) {
+      return 0;
+    }
+    ImmutableSetMultimap.Builder<CFANode, AbstractionPredicate> locals = ImmutableSetMultimap.builder();
+    // The local and location-instance maps both contain eagerly merged predicates,
+    // so track removed keys uniquely to avoid double-counting.
+    Set<String> removedKeys = new HashSet<>();
+    for (var e : current.getLocalPredicates().entries()) {
+      if (e.getValue() == null || e.getValue().getSymbolicAtom() == null) {
+        // defensive: never insert nulls into the ImmutableSetMultimap builder
+        continue;
+      }
+      String key = llmOwnedKey(e.getKey().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+      if (llmOwnedKeys.contains(key)) {
+        removedKeys.add(key);
+      } else {
+        locals.put(e.getKey(), e.getValue());
+      }
+    }
+    // The PredicatePrecision constructor eagerly merges local predicates into the
+    // location-instance map, so LLM-owned predicates must be filtered there too,
+    // otherwise they persist in the rebuilt precision.
+    ImmutableSetMultimap.Builder<LocationInstance, AbstractionPredicate> locInstances =
+        ImmutableSetMultimap.builder();
+    for (var e : current.getLocationInstancePredicates().entries()) {
+      if (e.getValue() == null || e.getValue().getSymbolicAtom() == null) {
+        continue;
+      }
+      String key =
+          llmOwnedKey(e.getKey().getLocation().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+      if (llmOwnedKeys.contains(key)) {
+        removedKeys.add(key);
+      } else {
+        locInstances.put(e.getKey(), e.getValue());
+      }
+    }
+    int removed = removedKeys.size();
+    if (removed == 0) {
+      return 0;
+    }
+    PredicatePrecision filtered =
+        new PredicatePrecision(
+            locInstances.build(),
+            locals.build(),
+            current.getFunctionPredicates(),
+            current.getGlobalPredicates());
+    reached.updatePrecisionGlobally(filtered, Predicates.instanceOf(PredicatePrecision.class));
+    logger.log(
+        Level.INFO,
+        "VGuide replaced LLM precision: removed ",
+        removed,
+        " stale predicates before injecting the new round");
+    return removed;
+  }
+
+  /** Canonical ownership key for one (loop head, formula) LLM predicate. */
+  static String llmOwnedKey(int nodeNumber, String canonicalSmt) {
+    return "local N" + nodeNumber + "|" + canonicalSmt;
+  }
+
+  private int nativePrecisionDelta(Set<String> beforeSnapshot, ARGReachedSet after) {
+    Set<String> afterSet = canonicalPrecisionSet(after);
+    afterSet.removeAll(beforeSnapshot);
+    return afterSet.size();
+  }
+
+  private Set<String> canonicalPrecisionSet(ARGReachedSet reached) {
+    Set<String> out = new HashSet<>();
+    if (reached == null) {
+      return out;
+    }
+    AbstractState firstState = reached.asReachedSet().getFirstState();
+    if (firstState == null) {
+      return out;
+    }
+    PredicatePrecision predPrec =
+        Precisions.extractPrecisionByType(
+            reached.asReachedSet().getPrecision(firstState), PredicatePrecision.class);
+    if (predPrec == null) {
+      return out;
+    }
+    for (AbstractionPredicate ap : predPrec.getGlobalPredicates()) {
+      if (ap != null && ap.getSymbolicAtom() != null) {
+        out.add("g|" + canonical(ap.getSymbolicAtom()));
+      }
+    }
+    for (var e : predPrec.getFunctionPredicates().entries()) {
+      if (e.getValue() != null && e.getValue().getSymbolicAtom() != null) {
+        out.add("f|" + e.getKey() + "|" + canonical(e.getValue().getSymbolicAtom()));
+      }
+    }
+    for (var e : predPrec.getLocalPredicates().entries()) {
+      if (e.getKey() != null && e.getValue() != null && e.getValue().getSymbolicAtom() != null) {
+        out.add("l|N" + e.getKey().getNodeNumber() + "|" + canonical(e.getValue().getSymbolicAtom()));
+      }
+    }
+    return out;
+  }
+
+  private NativePredicateContextBuilder.@Nullable Context buildNativeContext(
+      ARGReachedSet reached, ContextPack pack) {
+    if (reached == null) {
+      return null;
+    }
+    AbstractState firstState = reached.asReachedSet().getFirstState();
+    if (firstState == null) {
+      return null;
+    }
+    Precision currentPrec = reached.asReachedSet().getPrecision(firstState);
+    PredicatePrecision predPrec =
+        Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
+    if (predPrec == null) {
+      return null;
+    }
+    List<String> globals =
+        predPrec.getGlobalPredicates().stream()
+            .filter(ap -> ap != null && ap.getSymbolicAtom() != null)
+            .map(ap -> canonical(ap.getSymbolicAtom()))
+            .toList();
+    HashMultimap<String, String> functions = HashMultimap.create();
+    for (var e : predPrec.getFunctionPredicates().entries()) {
+      if (e.getValue() != null && e.getValue().getSymbolicAtom() != null) {
+        functions.put(e.getKey(), canonical(e.getValue().getSymbolicAtom()));
+      }
+    }
+    HashMultimap<String, String> locals = HashMultimap.create();
+    for (var e : predPrec.getLocalPredicates().entries()) {
+      if (e.getKey() != null && e.getValue() != null && e.getValue().getSymbolicAtom() != null) {
+        locals.put("N" + e.getKey().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+      }
+    }
+    return nativeContextBuilder.build(globals, functions, locals, pack.loopHeads());
+  }
+
+  private String canonical(BooleanFormula f) {
+    return fmgr.dumpFormula(f).toString().replace('\n', ' ');
   }
 
   private static List<String> rejectedTexts(String content) {

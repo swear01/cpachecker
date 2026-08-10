@@ -6009,11 +6009,20 @@ vguide.maxPredicatesPerCall = 6
 # response (not enforced after parse).
 vguide.minPredicatesPerCall = 3
 
+# Expose the current native CEGAR predicate precision (globals,
+# loop-head-owning functions, loop-head locals) to the LLM as read-only
+# context (Issue #6)
+vguide.nativePredicateContext = false
+
 # For every_n_or_interval: also fire (peel/divergence trigger) when the
 # counterexample passes loop heads >= this many times, i.e. stock is
 # unrolling a loop. Fires early (refinement #2+) instead of waiting for the
 # every_n / interval trigger. 0 = off.
 vguide.peelLoopHeadThreshold = 0
+
+# Expose bounded CEGAR refinement outcomes (visits, interpolants, LLM
+# outcome, native precision delta) to the LLM as read-only context (Issue #7)
+vguide.refinementOutcomeContext = false
 
 # Fire LLM before any CEGAR round using source-code only (no CE context).
 # Predicates injected into initial precision. Replaces first-spurious

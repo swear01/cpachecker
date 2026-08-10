@@ -32,11 +32,22 @@ public final class ProposalPromptBuilder {
       PromptProfile profile,
       int refinementIndex,
       String ceHistory) {
+    return buildPrompt(pack, budget, profile, refinementIndex, ceHistory, "", "");
+  }
+
+  public PromptMessages buildPrompt(
+      ContextPack pack,
+      PredicateBudget budget,
+      PromptProfile profile,
+      int refinementIndex,
+      String ceHistory,
+      String refinementOutcomes,
+      String nativePredicateContext) {
     String user =
         buildSharedUserPrefix(pack)
             + buildSourceBlock(pack)
             + buildProfileBlock(pack, profile, refinementIndex)
-            + buildDynamicTail(pack, budget, profile, ceHistory);
+            + buildDynamicTail(pack, budget, profile, ceHistory, refinementOutcomes, nativePredicateContext);
     return new PromptMessages(buildSystemMessage(budget), user);
   }
 
@@ -46,7 +57,7 @@ public final class ProposalPromptBuilder {
       PredicateBudget budget,
       PromptProfile profile,
       int refinementIndex) {
-    return buildRepair(pack, rejectedPredicates, budget, profile, refinementIndex, "");
+    return buildRepair(pack, rejectedPredicates, budget, profile, refinementIndex, "", "", "");
   }
 
   public PromptMessages buildRepair(
@@ -55,12 +66,14 @@ public final class ProposalPromptBuilder {
       PredicateBudget budget,
       PromptProfile profile,
       int refinementIndex,
-      String ceHistory) {
+      String ceHistory,
+      String refinementOutcomes,
+      String nativePredicateContext) {
     String user =
         buildSharedUserPrefix(pack)
             + buildSourceBlock(pack)
             + buildProfileBlock(pack, profile, refinementIndex)
-            + buildDynamicTail(pack, budget, profile, ceHistory)
+            + buildDynamicTail(pack, budget, profile, ceHistory, refinementOutcomes, nativePredicateContext)
             + buildRepairTail(rejectedPredicates, profile);
     return new PromptMessages(buildSystemMessage(budget), user);
   }
@@ -101,15 +114,30 @@ public final class ProposalPromptBuilder {
   }
 
   private static String buildDynamicTail(
-      ContextPack pack, PredicateBudget budget, PromptProfile profile, String ceHistory) {
+      ContextPack pack,
+      PredicateBudget budget,
+      PromptProfile profile,
+      String ceHistory,
+      String refinementOutcomes,
+      String nativePredicateContext) {
     String historyBlock =
         ceHistory == null || ceHistory.isBlank()
             ? ""
             : "\nPRIOR CE HISTORY (bounded, read-only):\n" + ceHistory;
+    String outcomeBlock =
+        refinementOutcomes == null || refinementOutcomes.isBlank()
+            ? ""
+            : "\nREFINEMENT PROGRESS (read-only):\n" + refinementOutcomes;
+    String nativeBlock =
+        nativePredicateContext == null || nativePredicateContext.isBlank()
+            ? ""
+            : "\nNATIVE CEGAR PRECISION (read-only):\n" + nativePredicateContext;
     return "\nSTRUCTURED SPURIOUS COUNTEREXAMPLE (read-only):\n"
         + pack.ceSummary()
         + "\n"
         + historyBlock
+        + outcomeBlock
+        + nativeBlock
         + predicateBudgetBlock(budget, profile);
   }
 
