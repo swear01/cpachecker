@@ -81,8 +81,9 @@ public final class NativePredicateContextBuilder {
     for (Entry e : candidates) {
       int lineChars = formatLine(e).length();
       if (kept.size() >= MAX_PREDICATES || chars + lineChars > MAX_CHARS) {
-        omitted++;
-        continue;
+        // Entries are sorted; once the cap is hit, stop to keep a contiguous prefix.
+        omitted += candidates.size() - kept.size();
+        break;
       }
       kept.add(e);
       chars += lineChars;
