@@ -179,6 +179,7 @@ export VGUIDE_ANALYSIS_DUMP_PROMPTS=1   # 寫入完整 .prompt.txt
 | `llm_round_index` | 若 called | 連到 `llm_rounds.jsonl` |
 | `validated_predicates` | 若 called | 見 §4.5 |
 | `precision_injected` | 若 called | 實際注入的 (loop_head, smt) |
+| `candidate_rejections` | schema-5、若 called | `[{loop_head, predicate, reason, detail, raw_json}]`；可觀察 rejection（missing_loop_head / unknown_loop_head / head_not_on_trace / parse_error / contract_violation / variable_not_in_scope） |
 | `precision_local_after` | ✓ | 本輪 refinement 結束後 |
 
 ### 4.5 每一條 **validated predicate**（嵌在 refinement 或獨立 `predicates.jsonl`）
@@ -194,6 +195,10 @@ export VGUIDE_ANALYSIS_DUMP_PROMPTS=1   # 寫入完整 .prompt.txt
 | `classification` | ✓ | noL3 恆 `PRECISION_ONLY` |
 | `l1_ok`, `l2_ok` | ✓ | |
 | `injected` | ✓ | 是否進 precision |
+| `role` | schema-5 | `initiation` \| `supporting` \| `relational` \| `bound` \| 空 |
+| `declared_variables` | schema-5 | 候選宣告的變數清單（若有） |
+| `over_specific` | schema-5 | advisory：公式含 trace 變數但不在該 head block formula |
+| `group_conflict` | schema-5 | advisory（僅 L3 on）：與同 head 已驗證集合矛盾 |
 | `block_formula_smt` | ✓ | 該 head 上用于 L3 check 的 block（PCS / vacuous） |
 
 ### 4.6 終局 precision snapshot
