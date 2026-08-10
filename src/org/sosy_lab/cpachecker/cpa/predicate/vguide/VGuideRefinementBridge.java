@@ -89,6 +89,7 @@ public final class VGuideRefinementBridge {
   CounterexampleTraceInfo counterexample;
   ARGReachedSet reachedBefore;
   List<VGuideAnalysisDumper.DumpValidatedPredicate> validated = List.of();
+  List<CandidateRejection> rejections = List.of();
   PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision;
   }
 
@@ -543,6 +544,7 @@ public final class VGuideRefinementBridge {
       }
       dump.validated =
           buildValidatedDump(pack, rawPreds, lastValidation, abstractionStatesTrace, profileByRaw);
+      dump.rejections = validationOutcome.rejections();
       if (options.isPredicateUsefulnessGateEnabled()) {
         PredicateUsefulnessGate.Decision usefulnessDecision =
             PredicateUsefulnessGate.evaluate(loopHeadVisits, lastValidation, fmgr);
@@ -608,6 +610,7 @@ public final class VGuideRefinementBridge {
             reached,
             pendingDump.llmCalled ? injected : null,
             pendingDump.llmCalled ? injected : null,
+            pendingDump.llmCalled ? pendingDump.rejections : null,
             options.isPredicateUsefulnessGateEnabled(),
             pendingDump.usefulnessGateDecision);
       }

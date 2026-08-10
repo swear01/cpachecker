@@ -51,7 +51,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "4";
+  public static final String SCHEMA_VERSION = "5";
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -75,7 +75,7 @@ public final class VGuideAnalysisDumper {
   private int llmApiCallCount;
   private int usefulnessGateTriggerCount;
 
-  private VGuideAnalysisDumper(
+  VGuideAnalysisDumper(
       LogManager logger,
       Path runRoot,
       String taskName,
@@ -135,6 +135,7 @@ public final class VGuideAnalysisDumper {
       @Nullable ARGReachedSet reachedAfter,
       @Nullable List<DumpValidatedPredicate> validatedPredicates,
       @Nullable List<DumpValidatedPredicate> injectedPredicates,
+      @Nullable List<CandidateRejection> candidateRejections,
       boolean usefulnessGateEnabled,
       PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision) {
     if (llmCalled && llmRoundIndex != null) {
@@ -176,6 +177,11 @@ public final class VGuideAnalysisDumper {
       row.set(
           "precision_injected",
           injectedPredicates == null ? JSON.createArrayNode() : injectedPredicatesJson(injectedPredicates));
+      row.set(
+          "candidate_rejections",
+          candidateRejections == null
+              ? JSON.createArrayNode()
+              : candidateRejectionsJson(candidateRejections));
     }
     row.set("precision_local_after", precisionLocalJson(reachedAfter));
     appendJsonLine(refinementsFile, row);
@@ -507,11 +513,35 @@ public final class VGuideAnalysisDumper {
     o.put("l1_ok", p.l1Ok());
     o.put("l2_ok", p.l2Ok());
     o.put("injected", p.injected());
+    if (!p.validated().role().isEmpty()) {
+      o.put("role", p.validated().role());
+    }
+    if (!p.validated().variables().isEmpty()) {
+      o.set("declared_variables", stringArray(p.validated().variables()));
+    }
+    o.put("over_specific", p.validated().overSpecific());
+    o.put("group_conflict", p.validated().groupConflict());
     o.put("block_formula_smt", dumpFormula(p.blockFormula()));
     if (!p.sourceProfile().isEmpty()) {
       o.put("source_profile", p.sourceProfile());
     }
     return o;
+  }
+
+  private ArrayNode candidateRejectionsJson(List<CandidateRejection> rejections) {
+    ArrayNode arr = JSON.createArrayNode();
+    for (CandidateRejection r : rejections) {
+      ObjectNode o = JSON.createObjectNode();
+      o.put("loop_head", r.loopHead());
+      o.put("predicate", r.predicate());
+      o.put("reason", r.reason());
+      o.put("detail", r.detail());
+      if (r.rawJson() != null && !r.rawJson().isBlank()) {
+        o.put("raw_json", r.rawJson());
+      }
+      arr.add(o);
+    }
+    return arr;
   }
 
   private ArrayNode injectedPredicatesJson(List<DumpValidatedPredicate> preds) {
