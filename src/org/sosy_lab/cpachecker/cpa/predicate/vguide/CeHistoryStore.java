@@ -105,7 +105,12 @@ public final class CeHistoryStore {
           .append(delta(entries.get(entries.size() - 1), currentCeJson));
     }
     if (out.length() > MAX_CONTEXT_CHARS) {
-      out.setLength(MAX_CONTEXT_CHARS);
+      int lastNewline = out.lastIndexOf("\n", MAX_CONTEXT_CHARS);
+      if (lastNewline > 0) {
+        out.setLength(lastNewline + 1);
+      } else {
+        out.setLength(MAX_CONTEXT_CHARS);
+      }
     }
     return out.toString();
   }
@@ -196,7 +201,10 @@ public final class CeHistoryStore {
       end = compact.length();
     }
     List<String> tokens =
-        Splitter.on(CharMatcher.whitespace()).splitToList(compact.substring(start, end).strip());
+        Splitter.on(CharMatcher.whitespace())
+            .omitEmptyStrings()
+            .trimResults()
+            .splitToList(compact.substring(start, end));
     for (int i = 0; i + 1 < tokens.size(); i += 2) {
       Matcher m = COUNT_PATTERN.matcher(tokens.get(i + 1));
       if (m.matches()) {
