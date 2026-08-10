@@ -138,6 +138,7 @@ run_one() {
   else
     "${cmd[@]}" >"$log" 2>&1
   fi
+  local rc=$?
   set -e
   # One JSON record per task (also for failures — never silently dropped).
   local dump_dir=""
@@ -150,6 +151,7 @@ run_one() {
     --commit "$COMMIT" \
     --arm "$ARM" \
     --timelimit "$TIMELIMIT" \
+    --exit-code "$rc" \
     --out "$OUT/logs/${task_name}.json"
 }
 export -f run_one

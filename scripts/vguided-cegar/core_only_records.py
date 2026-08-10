@@ -88,6 +88,7 @@ def record_from_run(
     commit: str,
     arm: str,
     timelimit: int,
+    exit_code: int = 0,
 ) -> dict:
     """One JSONL record per task: hashes, commit, resource use, verdict, metrics."""
     result = ""
@@ -170,12 +171,16 @@ def record_from_run(
                         row = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+                    if not isinstance(row, dict):
+                        continue
                     validated += len(row.get("validated_predicates") or [])
                     injected += len(row.get("precision_injected") or [])
 
     failure = "ok"
     if not log.is_file() or log.stat().st_size == 0:
         failure = "no_log"
+    elif exit_code == 124:
+        failure = "timeout"
     elif saw_result and result in ("TRUE", "FALSE"):
         failure = "ok"
     else:
@@ -232,6 +237,7 @@ def main() -> int:
     p_record.add_argument("--commit", required=True)
     p_record.add_argument("--arm", required=True, choices=["stock", "augmented"])
     p_record.add_argument("--timelimit", type=int, default=300)
+    p_record.add_argument("--exit-code", type=int, default=0)
     p_record.add_argument("--out", required=True, type=Path)
     args = ap.parse_args()
 
@@ -277,6 +283,7 @@ def main() -> int:
             args.commit,
             args.arm,
             args.timelimit,
+            args.exit_code,
         )
         with open(args.out, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")

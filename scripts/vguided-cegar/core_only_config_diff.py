@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 
 ALLOWED_PREFIXES = ("vguide.",)
+INCLUDE_RE = __import__("re").compile(r"#include\s+(\S+)")
+
 ALLOWED_KEYS = {
     # passed via --option at runtime; listed explicitly so a config that
     # sets it inline is still accepted
@@ -46,7 +48,10 @@ def _parse_inline(path: Path, top_dir: Path, seen: set, out: dict) -> None:
         if not line:
             continue
         if line.startswith("#include"):
-            inc = line[len("#include") :].strip()
+            m = INCLUDE_RE.match(line)
+            if m is None:
+                continue
+            inc = m.group(1)
             if len(inc) >= 2 and inc[0] == inc[-1] and inc[0] in ("'", '"'):
                 inc = inc[1:-1]
             resolved = None
