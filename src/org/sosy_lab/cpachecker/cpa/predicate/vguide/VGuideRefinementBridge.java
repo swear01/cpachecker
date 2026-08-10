@@ -8,6 +8,7 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
 
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
@@ -31,6 +32,7 @@ import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.CPAcheckerResult.Result;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
+import org.sosy_lab.cpachecker.core.interfaces.Precision;
 import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
@@ -63,6 +65,9 @@ public final class VGuideRefinementBridge {
   private final LlmCallScheduler llmScheduler;
   private final CeHistoryStore ceHistoryStore;
   private final RefinementOutcomeStore refinementOutcomeStore = new RefinementOutcomeStore();
+  private final Set<String> llmOwnedKeys = new HashSet<>();
+  private final NativePredicateContextBuilder nativeContextBuilder =
+      new NativePredicateContextBuilder(llmOwnedKeys);
   private final CFA cfa;
   private final FormulaManagerView fmgr;
   private final @Nullable VGuideAnalysisDumper analysisDumper;
@@ -96,6 +101,7 @@ public final class VGuideRefinementBridge {
   List<CandidateRejection> rejections = List.of();
   CeHistoryStore.@Nullable Snapshot ceHistorySnapshot;
   @Nullable String refinementOutcomeLine;
+  NativePredicateContextBuilder.@Nullable Context nativeContext;
   PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision;
   }
 
@@ -419,6 +425,13 @@ public final class VGuideRefinementBridge {
           options.isRefinementOutcomeContextEnabled()
               ? refinementOutcomeStore.buildContext()
               : "";
+      String nativeContextText = "";
+      if (options.isNativePredicateContextEnabled()) {
+        dump.nativeContext = buildNativeContext(reachedBefore, pack);
+        if (dump.nativeContext != null) {
+          nativeContextText = NativePredicateContextBuilder.format(dump.nativeContext);
+        }
+      }
 
       if (options.isDualPromptMode()) {
         ProfileInvokeResult safe =
@@ -433,7 +446,8 @@ public final class VGuideRefinementBridge {
                 samplesPerProfile,
                 rejectedAll,
                 ceHistory,
-                refinementOutcomeText);
+                refinementOutcomeText,
+                nativeContextText);
         apiResults.addAll(safe.apiResults());
         safeAccepted = safe.hasAccepted();
         ProfileInvokeResult bug =
@@ -448,7 +462,8 @@ public final class VGuideRefinementBridge {
                 samplesPerProfile,
                 rejectedAll,
                 ceHistory,
-                refinementOutcomeText);
+                refinementOutcomeText,
+                nativeContextText);
         apiResults.addAll(bug.apiResults());
         bugAccepted = bug.hasAccepted();
         mergedCandidates =
@@ -472,7 +487,8 @@ public final class VGuideRefinementBridge {
                 samplesPerProfile,
                 rejectedAll,
                 ceHistory,
-                refinementOutcomeText);
+                refinementOutcomeText,
+                nativeContextText);
         apiResults.addAll(safe.apiResults());
         safeAccepted = safe.hasAccepted();
         mergedCandidates = safe.candidates();
@@ -533,7 +549,8 @@ public final class VGuideRefinementBridge {
                   repairProfile,
                   refinementIndex,
                   ceHistory,
-                  refinementOutcomeText);
+                  refinementOutcomeText,
+                  nativeContextText);
           logger.log(Level.INFO, "VGuide: both profiles empty; one repair LLM call");
           LlmProposalResult repair = llmClient.proposeWithUsage(repairMessages);
           if (analysisDumper != null) {
@@ -635,6 +652,12 @@ public final class VGuideRefinementBridge {
         injected = markInjected(pendingDump.validated, toInject);
         if (!suppressCurrentPrecisionInjection) {
           precisionInjector.inject(reached, toInject);
+          for (ValidatedPredicate vp : toInject) {
+            if (vp.loopHeadNode() != null && vp.formula() != null) {
+              llmOwnedKeys.add(
+                  "local N" + vp.loopHeadNode().getNodeNumber() + "|" + canonical(vp.formula()));
+            }
+          }
         }
       }
       if (analysisDumper != null) {
@@ -655,6 +678,7 @@ public final class VGuideRefinementBridge {
             pendingDump.llmCalled ? pendingDump.rejections : null,
             pendingDump.ceHistorySnapshot,
             pendingDump.refinementOutcomeLine,
+            pendingDump.llmCalled ? pendingDump.nativeContext : null,
             options.isPredicateUsefulnessGateEnabled(),
             pendingDump.usefulnessGateDecision);
       }
@@ -735,11 +759,18 @@ public final class VGuideRefinementBridge {
       int samplesConfigured,
       List<String> rejectedOut,
       String ceHistory,
-      String refinementOutcomes)
+      String refinementOutcomes,
+      String nativePredicateContext)
       throws IOException, InterruptedException {
     PromptMessages messages =
         promptBuilder.buildPrompt(
-            pack, budget, profile, refinementIndex, ceHistory, refinementOutcomes);
+            pack,
+            budget,
+            profile,
+            refinementIndex,
+            ceHistory,
+            refinementOutcomes,
+            nativePredicateContext);
     String promptKind = promptKindBase + "_" + profile.promptKindSuffix();
     List<LlmProposalResult> results = new ArrayList<>();
     LlmProposalResult primary = llmClient.proposeWithUsage(messages);
@@ -830,6 +861,41 @@ public final class VGuideRefinementBridge {
       }
     }
     return out;
+  }
+
+  private NativePredicateContextBuilder.@Nullable Context buildNativeContext(
+      ARGReachedSet reached, ContextPack pack) {
+    if (reached == null) {
+      return null;
+    }
+    AbstractState firstState = reached.asReachedSet().getFirstState();
+    if (firstState == null) {
+      return null;
+    }
+    Precision currentPrec = reached.asReachedSet().getPrecision(firstState);
+    PredicatePrecision predPrec =
+        Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
+    if (predPrec == null) {
+      return null;
+    }
+    List<String> globals =
+        predPrec.getGlobalPredicates().stream()
+            .filter(ap -> ap != null && ap.getSymbolicAtom() != null)
+            .map(ap -> canonical(ap.getSymbolicAtom()))
+            .toList();
+    HashMultimap<String, String> functions = HashMultimap.create();
+    for (var e : predPrec.getFunctionPredicates().entries()) {
+      if (e.getValue() != null && e.getValue().getSymbolicAtom() != null) {
+        functions.put(e.getKey(), canonical(e.getValue().getSymbolicAtom()));
+      }
+    }
+    HashMultimap<String, String> locals = HashMultimap.create();
+    for (var e : predPrec.getLocalPredicates().entries()) {
+      if (e.getKey() != null && e.getValue() != null && e.getValue().getSymbolicAtom() != null) {
+        locals.put("N" + e.getKey().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+      }
+    }
+    return nativeContextBuilder.build(globals, functions, locals, pack.loopHeads());
   }
 
   private String canonical(BooleanFormula f) {

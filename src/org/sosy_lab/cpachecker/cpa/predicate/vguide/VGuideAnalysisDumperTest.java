@@ -102,6 +102,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         ImmutableList.of(rejection),
         null,
         null,
+        null,
         false,
         null);
 
@@ -177,6 +178,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         ImmutableList.of(dumpPred),
         ImmutableList.of(),
         store.snapshot(),
+        null,
         null,
         false,
         null);

@@ -3,12 +3,16 @@
 ## In Progress
 
 - **Epic #11 Phase 1（hard-case 研究線，見 roadmap/README）**：#4 per-loop-head invariant
-  candidates ✅（PR #21/#22/#23）、#5 bounded CE history ✅（`vguide.ceHistoryMode`）；下一步
-  #6/#7/#8，之後 #2 core-only 448-run 評估。
+  candidates ✅（PR #21/#22/#23）、#5 bounded CE history ✅（`vguide.ceHistoryMode`）、#6
+  native predicate context ✅（`vguide.nativePredicateContext`）；下一步 #7/#8，之後 #2
+  core-only 448-run 評估。
 - **Predicate usefulness gating — active**：固定rule「loop-head visits ≤8且至少2個unique `bvmul` predicates」已fresh runtime回收7/7 historical losses，並保留2/2 VGuide-only wins（9/9 correct、0 wrong）。Exact-response paired TDD smoke再確認同一proposals下gate-off 0/7、gate-on 7/7、0 wrong，且每題replay hashes都是record trajectory prefix。Threshold現已凍結；下一關是prospective full764與真正held-out，不能再調rule。
 
 ## Recently Done
 
+- **Issue #6 native predicate context — DONE**（`NativePredicateContextBuilder` +
+  `vguide.nativePredicateContext` + dump schema-7；計劃
+  `vguided-cegar/NATIVE_PREDICATE_CONTEXT_PLAN.md`）。
 - **Issue #5 bounded CE history — DONE**（`CeHistoryStore` + `vguide.ceHistoryMode` + dump
   schema-6；計劃 `vguided-cegar/CE_HISTORY_PLAN.md`）。
 

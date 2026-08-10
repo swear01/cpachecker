@@ -17,6 +17,11 @@ BOUNDED_WITH_DELTA`（default OFF）。跨 refinement rounds 累積 structured C
 （fingerprint dedup + bounded eviction），prompt 顯示 compact summaries 與（可選）
 explicit delta。
 
+**Native CEGAR predicate context（Issue #6）**：`vguide.nativePredicateContext`（default
+false）。把 current precision 的 global / loop-head-owning function / loop-head local
+predicates 作為 read-only context 給 LLM，origin 標記 native vs llm（不混淆）；
+40 predicates / 3000 chars cap，omitted 可觀察。
+
 **Predicate usefulness gate**：validation後、injection前，若目前trace的loop-head visits ≤8且
 至少2個unique formulas含`bvmul`，整批precision predicates不注入並停止後續LLM rounds；standard
 refinement照常。General default為off，只由`vguide-experiment-usefulness-gate-on.properties`
