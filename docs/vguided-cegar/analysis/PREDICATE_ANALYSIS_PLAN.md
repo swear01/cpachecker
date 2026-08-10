@@ -180,6 +180,8 @@ export VGUIDE_ANALYSIS_DUMP_PROMPTS=1   # 寫入完整 .prompt.txt
 | `validated_predicates` | 若 called | 見 §4.5 |
 | `precision_injected` | 若 called | 實際注入的 (loop_head, smt) |
 | `candidate_rejections` | schema-5、若 called | `[{loop_head, predicate, reason, detail, raw_json}]`；可觀察 rejection（missing_loop_head / unknown_loop_head / head_not_on_trace / parse_error / contract_violation / variable_not_in_scope） |
+| `ce_history` | schema-6、若 called | `[{refinement_index, fingerprint, repeat_count}]`；bounded CE history（Issue #5），fingerprint = structured CE SHA-256 |
+| `ce_history_omitted` | schema-6、若 called | 因 bounded policy evict 的 history entries 數 |
 | `precision_local_after` | ✓ | 本輪 refinement 結束後 |
 
 ### 4.5 每一條 **validated predicate**（嵌在 refinement 或獨立 `predicates.jsonl`）

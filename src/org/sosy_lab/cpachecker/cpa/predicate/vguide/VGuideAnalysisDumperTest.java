@@ -37,6 +37,12 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
 
   @Rule public final TemporaryFolder tmp = new TemporaryFolder();
 
+  @org.junit.Before
+  public void resetManifestFlag() {
+    // run_manifest.json is written once per JVM (static); each test gets its own run root.
+    VGuideAnalysisDumper.MANIFEST_WRITTEN.set(false);
+  }
+
   @Test
   public void schema5RecordsCandidateDiagnosticsAndRejections() throws Exception {
     VGuideOptions options = new VGuideOptions(Configuration.builder().build());
@@ -94,6 +100,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         ImmutableList.of(dumpPred),
         ImmutableList.of(dumpPred),
         ImmutableList.of(rejection),
+        null,
         false,
         null);
 
@@ -112,6 +119,72 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
 
     JsonNode manifest =
         JSON.readTree(tmp.getRoot().toPath().resolve("run_manifest.json").toFile());
-    assertThat(manifest.path("schema_version").asText()).isEqualTo("5");
+    assertThat(manifest.path("schema_version").asText()).isEqualTo("6");
+  }
+
+  @Test
+  public void schema6RecordsCeHistoryMetadata() throws Exception {
+    VGuideOptions options = new VGuideOptions(Configuration.builder().build());
+    VGuideAnalysisDumper dumper =
+        new VGuideAnalysisDumper(
+            LOGGER, tmp.getRoot().toPath(), "task", "task", 0, false, mgrv, options);
+    CFANode node = newDummyCFANode("f1");
+    LoopHeadInfo head = new LoopHeadInfo(node, "ignored", "f1");
+    BooleanFormula formula =
+        VocabularyGuide.parsePredicate("(bvsge x (_ bv0 32))", mgrv, ImmutableSet.of());
+    ValidatedPredicate vp =
+        new ValidatedPredicate(
+            formula,
+            node,
+            ValidatedPredicate.Classification.PRECISION_ONLY,
+            "",
+            ImmutableList.of(),
+            false,
+            false);
+    VGuideAnalysisDumper.DumpValidatedPredicate dumpPred =
+        new VGuideAnalysisDumper.DumpValidatedPredicate(
+            1, "(bvsge x (_ bv0 32))", vp, bmgrv.makeTrue(), true, true, false, "SAFE");
+    CeHistoryStore store = new CeHistoryStore();
+    store.record(1, "{\"schema_version\":\"structured-ce-v1\",\"trace\":[]}");
+    store.record(2, "{\"schema_version\":\"structured-ce-v1\",\"trace\":[]}");
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "",
+            "",
+            ImmutableList.of(head),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of(formula)),
+            ImmutableList.of(),
+            "",
+            "");
+
+    dumper.recordRefinement(
+        2,
+        true,
+        null,
+        2,
+        "ce",
+        pack,
+        ImmutableList.of(),
+        new BlockFormulas(ImmutableList.of(formula)),
+        CounterexampleTraceInfo.infeasible(ImmutableList.of(formula)),
+        null,
+        null,
+        ImmutableList.of(dumpPred),
+        ImmutableList.of(dumpPred),
+        ImmutableList.of(),
+        store.snapshot(),
+        false,
+        null);
+
+    Path rowFile =
+        tmp.getRoot().toPath().resolve("tasks").resolve("task").resolve("refinements.jsonl");
+    JsonNode row = JSON.readTree(Files.readString(rowFile).strip());
+    assertThat(row.path("ce_history").isArray()).isTrue();
+    assertThat(row.path("ce_history").get(0).path("refinement_index").asInt()).isEqualTo(1);
+    assertThat(row.path("ce_history").get(0).path("repeat_count").asInt()).isEqualTo(2);
+    assertThat(row.path("ce_history_omitted").asInt()).isEqualTo(0);
   }
 }

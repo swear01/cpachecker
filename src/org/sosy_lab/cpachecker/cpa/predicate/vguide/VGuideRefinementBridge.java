@@ -59,6 +59,7 @@ public final class VGuideRefinementBridge {
   private final LoopHeadIndex loopHeadIndex;
   private final WallClockBudget wallBudget;
   private final LlmCallScheduler llmScheduler;
+  private final CeHistoryStore ceHistoryStore;
   private final CFA cfa;
   private final FormulaManagerView fmgr;
   private final @Nullable VGuideAnalysisDumper analysisDumper;
@@ -90,6 +91,7 @@ public final class VGuideRefinementBridge {
   ARGReachedSet reachedBefore;
   List<VGuideAnalysisDumper.DumpValidatedPredicate> validated = List.of();
   List<CandidateRejection> rejections = List.of();
+  CeHistoryStore.@Nullable Snapshot ceHistorySnapshot;
   PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision;
   }
 
@@ -161,6 +163,7 @@ public final class VGuideRefinementBridge {
     this.wallBudget = wallBudget;
     this.llmScheduler = llmScheduler;
     this.analysisDumper = analysisDumper;
+    this.ceHistoryStore = new CeHistoryStore();
     this.analysisStartMs = System.currentTimeMillis();
     if (analysisDumper != null) {
       shutdownHook = new Thread(this::finishDumpOnShutdown, "vguide-analysis-dump-finish");
@@ -397,6 +400,12 @@ public final class VGuideRefinementBridge {
       Map<String, String> profileByRaw = new LinkedHashMap<>();
       boolean safeAccepted = false;
       boolean bugAccepted = false;
+      String ceHistory = "";
+      if (options.getCeHistoryMode() != VGuideOptions.CeHistoryMode.OFF) {
+        ceHistory = ceHistoryStore.buildContext(options.getCeHistoryMode(), pack.ceSummary());
+        ceHistoryStore.record(refinementIndex, pack.ceSummary());
+        dump.ceHistorySnapshot = ceHistoryStore.snapshot();
+      }
 
       if (options.isDualPromptMode()) {
         ProfileInvokeResult safe =
@@ -409,7 +418,8 @@ public final class VGuideRefinementBridge {
                 budget,
                 budgetRes,
                 samplesPerProfile,
-                rejectedAll);
+                rejectedAll,
+                ceHistory);
         apiResults.addAll(safe.apiResults());
         safeAccepted = safe.hasAccepted();
         ProfileInvokeResult bug =
@@ -422,7 +432,8 @@ public final class VGuideRefinementBridge {
                 budget,
                 budgetRes,
                 samplesPerProfile,
-                rejectedAll);
+                rejectedAll,
+                ceHistory);
         apiResults.addAll(bug.apiResults());
         bugAccepted = bug.hasAccepted();
         mergedCandidates =
@@ -444,7 +455,8 @@ public final class VGuideRefinementBridge {
                 budget,
                 budgetRes,
                 samplesPerProfile,
-                rejectedAll);
+                rejectedAll,
+                ceHistory);
         apiResults.addAll(safe.apiResults());
         safeAccepted = safe.hasAccepted();
         mergedCandidates = safe.candidates();
@@ -499,7 +511,7 @@ public final class VGuideRefinementBridge {
               options.isDualPromptMode() ? PromptProfile.BUG_HUNT : PromptProfile.SAFE;
           PromptMessages repairMessages =
               promptBuilder.buildRepair(
-                  pack, rejectedForRepair, budget, repairProfile, refinementIndex);
+                  pack, rejectedForRepair, budget, repairProfile, refinementIndex, ceHistory);
           logger.log(Level.INFO, "VGuide: both profiles empty; one repair LLM call");
           LlmProposalResult repair = llmClient.proposeWithUsage(repairMessages);
           if (analysisDumper != null) {
@@ -611,6 +623,7 @@ public final class VGuideRefinementBridge {
             pendingDump.llmCalled ? injected : null,
             pendingDump.llmCalled ? injected : null,
             pendingDump.llmCalled ? pendingDump.rejections : null,
+            pendingDump.ceHistorySnapshot,
             options.isPredicateUsefulnessGateEnabled(),
             pendingDump.usefulnessGateDecision);
       }
@@ -689,10 +702,11 @@ public final class VGuideRefinementBridge {
       PredicateBudget budget,
       BudgetResolution budgetRes,
       int samplesConfigured,
-      List<String> rejectedOut)
+      List<String> rejectedOut,
+      String ceHistory)
       throws IOException, InterruptedException {
     PromptMessages messages =
-        promptBuilder.buildPrompt(pack, budget, profile, refinementIndex);
+        promptBuilder.buildPrompt(pack, budget, profile, refinementIndex, ceHistory);
     String promptKind = promptKindBase + "_" + profile.promptKindSuffix();
     List<LlmProposalResult> results = new ArrayList<>();
     LlmProposalResult primary = llmClient.proposeWithUsage(messages);

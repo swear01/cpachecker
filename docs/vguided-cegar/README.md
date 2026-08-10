@@ -7,9 +7,15 @@
 **Per-loop-head candidate contract（Issue #4，已完成）**：LLM 輸出必須為
 `loop-head-candidate-v1`（每個候選帶 `loop_head`/`loop_heads`）；無 location 一律 reject
 且原因可觀察（`missing_loop_head` 等）。Scope 驗證（free variables 必須在 trace vocabulary
-且 function 相符）、`over_specific`/`group_conflict` advisory diagnostics、dump schema-5
-（`candidate_rejections`）。實作：PR #21/#22/#23；契約見
-[LOOP_HEAD_INVARIANT_PLAN.md](LOOP_HEAD_INVARIANT_PLAN.md)。
+且 function 相符）、`over_specific`/`group_conflict` advisory diagnostics、dump schema-6
+（`candidate_rejections`、`ce_history`）。實作：PR #21/#22/#23 + Issue #5；契約見
+[LOOP_HEAD_INVARIANT_PLAN.md](LOOP_HEAD_INVARIANT_PLAN.md)、
+[CE_HISTORY_PLAN.md](CE_HISTORY_PLAN.md)。
+
+**Bounded CE history（Issue #5）**：`vguide.ceHistoryMode` = `OFF | LATEST | BOUNDED |
+BOUNDED_WITH_DELTA`（default OFF）。跨 refinement rounds 累積 structured CE
+（fingerprint dedup + bounded eviction），prompt 顯示 compact summaries 與（可選）
+explicit delta。
 
 **Predicate usefulness gate**：validation後、injection前，若目前trace的loop-head visits ≤8且
 至少2個unique formulas含`bvmul`，整批precision predicates不注入並停止後續LLM rounds；standard

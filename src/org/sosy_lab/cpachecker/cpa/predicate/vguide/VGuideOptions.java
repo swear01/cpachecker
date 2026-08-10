@@ -122,6 +122,21 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
+          "Bounded counterexample history fed to the LLM (Issue #5): OFF, LATEST (previous round"
+              + " only), BOUNDED (recent entries), or BOUNDED_WITH_DELTA (entries + explicit"
+              + " current-vs-previous delta)")
+  private CeHistoryMode ceHistoryMode = CeHistoryMode.OFF;
+
+  public enum CeHistoryMode {
+    OFF,
+    LATEST,
+    BOUNDED,
+    BOUNDED_WITH_DELTA
+  }
+
+  @Option(
+      secure = true,
+      description =
           "Directory containing predicate_sets/<benchmark>.md or .json for NO_SPURIOUS"
               + " exception path")
   @FileOption(FileOption.Type.OPTIONAL_INPUT_FILE)
@@ -256,6 +271,10 @@ public class VGuideOptions {
 
   public boolean isPredicateUsefulnessGateEnabled() {
     return enablePredicateUsefulnessGate;
+  }
+
+  public CeHistoryMode getCeHistoryMode() {
+    return ceHistoryMode;
   }
 
   public Path getFrozenDir() {

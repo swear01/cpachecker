@@ -5938,6 +5938,12 @@ util.refinement.refineMemorySafety = false
 # Strengthen interpolants with predicates ENTAILED on block formulas
 vguide.allowInterpolantStrengthen = true
 
+# Bounded counterexample history fed to the LLM (Issue #5): OFF, LATEST
+# (previous round only), BOUNDED (recent entries), or BOUNDED_WITH_DELTA
+# (entries + explicit current-vs-previous delta)
+vguide.ceHistoryMode = OFF
+  enum:     [OFF, LATEST, BOUNDED, BOUNDED_WITH_DELTA]
+
 # Run SAFE and BUG_HUNT prompt profiles each LLM round (2×K HTTP when
 # K=llmSamplesPerCall).
 vguide.dualPromptMode = true
