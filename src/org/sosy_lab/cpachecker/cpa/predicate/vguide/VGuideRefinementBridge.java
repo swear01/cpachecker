@@ -44,6 +44,7 @@ import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
 import org.sosy_lab.cpachecker.util.LoopStructure;
 import org.sosy_lab.cpachecker.util.Precisions;
 import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision.LocationInstance;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
@@ -867,12 +868,27 @@ public final class VGuideRefinementBridge {
         locals.put(e.getKey(), e.getValue());
       }
     }
+    // The PredicatePrecision constructor eagerly merges local predicates into the
+    // location-instance map, so LLM-owned predicates must be filtered there too,
+    // otherwise they persist in the rebuilt precision.
+    ImmutableSetMultimap.Builder<LocationInstance, AbstractionPredicate> locInstances =
+        ImmutableSetMultimap.builder();
+    for (var e : current.getLocationInstancePredicates().entries()) {
+      if (e.getValue() == null || e.getValue().getSymbolicAtom() == null) {
+        continue;
+      }
+      if (llmOwnedKeys.contains(llmOwnedKey(e.getKey().getLocation().getNodeNumber(), canonical(e.getValue().getSymbolicAtom())))) {
+        removed++;
+      } else {
+        locInstances.put(e.getKey(), e.getValue());
+      }
+    }
     if (removed == 0) {
       return 0;
     }
     PredicatePrecision filtered =
         new PredicatePrecision(
-            current.getLocationInstancePredicates(),
+            locInstances.build(),
             locals.build(),
             current.getFunctionPredicates(),
             current.getGlobalPredicates());
