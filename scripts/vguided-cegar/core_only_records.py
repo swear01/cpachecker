@@ -90,31 +90,42 @@ def record_from_run(
     timelimit: int,
 ) -> dict:
     """One JSONL record per task: hashes, commit, resource use, verdict, metrics."""
-    text = log.read_text(errors="replace") if log.is_file() else ""
     result = ""
-    result_match = re.search(r"Verification result:\s*([A-Za-z]+)", text)
-    if result_match:
-        result = result_match.group(1).upper()
     refs = 0
-    refs_match = re.search(r"Number of predicate refinements:\s*(\d+)", text)
-    if refs_match:
-        refs = int(refs_match.group(1))
     wall_s = 0.0
-    wall_match = re.search(r"Total time for CPAchecker:\s*([0-9.]+)", text)
-    if wall_match:
-        wall_s = float(wall_match.group(1))
     cpu_s = 0.0
-    cpu_match = re.search(r"Total CPU time for CPAchecker:\s*([0-9.]+)", text)
-    if cpu_match:
-        cpu_s = float(cpu_match.group(1))
     memory_mb = ""
-    memory_match = re.search(r"Memory consumption for CPAchecker:\s*([0-9.]+)\s*MB", text)
-    if memory_match:
-        memory_mb = memory_match.group(1)
     solver = ""
-    solver_match = SOLVER_RE.search(text)
-    if solver_match:
-        solver = f"{solver_match.group(1)} {solver_match.group(2)}"
+    saw_result = False
+    if log.is_file():
+        # Single line-by-line pass: logs can be huge, never read them whole.
+        with open(log, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if not saw_result and line.startswith("Verification result:"):
+                    m = re.search(r"Verification result:\s*([A-Za-z]+)", line)
+                    if m:
+                        result = m.group(1).upper()
+                        saw_result = True
+                elif line.startswith("Number of predicate refinements:"):
+                    m = re.search(r"Number of predicate refinements:\s*(\d+)", line)
+                    if m:
+                        refs = int(m.group(1))
+                elif line.startswith("Total time for CPAchecker:"):
+                    m = re.search(r"Total time for CPAchecker:\s*([0-9.]+)", line)
+                    if m:
+                        wall_s = float(m.group(1))
+                elif line.startswith("Total CPU time for CPAchecker:"):
+                    m = re.search(r"Total CPU time for CPAchecker:\s*([0-9.]+)", line)
+                    if m:
+                        cpu_s = float(m.group(1))
+                elif line.startswith("Memory consumption for CPAchecker:"):
+                    m = re.search(r"Memory consumption for CPAchecker:\s*([0-9.]+)\s*MB", line)
+                    if m:
+                        memory_mb = m.group(1)
+                elif line.startswith("Using predicate analysis with"):
+                    m = SOLVER_RE.search(line)
+                    if m:
+                        solver = f"{m.group(1)} {m.group(2)}"
 
     llm_calls = 0
     validated = 0
@@ -137,21 +148,33 @@ def record_from_run(
                     injected += len(row.get("precision_injected") or [])
 
     failure = "ok"
-    if not text.strip():
+    if not log.is_file() or log.stat().st_size == 0:
         failure = "no_log"
-    elif result_match and result in ("TRUE", "FALSE"):
-        # completed with a definitive verdict
+    elif saw_result and result in ("TRUE", "FALSE"):
         failure = "ok"
-    elif "OutOfMemoryError" in text or "Out of memory" in text:
-        failure = "out_of_memory"
-    elif "forcing immediate termination" in text:
-        failure = "smt_hang"
-    elif "Exception in thread" in text or "java.lang." in text:
-        failure = "crash"
-    elif "CPU-time limit of" in text or wall_s >= timelimit:
-        failure = "timeout"
     else:
-        failure = "incomplete"
+        # second targeted pass: failure markers (logs are line-scanned, never slurped)
+        with open(log, encoding="utf-8", errors="replace") as f:
+            has_oom = has_hang = has_exc = has_cpu = False
+            for line in f:
+                if "OutOfMemoryError" in line or "Out of memory" in line:
+                    has_oom = True
+                elif "forcing immediate termination" in line:
+                    has_hang = True
+                elif "Exception in thread" in line or "java.lang." in line:
+                    has_exc = True
+                elif "CPU-time limit of" in line:
+                    has_cpu = True
+        if has_oom:
+            failure = "out_of_memory"
+        elif has_hang:
+            failure = "smt_hang"
+        elif has_exc:
+            failure = "crash"
+        elif has_cpu or wall_s >= timelimit:
+            failure = "timeout"
+        else:
+            failure = "incomplete"
 
     return {
         "task": task_row["task"],
@@ -188,7 +211,7 @@ def main() -> int:
     p_tasks.add_argument("--no-verify", action="store_true")
     p_tasks.add_argument("--out", required=True, type=Path)
     p_record = sub.add_parser("record", help="emit one JSONL record from a CPA log")
-    p_record.add_argument("--task", required=True, type=Path)
+    p_record.add_argument("--task-row", required=True, help="tab-separated tasks.tsv row")
     p_record.add_argument("--log", required=True, type=Path)
     p_record.add_argument("--dump-dir", type=Path, default=None)
     p_record.add_argument("--config-sha", required=True)
@@ -222,21 +245,16 @@ def main() -> int:
         return 0
 
     if args.cmd == "record":
-        task_row = {}
-        with open(args.task, encoding="utf-8") as f:
-            parts = f.readline().rstrip("\n").split("\t")
-            if len(parts) == 1 and not parts[0].strip():
-                parts = f.readline().rstrip("\n").split("\t")
-            header = [
-                "task",
-                "source",
-                "expected_verdict",
-                "data_model",
-                "family",
-                "task_sha256",
-                "source_sha256",
-            ]
-            task_row = dict(zip(header, parts))
+        header = [
+            "task",
+            "source",
+            "expected_verdict",
+            "data_model",
+            "family",
+            "task_sha256",
+            "source_sha256",
+        ]
+        task_row = dict(zip(header, args.task_row.rstrip("\n").split("\t")))
         record = record_from_run(
             task_row,
             args.log,

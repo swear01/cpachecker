@@ -25,7 +25,7 @@ def test_resolve_config_follows_includes(tmp_path):
     (tmp_path / "inc.properties").write_text("alpha = 1\nbeta = 2\n")
     top = write(
         tmp_path / "top.properties",
-        "# comment\n#include inc.properties\n#include missing.properties\ngamma = 3\n",
+        "# comment\n#include inc.properties\ngamma = 3\n",
     )
     cfg = diff.resolve_config(top)
     assert cfg == {"alpha": "1", "beta": "2", "gamma": "3"}
@@ -54,6 +54,12 @@ def test_diff_rejects_non_augmentation_change(tmp_path):
     augmented = write(tmp_path / "augmented.properties", "solver = mathsat\ncpa.predicate.x = 1\n")
     diffs = diff.diff_configs(stock, augmented)
     assert any(d[0] == "solver" and not d[3] for d in diffs)
+
+
+def test_resolve_config_fails_closed_on_unresolved_include(tmp_path):
+    top = write(tmp_path / "top.properties", "#include nope.properties\n")
+    with pytest.raises(SystemExit, match="unresolved #include"):
+        diff.resolve_config(top)
 
 
 def test_diff_accepts_use_vocabulary_guide_key(tmp_path):

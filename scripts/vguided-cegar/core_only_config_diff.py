@@ -47,11 +47,17 @@ def _parse_inline(path: Path, top_dir: Path, seen: set, out: dict) -> None:
             continue
         if line.startswith("#include"):
             inc = line[len("#include") :].strip()
+            resolved = None
             for base in (p.parent, top_dir, Path.cwd()):
                 candidate = (base / inc).resolve()
                 if candidate.is_file():
-                    _parse_inline(candidate, top_dir, seen, out)
+                    resolved = candidate
                     break
+            if resolved is None:
+                raise SystemExit(
+                    f"unresolved #include {inc!r} in {p} — config diff cannot be validated"
+                )
+            _parse_inline(resolved, top_dir, seen, out)
             continue
         if line.startswith("#") or line.startswith("!"):
             continue

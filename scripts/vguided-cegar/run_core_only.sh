@@ -139,12 +139,10 @@ run_one() {
   fi
   set -e
   # One JSON record per task (also for failures — never silently dropped).
-  local rowfile dump_dir=""
-  rowfile="$(mktemp)"
-  printf '%s\n' "$line" >"$rowfile"
+  local dump_dir=""
   [[ "$ARM" == "augmented" ]] && dump_dir="$OUT/dumps"
   python3 "$RECORDS_PY" record \
-    --task "$rowfile" \
+    --task-row "$line" \
     --log "$log" \
     --dump-dir "$dump_dir" \
     --config-sha "$CONFIG_SHA" \
@@ -152,14 +150,16 @@ run_one() {
     --arm "$ARM" \
     --timelimit "$TIMELIMIT" \
     --out "$OUT/logs/${task_name}.json"
-  rm -f "$rowfile"
 }
 export -f run_one
 export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMELIMIT TIMEOUT_GRACE HEAP COMMIT CONFIG_SHA
 
 # 4. Run each task (no header row in tasks.tsv), merge per-task records in order,
 #    then verify completeness.
-cat "$OUT/tasks.tsv" | xargs -P "$PARALLEL" -I{} bash -c 'run_one "$1"' _ {}
+# Null-delimited so task names with spaces/special chars are safe.
+while IFS= read -r -d '' line || [[ -n "$line" ]]; do
+  printf '%s\0' "$line"
+done <"$OUT/tasks.tsv" | xargs -0 -P "$PARALLEL" -I{} bash -c 'run_one "$1"' _ {}
 
 rm -f "$OUT/records.jsonl"
 while IFS= read -r line || [[ -n "$line" ]]; do
