@@ -137,6 +137,9 @@ public final class VGuideAnalysisDumper {
       @Nullable List<DumpValidatedPredicate> injectedPredicates,
       @Nullable List<CandidateRejection> candidateRejections,
       CeHistoryStore.@Nullable Snapshot ceHistorySnapshot,
+      @Nullable String refinementOutcomeLine,
+      NativePredicateContextBuilder.@Nullable Context nativeContext,
+      int llmPrecisionRemoved,
       boolean usefulnessGateEnabled,
       PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision) {
     if (llmCalled && llmRoundIndex != null) {
@@ -188,6 +191,17 @@ public final class VGuideAnalysisDumper {
           ceHistorySnapshot == null ? JSON.createArrayNode() : ceHistoryJson(ceHistorySnapshot));
       if (ceHistorySnapshot != null) {
         row.put("ce_history_omitted", ceHistorySnapshot.omitted());
+      }
+      if (refinementOutcomeLine != null) {
+        row.put("refinement_outcome", refinementOutcomeLine);
+        row.put("refinement_outcome_unavailable", RefinementOutcomeStore.UNAVAILABLE);
+      }
+      row.set(
+          "native_predicate_context",
+          nativeContext == null ? JSON.nullNode() : nativeContextJson(nativeContext));
+      if (llmPrecisionRemoved >= 0) {
+        row.put("llm_precision_replaced", options.isReplaceLlmPredicates());
+        row.put("llm_precision_removed", llmPrecisionRemoved);
       }
     }
     row.set("precision_local_after", precisionLocalJson(reachedAfter));
@@ -531,6 +545,20 @@ public final class VGuideAnalysisDumper {
     o.put("block_formula_smt", dumpFormula(p.blockFormula()));
     if (!p.sourceProfile().isEmpty()) {
       o.put("source_profile", p.sourceProfile());
+    }
+    return o;
+  }
+
+  private ObjectNode nativeContextJson(NativePredicateContextBuilder.Context context) {
+    ObjectNode o = JSON.createObjectNode();
+    o.put("selection_rule", context.selectionRule());
+    o.put("omitted", context.omitted());
+    ArrayNode arr = o.putArray("predicates");
+    for (NativePredicateContextBuilder.Entry e : context.entries()) {
+      ObjectNode p = arr.addObject();
+      p.put("scope", e.scope());
+      p.put("origin", e.origin());
+      p.put("smt", e.smt());
     }
     return o;
   }

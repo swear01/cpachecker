@@ -71,6 +71,40 @@ public class ProposalPromptBuilderTest {
   }
 
   @Test
+  public void nativePredicateContextBlockInsertedWhenProvided() {
+    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads);
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "int i,n;\nwhile(i<n){i++;}\n",
+            "i",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "L@N1: (bvslt i n)\n",
+            "");
+    PredicateBudget budget = new PredicateBudget(8, 16);
+
+    PromptMessages without = builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
+    assertThat(without.user()).doesNotContain("NATIVE CEGAR PRECISION");
+
+    PromptMessages with =
+        builder.buildPrompt(
+            pack,
+            budget,
+            PromptProfile.SAFE,
+            1,
+            "",
+            "",
+            "[local N1 | native] (bvslt i n)\n");
+    assertThat(with.user()).contains("NATIVE CEGAR PRECISION (read-only)");
+    assertThat(with.user()).contains("[local N1 | native] (bvslt i n)");
+  }
+
+  @Test
   public void safeAndBugShareSourcePrefix() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
     ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads);
