@@ -8,62 +8,44 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
-/** Merges multiple LLM raw responses into one predicate candidate list. */
+/** Merges multiple LLM raw responses into one loop-head candidate list. */
 public final class LlmEnsembleMerger {
 
   private LlmEnsembleMerger() {}
 
   /**
-   * Union of parsed predicates from each draw (dedupe by exact string), then sanitizer/validator
-   * run downstream on the combined list.
+   * Union of parsed candidates from each draw, deduped by (loop heads, predicate) so the same
+   * predicate at different loop heads stays distinct, then capped to the predicate budget.
    */
-  public static ImmutableList<String> unionValidate(List<String> rawResponses) {
-    return unionValidate(rawResponses, new PredicateBudget(1, Integer.MAX_VALUE));
-  }
-
-  public static ImmutableList<String> unionValidate(
+  public static ImmutableList<LoopHeadCandidate> mergeCandidates(
       List<String> rawResponses, PredicateBudget budget) {
-    Set<String> seen = new LinkedHashSet<>();
-    List<String> merged = new ArrayList<>();
+    Map<String, LoopHeadCandidate> byKey = new LinkedHashMap<>();
     for (String raw : rawResponses) {
-      for (String p : LlmResponseParser.parsePredicates(raw)) {
-        if (seen.add(p)) {
-          merged.add(p);
-        }
+      for (LoopHeadCandidate c : LoopHeadCandidateParser.parse(raw)) {
+        byKey.putIfAbsent(c.dedupKey(), c);
       }
     }
-    return budget.capOrdered(merged);
-  }
-
-  public static ImmutableList<AttributedRawPredicate> attributeAll(
-      List<String> rawPredicates, PromptProfile profile) {
-    List<AttributedRawPredicate> out = new ArrayList<>();
-    for (String raw : rawPredicates) {
-      out.add(new AttributedRawPredicate(raw, profile));
-    }
-    return ImmutableList.copyOf(out);
-  }
-
-  /** Union SAFE then BUG predicates without {@link PredicateBudget#capOrdered}. */
-  public static ImmutableList<AttributedRawPredicate> mergeDualUnion(
-      ImmutableList<AttributedRawPredicate> safe,
-      ImmutableList<AttributedRawPredicate> bug) {
-    Set<String> seen = new LinkedHashSet<>();
-    List<AttributedRawPredicate> merged = new ArrayList<>();
-    for (AttributedRawPredicate p : safe) {
-      if (seen.add(p.raw())) {
-        merged.add(p);
-      }
-    }
-    for (AttributedRawPredicate p : bug) {
-      if (seen.add(p.raw())) {
-        merged.add(p);
-      }
+    List<LoopHeadCandidate> merged = new ArrayList<>(byKey.values());
+    if (merged.size() > budget.maxPerCall()) {
+      merged = merged.subList(0, budget.maxPerCall());
     }
     return ImmutableList.copyOf(merged);
+  }
+
+  /** Union SAFE then BUG candidates without budget capping, SAFE winning on equal keys. */
+  public static ImmutableList<LoopHeadCandidate> mergeDualUnionCandidates(
+      ImmutableList<LoopHeadCandidate> safe, ImmutableList<LoopHeadCandidate> bug) {
+    Map<String, LoopHeadCandidate> byKey = new LinkedHashMap<>();
+    for (LoopHeadCandidate c : safe) {
+      byKey.putIfAbsent(c.dedupKey(), c);
+    }
+    for (LoopHeadCandidate c : bug) {
+      byKey.putIfAbsent(c.dedupKey(), c);
+    }
+    return ImmutableList.copyOf(byKey.values());
   }
 }

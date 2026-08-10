@@ -257,8 +257,16 @@ public final class ProposalPromptBuilder {
     return """
 
         Output ONLY valid JSON (no markdown, no commentary):
-        {"predicates": ["(bvsge i (_ bv0 32))", "(bvslt i n)"]}
-        Between %d and %d items. Do NOT use N* location keys; Java binds predicates to all loop heads.
+        {"schema_version":"loop-head-candidate-v1","candidates":[
+          {"loop_head":"N12","predicate":"(bvslt i n)","role":"relational"},
+          {"loop_heads":["N12","N15"],"predicate":"(= i k)","role":"bound"}
+        ]}
+        - Every candidate MUST name a loop head from the LOOP HEADS list (\"N*\" label).
+        - Use \"loop_heads\":[...] only when the predicate is meaningful at every named head.
+        - Candidates without a loop head are discarded; Java never broadcasts predicates.
+        - role (optional): initiation, supporting, relational, or bound.
+        - Examples below are formulas only; wrap each with a loop_head from the LOOP HEADS list.
+        - Between %d and %d items.
         """
         .formatted(budget.minPerCall(), budget.maxPerCall());
   }

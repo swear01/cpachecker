@@ -6,14 +6,23 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
+import com.google.common.collect.ImmutableList;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.java_smt.api.BooleanFormula;
 
-/** A predicate that passed parsing and SMT classification. */
+/**
+ * A predicate that passed parsing and SMT classification at one explicit loop head.
+ *
+ * <p>One record covers exactly one (formula, loop head) binding; a multi-head candidate expands to
+ * one record per head. {@code role} and {@code variables} are candidate metadata recorded for
+ * grouped validation and dump attribution.
+ */
 public record ValidatedPredicate(
     BooleanFormula formula,
     CFANode loopHeadNode,
-    Classification classification) {
+    Classification classification,
+    String role,
+    ImmutableList<String> variables) {
 
   public enum Classification {
     ENTAILED,

@@ -23,9 +23,10 @@ org.sosy_lab.cpachecker.cpa.predicate.vguide
   VGuideRefinementBridge      // 唯一入口，掛在 PredicateCPARefiner
   ContextPackBuilder          // source + CE + loop_heads + var_contract
   StructuredCounterexampleBuilder // versioned deterministic CE prompt artifact
+  LoopHeadCandidateParser     // loop-head-candidate-v1 契約：location 必填、rejections 可觀察
   PredicateProposalClient     // DeepSeek HttpClient，可 parallel variants
   LlmResponseCache            // paired record/replay；per-task namespace，無live fallback
-  PredicateValidationPipeline // L1 contract, L2 parse (L3 implemented, not used)
+  PredicateValidationPipeline // L1 contract, L2 parse, L3 per named loop head (L3 預設 off)
   LoopHeadPrecisionInjector   // local inject only
   FrozenPredicateLoader       // NO_SPURIOUS exception
   VGuideOutcome               // FIRST_SPURIOUS | FROZEN_SEED | NO_SPURIOUS_GIVE_UP
@@ -45,16 +46,36 @@ sequenceDiagram
     Br->>Br: NO_SPURIOUS → optional FrozenPredicateLoader
   else first or later spurious
     Br->>Br: ContextPackBuilder
-    Br->>LLM: propose (HttpClient, wall budget)
-    Br->>Br: PredicateValidationPipeline
+    Br->>LLM: propose loop-head candidates (HttpClient, wall budget)
+    Br->>Br: LoopHeadCandidateParser → candidate-rejections observable
+    Br->>Br: PredicateValidationPipeline (per named loop head only, no broadcast)
     opt frozen usefulness gate rejects batch
       Br->>Br: suppress injection and later LLM calls
     end
     CPA->>CPA: standard interpolation refinement
-    Br->>Inj: accepted precision-only predicates, loop heads only
+    Br->>Inj: accepted precision-only predicates at their named loop heads only
     Inj->>CPA: update PredicatePrecision
   end
 ```
+
+## Candidate contract（loop-head-candidate-v1）
+
+LLM 輸出必須是 location-explicit 的 per-loop-head candidates（Issue #4）：
+
+```json
+{"schema_version":"loop-head-candidate-v1","candidates":[
+  {"loop_head":"N19","predicate":"(bvsge i (_ bv0 32))","role":"bound"},
+  {"loop_heads":["N19","N23"],"predicate":"(bvslt i k)","role":"relational"}
+]}
+```
+
+- **無隱式 broadcast**：候選只在其自指的 loop heads 驗證與注入；無 location 的候選
+  一律 reject（`missing_loop_head`）且原因可觀察。
+- 舊 `{"predicates":[...]}` 格式不再隱含 broadcast；會被逐條 reject 為
+  `missing_loop_head`。
+- role（initiation/supporting/relational/bound）與 variables 是 metadata，
+  不影響 soundness（L1/L2/L3 仍由 solver 決定）。
+- 詳細契約與 failure reasons 見 `LOOP_HEAD_INVARIANT_PLAN.md` §2–§8。
 
 ## 主要設定（`config/vguide.properties`）
 

@@ -38,7 +38,9 @@ public class ProposalPromptBuilderTest {
     assertThat(safe.user()).contains("Return between 8 and 16 predicates");
     assertThat(safe.user()).contains("STRUCTURED SPURIOUS COUNTEREXAMPLE");
     assertThat(safe.user()).contains("L@N1:");
-    assertThat(safe.system()).contains("\"predicates\"");
+    assertThat(safe.system()).contains("\"candidates\"");
+    assertThat(safe.system()).contains("loop-head-candidate-v1");
+    assertThat(safe.system()).contains("never broadcasts");
   }
 
   @Test
