@@ -131,7 +131,9 @@ def record_from_run(
                     has_oom = True
                 elif "forcing immediate termination" in line:
                     has_hang = True
-                elif "Exception in thread" in line or "java.lang." in line:
+                elif "Exception in thread" in line or re.search(
+                    r"java\.lang\.\w*(Exception|Error)\b", line
+                ):
                     has_exc = True
                 elif "CPU-time limit of" in line:
                     has_cpu = True
@@ -141,8 +143,22 @@ def record_from_run(
     injected = 0
     if dump_dir is not None and dump_dir.is_dir():
         # VGuideAnalysisDumper writes <dump_dir>/tasks/<benchmark base name>/...
-        task_dump = dump_dir / "tasks" / Path(task_row["source"]).stem
-        llm_file = task_dump / "llm_rounds.jsonl"
+        # Locate by iteration so multi-extension benchmark names resolve robustly.
+        task_dump = None
+        tasks_root = dump_dir / "tasks"
+        if tasks_root.is_dir():
+            stem = Path(task_row["source"]).stem
+            cand = tasks_root / stem
+            if cand.is_dir():
+                task_dump = cand
+            else:
+                for d in tasks_root.iterdir():
+                    if d.is_dir() and d.name.startswith(stem + "."):
+                        task_dump = d
+                        break
+        llm_file = (
+            task_dump / "llm_rounds.jsonl" if task_dump is not None else dump_dir / "none"
+        )
         if llm_file.is_file():
             with open(llm_file, encoding="utf-8", errors="replace") as f:
                 llm_calls = sum(1 for _ in f)
