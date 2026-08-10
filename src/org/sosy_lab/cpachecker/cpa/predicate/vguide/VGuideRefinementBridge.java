@@ -856,14 +856,17 @@ public final class VGuideRefinementBridge {
       return 0;
     }
     ImmutableSetMultimap.Builder<CFANode, AbstractionPredicate> locals = ImmutableSetMultimap.builder();
-    int removed = 0;
+    // The local and location-instance maps both contain eagerly merged predicates,
+    // so track removed keys uniquely to avoid double-counting.
+    Set<String> removedKeys = new HashSet<>();
     for (var e : current.getLocalPredicates().entries()) {
       if (e.getValue() == null || e.getValue().getSymbolicAtom() == null) {
         // defensive: never insert nulls into the ImmutableSetMultimap builder
         continue;
       }
-      if (llmOwnedKeys.contains(llmOwnedKey(e.getKey().getNodeNumber(), canonical(e.getValue().getSymbolicAtom())))) {
-        removed++;
+      String key = llmOwnedKey(e.getKey().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+      if (llmOwnedKeys.contains(key)) {
+        removedKeys.add(key);
       } else {
         locals.put(e.getKey(), e.getValue());
       }
@@ -877,12 +880,15 @@ public final class VGuideRefinementBridge {
       if (e.getValue() == null || e.getValue().getSymbolicAtom() == null) {
         continue;
       }
-      if (llmOwnedKeys.contains(llmOwnedKey(e.getKey().getLocation().getNodeNumber(), canonical(e.getValue().getSymbolicAtom())))) {
-        removed++;
+      String key =
+          llmOwnedKey(e.getKey().getLocation().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+      if (llmOwnedKeys.contains(key)) {
+        removedKeys.add(key);
       } else {
         locInstances.put(e.getKey(), e.getValue());
       }
     }
+    int removed = removedKeys.size();
     if (removed == 0) {
       return 0;
     }
