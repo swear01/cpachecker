@@ -102,6 +102,7 @@ public final class VGuideRefinementBridge {
   CeHistoryStore.@Nullable Snapshot ceHistorySnapshot;
   @Nullable String refinementOutcomeLine;
   NativePredicateContextBuilder.@Nullable Context nativeContext;
+  Set<String> precisionBeforeSnapshot = Set.of();
   PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision;
   }
 
@@ -360,6 +361,7 @@ public final class VGuideRefinementBridge {
             + " traceLen="
             + (abstractionStatesTrace == null ? 0 : abstractionStatesTrace.size()));
     PendingRefinementDump dump = new PendingRefinementDump();
+    dump.precisionBeforeSnapshot = canonicalPrecisionSet(reachedBefore);
     dump.refinementIndex = refinementIndex;
     dump.pack = pack;
     dump.trace = abstractionStatesTrace;
@@ -642,7 +644,7 @@ public final class VGuideRefinementBridge {
   /** Called after {@code strategy.performRefinement} to inject PRECISION_ONLY predicates. */
   public void onSpuriousAfterRefinement(int refinementIndex, ARGReachedSet reached) {
     if (pendingDump != null && pendingDump.refinementIndex == refinementIndex) {
-      int nativeDelta = nativePrecisionDelta(pendingDump.reachedBefore, reached);
+      int nativeDelta = nativePrecisionDelta(pendingDump.precisionBeforeSnapshot, reached);
       refinementOutcomeStore.recordCompleted(refinementIndex, nativeDelta);
       pendingDump.refinementOutcomeLine = refinementOutcomeStore.completedLineFor(refinementIndex);
       List<VGuideAnalysisDumper.DumpValidatedPredicate> injected = List.of();
@@ -825,10 +827,9 @@ public final class VGuideRefinementBridge {
     return new ProfileInvokeResult(results, merged, !merged.isEmpty());
   }
 
-  private int nativePrecisionDelta(ARGReachedSet before, ARGReachedSet after) {
-    Set<String> beforeSet = canonicalPrecisionSet(before);
+  private int nativePrecisionDelta(Set<String> beforeSnapshot, ARGReachedSet after) {
     Set<String> afterSet = canonicalPrecisionSet(after);
-    afterSet.removeAll(beforeSet);
+    afterSet.removeAll(beforeSnapshot);
     return afterSet.size();
   }
 
