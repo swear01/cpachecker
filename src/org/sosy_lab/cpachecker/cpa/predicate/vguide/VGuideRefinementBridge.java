@@ -256,7 +256,9 @@ public final class VGuideRefinementBridge {
                 head.node(),
                 ValidatedPredicate.Classification.PRECISION_ONLY,
                 candidate.role(),
-                candidate.variables()));
+                candidate.variables(),
+                false,
+                false));
       }
       logger.log(Level.INFO, "VGuide source-prior L1/L2 validated: ", candidate.predicate());
     }
