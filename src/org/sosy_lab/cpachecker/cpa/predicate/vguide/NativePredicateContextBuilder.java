@@ -183,23 +183,37 @@ public final class NativePredicateContextBuilder {
     }
   }
 
-  /** Top-level conjuncts of an {@code (and ...)} formula, paren-aware (no substring false positives). */
+  /**
+   * Top-level conjuncts of an {@code (and ...)} formula, split on whitespace at depth 0 so
+   * unparenthesized conjuncts are kept and negated/nested atoms are not matched by substring.
+   */
   private static List<String> splitConjuncts(String andFormula) {
     List<String> conjuncts = new ArrayList<>();
+    if (!andFormula.startsWith("(and ") || !andFormula.endsWith(")") || andFormula.length() <= 6) {
+      return conjuncts;
+    }
     String inner = andFormula.substring("(and ".length(), andFormula.length() - 1);
     int depth = 0;
-    int start = 0;
+    StringBuilder current = new StringBuilder();
     for (int i = 0; i < inner.length(); i++) {
       char c = inner.charAt(i);
       if (c == '(') {
         depth++;
+        current.append(c);
       } else if (c == ')') {
         depth--;
-        if (depth == 0) {
-          conjuncts.add(inner.substring(start, i + 1).strip());
-          start = i + 1;
+        current.append(c);
+      } else if (Character.isWhitespace(c) && depth == 0) {
+        if (current.length() > 0) {
+          conjuncts.add(current.toString().strip());
+          current.setLength(0);
         }
+      } else {
+        current.append(c);
       }
+    }
+    if (current.length() > 0) {
+      conjuncts.add(current.toString().strip());
     }
     return conjuncts;
   }
