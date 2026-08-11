@@ -10,11 +10,14 @@
 - **`output/vguide/` is gitignored.** Experiment results live locally only. Do not commit them.
 - **Raw output lifecycle (both git-ignored).** Active raw → `output/vguide/experiments/` (run.sh writes here automatically). Retired raw → `mv` it to `archive/raw-legacy/` to keep it; do NOT delete raw just to free git (it's already ignored), and never put raw in tracked dirs.
 - **Native-solver test exclusions (issue #30, since 2026-08-11).** `SolverViewBasedTest0`
-  assumes-away Z3, Z3_WITH_INTERPOLATION, CVC4, CVC5, BITWUZLA (besides BOOLECTOR/YICES2):
-  the bundled native libs crash or cannot load on this machine (Z3 4.15.4 needs glibc 2.38;
-  Z3 4.5.0 legacy segfaults; bitwuzla/cvc5 JNI crash in the shared JVM). The remaining
+  assumes-away Z3, Z3_WITH_INTERPOLATION, CVC4, CVC5, BITWUZLA (besides BOOLECTOR/YICES2),
+  **gated on the env var `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1`** (value must be "1" or
+  "true"): other machines keep full solver coverage. On this machine the bundled native libs
+  crash/cannot load (Z3 4.15.4 needs glibc 2.38; Z3 4.5.0 legacy segfaults; bitwuzla/cvc5 JNI
+  crash in the shared JVM) — run `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1 ant tests` here. Full
+  suite baseline with the gate: 0 crashed classes, vguide tests green; the remaining
   per-solver test failures (symbol handling / BigInteger) are upstream solver-behavior issues,
-  not environment crashes. Full suite baseline: 0 crashed classes, vguide tests green.
+  not environment crashes.
 - **LLM soundness constraint.** VGuide must only propose candidates (Tier S) or control resources/routing (Tier R). Never let LLM output be used as a direct verdict or unverified assumption (Tier X = forbidden).
 - **Loop-head candidate contract (Issue #4, since 2026-08-10).** The LLM output contract is `loop-head-candidate-v1`: every candidate must name its loop head(s). Legacy `{"predicates":[...]}` responses are rejected per item as `missing_loop_head` — do NOT re-introduce implicit broadcast. Free variables must be visible at the named head (encoded vocabulary + function scope). `over_specific`/`group_conflict` are advisory diagnostics; `group_conflict` is computed only when `vguide.enableL3Entailment=true`. Dump schema is 5 (`candidate_rejections`).
 - **Termination branch is Class-B.** The `termination.config` path uses `TerminationToReachCPA`, not PredicateCPA. VGuide cannot fire there without a new Java ranking-function hook. Do not attempt Class-A config tricks for termination.

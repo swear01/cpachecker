@@ -30,6 +30,25 @@ public class SolverViewBasedTest0 extends SolverBasedTest0 {
   protected BooleanFormulaManagerView bmgrv;
   protected IntegerFormulaManagerView imgrv;
 
+  /**
+   * Machine-gated exclusion for native solvers broken in this environment (issue #30).
+   * Other machines keep full solver coverage unless they opt in via
+   * {@code VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1}.
+   */
+  private static boolean skipBrokenNativeSolvers() {
+    String value = System.getenv("VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS");
+    return "1".equals(value) || "true".equalsIgnoreCase(value);
+  }
+
+  private void assumeNotBrokenNative(Solvers solver, String reason) {
+    if (skipBrokenNativeSolvers()) {
+      assume()
+          .withMessage("Solver %s disabled: %s (issue #30)", solver, reason)
+          .that(solverToUse())
+          .isNotEqualTo(solver);
+    }
+  }
+
   @Override
   protected ConfigurationBuilder createTestConfigBuilder() {
     ConfigurationBuilder newConfig = super.createTestConfigBuilder();
@@ -52,50 +71,20 @@ public class SolverViewBasedTest0 extends SolverBasedTest0 {
               .withMessage("Solver %s does not support the tested features", solverToUse())
               .that(solverToUse())
               .isNotEqualTo(Solvers.BOOLECTOR);
-      case Z3_WITH_INTERPOLATION ->
-          assume()
-              .withMessage(
-                  "Solver %s segfaults with the bundled Z3 4.5.0 legacy native lib on this"
-                      + " machine (see issue #30); disabled until the lib is replaced",
-                  solverToUse())
-              .that(solverToUse())
-              .isNotEqualTo(Solvers.Z3_WITH_INTERPOLATION);
-      case Z3 ->
-          assume()
-              .withMessage(
-                  "Solver %s native lib (Z3 4.15.4) requires glibc 2.38, unavailable on this"
-                      + " machine (see issue #30); disabled until a compatible lib is installed",
-                  solverToUse())
-              .that(solverToUse())
-              .isNotEqualTo(Solvers.Z3);
-      case CVC4 ->
-          assume()
-              .withMessage(
-                  "Solver %s fails the parameterized suite and is not available on all systems"
-                      + " (see issue #30)",
-                  solverToUse())
-              .that(solverToUse())
-              .isNotEqualTo(Solvers.CVC4);
-      case CVC5 ->
-          assume()
-              .withMessage(
-                  "Solver %s crashes in the shared JVM after other native solvers loaded"
-                      + " (see issue #30); disabled until the native libs are fixed",
-                  solverToUse())
-              .that(solverToUse())
-              .isNotEqualTo(Solvers.CVC5);
+      case Z3 -> assumeNotBrokenNative(
+          Solvers.Z3, "bundled libz3.so requires glibc 2.38, unavailable on this machine");
+      case Z3_WITH_INTERPOLATION -> assumeNotBrokenNative(
+          Solvers.Z3_WITH_INTERPOLATION, "bundled Z3 4.5.0 legacy lib segfaults");
+      case CVC4 -> assumeNotBrokenNative(
+          Solvers.CVC4, "fails in the shared-JVM parameterized runs");
+      case CVC5 -> assumeNotBrokenNative(
+          Solvers.CVC5, "crashes in the shared-JVM parameterized runs");
+      case BITWUZLA -> assumeNotBrokenNative(
+          Solvers.BITWUZLA, "BitwuzlaNativeJNI.Term_toString segfaults in libstdc++");
       // newConfig.setOption("cpa.predicate.createFormulaEncodingEagerly", "false");
       // newConfig.setOption("cpa.predicate.encodeIntegerAs", "BITVECTOR");
       // newConfig.setOption("cpa.predicate.encodeBitvectorAs", "BITVECTOR");
       // newConfig.setOption("cpa.predicate.encodeFloatAs", "INTEGER");
-      case BITWUZLA ->
-          assume()
-              .withMessage(
-                  "Solver %s segfaults in Term.toString with the bundled native lib"
-                      + " (see issue #30); disabled until the lib is fixed",
-                  solverToUse())
-              .that(solverToUse())
-              .isNotEqualTo(Solvers.BITWUZLA);
       case OPENSMT -> {
         newConfig.setOption("cpa.predicate.encodeBitvectorAs", "INTEGER");
         newConfig.setOption("cpa.predicate.encodeFloatAs", "INTEGER");
