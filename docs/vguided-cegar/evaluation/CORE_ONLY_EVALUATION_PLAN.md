@@ -57,6 +57,26 @@ Each issue uses only its frozen development split for tests, ablations, and tuni
 
 Before the held-out run, create a freeze record containing the exact source commit, JAR, configs and nested configs, manifest, solver/model versions, prompts, hashes, resource limits, parallelism, output schema version, and the approved development-set decision. Run the config-diff validator and a manifest/hash validator. Review the runner's stop conditions and verify that no development artifact can write into held-out output.
 
+### 3.5 CPU isolation & load management — **requirement (2026-08-11)**
+
+All formal runs MUST follow the previous agents' protocol (Baseline-Protocol,
+`docs/EXPERIMENT_PROTOCOL.md` on `research/vguide-upstream-reimpl`):
+
+- taskset pin every CPA invocation to logical CPUs `0,2,4,6,8,10,12,14`
+  (8 physical P-cores, no SMT sibling, no E-core);
+- refuse to start when any P-core is ≥50% busy or has concurrent local
+  processes (foreign_p_core_contention);
+- record `cpu_isolation` + `load_check` in `run_meta.json`;
+- machine selection via the fleet availability monitor
+  (valkyrie/athena/cthulhu, `idle_ready`); 13900K/14900K P-cores are
+  comparable and mixable.
+- Contaminated runs are invalid for timing claims; verdict-only claims
+  need an explicit caveat.
+
+> Note: the 2026-08-11 stock+augmented 224 runs were executed WITHOUT this
+> isolation (E-core placement, concurrent builds/probes); their data is a
+> rough usefulness check only and must not be used for timing claims.
+
 ### 4. Development smoke — **in progress (2026-08-11)**
 
 Run both arms on the frozen development smoke set once. Require complete records, matching task order, valid provenance, valid paired-comparison output, and zero wrong verdict before proceeding. This smoke may reveal infrastructure defects, but it may not change frozen method choices without returning to the freeze-review step.
