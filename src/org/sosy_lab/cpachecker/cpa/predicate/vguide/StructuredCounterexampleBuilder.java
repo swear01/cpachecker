@@ -142,18 +142,25 @@ final class StructuredCounterexampleBuilder {
 
   private static @org.checkerframework.checker.nullness.qual.Nullable SourceSlice sourceSlice(
       AbstractStateWithLocation located) {
+    Iterable<CFAEdge> edges = located.getOutgoingEdges();
+    if (edges == null) {
+      return null;
+    }
     String file = null;
     int start = Integer.MAX_VALUE;
     int end = -1;
-    for (CFAEdge edge : located.getOutgoingEdges()) {
+    for (CFAEdge edge : edges) {
+      if (edge == null) {
+        continue;
+      }
       FileLocation location = edge.getFileLocation();
       if (location == null || !location.isRealLocation()) {
         continue;
       }
-      Path fileName = location.getFileName();
+      String fileName = location.getFileName().toString();
       if (file == null) {
-        file = fileName.toString();
-      } else if (!file.equals(fileName.toString())) {
+        file = fileName;
+      } else if (!file.equals(fileName)) {
         // mixed files on one node: fall back to unavailable rather than guessing
         return null;
       }
