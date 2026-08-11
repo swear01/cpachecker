@@ -74,7 +74,6 @@ public final class NativePredicateContextBuilder {
       }
     }
     candidates.sort(Comparator.comparing(Entry::scope).thenComparing(Entry::smt));
-    markSubsumed(candidates);
 
     int omitted = 0;
     List<Entry> kept = new ArrayList<>();
@@ -89,6 +88,7 @@ public final class NativePredicateContextBuilder {
       kept.add(e);
       chars += lineChars;
     }
+    markSubsumed(kept);
     return new Context(
         ImmutableList.copyOf(kept), omitted, selectionRule());
   }
@@ -139,20 +139,33 @@ public final class NativePredicateContextBuilder {
   private static boolean subsumes(String subsumer, String subsumee) {
     Bound b1 = parseBound(subsumer);
     Bound b2 = parseBound(subsumee);
-    if (b1 != null && b2 != null && b1.variable.equals(b2.variable) && b1.op.equals(b2.op)) {
+    if (b1 != null
+        && b2 != null
+        && b1.variable.equals(b2.variable)
+        && b1.op.equals(b2.op)
+        && b1.bitwidth == b2.bitwidth) {
       return switch (b1.op) {
-        case "bvsge", "bvsgt" -> Long.compareUnsigned(b1.value, b2.value) >= 0;
-        case "bvsle", "bvslt" -> Long.compareUnsigned(b1.value, b2.value) <= 0;
+        case "bvsge", "bvsgt" -> Long.compare(b1.signedValue(), b2.signedValue()) >= 0;
+        case "bvsle", "bvslt" -> Long.compare(b1.signedValue(), b2.signedValue()) <= 0;
         default -> false;
       };
     }
-    if (subsumer.startsWith("(and ") && subsumer.contains(subsumee)) {
-      return true;
+    if (subsumer.startsWith("(and ")) {
+      return splitConjuncts(subsumer).contains(subsumee);
     }
     return false;
   }
 
-  private record Bound(String variable, String op, long value) {}
+  private record Bound(String variable, String op, long unsignedValue, int bitwidth) {
+    /** Sign-extend the unsigned bitvector literal to a signed long. */
+    long signedValue() {
+      if (bitwidth >= 64) {
+        return unsignedValue;
+      }
+      long sign = 1L << (bitwidth - 1);
+      return (unsignedValue & (sign - 1)) - (unsignedValue & sign);
+    }
+  }
 
   private static @org.checkerframework.checker.nullness.qual.Nullable Bound parseBound(String smt) {
     var m = BOUND_PATTERN.matcher(smt);
@@ -160,14 +173,40 @@ public final class NativePredicateContextBuilder {
       return null;
     }
     try {
-      return new Bound(m.group(2), m.group(1), Long.parseLong(m.group(3)));
+      return new Bound(
+          m.group(2),
+          m.group(1),
+          Long.parseUnsignedLong(m.group(3)),
+          Integer.parseInt(m.group(4)));
     } catch (NumberFormatException e) {
       return null;
     }
   }
 
+  /** Top-level conjuncts of an {@code (and ...)} formula, paren-aware (no substring false positives). */
+  private static List<String> splitConjuncts(String andFormula) {
+    List<String> conjuncts = new ArrayList<>();
+    String inner = andFormula.substring("(and ".length(), andFormula.length() - 1);
+    int depth = 0;
+    int start = 0;
+    for (int i = 0; i < inner.length(); i++) {
+      char c = inner.charAt(i);
+      if (c == '(') {
+        depth++;
+      } else if (c == ')') {
+        depth--;
+        if (depth == 0) {
+          conjuncts.add(inner.substring(start, i + 1).strip());
+          start = i + 1;
+        }
+      }
+    }
+    return conjuncts;
+  }
+
   private static final java.util.regex.Pattern BOUND_PATTERN =
-      java.util.regex.Pattern.compile("^\\((bvsge|bvsgt|bvsle|bvslt) (\\S+) \\(_ bv(\\d+) 32\\)\\)$");
+      java.util.regex.Pattern.compile(
+          "^\\((bvsge|bvsgt|bvsle|bvslt) (\\S+) \\(_ bv(\\d+) (\\d+)\\)\\)$");
 
   private static String selectionRule() {
     return "global + loop-head-owning functions + loop-head locals; canonical dedup; sorted; cap "

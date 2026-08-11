@@ -166,6 +166,49 @@ public class NativePredicateContextBuilderTest {
   }
 
   @Test
+  public void signedNegativeConstantsCompareCorrectly() {
+    HashMultimap<String, String> locals = HashMultimap.create();
+    // (_ bv4294967295 32) is -1 in two's complement; x >= 0 subsumes x >= -1 (signed).
+    locals.put(head.label(), "(bvsge x (_ bv0 32))");
+    locals.put(head.label(), "(bvsge x (_ bv4294967295 32))");
+
+    var context = builder().build(List.of(), HashMultimap.create(), locals, loopHeads());
+
+    assertThat(context.entries()).hasSize(2);
+    boolean zeroSubsumesMinusOne =
+        context.entries().get(0).smt().contains("_ bv0 32")
+            ? context.entries().get(1).subsumed()
+            : context.entries().get(0).subsumed();
+    assertThat(zeroSubsumesMinusOne).isTrue();
+  }
+
+  @Test
+  public void differentBitwidthsAreNotCompared() {
+    HashMultimap<String, String> locals = HashMultimap.create();
+    locals.put(head.label(), "(bvsge x (_ bv0 32))");
+    locals.put(head.label(), "(bvsge x (_ bv0 64))");
+
+    var context = builder().build(List.of(), HashMultimap.create(), locals, loopHeads());
+
+    assertThat(context.entries()).hasSize(2);
+    assertThat(context.entries().get(0).subsumed()).isFalse();
+    assertThat(context.entries().get(1).subsumed()).isFalse();
+  }
+
+  @Test
+  public void negatedConjunctionAtomIsNotSubsumed() {
+    HashMultimap<String, String> locals = HashMultimap.create();
+    locals.put(head.label(), "(and (not (= x (_ bv1 32))) (= y (_ bv2 32)))");
+    locals.put(head.label(), "(= x (_ bv1 32))");
+
+    var context = builder().build(List.of(), HashMultimap.create(), locals, loopHeads());
+
+    assertThat(context.entries()).hasSize(2);
+    assertThat(context.entries().get(0).subsumed()).isFalse();
+    assertThat(context.entries().get(1).subsumed()).isFalse();
+  }
+
+  @Test
   public void selectionRuleIsRecorded() {
     var context =
         builder().build(ImmutableList.of(), HashMultimap.create(), HashMultimap.create(), loopHeads());
