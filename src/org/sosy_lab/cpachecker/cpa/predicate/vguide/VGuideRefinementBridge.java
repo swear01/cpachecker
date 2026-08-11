@@ -872,7 +872,9 @@ public final class VGuideRefinementBridge {
       if (llmOwnedKeys.contains(key)) {
         removedKeys.add(key);
       } else {
-        retainedKeys.add(key);
+        if (isGenuinelyLocal(current, e.getKey(), e.getValue())) {
+          retainedKeys.add(key);
+        }
         locals.put(e.getKey(), e.getValue());
       }
     }
@@ -890,7 +892,9 @@ public final class VGuideRefinementBridge {
       if (llmOwnedKeys.contains(key)) {
         removedKeys.add(key);
       } else {
-        retainedKeys.add(key);
+        if (isGenuinelyLocal(current, e.getKey().getLocation(), e.getValue())) {
+          retainedKeys.add(key);
+        }
         locInstances.put(e.getKey(), e.getValue());
       }
     }
@@ -992,6 +996,22 @@ public final class VGuideRefinementBridge {
       }
     }
     return nativeContextBuilder.build(globals, functions, locals, pack.loopHeads());
+  }
+
+  /**
+   * PredicatePrecision eagerly merges global and function predicates into the local and
+   * location-instance maps; only predicates that are genuinely local (not also global or
+   * function-scoped at this node's function) count as retained local predicates.
+   */
+  private static boolean isGenuinelyLocal(
+      PredicatePrecision precision, CFANode node, AbstractionPredicate predicate) {
+    if (precision.getGlobalPredicates().contains(predicate)) {
+      return false;
+    }
+    if (precision.getFunctionPredicates().get(node.getFunctionName()).contains(predicate)) {
+      return false;
+    }
+    return true;
   }
 
   private String canonical(BooleanFormula f) {
