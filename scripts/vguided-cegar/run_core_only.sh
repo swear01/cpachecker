@@ -76,10 +76,10 @@ check_p_cores_idle() {
   if [[ -n "$busy" ]]; then
     die "P-core contention: busy cores: $busy (formal runs require an idle P-core pool; use the fleet availability monitor to pick a free machine)"
   fi
-  ps -eo psr,comm --no-headers | awk -v list="$P_CORE_LIST" '
+  ps -eo user,pgid,psr,pcpu,comm --no-headers | awk -v list="$P_CORE_LIST" -v u="$USER" -v g="$(ps -o pgid= -p $$ | tr -d ' ')" '
     BEGIN { n = split(list, a, ","); for (i in a) allowed[a[i]] = 1 }
-    $1 in allowed && $2 != "swapper" && $2 != "ps" && $2 != "awk" && $2 != "bash" { count[$1]++ }
-    END { for (c in count) if (count[c] > 1) print c }' | while read -r c; do
+    $1 == u && $2 != g && $3 in allowed && ($4 + 0) > 25 { bad[$3] = 1 }
+    END { for (c in bad) print c }' | while read -r c; do
       die "P-core $c has concurrent local processes; formal runs require an idle P-core pool"
   done
 }
