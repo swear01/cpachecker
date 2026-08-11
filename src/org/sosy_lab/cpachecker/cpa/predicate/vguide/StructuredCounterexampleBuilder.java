@@ -11,14 +11,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.nio.file.Path;
+import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
+import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
+
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractStateWithLocation;
 
 /** Serializes authoritative CEGAR trace facts into the versioned prompt artifact. */
 final class StructuredCounterexampleBuilder {
 
-  static final String SCHEMA_VERSION = "structured-ce-v1";
+  static final String SCHEMA_VERSION = "structured-ce-v2";
 
   private StructuredCounterexampleBuilder() {}
 
@@ -46,7 +50,9 @@ final class StructuredCounterexampleBuilder {
       }
       LoopHeadInfo head = heads.get(node);
       String label = head == null || head.label() == null ? "" : head.label();
-      TraceSegment next = new TraceSegment(node.getNodeNumber(), node.getFunctionName(), label, 1);
+      TraceSegment next =
+          new TraceSegment(
+              node.getNodeNumber(), node.getFunctionName(), label, 1, sourceSlice(located));
       if (!segments.isEmpty() && segments.get(segments.size() - 1).sameLocation(next)) {
         segments.set(segments.size() - 1, segments.get(segments.size() - 1).increment());
       } else {
@@ -71,7 +77,17 @@ final class StructuredCounterexampleBuilder {
       } else {
         out.append('"').append(escape(segment.loopHead())).append('"');
       }
-      out.append(",\"repeat_count\":").append(segment.repeatCount()).append('}');
+      out.append(",\"repeat_count\":").append(segment.repeatCount());
+      SourceSlice source = segment.source();
+      if (source == null) {
+        out.append(",\"source\":null");
+      } else {
+        out.append(",\"source\":{\"file\":\"").append(escape(source.file()))
+            .append("\",\"line\":").append(source.startLine())
+            .append(",\"end_line\":").append(source.endLine())
+            .append('}');
+      }
+      out.append('}');
     }
     return out.append("],\"relations\":\"")
         .append(escape(relationSummary == null ? "" : relationSummary.strip()))
@@ -106,13 +122,55 @@ final class StructuredCounterexampleBuilder {
     return escaped.toString();
   }
 
-  private record TraceSegment(int nodeNumber, String functionName, String loopHead, int repeatCount) {
+  private record TraceSegment(
+      int nodeNumber,
+      String functionName,
+      String loopHead,
+      int repeatCount,
+      @org.checkerframework.checker.nullness.qual.Nullable SourceSlice source) {
     boolean sameLocation(TraceSegment other) {
       return nodeNumber == other.nodeNumber;
     }
 
     TraceSegment increment() {
-      return new TraceSegment(nodeNumber, functionName, loopHead, repeatCount + 1);
+      return new TraceSegment(nodeNumber, functionName, loopHead, repeatCount + 1, source);
     }
+  }
+
+  /** Stable source slice of one trace location, derived from its outgoing edges' file locations. */
+  record SourceSlice(String file, int startLine, int endLine) {}
+
+  private static @org.checkerframework.checker.nullness.qual.Nullable SourceSlice sourceSlice(
+      AbstractStateWithLocation located) {
+    Iterable<CFAEdge> edges = located.getOutgoingEdges();
+    if (edges == null) {
+      return null;
+    }
+    Path file = null;
+    int start = Integer.MAX_VALUE;
+    int end = -1;
+    for (CFAEdge edge : edges) {
+      if (edge == null) {
+        continue;
+      }
+      FileLocation location = edge.getFileLocation();
+      if (location == null || !location.isRealLocation()) {
+        continue;
+      }
+      Path fileName = location.getFileName();
+      if (file == null) {
+        file = fileName;
+      } else if (!file.equals(fileName)) {
+        // mixed files on one node: fall back to unavailable rather than guessing
+        return null;
+      }
+      start = Math.min(start, location.getStartingLineNumber());
+      end = Math.max(end, location.getEndingLineNumber());
+    }
+    if (file == null || end < start) {
+      return null;
+    }
+    // Normalize separators so the JSON artifact is platform-independent.
+    return new SourceSlice(file.toString().replace('\\', '/'), start, end);
   }
 }
