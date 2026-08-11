@@ -170,6 +170,7 @@ final class StructuredCounterexampleBuilder {
     if (file == null || end < start) {
       return null;
     }
-    return new SourceSlice(file.toString(), start, end);
+    // Normalize separators so the JSON artifact is platform-independent.
+    return new SourceSlice(file.toString().replace('\\', '/'), start, end);
   }
 }
