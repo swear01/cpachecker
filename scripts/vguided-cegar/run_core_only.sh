@@ -40,6 +40,12 @@ export PATH="${HOME}/.local/ant/bin:${PATH:-}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
+# Formal-run CPU isolation (Baseline-Protocol): the 8 physical P-cores of the
+# 13900K/14900K pool, without SMT siblings and without E-cores.
+P_CORE_LIST="0,2,4,6,8,10,12,14"
+P_CORE_RANGE="0-15"
+
+
 ARM="" MANIFEST="" OUT="" PARALLEL="8" TIMELIMIT="300" HEAP="6000M" DRY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +64,24 @@ done
 [[ -f "$MANIFEST" ]] || die "--manifest file required: $MANIFEST"
 [[ -n "$OUT" ]] || die "--out required"
 [[ -d "$SV_BENCHMARKS" ]] || die "SV_BENCHMARKS not found: $SV_BENCHMARKS (export SV_BENCHMARKS=~/sv-benchmarks/c)"
+
+# Refuse to start a formal run when foreign processes occupy the P-core pool
+# (Baseline-Protocol: load monitoring; foreign_p_core_contention is a failure).
+check_p_cores_idle() {
+  local busy
+  busy=$(LC_ALL=C mpstat -P "$P_CORE_RANGE" 1 1 2>/dev/null | awk -F' ' '
+    /^[0-9]+/ { if (100 - $NF >= 50) print $3 }')
+  if [[ -n "$busy" ]]; then
+    die "P-core contention: busy cores: $busy (formal runs require an idle P-core pool; use the fleet availability monitor to pick a free machine)"
+  fi
+  ps -eo psr,comm --no-headers | awk -v list="$P_CORE_LIST" '
+    BEGIN { n = split(list, a, ","); for (i in a) allowed[a[i]] = 1 }
+    $1 in allowed && $2 != "swapper" && $2 != "ps" && $2 != "awk" && $2 != "bash" { count[$1]++ }
+    END { for (c in count) if (count[c] > 1) print c }' | while read -r c; do
+      die "P-core $c has concurrent local processes; formal runs require an idle P-core pool"
+  done
+}
+check_p_cores_idle
 
 mkdir -p "$OUT/logs"
 if [[ "$ARM" == "augmented" ]]; then
@@ -102,7 +126,9 @@ cat >"$OUT/run_meta.json" <<EOF
   "heap": "$HEAP",
   "spec": "$SPEC",
   "model": "${DEEPSEEK_MODEL:-deepseek-v4-pro}",
-  "started_at": "$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")"
+  "started_at": "$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")",
+  "cpu_isolation": "taskset $P_CORE_LIST (8 physical P-cores, no SMT sibling, no E-core)",
+  "load_check": "$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' ' '/^[0-9]+/ { if (100 - \$NF >= 50) b = b \" \" \$3 } END { print (b == \"\") ? \"idle\" : \"busy:\" b }')"
 }
 EOF
 
@@ -117,6 +143,7 @@ run_one() {
   local log="$OUT/logs/${task_name}.log"
   local cmd=(
     timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
+    taskset -c "$P_CORE_LIST"
     "$CPA_SH" --heap "$HEAP"
     --config "$REPO/$CONFIG"
     --option "cpa.predicate.refinement.useVocabularyGuide=$USE_VGUIDE"
