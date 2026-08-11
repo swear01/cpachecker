@@ -104,6 +104,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         null,
         null,
         -1,
+        -1,
         false,
         null);
 
@@ -181,6 +182,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         store.snapshot(),
         null,
         null,
+        -1,
         -1,
         false,
         null);

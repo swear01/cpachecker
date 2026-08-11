@@ -140,6 +140,7 @@ public final class VGuideAnalysisDumper {
       @Nullable String refinementOutcomeLine,
       NativePredicateContextBuilder.@Nullable Context nativeContext,
       int llmPrecisionRemoved,
+      int llmPrecisionRetained,
       boolean usefulnessGateEnabled,
       PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision) {
     if (llmCalled && llmRoundIndex != null) {
@@ -203,6 +204,7 @@ public final class VGuideAnalysisDumper {
       if (llmPrecisionRemoved >= 0) {
         row.put("llm_precision_replaced", options.isReplaceLlmPredicates());
         row.put("llm_precision_removed", llmPrecisionRemoved);
+        row.put("llm_precision_retained", llmPrecisionRetained);
       }
     }
     row.set("precision_local_after", precisionLocalJson(reachedAfter));

@@ -107,6 +107,7 @@ public final class VGuideRefinementBridge {
   NativePredicateContextBuilder.@Nullable Context nativeContext;
   Set<String> precisionBeforeSnapshot = Set.of();
   int llmPrecisionRemoved = -1;
+  int llmPrecisionRetained = -1;
   PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision;
   }
 
@@ -660,7 +661,9 @@ public final class VGuideRefinementBridge {
         injected = markInjected(pendingDump.validated, toInject);
         if (!suppressCurrentPrecisionInjection) {
           if (options.isReplaceLlmPredicates()) {
-            pendingDump.llmPrecisionRemoved = removeLlmOwnedPrecision(reached);
+            var counts = removeLlmOwnedPrecision(reached);
+            pendingDump.llmPrecisionRemoved = counts.removed();
+            pendingDump.llmPrecisionRetained = counts.retained();
             llmOwnedKeys.clear();
           }
           precisionInjector.inject(reached, toInject);
@@ -691,6 +694,7 @@ public final class VGuideRefinementBridge {
             pendingDump.refinementOutcomeLine,
             pendingDump.llmCalled ? pendingDump.nativeContext : null,
             pendingDump.llmPrecisionRemoved,
+            pendingDump.llmPrecisionRetained,
             options.isPredicateUsefulnessGateEnabled(),
             pendingDump.usefulnessGateDecision);
       }
@@ -841,24 +845,24 @@ public final class VGuideRefinementBridge {
    * update; existing ARG states keep their abstractions, later refinements use the filtered
    * precision. Returns the number of removed predicates.
    */
-  private int removeLlmOwnedPrecision(ARGReachedSet reached) {
-    if (llmOwnedKeys.isEmpty()) {
-      return 0;
-    }
+  private record PrecisionReplacementCounts(int removed, int retained) {}
+
+  private PrecisionReplacementCounts removeLlmOwnedPrecision(ARGReachedSet reached) {
     AbstractState firstState = reached.asReachedSet().getFirstState();
     if (firstState == null) {
-      return 0;
+      return new PrecisionReplacementCounts(0, 0);
     }
     PredicatePrecision current =
         Precisions.extractPrecisionByType(
             reached.asReachedSet().getPrecision(firstState), PredicatePrecision.class);
     if (current == null) {
-      return 0;
+      return new PrecisionReplacementCounts(0, 0);
     }
     ImmutableSetMultimap.Builder<CFANode, AbstractionPredicate> locals = ImmutableSetMultimap.builder();
     // The local and location-instance maps both contain eagerly merged predicates,
     // so track removed keys uniquely to avoid double-counting.
     Set<String> removedKeys = new HashSet<>();
+    Set<String> retainedKeys = new HashSet<>();
     for (var e : current.getLocalPredicates().entries()) {
       if (e.getValue() == null || e.getValue().getSymbolicAtom() == null) {
         // defensive: never insert nulls into the ImmutableSetMultimap builder
@@ -868,6 +872,9 @@ public final class VGuideRefinementBridge {
       if (llmOwnedKeys.contains(key)) {
         removedKeys.add(key);
       } else {
+        if (isGenuinelyLocal(current, e.getKey(), e.getValue())) {
+          retainedKeys.add(key);
+        }
         locals.put(e.getKey(), e.getValue());
       }
     }
@@ -885,12 +892,15 @@ public final class VGuideRefinementBridge {
       if (llmOwnedKeys.contains(key)) {
         removedKeys.add(key);
       } else {
+        if (isGenuinelyLocal(current, e.getKey().getLocation(), e.getValue())) {
+          retainedKeys.add(key);
+        }
         locInstances.put(e.getKey(), e.getValue());
       }
     }
     int removed = removedKeys.size();
     if (removed == 0) {
-      return 0;
+      return new PrecisionReplacementCounts(0, retainedKeys.size());
     }
     PredicatePrecision filtered =
         new PredicatePrecision(
@@ -903,8 +913,10 @@ public final class VGuideRefinementBridge {
         Level.INFO,
         "VGuide replaced LLM precision: removed ",
         removed,
-        " stale predicates before injecting the new round");
-    return removed;
+        " stale, retained ",
+        retainedKeys.size(),
+        " local predicates before injecting the new round");
+    return new PrecisionReplacementCounts(removed, retainedKeys.size());
   }
 
   /** Canonical ownership key for one (loop head, formula) LLM predicate. */
@@ -984,6 +996,22 @@ public final class VGuideRefinementBridge {
       }
     }
     return nativeContextBuilder.build(globals, functions, locals, pack.loopHeads());
+  }
+
+  /**
+   * PredicatePrecision eagerly merges global and function predicates into the local and
+   * location-instance maps; only predicates that are genuinely local (not also global or
+   * function-scoped at this node's function) count as retained local predicates.
+   */
+  private static boolean isGenuinelyLocal(
+      PredicatePrecision precision, CFANode node, AbstractionPredicate predicate) {
+    if (precision.getGlobalPredicates().contains(predicate)) {
+      return false;
+    }
+    if (precision.getFunctionPredicates().get(node.getFunctionName()).contains(predicate)) {
+      return false;
+    }
+    return true;
   }
 
   private String canonical(BooleanFormula f) {
