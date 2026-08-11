@@ -196,7 +196,7 @@ run_one() {
     --out "$OUT/logs/${task_name}.json"
 }
 export -f run_one
-export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMELIMIT TIMEOUT_GRACE HEAP COMMIT CONFIG_SHA
+export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMELIMIT TIMEOUT_GRACE HEAP COMMIT CONFIG_SHA P_CORE_LIST
 
 # 4. Run each task (no header row in tasks.tsv), merge per-task records in order,
 #    then verify completeness.
