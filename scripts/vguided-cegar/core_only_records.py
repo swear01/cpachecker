@@ -142,7 +142,7 @@ def record_from_run(
     llm_calls = 0
     validated = 0
     injected = 0
-    if dump_dir is not None and dump_dir.is_dir():
+    if dump_dir is not None and str(dump_dir) and dump_dir.is_dir():
         # VGuideAnalysisDumper writes <dump_dir>/tasks/<benchmark base name>/...
         # Locate by iteration so multi-extension benchmark names resolve robustly.
         task_dump = None
@@ -163,7 +163,9 @@ def record_from_run(
         if llm_file.is_file():
             with open(llm_file, encoding="utf-8", errors="replace") as f:
                 llm_calls = sum(1 for _ in f)
-        ref_file = task_dump / "refinements.jsonl"
+        ref_file = (
+            task_dump / "refinements.jsonl" if task_dump is not None else dump_dir / "none"
+        )
         if ref_file.is_file():
             with open(ref_file, encoding="utf-8", errors="replace") as f:
                 for line in f:
