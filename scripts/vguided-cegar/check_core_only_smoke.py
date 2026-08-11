@@ -21,9 +21,10 @@ REQUIRED_FIELDS = [
 
 
 def wrong_verdict(expected, verdict):
-    if verdict in ("TRUE", "FALSE"):
-        expected_true = expected == "true"
-        return verdict == "TRUE" != expected_true or verdict == "FALSE" == expected_true
+    if verdict == "TRUE":
+        return expected != "true"
+    if verdict == "FALSE":
+        return expected == "true"
     return False
 
 

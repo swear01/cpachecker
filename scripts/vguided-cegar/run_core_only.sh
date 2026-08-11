@@ -140,6 +140,16 @@ run_one() {
   fi
   local rc=$?
   set -e
+  # Complete records: append a synthetic UNKNOWN summary for logs that died without
+  # a CPA summary line (native hang/crash), mirroring run_benchmark_set.sh.
+  if ! grep -q 'Verification result:' "$log" 2>/dev/null; then
+    {
+      echo ""
+      echo "--- core-only runner post-process $(date -Iseconds) ---"
+      echo "Verification result: UNKNOWN, incomplete analysis (no CPA summary line)."
+      echo "Total time for CPAchecker: ${TIMELIMIT}.000s"
+    } >>"$log"
+  fi
   # One JSON record per task (also for failures — never silently dropped).
   local dump_dir=""
   [[ "$ARM" == "augmented" ]] && dump_dir="$OUT/dumps/${task_name}"
