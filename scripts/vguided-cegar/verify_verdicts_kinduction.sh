@@ -7,6 +7,7 @@ SV="/var/tmp/swear01-cpachecker-paper/sv-benchmarks/c"
 OUT="${1:-/tmp/kinduction-verify}"
 TL="${2:-180}"
 PARALLEL="${3:-4}"
+INPUT="${4:-/home/swear01/cpachecker-experiments/runs/verify27-tasks.tsv}"
 mkdir -p "$OUT"
 rm -f "$OUT/results.tsv"
 echo -e "task\texpected\tstock\tkinduction" > "$OUT/results.tsv"
@@ -21,8 +22,8 @@ run_one() {
   echo -e "$task\t$expected\t$stock\t${verdict:-UNKNOWN}" >> "$OUT/results.tsv"
 }
 export -f run_one
-export REPO SV OUT TL
-tr '\n' '\0' < /tmp/verify27-tasks.tsv | xargs -0 -n 1 -P "$PARALLEL" bash -c 'run_one "$1"' _
+export REPO SV OUT TL INPUT
+tr '\n' '\0' < "$INPUT" | xargs -0 -n 1 -P "$PARALLEL" bash -c 'run_one "$1"' _
 echo "=== summary ==="
 python3 - "$OUT/results.tsv" <<'PY'
 import sys
