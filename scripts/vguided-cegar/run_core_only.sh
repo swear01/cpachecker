@@ -67,10 +67,12 @@ done
 
 # Refuse to start a formal run when foreign processes occupy the P-core pool
 # (Baseline-Protocol: load monitoring; foreign_p_core_contention is a failure).
+# Note: mpstat lines start with a timestamp (23:21:15); the CPU id is field $2
+# with -F' +' — match $2 as a pure integer to skip header/avg lines.
 check_p_cores_idle() {
   local busy
-  busy=$(LC_ALL=C mpstat -P "$P_CORE_RANGE" 1 1 2>/dev/null | awk -F' ' '
-    /^[0-9]+/ { if (100 - $NF >= 50) print $3 }')
+  busy=$(LC_ALL=C mpstat -P "$P_CORE_RANGE" 1 1 2>/dev/null | awk -F' +' '
+    $2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) print $2 }')
   if [[ -n "$busy" ]]; then
     die "P-core contention: busy cores: $busy (formal runs require an idle P-core pool; use the fleet availability monitor to pick a free machine)"
   fi
@@ -128,7 +130,7 @@ cat >"$OUT/run_meta.json" <<EOF
   "model": "${DEEPSEEK_MODEL:-deepseek-v4-pro}",
   "started_at": "$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")",
   "cpu_isolation": "taskset $P_CORE_LIST (8 physical P-cores, no SMT sibling, no E-core)",
-  "load_check": "$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' ' '/^[0-9]+/ { if (100 - \$NF >= 50) b = b \" \" \$3 } END { print (b == \"\") ? \"idle\" : \"busy:\" b }')"
+  "load_check": "$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' +' '$2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) b = b \" \" $2 } END { print (b == \"\") ? \"idle\" : \"busy:\" b }')"
 }
 EOF
 
