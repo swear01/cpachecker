@@ -14,11 +14,32 @@ The Dataset v2 release's 448 validation rows are historical dataset-construction
 
 ## Execution order and gates
 
-### 1. Contract and runner foundation
+### 1. Contract and runner foundation — **implemented (2026-08-10)**
 
-Before method work, define the exact target core config and a single runner that accepts an arm, frozen manifest, and output directory. The runner must emit one record per task containing task/property/source hashes, commit, binary/config/solver hashes, wall/CPU/memory use, verdict, refinement count, LLM calls, validated/injected predicates, and explicit failure category.
-
-A config-diff validator must reject any difference between the two arms except the augmentation configuration and its required provenance fields. The chosen CPU set, parallelism, wall limit, CPU limit, memory limit, model ID, prompt/context version, candidate budget, and retry/failure policy must be frozen from development evidence before held-out execution.
+- Target core configs: **Stock-Core** = `config/predicateAnalysis.properties`;
+  **Augmented-Core** = `config/predicateAnalysis-vguide.properties`
+  (= stock + `config/vguide.properties` + `useVocabularyGuide=true`).
+- `scripts/vguided-cegar/run_core_only.sh --arm stock|augmented --manifest <json> --out <dir>`:
+  hash-verifies all 224 sources against the frozen manifest (fail-closed on any
+  mismatch), runs each task once (parallel, per-task timelimit), and emits one
+  JSON record per task with task/property/source hashes, commit, config hash,
+  solver version, wall/CPU/memory, verdict, refinements, LLM calls,
+  validated/injected predicates (from the VGuide dump), and an explicit
+  failure category. Interrupted/invalid runs are recorded, never silently
+  retried.
+- `scripts/vguided-cegar/core_only_config_diff.py`: resolves both configs
+  (including `#include` trees) and rejects any difference outside the
+  augmentation allowlist (`vguide.*`, `cpa.predicate.refinement.useVocabularyGuide`).
+  Verified: the two arms differ only by the 15 `vguide.*` options.
+- Frozen 224-task list: `benchmark_sets/hard_case_core_224.list` (deterministic
+  manifest order, with task/source SHA-256s).
+- **Blocked prerequisite for any run**: the manifest pins sv-benchmarks at
+  `9cf9198156e4c8a6c517e474770158e1bb0b566d`; the local checkout is not at that
+  revision (153/224 hashes match). The pinned revision must be obtained
+  (fleet checkout or fresh clone) before the smoke/holdout runs.
+- Frozen resource limits (to confirm before section 4): parallelism 8,
+  timelimit 300s, heap 6000M, model deepseek-v4-pro (from development
+  evidence; prompt/context version = schema-9 dump + `loop-head-candidate-v1`).
 
 ### 2. Build and validate the augmentation on development data
 
