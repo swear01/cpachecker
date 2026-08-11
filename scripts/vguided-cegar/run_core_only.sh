@@ -115,6 +115,7 @@ python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMAR
 COMMIT="$(git -C "$REPO" rev-parse HEAD)"
 CONFIG_SHA="$(python3 -c "import sys; sys.path.insert(0, '$SCRIPT_DIR'); import core_only_config_diff as d; print(d.config_sha256(__import__('pathlib').Path('$REPO/$CONFIG')))")"
 MANIFEST_SHA="$(sha256sum "$MANIFEST" | cut -d' ' -f1)"
+LOAD_CHECK="$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' +' '$2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) b = b " " $2 } END { print (b == "") ? "idle" : "busy:" b }')"
 cat >"$OUT/run_meta.json" <<EOF
 {
   "arm": "$ARM",
@@ -130,7 +131,7 @@ cat >"$OUT/run_meta.json" <<EOF
   "model": "${DEEPSEEK_MODEL:-deepseek-v4-pro}",
   "started_at": "$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")",
   "cpu_isolation": "taskset $P_CORE_LIST (8 physical P-cores, no SMT sibling, no E-core)",
-  "load_check": "$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' +' '$2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) b = b \" \" $2 } END { print (b == \"\") ? \"idle\" : \"busy:\" b }')"
+  "load_check": "$LOAD_CHECK"
 }
 EOF
 
