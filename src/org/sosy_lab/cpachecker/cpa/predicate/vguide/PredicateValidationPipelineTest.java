@@ -397,6 +397,73 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
     assertThat(outcome.rejections()).isEmpty();
   }
 
+  @Test
+  public void bitWidthMismatchCandidateRejectedAsParseError() {
+    makeHeads();
+    // x is a 32-bit variable in the encoded vocabulary.
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
+
+    // A 64-bit constant against a 32-bit variable is a sort mismatch -> parse error.
+    var outcome =
+        pipeline.validateCandidates(
+            pack(ENCODED_F1_X, block),
+            ImmutableList.of(candidate(headA.label(), "(bvsge x (_ bv0 64))")),
+            trace(headA.node()));
+
+    assertThat(outcome.validation().validated()).isEmpty();
+    assertThat(outcome.rejections()).hasSize(1);
+    assertThat(outcome.rejections().get(0).reason())
+        .isEqualTo(PredicateValidationPipeline.REASON_PARSE_ERROR);
+  }
+
+  @Test
+  public void sameNameDifferentBitWidthCandidatesAreDistinct() {
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(ENCODED_F1_X, block),
+            ImmutableList.of(
+                candidate(headA.label(), "(bvsge x (_ bv0 32))"),
+                candidate(headA.label(), "(bvsge x (_ bv0 64))")),
+            trace(headA.node()));
+
+    // The 32-bit candidate validates; the 64-bit one is rejected as a sort mismatch.
+    assertThat(outcome.validation().validated()).hasSize(1);
+    assertThat(outcome.rejections()).hasSize(1);
+    assertThat(outcome.rejections().get(0).reason())
+        .isEqualTo(PredicateValidationPipeline.REASON_PARSE_ERROR);
+  }
+
+  @Test
+  public void nestedLoopHeadsValidateOnlyAtNamedHead() {
+    // Nested loops: outer head and inner head both on the spurious trace.
+    headA = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1"); // outer
+    headB = new LoopHeadInfo(newDummyCFANode("f1"), "ignored", "f1"); // inner
+    headOffTrace = new LoopHeadInfo(newDummyCFANode("f3"), "ignored", "f3");
+    BooleanFormula outerBlock = parse("(bvslt x (_ bv10 32))", ENCODED_F1_X);
+    BooleanFormula innerBlock = parse("(bvsge x (_ bv0 32))", ENCODED_F1_X);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(ENCODED_F1_X, outerBlock, innerBlock),
+            ImmutableList.of(candidate(headB.label(), "(bvsge x (_ bv0 32))")),
+            trace(headA.node(), headB.node()));
+
+    // The inner-head candidate is validated only at the inner head, never broadcast
+    // to the outer head.
+    assertThat(outcome.validation().validated()).hasSize(1);
+    assertThat(outcome.validation().validated().get(0).loopHeadNode()).isEqualTo(headB.node());
+    assertThat(outcome.rejections()).isEmpty();
+  }
+
   private record LocState(CFANode node) implements AbstractStateWithLocation {
     @Override
     public CFANode getLocationNode() {
