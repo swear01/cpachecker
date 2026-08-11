@@ -6024,6 +6024,11 @@ vguide.peelLoopHeadThreshold = 0
 # outcome, native precision delta) to the LLM as read-only context (Issue #7)
 vguide.refinementOutcomeContext = false
 
+# Replace prior-round LLM-owned predicates in active precision on each new
+# LLM round (P_active(t) = P_native(t) u P_LLM(t)) instead of accumulating
+# (Issue #8)
+vguide.replaceLlmPredicates = false
+
 # Fire LLM before any CEGAR round using source-code only (no CE context).
 # Predicates injected into initial precision. Replaces first-spurious
 # trigger.
