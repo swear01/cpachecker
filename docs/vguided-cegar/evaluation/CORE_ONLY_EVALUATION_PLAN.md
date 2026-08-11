@@ -57,9 +57,29 @@ Each issue uses only its frozen development split for tests, ablations, and tuni
 
 Before the held-out run, create a freeze record containing the exact source commit, JAR, configs and nested configs, manifest, solver/model versions, prompts, hashes, resource limits, parallelism, output schema version, and the approved development-set decision. Run the config-diff validator and a manifest/hash validator. Review the runner's stop conditions and verify that no development artifact can write into held-out output.
 
-### 4. Development smoke
+### 4. Development smoke — **in progress (2026-08-11)**
 
 Run both arms on the frozen development smoke set once. Require complete records, matching task order, valid provenance, valid paired-comparison output, and zero wrong verdict before proceeding. This smoke may reveal infrastructure defects, but it may not change frozen method choices without returning to the freeze-review step.
+
+Execution (background driver):
+
+```bash
+export SV_BENCHMARKS=/var/tmp/swear01-cpachecker-paper/sv-benchmarks/c   # pinned 9cf9198
+export DEEPSEEK_API_KEY=...
+nohup ./scripts/vguided-cegar/run_core_only_background.sh > /tmp/core-only-driver.out 2>&1 &
+tail -f output/vguide/core_only/driver.log
+```
+
+Smoke set: 12 tasks (12 families, 2 expected-false) from the frozen manifest (`/tmp/smoke-manifest.json`, subset of `cap16-run/candidate-manifest.json`).
+
+Harvest / gates (for the agent continuing this run):
+
+- Per-arm products under `output/vguide/core_only/<arm>_core/` (or `smoke_<arm>/`): `records.jsonl` (one record per task: task/property/source hashes, commit, config/solver hashes, wall/CPU/memory, verdict, refinements, LLM calls, validated/injected predicates, failure category), `run_meta.json` (arm/commit/config+manifest hashes/limits/model), `logs/<task>.log`, and `dumps/` for the augmented arm (VGuide analysis dump, schema-9).
+- Smoke gate: `python3 scripts/vguided-cegar/check_core_only_smoke.py output/vguide/core_only/smoke_stock/records.jsonl output/vguide/core_only/smoke_augmented/records.jsonl --expect-count 12` — complete records + 0 wrong verdicts; only then the driver proceeds to the held-out stage.
+- Held-out gate: same checker with `--expect-count 224` on `stock_core` / `augmented_core`.
+- Paired analysis (§6): join both arms' `records.jsonl` on `task`; per-task new/lost/disagreement/wrong; LLM metrics from the augmented dumps (`dumps/<task>/tasks/<stem>/llm_rounds.jsonl`, `refinements.jsonl` — validated/injected/rejections/ce_history/native_predicate_context).
+- Fixed parameters: parallelism 8, timelimit 300 s, heap 6000M, model deepseek-v4-pro; ablation options all OFF (`vguide.ceHistoryMode=OFF`, `nativePredicateContext=false`, `refinementOutcomeContext=false`, `replaceLlmPredicates=false`).
+- 0 wrong is a hard gate; interrupted/invalid runs are recorded as infrastructure failures, never silently retried.
 
 ### 5. Held-out core-only evaluation
 
