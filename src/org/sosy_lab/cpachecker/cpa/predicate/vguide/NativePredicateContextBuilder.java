@@ -143,7 +143,8 @@ public final class NativePredicateContextBuilder {
         && b2 != null
         && b1.variable.equals(b2.variable)
         && b1.op.equals(b2.op)
-        && b1.bitwidth == b2.bitwidth) {
+        && b1.bitwidth == b2.bitwidth
+        && b1.bitwidth <= 64) {
       return switch (b1.op) {
         case "bvsge", "bvsgt" -> Long.compare(b1.signedValue(), b2.signedValue()) >= 0;
         case "bvsle", "bvslt" -> Long.compare(b1.signedValue(), b2.signedValue()) <= 0;
