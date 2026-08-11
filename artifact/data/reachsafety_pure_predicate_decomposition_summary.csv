@@ -1,6 +1,0 @@
-track,arm,configuration,solved,delta_vs_stock,par2_s,wrong
-i,stock,stock (no oracle),224,0,428.4,0
-i,source_prior,oracle at refinement #0 (source-prior),224,0,427.1,0
-i,fire1,every_n_and_interval peel=0,253,29,406.5,0
-i,skip1,every_n_or_interval peel=0,252,28,407.4,0
-i,v171,every_n_or_interval peel=4,236,12,418.8,0

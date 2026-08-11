@@ -2,7 +2,7 @@
 # Rebuild <set>_summary.csv from CPA logs + benchmark manifest (manifest order).
 #
 # Usage:
-#   ./rebuild_summary_csv.sh --out output/vguide/experiments/full_scalar_vguide_noL3_budget306_20260609 --set full_scalar
+#   ./rebuild_summary_csv.sh --out /home/swear01/cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/full_scalar_vguide_noL3_budget306_20260609 --set full_scalar
 #
 set -euo pipefail
 

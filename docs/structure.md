@@ -26,9 +26,9 @@
 | `docs/vguided-cegar/benchmark_sets/` | `.list` manifests read by `run.sh` |
 | `docs/vguided-cegar/predicate_sets/` | Frozen predicates for NO_SPURIOUS replay |
 | `docs/cpachecker-experiments/docs/vguided-cegar/reports/` | Experiment result records (not design specs) |
-| `output/vguide/experiments/` | **Active raw output** — batch run products, written by `run.sh` (gitignored) |
-| `archive/raw-legacy/` | **Retired raw output** parking — `mv` old raw here instead of deleting (gitignored) |
-| `archive/` | **Obsolete** historical material — never treat as current truth |
+| `cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/` | **Active raw output** — batch run products, written by `run.sh` (gitignored) |
+| `cpachecker-experiments/records/archive/raw-legacy/` | **Retired raw output** parking — `mv` old raw here instead of deleting (gitignored) |
+| `cpachecker-experiments/records/archive/` | **Obsolete** historical material — never treat as current truth |
 | `report/` | **LNCS report** (FM 期末,**草稿、尚未投稿**,持續修訂——已納入 v1.7.x schedule 結果;Zenodo artifact DOI `10.5281/zenodo.20745141`) — `main.tex` (llncs.cls), `references.bib`；build artifacts + PDF gitignored |
 | `slides/vguide-presentation/` | **Beamer deck** (dark metropolis) — `main.tex`, `metadata.tex` (數字), `slides/NN_*.tex` (一 frame 一檔), `figures/`; `build.sh [light]` |
 | `test/` | CPAchecker upstream test suite |
@@ -42,17 +42,17 @@
 - VGuide code (`src/.../vguide/`) is the only place LLM integration lives. Do not add LLM calls elsewhere.
 - `PredicateUsefulnessGate` is a deterministic Tier-R filter between validation and precision injection; it never changes standard interpolation or verdict semantics.
 - `LlmResponseCache` is evaluation-only infrastructure: record and replay modes are mutually exclusive, keyed by exact request hash plus per-task ordinal, and replay never falls back to a live call.
-- `scripts/vguided-cegar/` is the only scripts directory for VGuide experiments. Legacy scripts are in `archive/`.
-- `docs/vguided-cegar/` is the single source of truth for active research docs. `archive/` is not authoritative.
-- `output/vguide/` is runtime output only — never commit it.
-- **Raw output lifecycle:** active raw → `output/vguide/experiments/` (run.sh writes here); retired raw → `mv` to `archive/raw-legacy/` (keep, don't delete). Both git-ignored.
-- When searching for current design, exclude: `archive/`, `reports/`, `predicate_sets/`, `output/`, `build/`, `classes/`.
+- `scripts/vguided-cegar/` is the only scripts directory for VGuide experiments. Legacy scripts are in `cpachecker-experiments/records/archive/`.
+- `docs/vguided-cegar/` is the single source of truth for active research docs. `cpachecker-experiments/records/archive/` is not authoritative.
+- `cpachecker-experiments/runs/legacy_output_2026/vguide/` is runtime output only — never commit it.
+- **Raw output lifecycle:** active raw → `cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/` (run.sh writes here); retired raw → `mv` to `cpachecker-experiments/records/archive/raw-legacy/` (keep, don't delete). Both git-ignored.
+- When searching for current design, exclude: `cpachecker-experiments/records/archive/`, `reports/`, `predicate_sets/`, `output/`, `build/`, `classes/`.
 
 ## Grep / Find Exclude Flags
 
 ```bash
 # General code/architecture search:
-rg ...  # rg respects .gitignore which already excludes archive/ (/archive is in .gitignore)
+rg ...  # rg respects .gitignore which already excludes cpachecker-experiments/records/archive/ (/archive is in .gitignore)
 
 # If using grep:
 grep -r ... --exclude-dir=archive --exclude-dir=predicate_sets --exclude-dir=output --exclude-dir=build --exclude-dir=classes

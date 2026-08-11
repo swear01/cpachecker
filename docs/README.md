@@ -24,6 +24,6 @@ VGuide 現行文件：[`vguided-cegar/`](cpachecker-experiments/docs/vguided-ceg
 | Benchmark | [`vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md`](vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md) |
 | 進度報告 | [`cpachecker-experiments/docs/vguided-cegar/reports/README.md`](cpachecker-experiments/docs/vguided-cegar/reports/README.md) |
 
-歷史報告、case study、舊統計：本機 **`archive/vguided-docs/`**（見 `archive/vguided-docs/README.md`）。
+歷史報告、case study、舊統計：本機 **`cpachecker-experiments/records/archive/vguided-docs/`**（見 `cpachecker-experiments/records/archive/vguided-docs/README.md`）。
 
 CPAchecker 官方文件：[`doc/`](../doc/)。

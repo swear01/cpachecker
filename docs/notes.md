@@ -4,11 +4,11 @@
 
 ## Gotchas
 
-- **`archive/` is NOT authoritative.** If a grep result points into `archive/`, discard it and look in `docs/vguided-cegar/` instead. If no current equivalent exists, surface the gap to the user.
+- **`cpachecker-experiments/records/archive/` is NOT authoritative.** If a grep result points into `cpachecker-experiments/records/archive/`, discard it and look in `docs/vguided-cegar/` instead. If no current equivalent exists, surface the gap to the user.
 - **`~/sv-benchmarks/c` is external.** It must exist locally before running experiments; it is not in the repo. Export `SV_BENCHMARKS=~/sv-benchmarks/c` before any `run.sh` call.
 - **`DEEPSEEK_API_KEY` is required for live/record mode.** A paired replay may omit it only when `VGUIDE_LLM_REPLAY_DIR` is set. Record/replay are mutually exclusive and a replay miss terminates the run instead of falling back to the live API or stock behavior.
-- **`output/vguide/` is gitignored.** Experiment results live locally only. Do not commit them.
-- **Raw output lifecycle (both git-ignored).** Active raw → `output/vguide/experiments/` (run.sh writes here automatically). Retired raw → `mv` it to `archive/raw-legacy/` to keep it; do NOT delete raw just to free git (it's already ignored), and never put raw in tracked dirs.
+- **`cpachecker-experiments/runs/legacy_output_2026/vguide/` is gitignored.** Experiment results live locally only. Do not commit them.
+- **Raw output lifecycle (both git-ignored).** Active raw → `cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/` (run.sh writes here automatically). Retired raw → `mv` it to `cpachecker-experiments/records/archive/raw-legacy/` to keep it; do NOT delete raw just to free git (it's already ignored), and never put raw in tracked dirs.
 - **Native-solver test exclusions (issue #30, since 2026-08-11).** `SolverViewBasedTest0`
   assumes-away Z3, Z3_WITH_INTERPOLATION, CVC4, CVC5, BITWUZLA (besides BOOLECTOR/YICES2),
   **gated on the env var `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1`** (value must be "1" or
@@ -34,7 +34,7 @@
 - **`predicate_sets/` is frozen replay data**, not design specs. Exclude it from architecture searches.
 - **`reports/` is result records**, not current design. Exclude it when searching for specs or architecture.
 - **Config naming convention:** `<set>_vguide` / `<set>_stock` for experiment output directories.
-- **`archive/` is a local-only history pile (git-ignored).** `/archive` is in `.gitignore`, so the base-block archive workflow (`agents_rule archive` → git `R` rename) does NOT apply here. To retire a doc, move it under `archive/` with plain `git mv`/`mv` (it leaves git tracking) or just keep it local; do not expect a rename in `git status`. The one-off 2026-06-15 cleanup deleted ~593MB of retired raw (results-legacy / experiments-legacy); only analysis `.md` files are kept. Going forward, retire raw by moving it to `archive/raw-legacy/` (don't delete) — see the raw-output-lifecycle gotcha above.
+- **`cpachecker-experiments/records/archive/` is a local-only history pile (git-ignored).** `/archive` is in `.gitignore`, so the base-block archive workflow (`agents_rule archive` → git `R` rename) does NOT apply here. To retire a doc, move it under `cpachecker-experiments/records/archive/` with plain `git mv`/`mv` (it leaves git tracking) or just keep it local; do not expect a rename in `git status`. The one-off 2026-06-15 cleanup deleted ~593MB of retired raw (results-legacy / experiments-legacy); only analysis `.md` files are kept. Going forward, retire raw by moving it to `cpachecker-experiments/records/archive/raw-legacy/` (don't delete) — see the raw-output-lifecycle gotcha above.
 
 - **Termination experiment harness (lasso route) — three easy-to-miss settings.** When running termination via `run.sh --mode termination-stock|termination-vguide` (see `cpachecker-experiments/docs/vguided-cegar/TERMINATION_RANKING_HOOK_PLAN.md` §7):
   - **No `--spec`.** Termination configs use internal automata (`termination_as_reach.spc`, `TerminatingFunctions.spc`); passing `default.spc`/`sv-comp-reachability.spc` overrides and breaks termination detection. The harness sets `VGUIDE_SPEC=` (empty) for termination modes so `run_benchmark_set.sh` skips `--spec`.
@@ -57,7 +57,7 @@
 
 - **Unified VGuide (single Java path):** Previous B2/B4/B5 sidecar design was replaced. Only one implementation path now. See `architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`.
 - **Class-A first:** Any new property category should attempt config-only generalization (Class-A) before touching Java. v1.6 overflow proved this works for predicate-CEGAR-based branches.
-- **No `grep` into `archive/`.** Use `rg` (respects `.gitignore`, which excludes `archive/`) or always pass `--exclude-dir=archive`.
+- **No `grep` into `cpachecker-experiments/records/archive/`.** Use `rg` (respects `.gitignore`, which excludes `cpachecker-experiments/records/archive/`) or always pass `--exclude-dir=archive`.
 - **DeepSeek V4 (non-thinking) as primary model.** Thinking mode not used in production path; see `llm/LLM_API.md` for rationale.
 - **L3 not used (noL3).** Validation is L1+L2 only (`vguide.enableL3Entailment=false`). A 2026-06-07 `full_scalar` ablation showed L3-on worse overall (fewer solves, higher PAR-2); all mainline evals since then keep L3 off.
 - **Overflow prompt is neutral.** The reachability prompt actively discourages the bound predicates that overflow needs. A dedicated overflow-aware prompt is the main lever for v1.6.1 improvement (P1), not config tweaks.

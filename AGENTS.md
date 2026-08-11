@@ -121,7 +121,9 @@ Archive header prepended automatically:
     > Replacement: <replacement-or-none>
     > Status: historical only; do not use as active truth.
 
-Archives live under `archive/` at project root, preserving original path:
+Archives live under `archive/` at project root (staging), preserving original path,
+and must be moved out of the repo to `/home/swear01/cpachecker-experiments/records/archive/`
+(see GitHub Issue #55) — the repo archive/ is staging only, never a permanent home:
 
     docs/api.md  →  archive/docs/api.md
 

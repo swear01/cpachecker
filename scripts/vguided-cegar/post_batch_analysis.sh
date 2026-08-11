@@ -3,8 +3,8 @@
 #
 # Usage:
 #   ./post_batch_analysis.sh \
-#     --vguide-out output/vguide/experiments/full_scalar_vguide \
-#     --stock-out  output/vguide/experiments/full_scalar_stock \
+#     --vguide-out /home/swear01/cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/full_scalar_vguide \
+#     --stock-out  /home/swear01/cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/full_scalar_stock \
 #     --set full_scalar \
 #     --timelimit 300
 set -euo pipefail
