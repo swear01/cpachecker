@@ -29,7 +29,7 @@ CPAchecker is a configurable software verifier for C programs, used in SV-COMP c
 
 - Upstream CPAchecker: https://cpachecker.sosy-lab.org
 - SV-COMP benchmark repo: `~/sv-benchmarks/c` (not in repo; required for experiments)
-- LLM API: DeepSeek V4 — see `docs/vguided-cegar/llm/LLM_API.md`
-- Architecture: `docs/vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`
-- Run instructions: `docs/vguided-cegar/RUN_EXPERIMENTS.md`
+- LLM API: DeepSeek V4 — see `docs/cpachecker-experiments/docs/vguided-cegar/llm/LLM_API.md`
+- Architecture: `docs/cpachecker-experiments/docs/vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`
+- Run instructions: `docs/cpachecker-experiments/docs/vguided-cegar/RUN_EXPERIMENTS.md`
 - Final hard-case Dataset v2 evidence: `docs/vguided-cegar/evaluation/HARD_CASE_DATASET_V2_FINAL.md`

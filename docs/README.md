@@ -14,15 +14,15 @@
 
 ## VGuide 研究文件
 
-VGuide 現行文件：[`vguided-cegar/`](vguided-cegar/README.md)。
+VGuide 現行文件：[`vguided-cegar/`](cpachecker-experiments/docs/vguided-cegar/README.md)。
 
 | 要做的事 | 入口 |
 |---------|------|
-| 現行研究主線 | [`vguided-cegar/VGUIDE_NLA_PLAN.md`](vguided-cegar/VGUIDE_NLA_PLAN.md) |
-| 跑實驗 | [`vguided-cegar/RUN_EXPERIMENTS.md`](vguided-cegar/RUN_EXPERIMENTS.md) |
-| 架構 | [`vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`](vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md) |
+| 現行研究主線 | [`cpachecker-experiments/docs/vguided-cegar/VGUIDE_NLA_PLAN.md`](cpachecker-experiments/docs/vguided-cegar/VGUIDE_NLA_PLAN.md) |
+| 跑實驗 | [`cpachecker-experiments/docs/vguided-cegar/RUN_EXPERIMENTS.md`](cpachecker-experiments/docs/vguided-cegar/RUN_EXPERIMENTS.md) |
+| 架構 | [`cpachecker-experiments/docs/vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`](cpachecker-experiments/docs/vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md) |
 | Benchmark | [`vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md`](vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md) |
-| 進度報告 | [`vguided-cegar/reports/README.md`](vguided-cegar/reports/README.md) |
+| 進度報告 | [`cpachecker-experiments/docs/vguided-cegar/reports/README.md`](cpachecker-experiments/docs/vguided-cegar/reports/README.md) |
 
 歷史報告、case study、舊統計：本機 **`archive/vguided-docs/`**（見 `archive/vguided-docs/README.md`）。
 

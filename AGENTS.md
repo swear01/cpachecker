@@ -1,3 +1,18 @@
+## 實驗與研究文件指路（所有 agent 必讀）
+
+- **實驗輸出、log、研究文件、過往紀錄、論文**：不在本 repo。
+  全部在 `/home/swear01/cpachecker-experiments/`（README 是總索引；
+  遷移清單：GitHub Issue #55）。
+- **研究設計與 decisions**：GitHub Wiki（source of truth）。
+- **正式 run 的 CPU isolation 是強制要求**：taskset `0,2,4,6,8,10,12,14`
+  （8 P-cores、無 SMT/E-core）、run 前 load check、三機 pool
+  （valkyrie/athena/cthulhu）擇 `idle_ready`；完整 protocol：
+  `/home/swear01/cpachecker-experiments/docs/vguided-cegar/EXPERIMENT_PROTOCOL.md`
+  或新 branch `research/vguide-upstream-reimpl` 的 `docs/EXPERIMENT_PROTOCOL.md`。
+- repo 的 `docs/vguided-cegar/` 只保留被 scripts/config 引用的資料
+  （`benchmark_sets/`、`predicate_sets/`、`evaluation/`）；研究文件已搬走。
+- 實驗紀錄摘要（2026-08-11 core-only 448-run、12 verdict disputes）：Issue #54/#55。
+
 # BEGIN agents_rule-base
 # Agent Rules
 
