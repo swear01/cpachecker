@@ -79,8 +79,11 @@ public class SolverViewBasedTest0 extends SolverBasedTest0 {
           Solvers.CVC4, "fails in the shared-JVM parameterized runs");
       case CVC5 -> assumeNotBrokenNative(
           Solvers.CVC5, "crashes in the shared-JVM parameterized runs");
-      case BITWUZLA -> assumeNotBrokenNative(
-          Solvers.BITWUZLA, "BitwuzlaNativeJNI.Term_toString segfaults in libstdc++");
+      case BITWUZLA -> {
+        newConfig.setOption("cpa.predicate.encodeIntegerAs", "BITVECTOR");
+        assumeNotBrokenNative(
+            Solvers.BITWUZLA, "BitwuzlaNativeJNI.Term_toString segfaults in libstdc++");
+      }
       // newConfig.setOption("cpa.predicate.createFormulaEncodingEagerly", "false");
       // newConfig.setOption("cpa.predicate.encodeIntegerAs", "BITVECTOR");
       // newConfig.setOption("cpa.predicate.encodeBitvectorAs", "BITVECTOR");
