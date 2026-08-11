@@ -193,6 +193,7 @@ public final class VGuideAnalysisDumper {
         row.put("ce_history_omitted", ceHistorySnapshot.omitted());
       }
       if (refinementOutcomeLine != null) {
+        row.put("refinement_outcome_schema", RefinementOutcomeStore.SCHEMA_VERSION);
         row.put("refinement_outcome", refinementOutcomeLine);
         row.put("refinement_outcome_unavailable", RefinementOutcomeStore.UNAVAILABLE);
       }
