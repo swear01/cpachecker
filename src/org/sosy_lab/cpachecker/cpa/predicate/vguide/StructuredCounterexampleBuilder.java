@@ -146,7 +146,7 @@ final class StructuredCounterexampleBuilder {
     if (edges == null) {
       return null;
     }
-    String file = null;
+    Path file = null;
     int start = Integer.MAX_VALUE;
     int end = -1;
     for (CFAEdge edge : edges) {
@@ -157,7 +157,7 @@ final class StructuredCounterexampleBuilder {
       if (location == null || !location.isRealLocation()) {
         continue;
       }
-      String fileName = location.getFileName().toString();
+      Path fileName = location.getFileName();
       if (file == null) {
         file = fileName;
       } else if (!file.equals(fileName)) {
@@ -170,6 +170,6 @@ final class StructuredCounterexampleBuilder {
     if (file == null || end < start) {
       return null;
     }
-    return new SourceSlice(file, start, end);
+    return new SourceSlice(file.toString(), start, end);
   }
 }
