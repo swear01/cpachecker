@@ -1,0 +1,17 @@
+# Documented verdict disputes (Issue #54): verdicts contradict the dataset label
+# but are accepted as usable, backed by independent-engine corroboration
+# (k-induction, 2026-08-11: 12 agree / 0 disagree / 15 unknown) and/or
+# semantics analysis. See cpachecker-experiments/docs/vguided-cegar/
+# evaluation/VERDICT_VALIDATION.md. Format: task<TAB>reason.
+c/array-fpi/ifcomp.yml	FALSE-on-true: wrap/UB semantics (i*i*i overflow); k-induction also FALSE
+c/array-fpi/ifeqn4.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
+c/array-fpi/sqm.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
+c/array-tiling/revcpyswp2.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
+c/forester-heap/dll-circular-2.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
+c/forester-heap/sll-01-1.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
+c/forester-heap/sll-buckets-1.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
+c/forester-heap/sll-circular-1.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
+c/forester-heap/sll-rb-cnstr_1-1.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
+c/forester-heap/sll-rb-sentinel-1.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
+c/forester-heap/sll-token-2.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
+c/hardware-verification-bv/btor2c-lazyMod.circular_pointer_top_w64_d8_e0.yml	TRUE-on-false: both engines prove safe; dataset label likely mislabeled (Issue #56)
