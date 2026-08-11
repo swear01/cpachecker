@@ -32,6 +32,12 @@ P_active(t) = P_native_CEGAR(t) ∪ P_LLM(t)      （而非累積 ⋃ P_LLM(i)�
    —— source-prior 路徑目前不記錄 keys（preCegarValidated 走 mergePreCegarInto）。
    決定：**source-prior predicates 不算 replaceable LLM-owned set**（documented，
    避免誤刪 initial precision）
+9. **frozen / test-only ownership 標記（issue #37）**：frozen seeds 在 analysis end 才
+   注入（不影響後續 rounds），test-only predicates 不進 active precision — 兩者都不在
+   `llmOwnedKeys`，且 dump 的 `llm_precision_removed/retained` 只反映
+   replaceable set；此標記為顯式設計決定，非疏漏。removal 的 regression test 卡在
+   `AbstractionPredicate` 無法在 unit test 中建構（package-private ctor + Region
+   依賴）——待測試 seam（如 predicate 字串層的 filter 函式）後補。
 
 **Out of scope**：frozen seeds（analysis end 注入，不影響後續 rounds）；replay
 predicates（同 injection 路徑，自動納入 keys）。
