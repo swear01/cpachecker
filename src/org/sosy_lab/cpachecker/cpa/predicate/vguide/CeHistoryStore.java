@@ -147,11 +147,17 @@ public final class CeHistoryStore {
             ? ImmutableList.of()
             : traceSegments(currentCeJson);
     StringBuilder out = new StringBuilder();
+    if (previous.traceSegments().equals(curSegments) && prevVisits.equals(curVisits)) {
+      // Identical trace and totals: only relations could differ.
+      if (currentCeJson != null
+          && !currentCeJson.isBlank()
+          && !relationsOf(previous.compact()).equals(relationsOf(compact(currentCeJson)))) {
+        return "  relations changed\n";
+      }
+      return "(no change vs previous round)\n";
+    }
     String suffix = suffixDelta(previous.traceSegments(), curSegments);
     if (prevVisits.equals(curVisits) && suffix.isEmpty()) {
-      if (previous.traceSegments().equals(curSegments)) {
-        return "(no change vs previous round)\n";
-      }
       out.append("  trace order changed\n");
     }
     TreeMap<String, Integer> all = new TreeMap<>();
@@ -192,6 +198,11 @@ public final class CeHistoryStore {
       return "";
     }
     return "  path suffix stable (last " + common + " segment(s))\n";
+  }
+
+  private static String relationsOf(String compact) {
+    int start = compact.indexOf("; relations: ");
+    return start < 0 ? "" : compact.substring(start);
   }
 
   /** Ordered (node, repeat count) keys of the structured CE trace, in trace order. */
