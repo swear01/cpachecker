@@ -186,6 +186,25 @@ public class CeHistoryStoreTest {
   }
 
   @Test
+  public void traceOrderChangeIsReportedEvenWithEqualTotals() {
+    CeHistoryStore store = new CeHistoryStore();
+    String prev =
+        ceTrace(
+            "[{\"node\":1,\"repeat_count\":2},{\"node\":2,\"repeat_count\":3}]",
+            "");
+    String cur =
+        ceTrace(
+            "[{\"node\":2,\"repeat_count\":3},{\"node\":1,\"repeat_count\":2}]",
+            "");
+    store.record(1, prev);
+
+    String context =
+        store.buildContext(VGuideOptions.CeHistoryMode.BOUNDED_WITH_DELTA, cur);
+    assertThat(context).contains("trace order changed");
+    assertThat(context).doesNotContain("(no change vs previous round)");
+  }
+
+  @Test
   public void unavailableFieldsMarkedInContext() {
     CeHistoryStore store = new CeHistoryStore();
     store.record(1, CE_A);

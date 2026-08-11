@@ -142,10 +142,17 @@ public final class CeHistoryStore {
         && fingerprint(currentCeJson).equals(previous.fingerprint())) {
       return "(no change vs previous round)\n";
     }
+    ImmutableList<String> curSegments =
+        currentCeJson == null || currentCeJson.isBlank()
+            ? ImmutableList.of()
+            : traceSegments(currentCeJson);
     StringBuilder out = new StringBuilder();
-    String suffix = suffixDelta(previous.traceSegments(), currentCeJson);
+    String suffix = suffixDelta(previous.traceSegments(), curSegments);
     if (prevVisits.equals(curVisits) && suffix.isEmpty()) {
-      return "(no change vs previous round)\n";
+      if (previous.traceSegments().equals(curSegments)) {
+        return "(no change vs previous round)\n";
+      }
+      out.append("  trace order changed\n");
     }
     TreeMap<String, Integer> all = new TreeMap<>();
     all.putAll(prevVisits);
@@ -172,11 +179,7 @@ public final class CeHistoryStore {
    * is converging to the same tail. Branch conditions and SSA values are not in the structured CE
    * and are marked unavailable (see {@link #UNAVAILABLE}), never inferred.
    */
-  static String suffixDelta(ImmutableList<String> prevSegments, String currentCeJson) {
-    ImmutableList<String> curSegments =
-        currentCeJson == null || currentCeJson.isBlank()
-            ? ImmutableList.of()
-            : traceSegments(currentCeJson);
+  static String suffixDelta(ImmutableList<String> prevSegments, ImmutableList<String> curSegments) {
     int common = 0;
     while (common < prevSegments.size()
         && common < curSegments.size()
