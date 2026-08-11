@@ -31,7 +31,7 @@ public final class NativePredicateContextBuilder {
   public static final int MAX_CHARS = 3000;
 
   /** One exposed predicate: scope (global / function F / local N12), origin, canonical SMT. */
-  public record Entry(String scope, String origin, String smt) {}
+  public record Entry(String scope, String origin, String smt, boolean subsumed) {}
 
   public record Context(ImmutableList<Entry> entries, int omitted, String selectionRule) {}
 
@@ -74,6 +74,7 @@ public final class NativePredicateContextBuilder {
       }
     }
     candidates.sort(Comparator.comparing(Entry::scope).thenComparing(Entry::smt));
+    markSubsumed(candidates);
 
     int omitted = 0;
     List<Entry> kept = new ArrayList<>();
@@ -107,12 +108,66 @@ public final class NativePredicateContextBuilder {
       return;
     }
     String origin = llmOwnedKeys.contains(key) ? "llm" : "native";
-    candidates.add(new Entry(scope, origin, smt));
+    candidates.add(new Entry(scope, origin, smt, false));
   }
 
   private static String formatLine(Entry e) {
     return "[" + e.scope() + " | " + e.origin() + "] " + e.smt();
   }
+
+  /**
+   * Syntactic subsumption heuristic (metadata only, never a correctness proof): a predicate is
+   * marked subsumed when another predicate at the same scope implies it. Supported shapes:
+   * same-direction constant bounds with the same variable (bvsge/bvsle/bvslt/bvsgt) and
+   * conjunction-atom containment. Subsumed predicates are kept in the context and dump.
+   */
+  private static void markSubsumed(List<Entry> candidates) {
+    for (int i = 0; i < candidates.size(); i++) {
+      Entry a = candidates.get(i);
+      for (int j = 0; j < candidates.size(); j++) {
+        if (i == j || !a.scope().equals(candidates.get(j).scope())) {
+          continue;
+        }
+        if (subsumes(a.smt(), candidates.get(j).smt())) {
+          candidates.set(
+              j, new Entry(candidates.get(j).scope(), candidates.get(j).origin(), candidates.get(j).smt(), true));
+        }
+      }
+    }
+  }
+
+  private static boolean subsumes(String subsumer, String subsumee) {
+    Bound b1 = parseBound(subsumer);
+    Bound b2 = parseBound(subsumee);
+    if (b1 != null && b2 != null && b1.variable.equals(b2.variable) && b1.op.equals(b2.op)) {
+      return switch (b1.op) {
+        case "bvsge", "bvsgt" -> Long.compareUnsigned(b1.value, b2.value) >= 0;
+        case "bvsle", "bvslt" -> Long.compareUnsigned(b1.value, b2.value) <= 0;
+        default -> false;
+      };
+    }
+    if (subsumer.startsWith("(and ") && subsumer.contains(subsumee)) {
+      return true;
+    }
+    return false;
+  }
+
+  private record Bound(String variable, String op, long value) {}
+
+  private static @org.checkerframework.checker.nullness.qual.Nullable Bound parseBound(String smt) {
+    var m = BOUND_PATTERN.matcher(smt);
+    if (!m.matches()) {
+      return null;
+    }
+    try {
+      return new Bound(m.group(2), m.group(1), Long.parseLong(m.group(3)));
+    } catch (NumberFormatException e) {
+      return null;
+    }
+  }
+
+  private static final java.util.regex.Pattern BOUND_PATTERN =
+      java.util.regex.Pattern.compile("^\\((bvsge|bvsgt|bvsle|bvslt) (\\S+) \\(_ bv(\\d+) 32\\)\\)$");
 
   private static String selectionRule() {
     return "global + loop-head-owning functions + loop-head locals; canonical dedup; sorted; cap "

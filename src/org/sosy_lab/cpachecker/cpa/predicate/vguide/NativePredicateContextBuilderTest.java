@@ -45,10 +45,10 @@ public class NativePredicateContextBuilderTest {
 
     assertThat(context.entries())
         .containsExactly(
-            new NativePredicateContextBuilder.Entry("function f1", "native", "(bvslt i n)"),
-            new NativePredicateContextBuilder.Entry("global", "native", "(bvsge i (_ bv0 32))"),
+            new NativePredicateContextBuilder.Entry("function f1", "native", "(bvslt i n)", false),
+            new NativePredicateContextBuilder.Entry("global", "native", "(bvsge i (_ bv0 32))", false),
             new NativePredicateContextBuilder.Entry(
-                "local " + head.label(), "native", "(= x (_ bv1 32))"))
+                "local " + head.label(), "native", "(= x (_ bv1 32))", false))
         .inOrder();
     assertThat(context.omitted()).isEqualTo(0);
   }
@@ -120,6 +120,49 @@ public class NativePredicateContextBuilderTest {
         .isEqualTo(NativePredicateContextBuilder.format(b));
     assertThat(NativePredicateContextBuilder.format(a))
         .contains("[global | native] (bvsge i (_ bv0 32))");
+  }
+
+  @Test
+  public void tighterConstantBoundSubsumesLooserOne() {
+    HashMultimap<String, String> locals = HashMultimap.create();
+    locals.put(head.label(), "(bvsge x (_ bv5 32))");
+    locals.put(head.label(), "(bvsge x (_ bv0 32))");
+
+    var context = builder().build(List.of(), HashMultimap.create(), locals, loopHeads());
+
+    assertThat(context.entries()).hasSize(2);
+    // sorted by smt: (bvsge x 0) first, (bvsge x 5) second; x>=5 subsumes x>=0.
+    assertThat(context.entries().get(0).subsumed()).isTrue();
+    assertThat(context.entries().get(1).subsumed()).isFalse();
+  }
+
+  @Test
+  public void conjunctionAtomSubsumptionIsMarked() {
+    HashMultimap<String, String> locals = HashMultimap.create();
+    locals.put(head.label(), "(and (= x (_ bv1 32)) (= y (_ bv2 32)))");
+    locals.put(head.label(), "(= y (_ bv2 32))");
+
+    var context = builder().build(List.of(), HashMultimap.create(), locals, loopHeads());
+
+    assertThat(context.entries()).hasSize(2);
+    boolean conjunctionSubsumes =
+        context.entries().get(0).smt().startsWith("(and ")
+            ? context.entries().get(1).subsumed()
+            : context.entries().get(0).subsumed();
+    assertThat(conjunctionSubsumes).isTrue();
+  }
+
+  @Test
+  public void oppositeDirectionBoundsAreNotSubsumed() {
+    HashMultimap<String, String> locals = HashMultimap.create();
+    locals.put(head.label(), "(bvsge x (_ bv0 32))");
+    locals.put(head.label(), "(bvsle x (_ bv0 32))");
+
+    var context = builder().build(List.of(), HashMultimap.create(), locals, loopHeads());
+
+    assertThat(context.entries()).hasSize(2);
+    assertThat(context.entries().get(0).subsumed()).isFalse();
+    assertThat(context.entries().get(1).subsumed()).isFalse();
   }
 
   @Test
