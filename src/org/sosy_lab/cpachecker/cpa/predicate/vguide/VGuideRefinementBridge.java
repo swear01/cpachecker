@@ -848,9 +848,6 @@ public final class VGuideRefinementBridge {
   private record PrecisionReplacementCounts(int removed, int retained) {}
 
   private PrecisionReplacementCounts removeLlmOwnedPrecision(ARGReachedSet reached) {
-    if (llmOwnedKeys.isEmpty()) {
-      return new PrecisionReplacementCounts(0, 0);
-    }
     AbstractState firstState = reached.asReachedSet().getFirstState();
     if (firstState == null) {
       return new PrecisionReplacementCounts(0, 0);
@@ -893,6 +890,7 @@ public final class VGuideRefinementBridge {
       if (llmOwnedKeys.contains(key)) {
         removedKeys.add(key);
       } else {
+        retainedKeys.add(key);
         locInstances.put(e.getKey(), e.getValue());
       }
     }
