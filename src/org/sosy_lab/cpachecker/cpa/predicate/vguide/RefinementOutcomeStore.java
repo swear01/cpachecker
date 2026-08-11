@@ -26,8 +26,10 @@ import java.util.Map;
 public final class RefinementOutcomeStore {
 
   public static final int MAX_ENTRIES = 4;
+  public static final String SCHEMA_VERSION = "refinement-outcome-v1";
   public static final String UNAVAILABLE =
-      "refiner_status,infeasible_prefix,infeasible_suffix,infeasible_pivot,arg_prune";
+      "refiner_status,infeasible_prefix,infeasible_suffix,infeasible_pivot,arg_prune,"
+          + "portfolio_outcome";
 
   private final Map<Integer, StringBuilder> pending = new HashMap<>();
   private final List<String> completed = new ArrayList<>();

@@ -80,6 +80,50 @@ public class RefinementOutcomeStoreTest {
   }
 
   @Test
+  public void failedRefinementIsDroppedOnNextRoundStart() {
+    RefinementOutcomeStore store = new RefinementOutcomeStore();
+    store.recordStarted(1, 8, 12, 9);
+    // round 1 never completes (failed/aborted refinement)
+    store.recordStarted(2, 2, 4, 4);
+    store.recordCompleted(2, 1);
+
+    assertThat(store.buildContext()).doesNotContain("round 1:");
+    assertThat(store.buildContext()).contains("round 2:");
+  }
+
+  @Test
+  public void noProgressRoundReportsZeroNativeDelta() {
+    RefinementOutcomeStore store = new RefinementOutcomeStore();
+    store.recordStarted(1, 8, 12, 9);
+    store.recordCompleted(1, 0);
+
+    String ctx = store.buildContext();
+    assertThat(ctx).contains("native_delta=+0");
+  }
+
+  @Test
+  public void independentStoresDoNotShareState() {
+    RefinementOutcomeStore a = new RefinementOutcomeStore();
+    RefinementOutcomeStore b = new RefinementOutcomeStore();
+    a.recordStarted(1, 8, 12, 9);
+    a.recordCompleted(1, 3);
+
+    assertThat(a.buildContext()).contains("round 1:");
+    assertThat(b.buildContext()).isEmpty();
+  }
+
+  @Test
+  public void schemaVersionAndPortfolioUnavailableAreExplicit() {
+    RefinementOutcomeStore store = new RefinementOutcomeStore();
+    store.recordStarted(1, 1, 1, 1);
+    store.recordCompleted(1, 0);
+
+    assertThat(RefinementOutcomeStore.SCHEMA_VERSION).isEqualTo("refinement-outcome-v1");
+    assertThat(RefinementOutcomeStore.UNAVAILABLE).contains("portfolio_outcome");
+    assertThat(store.buildContext()).contains("unavailable: " + RefinementOutcomeStore.UNAVAILABLE);
+  }
+
+  @Test
   public void emptyStoreProducesNoContext() {
     assertThat(new RefinementOutcomeStore().buildContext()).isEmpty();
   }
