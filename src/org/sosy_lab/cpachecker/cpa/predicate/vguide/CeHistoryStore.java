@@ -37,11 +37,21 @@ public final class CeHistoryStore {
 
   public static final int MAX_ENTRIES = 4;
   public static final int MAX_CONTEXT_CHARS = 4000;
+  public static final String UNAVAILABLE = "branch_conditions,ssa_values,assignments";
 
   private static final ObjectMapper JSON = new ObjectMapper();
 
-  /** One stored round. {@code repeatCount} counts consecutive identical CEs. */
-  public record Entry(int refinementIndex, String fingerprint, String compact, int repeatCount) {}
+  /**
+   * One stored round. {@code repeatCount} counts consecutive identical CEs; {@code
+   * traceSegments} preserves the structured CE trace order (node + repeat count per segment) for
+   * deterministic path-suffix comparison.
+   */
+  public record Entry(
+      int refinementIndex,
+      String fingerprint,
+      String compact,
+      int repeatCount,
+      ImmutableList<String> traceSegments) {}
 
   /** Observable history state for the analysis dump. */
   public record Snapshot(ImmutableList<Entry> entries, int omitted) {}
@@ -55,16 +65,22 @@ public final class CeHistoryStore {
     }
     String fingerprint = fingerprint(structuredCeJson);
     String compact = compact(structuredCeJson);
+    ImmutableList<String> traceSegments = traceSegments(structuredCeJson);
     if (!entries.isEmpty()) {
       Entry last = entries.get(entries.size() - 1);
       if (last.fingerprint().equals(fingerprint)) {
         entries.set(
             entries.size() - 1,
-            new Entry(last.refinementIndex(), last.fingerprint(), last.compact(), last.repeatCount() + 1));
+            new Entry(
+                last.refinementIndex(),
+                last.fingerprint(),
+                last.compact(),
+                last.repeatCount() + 1,
+                last.traceSegments()));
         return;
       }
     }
-    entries.add(new Entry(refinementIndex, fingerprint, compact, 1));
+    entries.add(new Entry(refinementIndex, fingerprint, compact, 1, traceSegments));
     while (entries.size() > MAX_ENTRIES) {
       entries.remove(0);
       omitted++;
@@ -102,6 +118,7 @@ public final class CeHistoryStore {
       out.append("Delta vs previous round:\n")
           .append(delta(entries.get(entries.size() - 1), currentCeJson));
     }
+    out.append("unavailable: ").append(UNAVAILABLE).append('\n');
     if (out.length() > MAX_CONTEXT_CHARS) {
       int lastNewline = out.lastIndexOf("\n", MAX_CONTEXT_CHARS);
       if (lastNewline > 0) {
@@ -120,10 +137,16 @@ public final class CeHistoryStore {
         currentCeJson == null || currentCeJson.isBlank()
             ? ImmutableMap.of()
             : visitsByHead(compact(currentCeJson));
-    if (prevVisits.equals(curVisits)) {
+    if (currentCeJson != null
+        && !currentCeJson.isBlank()
+        && fingerprint(currentCeJson).equals(previous.fingerprint())) {
       return "(no change vs previous round)\n";
     }
     StringBuilder out = new StringBuilder();
+    String suffix = suffixDelta(previous.traceSegments(), currentCeJson);
+    if (prevVisits.equals(curVisits) && suffix.isEmpty()) {
+      return "(no change vs previous round)\n";
+    }
     TreeMap<String, Integer> all = new TreeMap<>();
     all.putAll(prevVisits);
     all.putAll(curVisits);
@@ -139,7 +162,52 @@ public final class CeHistoryStore {
         out.append("  ").append(label).append(" visits ").append(before).append(" -> ").append(after).append('\n');
       }
     }
+    out.append(suffix);
     return out.toString();
+  }
+
+  /**
+   * Path-suffix comparison: the trailing trace segments (node + repeat count, in trace order) of
+   * the previous CE versus the current CE. An identical trailing run indicates the failure path
+   * is converging to the same tail. Branch conditions and SSA values are not in the structured CE
+   * and are marked unavailable (see {@link #UNAVAILABLE}), never inferred.
+   */
+  static String suffixDelta(ImmutableList<String> prevSegments, String currentCeJson) {
+    ImmutableList<String> curSegments =
+        currentCeJson == null || currentCeJson.isBlank()
+            ? ImmutableList.of()
+            : traceSegments(currentCeJson);
+    int common = 0;
+    while (common < prevSegments.size()
+        && common < curSegments.size()
+        && prevSegments
+            .get(prevSegments.size() - 1 - common)
+            .equals(curSegments.get(curSegments.size() - 1 - common))) {
+      common++;
+    }
+    if (common == 0) {
+      return "";
+    }
+    return "  path suffix stable (last " + common + " segment(s))\n";
+  }
+
+  /** Ordered (node, repeat count) keys of the structured CE trace, in trace order. */
+  static ImmutableList<String> traceSegments(String structuredCeJson) {
+    ImmutableList.Builder<String> out = ImmutableList.builder();
+    try {
+      JsonNode root = JSON.readTree(structuredCeJson);
+      JsonNode trace = root.path("trace");
+      if (trace.isArray()) {
+        for (JsonNode segment : trace) {
+          int node = segment.path("node").asInt(-1);
+          int count = segment.path("repeat_count").asInt(1);
+          out.add(node + "x" + count);
+        }
+      }
+    } catch (Exception e) {
+      // malformed CE degrades to an empty segment list
+    }
+    return out.build();
   }
 
   static String fingerprint(String structuredCeJson) {

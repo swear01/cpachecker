@@ -13,6 +13,14 @@ import org.junit.Test;
 /** Bounded CE history: dedup, eviction, deterministic context and deltas. */
 public class CeHistoryStoreTest {
 
+  private static String ceTrace(String segmentsJson, String relations) {
+    return "{\"schema_version\":\"structured-ce-v1\",\"assertion\":\"x\",\"trace\":"
+        + segmentsJson
+        + ",\"relations\":\""
+        + relations
+        + "\"}";
+  }
+
   private static String ce(String head, int repeatCount, String relations) {
     return "{\"schema_version\":\"structured-ce-v1\",\"assertion\":\"x\",\"trace\":[{\"node\":1,"
         + "\"function\":\"f\",\"loop_head\":\""
@@ -122,6 +130,69 @@ public class CeHistoryStoreTest {
 
     String context = store.buildContext(VGuideOptions.CeHistoryMode.BOUNDED_WITH_DELTA, CE_A);
     assertThat(context.length()).isAtMost(CeHistoryStore.MAX_CONTEXT_CHARS);
+  }
+
+
+  @Test
+  public void suffixStableReportedWhenVisitsChangeButTailIsSame() {
+    CeHistoryStore store = new CeHistoryStore();
+    String prev =
+        ceTrace(
+            "[{\"node\":1,\"function\":\"f\",\"loop_head\":\"N12\",\"repeat_count\":3},"
+                + "{\"node\":2,\"function\":\"f\",\"loop_head\":\"N15\",\"repeat_count\":5}]",
+            "i < n");
+    String cur =
+        ceTrace(
+            "[{\"node\":1,\"function\":\"f\",\"loop_head\":\"N12\",\"repeat_count\":4},"
+                + "{\"node\":2,\"function\":\"f\",\"loop_head\":\"N15\",\"repeat_count\":5}]",
+            "i < n");
+    store.record(1, prev);
+
+    String context =
+        store.buildContext(VGuideOptions.CeHistoryMode.BOUNDED_WITH_DELTA, cur);
+    assertThat(context).contains("N12 visits 3 -> 4");
+    assertThat(context).contains("path suffix stable (last 1 segment(s))");
+  }
+
+  @Test
+  public void suffixChangedHasNoStabilityLine() {
+    CeHistoryStore store = new CeHistoryStore();
+    String prev =
+        ceTrace(
+            "[{\"node\":1,\"function\":\"f\",\"loop_head\":\"N12\",\"repeat_count\":3},"
+                + "{\"node\":2,\"function\":\"f\",\"loop_head\":\"N15\",\"repeat_count\":5}]",
+            "i < n");
+    String cur =
+        ceTrace(
+            "[{\"node\":1,\"function\":\"f\",\"loop_head\":\"N12\",\"repeat_count\":4},"
+                + "{\"node\":3,\"function\":\"f\",\"loop_head\":\"N16\",\"repeat_count\":5}]",
+            "i < n");
+    store.record(1, prev);
+
+    String context =
+        store.buildContext(VGuideOptions.CeHistoryMode.BOUNDED_WITH_DELTA, cur);
+    assertThat(context).doesNotContain("path suffix stable");
+  }
+
+  @Test
+  public void traceOrderPreservedForSuffixComparison() {
+    assertThat(
+            CeHistoryStore.traceSegments(
+                ceTrace(
+                    "[{\"node\":1,\"repeat_count\":3},{\"node\":2,\"repeat_count\":5}]",
+                    "")))
+        .containsExactly("1x3", "2x5")
+        .inOrder();
+  }
+
+  @Test
+  public void unavailableFieldsMarkedInContext() {
+    CeHistoryStore store = new CeHistoryStore();
+    store.record(1, CE_A);
+
+    String context = store.buildContext(VGuideOptions.CeHistoryMode.BOUNDED_WITH_DELTA, CE_B);
+    assertThat(context).contains("unavailable: " + CeHistoryStore.UNAVAILABLE);
+    assertThat(CeHistoryStore.UNAVAILABLE).contains("branch_conditions");
   }
 
   @Test
