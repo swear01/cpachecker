@@ -16,7 +16,7 @@
 |----|------|--------|
 | **Prompt** | `min`–`max` 區間 + **角色分工** + 禁止 padding | 軟性（引導 LLM） |
 | **Parse 後** | 單次 API：`PredicateBudget.capOrdered` 截斷至 `max` | **硬性**（保留陣列順序） |
-| **雙軌合併（v1.4）** | SAFE∪BUG union **不**再 cap | 見 [DUAL_PROMPT_V1_PLAN.md](../analysis/DUAL_PROMPT_V1_PLAN.md) |
+| **雙軌合併（v1.4）** | SAFE∪BUG union **不**再 cap | 見 [archive/docs/vguided-cegar/analysis/DUAL_PROMPT_V1_PLAN.md](archive/docs/vguided-cegar/analysis/DUAL_PROMPT_V1_PLAN.md) |
 | **驗證** | L1 contract + L2 parse；L3 不用（消融整體較差 → 全 `PRECISION_ONLY`） | 硬性 |
 
 ### Prompt 語意
@@ -38,7 +38,7 @@
 
 對照 1.0.0 分析 batch：prompt 4–8、median 7 → 現預設 cap **6**，並用角色引導提品質。
 
-**實驗 config**（non-thinking 主線候選）：`config/vguide-experiment-freq10-n24.properties` — `enableAdaptivePredicateBudget=true`，tiers (4–8)/(6–12)/(8–16)，`llmMaxCompletionTokens=2048`。217 題：**preds/call median 6**，medium tier **9**；見 [reports/2026-06-10_freq10_n24_adaptive_noL3.md](../reports/2026-06-10_freq10_n24_adaptive_noL3.md)。
+**實驗 config**（non-thinking 主線候選）：`config/vguide-experiment-freq10-n24.properties` — `enableAdaptivePredicateBudget=true`，tiers (4–8)/(6–12)/(8–16)，`llmMaxCompletionTokens=2048`。217 題：**preds/call median 6**，medium tier **9**；見 [archive/docs/vguided-cegar/reports/2026-06-10_freq10_n24_adaptive_noL3.md](archive/docs/vguided-cegar/reports/2026-06-10_freq10_n24_adaptive_noL3.md)。
 
 ## 何時調參
 

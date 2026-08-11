@@ -15,8 +15,8 @@
 
 | 文件 | Horizon | Scope |
 |------|---------|-------|
-| [`SVCOMP26_VGUIDE_FULLSET_PLAN.md`](SVCOMP26_VGUIDE_FULLSET_PLAN.md) | v1.5.1（done） | reachability / Loops 上把 LLM 放進 PredicateCPA refinement |
-| [`SVCOMP26_PORTFOLIO_LLM_PLAN.md`](SVCOMP26_PORTFOLIO_LLM_PLAN.md) | v1.5.2+（tactical） | 仍在 reachability，但把 LLM 從 predicate 擴到 portfolio routing / budget / guard / hints（A–G 層） |
+| [`archive/docs/vguided-cegar/SVCOMP26_VGUIDE_FULLSET_PLAN.md`](archive/docs/vguided-cegar/SVCOMP26_VGUIDE_FULLSET_PLAN.md) | v1.5.1（done） | reachability / Loops 上把 LLM 放進 PredicateCPA refinement |
+| [`archive/docs/vguided-cegar/SVCOMP26_PORTFOLIO_LLM_PLAN.md`](archive/docs/vguided-cegar/SVCOMP26_PORTFOLIO_LLM_PLAN.md) | v1.5.2+（tactical） | 仍在 reachability，但把 LLM 從 predicate 擴到 portfolio routing / budget / guard / hints（A–G 層） |
 | **本文件** | v1.6 → v2.0 → exploratory | **跨 property category、跨 CPA domain、跨 task type(TRUE/FALSE)、跨 artifact(witness)、跨時間(offline learning)** |
 
 目的不是現在就做，而是把「LLM 在 CPAchecker 這個 verifier 的可介入面」完整攤開，
@@ -190,8 +190,8 @@ reachability 之所以「不用改 Java」，是因為 LLM→engine 的**注入�
 
 | Branch | 候選 artifact | 繼承 predicate-CEGAR hook？ | Class | 主要成本 |
 |---|---|---|---|---|
-| **Overflow** | bound / range predicate | **是**——其 predicate 元件 `#include predicateAnalysis-PredAbsRefiner-ABEl.properties`，與 reachability vguide **同一個 refiner** | **A ✓ 實證** | config-only（零 Java/prompt）：452 題 **+6 new / 0 lost / 0 wrong**（[report](reports/2026-06-15_svcomp26_overflow_vguide.md)）|
-| Termination（safety-reduction 路）| safety 編碼的 predicate | **否**——引擎是 `TerminationToReachCPA` 非 predicate-CEGAR；強接 CEGAR 仍 **0 refinement**（[probe RED](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）| **B**（probe 已否決）| config 救不回；需 Java hook（同 ranking 路，v2.0）|
+| **Overflow** | bound / range predicate | **是**——其 predicate 元件 `#include predicateAnalysis-PredAbsRefiner-ABEl.properties`，與 reachability vguide **同一個 refiner** | **A ✓ 實證** | config-only（零 Java/prompt）：452 題 **+6 new / 0 lost / 0 wrong**（[report](archive/docs/vguided-cegar/reports/2026-06-15_svcomp26_overflow_vguide.md)）|
+| Termination（safety-reduction 路）| safety 編碼的 predicate | **否**——引擎是 `TerminationToReachCPA` 非 predicate-CEGAR；強接 CEGAR 仍 **0 refinement**（[probe RED](archive/docs/vguided-cegar/SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）| **B**（probe 已否決）| config 救不回；需 Java hook（同 ranking 路，v2.0）|
 | **Termination（lasso 路）** | **ranking function** | 否——`lassoRankerAnalysis`，非 predicate-CEGAR | **B** | **新 sound ranking-function 注入 hook**（最高槓桿）|
 | MemSafety / MemCleanup | memory invariant / aliasing | 否——SMG2 | B | 新 sound memory-invariant 注入 hook |
 | DataRace | （interleaving / reduction 提示）| 否——BDD / sequentialization | C | 無待證候選，只 Tier-R |
@@ -200,12 +200,12 @@ reachability 之所以「不用改 Java」，是因為 LLM→engine 的**注入�
 **(i) 跑同一顆 ABEl predicate-CEGAR refiner 的 branch（Overflow ✓ 已實證）幾乎免費繼承注入點**；
 **(ii) 其餘要各自建一個 sound 注入 hook（Class-B，v2.0）——ranking function、SMG memory，以及 termination-safety**。
 termination-safety 原以為屬 (i)；feasibility probe **RED**：其引擎是 `TerminationToReachCPA`（非 predicate-CEGAR），
-強接 CEGAR 仍 0 refinement、VGuide 無從 fire（見 [probe](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）。
+強接 CEGAR 仍 0 refinement、VGuide 無從 fire（見 [probe](archive/docs/vguided-cegar/SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）。
 **教訓：Class-A 的判準不是「有沒有 PredicateCPA」，而是「predicate-CEGAR 是不是真正的證明引擎」。**
 
 > **v1.6 第一刀（✓ 已實證）**：Overflow Class-A——零 Java、零 prompt 改動，452 題 **+6 new / 0 lost / 0 wrong**，
-> 6 個 new solves 全部 LLM-decided。計劃 [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)、
-> 結果 [`reports/2026-06-15_svcomp26_overflow_vguide.md`](reports/2026-06-15_svcomp26_overflow_vguide.md)。
+> 6 個 new solves 全部 LLM-decided。計劃 [`archive/docs/vguided-cegar/SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](archive/docs/vguided-cegar/SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)、
+> 結果 [`archive/docs/vguided-cegar/reports/2026-06-15_svcomp26_overflow_vguide.md`](archive/docs/vguided-cegar/reports/2026-06-15_svcomp26_overflow_vguide.md)。
 > **泛化命題成立**：predicate-CEGAR hook 可平移到任何跑同一 ABEl refiner 的 branch。
 
 ### 4.3 更正後的進場流程（feasibility-first，不是 baseline-first）
@@ -229,8 +229,8 @@ termination-safety 原以為屬 (i)；feasibility probe **RED**：其引擎是 `
 | Horizon | 主題 | 項目 | 進場 gate |
 |---------|------|------|-----------|
 | **現在：predicate usefulness gate** | precision pollution control | short-peel + multiplicative-candidate filter；fresh targeted 9/9 correct | rule凍結；需held-out/full764後才claim generalization，見 `reports/2026-07-11_predicate_usefulness_gate.md` |
-| **v1.5.2 horizon → ✅(v1.7.0+v1.7.1)** | 收緊 reachability predicate portfolio | **stock-first guard ✅(v1.7.0)+ peel 觸發器① ✅(v1.7.1):764 累積 +22/0 wrong**（482→504,[reports](reports/2026-06-20_reachsafety_peel_trigger.md)）;adaptive budget / SAFE-only 待做;A2 CPU 隔離已評估後砍 | 見 `REACHSAFETY_IMPROVEMENT_PLAN.md` |
-| **v1.6（done/background）** | **跨 branch 泛化 feasibility 研究** | **Overflow Class-A scoped variant（config-only）→ [`SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)**；termination safety-路 probe **RED → Class-B**（[probe](SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）| 已完成/歸類；非現行 execution line |
+| **v1.5.2 horizon → ✅(v1.7.0+v1.7.1)** | 收緊 reachability predicate portfolio | **stock-first guard ✅(v1.7.0)+ peel 觸發器① ✅(v1.7.1):764 累積 +22/0 wrong**（482→504,[reports](archive/docs/vguided-cegar/reports/2026-06-20_reachsafety_peel_trigger.md)）;adaptive budget / SAFE-only 待做;A2 CPU 隔離已評估後砍 | 見 `archive/docs/vguided-cegar/REACHSAFETY_IMPROVEMENT_PLAN.md` |
+| **v1.6（done/background）** | **跨 branch 泛化 feasibility 研究** | **Overflow Class-A scoped variant（config-only）→ [`archive/docs/vguided-cegar/SVCOMP26_OVERFLOW_VGUIDE_PLAN.md`](archive/docs/vguided-cegar/SVCOMP26_OVERFLOW_VGUIDE_PLAN.md)**；termination safety-路 probe **RED → Class-B**（[probe](archive/docs/vguided-cegar/SVCOMP26_TERMINATION_VGUIDE_PROBE.md)）| 已完成/歸類；非現行 execution line |
 | **v2.0（termination hook done/background）** | Class-B sound 注入 hook | Termination lasso ranking-function hook已完成但 ceiling 小；MemSafety hook與 FALSE-task seeding保留 backlog | predicate usefulness gating完成前不執行 |
 | **exploratory** | 跨 corpus 學習 | §3.5 learned dispatcher[R]、跨年 generalization、§3.6 離線/本地模型 | 需 §3.7 harness 成熟、需離線 precompute 管線 |
 

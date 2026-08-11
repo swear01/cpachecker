@@ -2,7 +2,7 @@
 
 **作者**: r14k41044 黃思維  
 **模組**: `VGuideRefinementBridge` + `PredicateProposalClient`  
-**計劃**：[DUAL_PROMPT_V1_PLAN.md](../analysis/DUAL_PROMPT_V1_PLAN.md)
+**計劃**：[archive/docs/vguided-cegar/analysis/DUAL_PROMPT_V1_PLAN.md](archive/docs/vguided-cegar/analysis/DUAL_PROMPT_V1_PLAN.md)
 
 > **預設（v1.4）**：`vguide.dualPromptMode=true`，`llmSamplesPerCall=1` → 每 LLM 輪 **SAFE×1 + BUG×1** = **2** HTTP。  
 > 單次 API 回應內條數由 [PREDICATE_BUDGET.md](PREDICATE_BUDGET.md) / adaptive tier 建議；**合併層不 cap**（兩軌 union 後全送 validate）。

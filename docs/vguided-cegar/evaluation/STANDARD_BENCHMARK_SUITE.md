@@ -135,7 +135,7 @@ Manifest：`docs/vguided-cegar/benchmark_sets/*.list`（`run.sh bench-regen` 重
 ## 離線抽樣 vs CPA 內 LLM
 
 **為何會不一致？** 離線腳本沒有真實 `ContextPack`／SSA 合約／spurious 當下狀態，prompt 與時機都不同。  
-說明全文：**[OFFLINE_SAMPLING.md](../llm/OFFLINE_SAMPLING.md)**
+說明全文：**[archive/docs/vguided-cegar/llm/OFFLINE_SAMPLING.md](archive/docs/vguided-cegar/llm/OFFLINE_SAMPLING.md)**
 
 離線（cheap regression）：
 
@@ -191,5 +191,5 @@ scripts/cpa.sh \
 ## 相關文件
 
 - [LLM_CALL_SCHEDULING.md](../llm/LLM_CALL_SCHEDULING.md) — 排程推導
-- [OFFLINE_SAMPLING.md](../llm/OFFLINE_SAMPLING.md) — 離線 vs CPA
+- [archive/docs/vguided-cegar/llm/OFFLINE_SAMPLING.md](archive/docs/vguided-cegar/llm/OFFLINE_SAMPLING.md) — 離線 vs CPA
 - [FROZEN_PREDICATES.md](FROZEN_PREDICATES.md) — NO_SPURIOUS Exception

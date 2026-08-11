@@ -1,10 +1,10 @@
 # 計劃：VGuide 面向 FALSE（找 bug）的 harness 與 prompt 改進
 
-**狀態**：早期計劃 / TODO — v1.5 已改走 [SV-COMP Loops exploratory evaluation](V1_5_LOOPS_EXPLORATORY_PLAN.md)，FALSE / doomed-region context 暫移 v1.6+；v1.4 雙軌見 [DUAL_PROMPT_V1_PLAN.md](DUAL_PROMPT_V1_PLAN.md)（已實作）
+**狀態**：早期計劃 / TODO — v1.5 已改走 [SV-COMP Loops exploratory evaluation](archive/docs/vguided-cegar/analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md)，FALSE / doomed-region context 暫移 v1.6+；v1.4 雙軌見 [archive/docs/vguided-cegar/analysis/DUAL_PROMPT_V1_PLAN.md](archive/docs/vguided-cegar/analysis/DUAL_PROMPT_V1_PLAN.md)（已實作）
 **動機**：v1.3.0 相對 stock **rescued 35 題全為 TRUE**；**0 題** stock UNKNOWN → adaptive FALSE。在 expected-false 子集上 adaptive 還多 **4 題錯誤 TRUE**（如 `bin-suffix-5`, `odd` 等，依 yml 對照）。
 **目標**：在 **不大幅犧牲 TRUE rescued** 的前提下，提高 **FALSE 發現率**、降低 **false benchmark 上的錯誤 TRUE**。
 
-**相關**：[CE_CONTEXT_PROMPT_PLAN.md](CE_CONTEXT_PROMPT_PLAN.md)（CE 摘要，可合併 Phase 1）、[case_studies/const_1-2.md](case_studies/const_1-2.md)
+**相關**：[archive/docs/vguided-cegar/analysis/CE_CONTEXT_PROMPT_PLAN.md](archive/docs/vguided-cegar/analysis/CE_CONTEXT_PROMPT_PLAN.md)（CE 摘要，可合併 Phase 1）、[case_studies/const_1-2.md](case_studies/const_1-2.md)
 
 ---
 
@@ -218,7 +218,7 @@ export VGUIDE_LLM_THINKING=disabled
 ### Phase 2 — CE 摘要 + dumper（**1 天**，可與 Phase 1 並行）
 
 - [ ] `CeSummaryBuilder`（從 `ContextPackBuilder.summarizeTrace` 擴充 + interpolants）
-- [ ] 合併 [CE_CONTEXT_PROMPT_PLAN.md](CE_CONTEXT_PROMPT_PLAN.md)
+- [ ] 合併 [archive/docs/vguided-cegar/analysis/CE_CONTEXT_PROMPT_PLAN.md](archive/docs/vguided-cegar/analysis/CE_CONTEXT_PROMPT_PLAN.md)
 - [ ] `regression_false_unknown` smoke（25 題）
 
 ### Phase 3 — BUG 專用排程 + config（**0.5 天**）
@@ -264,7 +264,7 @@ export VGUIDE_LLM_THINKING=disabled
 
 ## 10. v1.6+ TODO：原 v1.5 FALSE Context 工程（整塊移入）
 
-> **狀態更新（2026-06-11）：** 以下內容為 **FALSE / bug-finding future work**（v1.6+），不屬 v1.5。v1.5 見 [V1_5_LOOPS_EXPLORATORY_PLAN.md](V1_5_LOOPS_EXPLORATORY_PLAN.md)。
+> **狀態更新（2026-06-11）：** 以下內容為 **FALSE / bug-finding future work**（v1.6+），不屬 v1.5。v1.5 見 [archive/docs/vguided-cegar/analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md](archive/docs/vguided-cegar/analysis/V1_5_LOOPS_EXPLORATORY_PLAN.md)。
 
 ### 10.0 目標一句話
 

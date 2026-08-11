@@ -288,7 +288,7 @@ export VGUIDE_LLM_THINKING=disabled
 
 # v1.4（已跑 20260610）：dual + ce_summary — 155 solved，FALSE 目標未達
 # export VGUIDE_CONFIG=config/vguide-experiment-dual-prompt-v1.properties
-# 報告：docs/vguided-cegar/reports/2026-06-10_dual_prompt_v1_noL3.md
+# 報告：docs/vguided-cegar/archive/docs/vguided-cegar/reports/2026-06-10_dual_prompt_v1_noL3.md
 
 # 下一版 freq20/n12（未含 dual，待跑）
 export VGUIDE_CONFIG=config/vguide-experiment-freq20-n12.properties
@@ -319,7 +319,7 @@ bash -ic '
 
 - `VGuide LLM model:`、`VGuide LLM round`、`VGuide predicate` 行
 
-與離線 `test_llm_proposal_quality.py` 的差異見 [OFFLINE_SAMPLING.md](llm/OFFLINE_SAMPLING.md)。
+與離線 `test_llm_proposal_quality.py` 的差異見 [archive/docs/vguided-cegar/llm/OFFLINE_SAMPLING.md](archive/docs/vguided-cegar/archive/docs/vguided-cegar/llm/OFFLINE_SAMPLING.md)。
 
 ---
 
@@ -384,7 +384,7 @@ Legacy：`compare_official_reference.py --baseline fmpa2` 僅歷史對照，不�
 
 ## v1.5 Loops broad-set completed runs（2026-06-13）
 
-Dataset：`loops_reachsafety_unreach`（764 entries from official SV-COMP `Loops.set` with `unreach-call.prp`）。v1.5 三組結果見 [reports/2026-06-13_v1.5_loops_reachsafety_unreach.md](reports/2026-06-13_v1.5_loops_reachsafety_unreach.md)；svcomp26-vguide v1.5.1 結果見 [reports/2026-06-14_svcomp26_vguide_loops.md](reports/2026-06-14_svcomp26_vguide_loops.md)。
+Dataset：`loops_reachsafety_unreach`（764 entries from official SV-COMP `Loops.set` with `unreach-call.prp`）。v1.5 三組結果見 [archive/docs/vguided-cegar/reports/2026-06-13_v1.5_loops_reachsafety_unreach.md](archive/docs/vguided-cegar/reports/2026-06-13_v1.5_loops_reachsafety_unreach.md)；svcomp26-vguide v1.5.1 結果見 [archive/docs/vguided-cegar/reports/2026-06-14_svcomp26_vguide_loops.md](archive/docs/vguided-cegar/reports/2026-06-14_svcomp26_vguide_loops.md)。
 
 | Mode | Output | Result |
 |------|--------|--------|

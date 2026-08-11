@@ -134,3 +134,4 @@ slides/**/*.vrb
 
 # VGuide artifact bundle (large; distributed via Zenodo)
 /vguide-artifact.zip
+vguide-artifact-v2.zip
