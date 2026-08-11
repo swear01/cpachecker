@@ -18,6 +18,16 @@
   suite baseline with the gate: 0 crashed classes, vguide tests green; the remaining
   per-solver test failures (symbol handling / BigInteger) are upstream solver-behavior issues,
   not environment crashes.
+- **Formal-run CPU isolation is mandatory (Baseline-Protocol, since 2026-08-11).**
+  Any timing-sensitive experiment (baselines, core-only 224, future ablation runs) must pin
+  CPA invocations with `taskset -c 0,2,4,6,8,10,12,14` (8 physical P-cores, no SMT sibling,
+  no E-core), refuse to start when the P-core pool is busy (mpstat ≥50% or concurrent local
+  processes), record `cpu_isolation`/`load_check` in run_meta.json, and pick the machine via
+  the fleet availability monitor (valkyrie/athena/cthulhu, idle_ready; 13900K/14900K P-cores
+  are comparable and mixable). `run_core_only.sh` implements this. Contaminated runs are
+  invalid for timing claims. Full text: `docs/EXPERIMENT_PROTOCOL.md` (branch
+  `research/vguide-upstream-reimpl`). The 2026-08-11 stock+augmented 224 runs predate this
+  and are a rough usefulness check only.
 - **LLM soundness constraint.** VGuide must only propose candidates (Tier S) or control resources/routing (Tier R). Never let LLM output be used as a direct verdict or unverified assumption (Tier X = forbidden).
 - **Loop-head candidate contract (Issue #4, since 2026-08-10).** The LLM output contract is `loop-head-candidate-v1`: every candidate must name its loop head(s). Legacy `{"predicates":[...]}` responses are rejected per item as `missing_loop_head` — do NOT re-introduce implicit broadcast. Free variables must be visible at the named head (encoded vocabulary + function scope). `over_specific`/`group_conflict` are advisory diagnostics; `group_conflict` is computed only when `vguide.enableL3Entailment=true`. Dump schema is 5 (`candidate_rejections`).
 - **Termination branch is Class-B.** The `termination.config` path uses `TerminationToReachCPA`, not PredicateCPA. VGuide cannot fire there without a new Java ranking-function hook. Do not attempt Class-A config tricks for termination.
