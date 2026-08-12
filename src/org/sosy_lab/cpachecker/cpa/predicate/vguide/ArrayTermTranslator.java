@@ -131,9 +131,13 @@ final class ArrayTermTranslator {
       } catch (Exception e) {
         continue;
       }
-      collectTemplates(text, found);
-      collectDeclaredVariables(text, bits);
-      collectDeclaredArrays(text, arrayBits);
+      try {
+        collectTemplates(text, found);
+        collectDeclaredVariables(text, bits);
+        collectDeclaredArrays(text, arrayBits);
+      } catch (RuntimeException e) {
+        // Malformed dumped formula — skip this block rather than crashing.
+      }
     }
     return new ArrayTermTranslator(
         ImmutableMap.copyOf(found), ImmutableMap.copyOf(bits), ImmutableMap.copyOf(arrayBits));
@@ -326,6 +330,7 @@ final class ArrayTermTranslator {
       return Optional.empty();
     }
     Node idxNode = unwrapExtract(resolve(shiftNode.children.get(1), defs));
+    idxNode = resolve(idxNode, defs); // the unwrapped argument may itself be a let-def
     if (!idxNode.isAtom()) {
       return Optional.empty();
     }
@@ -496,6 +501,8 @@ final class ArrayTermTranslator {
           && children.get(0).atom.equals(op);
     }
 
+    private static final int MAX_PARSE_DEPTH = 512;
+
     static Node parse(String text) {
       List<Node> all = parseAll(text);
       return all.isEmpty() ? null : all.get(0);
@@ -514,7 +521,7 @@ final class ArrayTermTranslator {
           pos[0]++;
           continue;
         }
-        Node n = parseNode(text, pos);
+        Node n = parseNode(text, pos, 0);
         if (n == null) {
           break;
         }
@@ -523,7 +530,10 @@ final class ArrayTermTranslator {
       return out;
     }
 
-    private static Node parseNode(String text, int[] pos) {
+    private static Node parseNode(String text, int[] pos, int depth) {
+      if (depth > MAX_PARSE_DEPTH) {
+        return null; // pathologically nested input — treat as unparsable
+      }
       skipWs(text, pos);
       if (pos[0] >= text.length()) {
         return null;
@@ -560,7 +570,7 @@ final class ArrayTermTranslator {
           pos[0]++;
           return new Node(null, children);
         }
-        Node child = parseNode(text, pos);
+        Node child = parseNode(text, pos, depth + 1);
         if (child == null) {
           return null;
         }
