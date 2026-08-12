@@ -212,7 +212,7 @@ public final class PredicateValidationPipeline {
           }
           try {
             headParsed = fmgr.instantiate(headParsed, headSsa);
-          } catch (IllegalArgumentException e) {
+          } catch (RuntimeException e) {
             rejections.add(
                 new CandidateRejection(
                     candidate.toString(),
