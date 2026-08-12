@@ -60,7 +60,7 @@ final class ArrayTermTranslator {
   }
 
   private static final Pattern ARRAY_ACCESS =
-      Pattern.compile("\\(([A-Za-z_]\\w*)\\s+([A-Za-z_]\\w*)\\)");
+      Pattern.compile("\\(\\s*([A-Za-z_]\\w*)\\s+([A-Za-z_]\\w*)\\s*\\)");
 
   /** SMT-LIB keywords/operators that must never be treated as bare identifiers. */
   private static final Set<String> SMT_KEYWORDS =

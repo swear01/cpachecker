@@ -397,7 +397,7 @@ public class VocabularyGuide {
       return parseBvSexp(token, fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
     }
     if (token.matches("-?\\d+")) {
-      return bvmgr.makeBitvector(32, Long.parseLong(token));
+      return bvmgr.makeBitvector(32, new java.math.BigInteger(token));
     }
     String encoded = resolveVariableName(token, encodedVariableNames);
     int bits = varBits.getOrDefault(unversioned(encoded), 32);
@@ -468,7 +468,8 @@ public class VocabularyGuide {
       case "mod" -> {
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        yield (left != null && right != null) ? bvmgr.remainder(left, right, false) : null;
+        BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
+        yield aligned != null ? bvmgr.remainder(aligned[0], aligned[1], false) : null;
       }
       case "bvadd" -> parseBvSexp("(+ " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "bvmul" -> parseBvSexp("(* " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
