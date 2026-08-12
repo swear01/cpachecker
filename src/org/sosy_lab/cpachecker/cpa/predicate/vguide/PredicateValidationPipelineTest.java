@@ -398,28 +398,27 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
   }
 
   @Test
-  public void bitWidthMismatchCandidateRejectedAsParseError() {
+  public void mixedWidthCandidateValidatesWithSignExtension() {
     makeHeads();
     // x is a 32-bit variable in the encoded vocabulary.
     BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
         new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
 
-    // A 64-bit constant against a 32-bit variable is a sort mismatch -> parse error.
+    // A 64-bit constant against a 32-bit variable is aligned by sign-extension
+    // (C integer promotion), so the candidate validates instead of being rejected.
     var outcome =
         pipeline.validateCandidates(
             pack(ENCODED_F1_X, block),
             ImmutableList.of(candidate(headA.label(), "(bvsge x (_ bv0 64))")),
             trace(headA.node()));
 
-    assertThat(outcome.validation().validated()).isEmpty();
-    assertThat(outcome.rejections()).hasSize(1);
-    assertThat(outcome.rejections().get(0).reason())
-        .isEqualTo(PredicateValidationPipeline.REASON_PARSE_ERROR);
+    assertThat(outcome.validation().validated()).hasSize(1);
+    assertThat(outcome.rejections()).isEmpty();
   }
 
   @Test
-  public void sameNameDifferentBitWidthCandidatesAreDistinct() {
+  public void sameNameDifferentBitWidthCandidatesBothValidate() {
     makeHeads();
     BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
@@ -433,11 +432,10 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
                 candidate(headA.label(), "(bvsge x (_ bv0 64))")),
             trace(headA.node()));
 
-    // The 32-bit candidate validates; the 64-bit one is rejected as a sort mismatch.
+    // Both candidates validate; the 64-bit constant is sign-extended to match x,
+    // which makes the two formulas identical and deduplicated into one entry.
     assertThat(outcome.validation().validated()).hasSize(1);
-    assertThat(outcome.rejections()).hasSize(1);
-    assertThat(outcome.rejections().get(0).reason())
-        .isEqualTo(PredicateValidationPipeline.REASON_PARSE_ERROR);
+    assertThat(outcome.rejections()).isEmpty();
   }
 
   @Test

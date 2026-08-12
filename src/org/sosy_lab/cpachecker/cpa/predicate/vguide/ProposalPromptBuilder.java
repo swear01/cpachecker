@@ -192,7 +192,7 @@ public final class ProposalPromptBuilder {
         + rejectedPredicates
         + "\n"
         + hint
-        + "Regenerate JSON only. Remove array subscripts, internal SSA names, select/store.\n";
+        + "Regenerate JSON only. Keep array reads in the (c i) form; do not write select/store or SSA names.\n";
   }
 
   private static String syntaxRules() {
@@ -202,7 +202,8 @@ public final class ProposalPromptBuilder {
       - SMT-LIB2 prefix notation; each predicate must start with '('.
       - Prefer bitvector ops for 32-bit ints: bvsge, bvslt, bvsle, bvsgt, bvadd, bvsub, = .
       - Do NOT use: |main::...|, @suffix, .def_N, select, store, quantifiers, bvshl/lshr/ashr.
-      - Do NOT use C syntax: A[i], *p, struct fields.
+      - Arrays: write element reads as (c i) with array names from the contract (c[i] in C);
+        do NOT use C syntax A[i], and never write select/store or @versions yourself.
       """;
   }
 
@@ -282,7 +283,8 @@ public final class ProposalPromptBuilder {
             (bvsge i (_ bv0 32))
             (bvsle i (_ bv1024 32))
             (bvslt i (_ bv1024 32))
-          NEVER output: (= A[i] 0) or any predicate mentioning array names.
+          Array reads ARE allowed as (c i) — e.g. (= (a i) (bvadd (bvmul i (_ bv2 32)) (_ bv1 32)));
+          the system translates them. Never write A[i] C syntax.
           """;
     }
     if (assertion.contains("i") && assertion.contains("j")) {

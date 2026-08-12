@@ -28,9 +28,11 @@ public class PredicateContractValidatorTest {
   }
 
   @Test
-  public void rejectsSelectStore() {
-    assertThat(PredicateContractValidator.isValid("(select a i)")).isFalse();
-    assertThat(PredicateContractValidator.isValid("(store a i v)")).isFalse();
+  public void allowsSelectStoreForTranslator() {
+    // Issue #60: select/store are allowed at the contract level; the ArrayTermTranslator
+    // owns the (c i) -> select translation and the parser types the heap variable.
+    assertThat(PredicateContractValidator.isValid("(select a i)")).isTrue();
+    assertThat(PredicateContractValidator.isValid("(store a i v)")).isTrue();
   }
 
   @Test
