@@ -91,13 +91,14 @@ final class ArrayTermTranslator {
     this.templates = templates;
     this.varBits = varBits;
     this.arrayIndexBits = arrayIndexBits;
+    Set<String> seenKeys = new HashSet<>();
     List<String> keys = new ArrayList<>();
     for (String encoded : varBits.keySet()) {
       if (encoded.isEmpty()) {
         continue;
       }
       String bare = encoded.contains("::") ? encoded.substring(encoded.lastIndexOf("::") + 2) : encoded;
-      if (!bare.isEmpty() && !SMT_KEYWORDS.contains(bare) && !keys.contains(bare)) {
+      if (!bare.isEmpty() && !SMT_KEYWORDS.contains(bare) && seenKeys.add(bare)) {
         keys.add(bare);
       }
     }

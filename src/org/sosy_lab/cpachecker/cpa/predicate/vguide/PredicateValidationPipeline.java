@@ -349,6 +349,10 @@ public final class PredicateValidationPipeline {
     if (at >= 0) {
       bare = bare.substring(0, at);
     }
+    if (bare.startsWith("*")) {
+      // Heap arrays are global symbols of the encoding, not function-scoped.
+      return true;
+    }
     String barePrefix = bare + "@";
     boolean known =
         encodedVars.contains(varName)
