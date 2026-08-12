@@ -60,16 +60,28 @@ final class ArrayTermTranslator {
   private static final Pattern ARRAY_ACCESS =
       Pattern.compile("\\(([A-Za-z_]\\w*)\\s+([A-Za-z_]\\w*)\\)");
   private static final Pattern DECLARE_BV =
-      Pattern.compile("\\(declare-fun ([^ ]+) \\(\\) \\(_ BitVec (\\d+)\\)\\)");
+      Pattern.compile("\\(declare-fun\\s+([^ )]+)\\s+\\(\\)\\s+\\(_ BitVec\\s+(\\d+)\\)\\)");
 
+  private static final Pattern DECLARE_ARRAY =
+      Pattern.compile(
+          "\\(declare-fun\\s+([^ )]+)\\s+\\(\\)\\s+\\(Array \\(_ BitVec\\s+(\\d+)\\) \\(_ BitVec\\s+(\\d+)\\)\\)");
   private final ImmutableMap<String, AccessTemplate> templates; // source array name -> template
   private final ImmutableMap<String, Integer> varBits; // "main::i" -> 64 (unversioned)
+  private final ImmutableMap<String, Integer> arrayIndexBits; // heap -> declared index width
   private final Pattern bareIdentifierPattern; // precompiled alternation of bare names
 
   ArrayTermTranslator(
       ImmutableMap<String, AccessTemplate> templates, ImmutableMap<String, Integer> varBits) {
+    this(templates, varBits, ImmutableMap.of());
+  }
+
+  ArrayTermTranslator(
+      ImmutableMap<String, AccessTemplate> templates,
+      ImmutableMap<String, Integer> varBits,
+      ImmutableMap<String, Integer> arrayIndexBits) {
     this.templates = templates;
     this.varBits = varBits;
+    this.arrayIndexBits = arrayIndexBits;
     List<String> keys = new ArrayList<>(varBits.keySet());
     keys.removeIf(k -> k.contains("::") || k.isEmpty());
     keys.sort((a, b) -> Integer.compare(b.length(), a.length()));
@@ -93,6 +105,7 @@ final class ArrayTermTranslator {
   static ArrayTermTranslator extract(BlockFormulas blockFormulas, FormulaManagerView fmgr) {
     Map<String, AccessTemplate> found = new LinkedHashMap<>();
     Map<String, Integer> bits = new LinkedHashMap<>();
+    Map<String, Integer> arrayBits = new LinkedHashMap<>();
     for (BooleanFormula f : blockFormulas.getFormulas()) {
       String text;
       try {
@@ -102,8 +115,19 @@ final class ArrayTermTranslator {
       }
       collectTemplates(text, found);
       collectDeclaredVariables(text, bits);
+      collectDeclaredArrays(text, arrayBits);
     }
-    return new ArrayTermTranslator(ImmutableMap.copyOf(found), ImmutableMap.copyOf(bits));
+    return new ArrayTermTranslator(
+        ImmutableMap.copyOf(found), ImmutableMap.copyOf(bits), ImmutableMap.copyOf(arrayBits));
+  }
+
+  /** Collects declared heap arrays (name -> index bitwidth) from a dumped formula. */
+  static void collectDeclaredArrays(String text, Map<String, Integer> arrayIndexBits) {
+    Matcher m = DECLARE_ARRAY.matcher(text);
+    while (m.find()) {
+      String heapName = unversion(m.group(1));
+      arrayIndexBits.putIfAbsent(heapName, Integer.parseInt(m.group(2)));
+    }
   }
 
   /** Collects access templates from a dumped-formula text (package-visible for tests). */
@@ -229,7 +253,12 @@ final class ArrayTermTranslator {
   Map<String, FormulaType<?>> arrayTypes() {
     Map<String, FormulaType<?>> types = new LinkedHashMap<>();
     for (AccessTemplate t : templates.values()) {
-      types.put(t.heapVar(), t.arrayType());
+      int idxBits = arrayIndexBits.getOrDefault(t.heapVar(), 32);
+      types.put(
+          t.heapVar(),
+          FormulaType.getArrayType(
+              FormulaType.getBitvectorTypeWithSize(idxBits),
+              FormulaType.getBitvectorTypeWithSize(t.elementBits())));
     }
     return types;
   }
@@ -457,10 +486,19 @@ final class ArrayTermTranslator {
       }
       if (text.charAt(pos[0]) != '(') {
         int start = pos[0];
-        while (pos[0] < text.length()
-            && !Character.isWhitespace(text.charAt(pos[0]))
-            && text.charAt(pos[0]) != ')') {
+        if (text.charAt(pos[0]) == '|') {
+          // SMT-LIB quoted symbol: |foo bar| — may contain whitespace.
           pos[0]++;
+          while (pos[0] < text.length() && text.charAt(pos[0]) != '|') {
+            pos[0]++;
+          }
+          pos[0]++;
+        } else {
+          while (pos[0] < text.length()
+              && !Character.isWhitespace(text.charAt(pos[0]))
+              && text.charAt(pos[0]) != ')') {
+            pos[0]++;
+          }
         }
         return new Node(text.substring(start, pos[0]), null);
       }

@@ -455,7 +455,7 @@ public class VocabularyGuide {
         if (args.size() == 2 && args.get(0).startsWith("bv")) {
           try {
             int width = Integer.parseInt(args.get(1));
-            yield bvmgr.makeBitvector(width, Long.parseLong(args.get(0).substring(2)));
+            yield bvmgr.makeBitvector(width, new java.math.BigInteger(args.get(0).substring(2)));
           } catch (NumberFormatException e) {
             yield null;
           }
