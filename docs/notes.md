@@ -61,3 +61,12 @@
 - **DeepSeek V4 (non-thinking) as primary model.** Thinking mode not used in production path; see `llm/LLM_API.md` for rationale.
 - **L3 not used (noL3).** Validation is L1+L2 only (`vguide.enableL3Entailment=false`). A 2026-06-07 `full_scalar` ablation showed L3-on worse overall (fewer solves, higher PAR-2); all mainline evals since then keep L3 off.
 - **Overflow prompt is neutral.** The reachability prompt actively discourages the bound predicates that overflow needs. A dedicated overflow-aware prompt is the main lever for v1.6.1 improvement (P1), not config tweaks.
+- **Fleet machines: never trust incremental `ant build` after syncing code.** NFS
+  mtime skew makes ant's up-to-date checks unreliable — a stale `classes/` (from a
+  previous agent's build of different source) silently survives and crashes at
+  runtime with `NoSuchMethodError`. Always `ant clean` before `ant build` when the
+  code changes on a fleet machine. A full build takes ~1m30s; anything much faster
+  means nothing was recompiled. Output goes to `~/cpachecker/classes/` (the
+  `bin/cpachecker` launcher classpath), not `build/classes`. Symptom seen
+  2026-08-12: augmented arm crashed 167/224 with
+  `NoSuchMethodError: VGuideOptions.isShadowPredicateUtilityGateEnabled()`.
