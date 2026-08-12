@@ -201,17 +201,21 @@ final class ArrayTermTranslator {
       out.append(t.heapVar());
       out.append(" (bvadd ").append(t.addrVar());
       out.append(" (bvshl ");
-      if (t.extractMsb() >= 0) {
+      // The index comes from the CANDIDATE predicate (m.group(2)), scoped to the
+      // active function; the template's index variable is only used for the
+      // narrowing bounds and as a fallback (review #62).
+      String candidateIdx = scopePrefix(t.idxVar()) + m.group(2);
+      if (t.extractMsb() >= 0 && varBits.getOrDefault(candidateIdx, 32) > t.extractMsb()) {
         // Mirror the CEGAR encoding: narrow the index exactly as the trace does.
         out.append("((_ extract ")
             .append(t.extractMsb())
             .append(" ")
             .append(t.extractLsb())
             .append(") ")
-            .append(t.idxVar())
+            .append(candidateIdx)
             .append(")");
       } else {
-        out.append(t.idxVar());
+        out.append(candidateIdx);
       }
       out.append(" (_ bv")
           .append(t.shiftBits())
@@ -392,6 +396,11 @@ final class ArrayTermTranslator {
     }
     int at = name.lastIndexOf('@');
     return at < 0 ? name : name.substring(0, at);
+  }
+
+  private static String scopePrefix(String unversionedName) {
+    int scope = unversionedName.lastIndexOf("::");
+    return scope < 0 ? "" : unversionedName.substring(0, scope + 2);
   }
 
   private static String sourceNameOf(String unversionedName) {

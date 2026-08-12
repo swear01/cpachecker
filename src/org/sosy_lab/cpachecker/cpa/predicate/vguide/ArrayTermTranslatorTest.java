@@ -109,6 +109,25 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
   }
 
   @Test
+  public void usesCandidateIndexVariableNotTemplateIndex() {
+    Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
+    Map<String, Integer> bits = new LinkedHashMap<>();
+    ArrayTermTranslator.collectDeclaredVariables(IFCOMP_SHAPED_DUMP, bits);
+    bits.put("main::j", 64);
+    ArrayTermTranslator translator =
+        new ArrayTermTranslator(
+            com.google.common.collect.ImmutableMap.copyOf(found),
+            com.google.common.collect.ImmutableMap.copyOf(bits));
+    // The LLM uses j as the index; the select must use main::j, not the
+    // template's main::i (review #62).
+    String out = translator.translate("(= (c j) (bvmul j j))", "main");
+    assertThat(out)
+        .isEqualTo(
+            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::j) (_ bv3 32))))"
+                + " (bvmul main::j main::j))");
+  }
+
+  @Test
   public void translatedSelectParsesWithSolver() throws Exception {
     Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
     Map<String, Integer> bits = new LinkedHashMap<>();
