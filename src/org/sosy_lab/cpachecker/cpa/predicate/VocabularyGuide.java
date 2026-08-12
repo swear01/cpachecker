@@ -268,12 +268,14 @@ public class VocabularyGuide {
       if (result != null) {
         try {
           fmgr.getBooleanFormulaManager().isTrue(result);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
           return null;
         }
       }
       return result;
-    } catch (Exception e) {
+    } catch (Throwable e) {
+      // Sort-mismatched theories can raise Errors (e.g. AssertionFailedError) on
+      // mixed-width comparisons; any failure means "not parseable".
       return null;
     }
   }
@@ -448,9 +450,14 @@ public class VocabularyGuide {
       case "bvurem" -> parseBvSexp("(mod " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "bvneg" -> parseBvSexp("(- 0 " + args.get(0) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "_" -> {
-        if (args.size() == 2 && args.get(0).startsWith("bv") && args.get(1).equals("32")) {
-          String val = args.get(0).substring(2);
-          yield bvmgr.makeBitvector(32, Long.parseLong(val));
+        // (_ bvK W): bitvector constant with the declared width.
+        if (args.size() == 2 && args.get(0).startsWith("bv")) {
+          try {
+            int width = Integer.parseInt(args.get(1));
+            yield bvmgr.makeBitvector(width, Long.parseLong(args.get(0).substring(2)));
+          } catch (NumberFormatException e) {
+            yield null;
+          }
         }
         yield null;
       }

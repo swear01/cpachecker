@@ -172,7 +172,11 @@ public final class PredicateValidationPipeline {
               arrayTranslator.translate(candidate.predicate(), head.node().getFunctionName());
           headParsed =
               VocabularyGuide.parsePredicate(
-                  translated, fmgr, pack.encodedVars(), arrayTranslator.arrayTypes());
+                  translated,
+                  fmgr,
+                  pack.encodedVars(),
+                  arrayTranslator.arrayTypes(),
+                  arrayTranslator.varBits());
           if (headParsed == null) {
             rejections.add(
                 new CandidateRejection(
