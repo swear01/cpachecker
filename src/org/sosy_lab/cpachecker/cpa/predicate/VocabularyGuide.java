@@ -273,9 +273,10 @@ public class VocabularyGuide {
         }
       }
       return result;
-    } catch (Throwable e) {
-      // Sort-mismatched theories can raise Errors (e.g. AssertionFailedError) on
-      // mixed-width comparisons; any failure means "not parseable".
+    } catch (Exception | AssertionError e) {
+      // Sort-mismatched theories can raise AssertionError (e.g. AssertionFailedError)
+      // on mixed-width comparisons; any failure means "not parseable". JVM-level
+      // errors (OOM etc.) are intentionally not caught.
       return null;
     }
   }
@@ -397,7 +398,7 @@ public class VocabularyGuide {
   }
 
   private static String unversioned(String name) {
-    if (name.startsWith("|") && name.endsWith("|")) {
+    if (name.length() >= 2 && name.startsWith("|") && name.endsWith("|")) {
       name = name.substring(1, name.length() - 1);
     }
     int at = name.lastIndexOf('@');

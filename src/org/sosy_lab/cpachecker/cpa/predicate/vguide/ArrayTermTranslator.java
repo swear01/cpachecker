@@ -41,6 +41,9 @@ final class ArrayTermTranslator {
       String addrVar, // unversioned address var, e.g. "main::c"
       String idxVar, // unversioned index var, e.g. "main::i"
       int shiftBits, // shift amount of the bvshl (log2 of byte size)
+      int extractMsb, // index narrowing as seen in the trace (-1 = no narrowing)
+      int extractLsb,
+      int shiftConstBits, // width of the shift constant as seen in the trace
       FormulaType<?> arrayType) {
 
     /** Element size in bits (byte-addressed heaps: bits = (1 << shift) * 8). */
@@ -257,16 +260,75 @@ final class ArrayTermTranslator {
       return Optional.empty();
     }
     String idxName = unversion(idxNode.atom);
+    int extractMsb = -1;
+    int extractLsb = 0;
+    ExtractInfo narrowed = unwrapExtractInfo(shiftNode.children.get(1), defs);
+    if (narrowed != null) {
+      extractMsb = narrowed.extractMsb();
+      extractLsb = narrowed.extractLsb();
+    }
+    Integer shiftConstWidth = bvConstantWidth(shiftNode.children.get(2));
     FormulaType<?> arrayType =
         FormulaType.getArrayType(
             FormulaType.getBitvectorTypeWithSize(32),
             FormulaType.getBitvectorTypeWithSize((1 << shift) * 8));
-    return Optional.of(new AccessTemplate(heapName, addrName, idxName, shift, arrayType));
+    return Optional.of(
+        new AccessTemplate(
+            heapName,
+            addrName,
+            idxName,
+            shift,
+            extractMsb,
+            extractLsb,
+            shiftConstWidth == null ? 32 : shiftConstWidth,
+            arrayType));
+  }
+
+  /** Returns the extract bounds when {@code n} is an extract wrapper, else null. */
+  private static ExtractInfo unwrapExtractInfo(Node n, Map<String, Node> defs) {
+    Node cur = resolve(n, defs);
+    if (cur.isList("_") && cur.children.size() >= 4 && cur.children.get(1).isAtom()
+        && cur.children.get(1).atom.equals("extract")) {
+      try {
+        return new ExtractInfo(
+            Integer.parseInt(cur.children.get(2).atom), Integer.parseInt(cur.children.get(3).atom));
+      } catch (NumberFormatException e) {
+        return null;
+      }
+    }
+    if (cur.children != null
+        && cur.children.size() >= 2
+        && cur.children.get(0).isList("_")
+        && cur.children.get(0).children.size() >= 4
+        && cur.children.get(0).children.get(1).isAtom()
+        && cur.children.get(0).children.get(1).atom.equals("extract")) {
+      try {
+        return new ExtractInfo(
+            Integer.parseInt(cur.children.get(0).children.get(2).atom),
+            Integer.parseInt(cur.children.get(0).children.get(3).atom));
+      } catch (NumberFormatException e) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private record ExtractInfo(int extractMsb, int extractLsb) {}
+
+  private static Integer bvConstantWidth(Node n) {
+    if (n.isList("_") && n.children.size() >= 3 && n.children.get(2).isAtom()) {
+      try {
+        return Integer.parseInt(n.children.get(2).atom);
+      } catch (NumberFormatException e) {
+        return null;
+      }
+    }
+    return null;
   }
 
   private static String unversion(String name) {
     // Dump text escapes symbols as |name@N|; the solver's own symbols are bar-less.
-    if (name.startsWith("|") && name.endsWith("|")) {
+    if (name.length() >= 2 && name.startsWith("|") && name.endsWith("|")) {
       name = name.substring(1, name.length() - 1);
     }
     int at = name.lastIndexOf('@');
@@ -275,7 +337,7 @@ final class ArrayTermTranslator {
 
   private static String sourceNameOf(String unversionedName) {
     String name = unversionedName;
-    if (name.startsWith("|") && name.endsWith("|")) {
+    if (name.length() >= 2 && name.startsWith("|") && name.endsWith("|")) {
       name = name.substring(1, name.length() - 1);
     }
     int scope = name.lastIndexOf("::");
