@@ -14,7 +14,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
@@ -406,16 +408,16 @@ final class ArrayTermTranslator {
 
   private static Node resolve(Node n, Map<String, Node> defs) {
     Node cur = n;
-    for (int i = 0; i < 16; i++) {
-      if (cur.isAtom() && cur.atom.startsWith(".def_")) {
-        Node next = defs.get(cur.atom);
-        if (next == null) {
-          return cur;
-        }
-        cur = next;
-      } else {
+    Set<String> seen = new HashSet<>();
+    while (cur.isAtom() && cur.atom.startsWith(".def_")) {
+      if (!seen.add(cur.atom)) {
+        return cur; // cycle in let-defs — resolve no further
+      }
+      Node next = defs.get(cur.atom);
+      if (next == null) {
         return cur;
       }
+      cur = next;
     }
     return cur;
   }
