@@ -214,9 +214,10 @@ final class ArrayTermTranslator {
       out.append(" (bvadd ").append(t.addrVar());
       out.append(" (bvshl ");
       // The index comes from the CANDIDATE predicate (m.group(2)), scoped to the
-      // active function; the template's index variable is only used for the
-      // narrowing bounds and as a fallback (review #62).
-      String candidateIdx = scopePrefix(t.idxVar()) + m.group(2);
+      // ACTIVE function (the template may come from a different function); the
+      // template's index variable is only used for the narrowing bounds and as a
+      // fallback (review #62).
+      String candidateIdx = functionName + "::" + m.group(2);
       if (!varBits.containsKey(candidateIdx) && varBits.containsKey(m.group(2))) {
         // The index names a global (unscoped) variable.
         candidateIdx = m.group(2);
@@ -413,11 +414,6 @@ final class ArrayTermTranslator {
     }
     int at = name.lastIndexOf('@');
     return at < 0 ? name : name.substring(0, at);
-  }
-
-  private static String scopePrefix(String unversionedName) {
-    int scope = unversionedName.lastIndexOf("::");
-    return scope < 0 ? "" : unversionedName.substring(0, scope + 2);
   }
 
   private static String sourceNameOf(String unversionedName) {
