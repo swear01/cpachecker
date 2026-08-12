@@ -82,8 +82,16 @@ final class ArrayTermTranslator {
     this.templates = templates;
     this.varBits = varBits;
     this.arrayIndexBits = arrayIndexBits;
-    List<String> keys = new ArrayList<>(varBits.keySet());
-    keys.removeIf(k -> k.contains("::") || k.isEmpty());
+    List<String> keys = new ArrayList<>();
+    for (String encoded : varBits.keySet()) {
+      if (encoded.isEmpty()) {
+        continue;
+      }
+      String bare = encoded.contains("::") ? encoded.substring(encoded.lastIndexOf("::") + 2) : encoded;
+      if (!bare.isEmpty() && !keys.contains(bare)) {
+        keys.add(bare);
+      }
+    }
     keys.sort((a, b) -> Integer.compare(b.length(), a.length()));
     StringBuilder alt = new StringBuilder();
     for (String k : keys) {
@@ -224,8 +232,12 @@ final class ArrayTermTranslator {
         Matcher idMatcher = bareIdentifierPattern.matcher(result);
         StringBuilder sb = new StringBuilder();
         while (idMatcher.find()) {
-          idMatcher.appendReplacement(
-              sb, Matcher.quoteReplacement(activeVars.get(idMatcher.group(1))));
+          String replacement = activeVars.get(idMatcher.group(1));
+          if (replacement == null) {
+            idMatcher.appendReplacement(sb, Matcher.quoteReplacement(idMatcher.group(1)));
+          } else {
+            idMatcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+          }
         }
         idMatcher.appendTail(sb);
         result = sb.toString();
@@ -491,6 +503,9 @@ final class ArrayTermTranslator {
           pos[0]++;
           while (pos[0] < text.length() && text.charAt(pos[0]) != '|') {
             pos[0]++;
+          }
+          if (pos[0] >= text.length()) {
+            return null; // unterminated quoted symbol
           }
           pos[0]++;
         } else {
