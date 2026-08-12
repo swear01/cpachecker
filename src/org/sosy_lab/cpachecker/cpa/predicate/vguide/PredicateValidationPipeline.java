@@ -81,6 +81,18 @@ public final class PredicateValidationPipeline {
     Map<CFANode, BooleanFormula> blockByNode =
         LoopHeadBlockFormulaIndex.fromTrace(pack.blockFormulas(), absTrace);
     ArrayTermTranslator arrayTranslator = ArrayTermTranslator.extract(pack.blockFormulas(), fmgr);
+    Set<String> unversionedEncodedVars = new HashSet<>();
+    for (String encoded : pack.encodedVars()) {
+      String bare = encoded;
+      if (bare.length() >= 2 && bare.startsWith("|") && bare.endsWith("|")) {
+        bare = bare.substring(1, bare.length() - 1);
+      }
+      int at = bare.lastIndexOf('@');
+      if (at >= 0) {
+        bare = bare.substring(0, at);
+      }
+      unversionedEncodedVars.add(bare);
+    }
     Map<CFANode, SSAMap> ssaByNode = new HashMap<>();
     for (AbstractState state : absTrace) {
       CFANode node = extractLocation(state);
@@ -203,7 +215,7 @@ public final class PredicateValidationPipeline {
           // names from the SSAMap would not match the encoded vocabulary exactly.
           List<String> preOutOfScope = new ArrayList<>();
           for (String v : fmgr.extractVariableNames(headParsed)) {
-            if (!isVisibleAt(v, head, pack.encodedVars())) {
+            if (!isVisibleAt(v, head, pack.encodedVars(), unversionedEncodedVars)) {
               preOutOfScope.add(v);
             }
           }
@@ -251,7 +263,7 @@ public final class PredicateValidationPipeline {
         lastFormulaText = headFormulaText;
         List<String> outOfScope = new ArrayList<>();
         for (String v : headFreeVars) {
-          if (!isVisibleAt(v, head, pack.encodedVars())) {
+          if (!isVisibleAt(v, head, pack.encodedVars(), unversionedEncodedVars)) {
             outOfScope.add(v);
           }
         }
@@ -339,7 +351,8 @@ public final class PredicateValidationPipeline {
    * function-qualified names, its function matches the head's function. Unqualified names (e.g.
    * globals) are treated as visible everywhere.
    */
-  private static boolean isVisibleAt(String varName, LoopHeadInfo head, Set<String> encodedVars) {
+  private static boolean isVisibleAt(
+      String varName, LoopHeadInfo head, Set<String> encodedVars, Set<String> unversionedEncodedVars) {
     // Accept both unversioned ("main::i") and versioned ("main::i@3" / "|main::i@3|") names.
     String bare = varName;
     if (bare.length() >= 2 && bare.startsWith("|") && bare.endsWith("|")) {
@@ -353,12 +366,7 @@ public final class PredicateValidationPipeline {
       // Heap arrays are global symbols of the encoding, not function-scoped.
       return true;
     }
-    String barePrefix = bare + "@";
-    boolean known =
-        encodedVars.contains(varName)
-            || encodedVars.contains(bare)
-            || encodedVars.stream().anyMatch(e -> e.startsWith(barePrefix));
-    if (!known) {
+    if (!encodedVars.contains(varName) && !unversionedEncodedVars.contains(bare)) {
       return false;
     }
     int scope = bare.indexOf("::");
