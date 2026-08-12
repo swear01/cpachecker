@@ -61,6 +61,13 @@ final class ArrayTermTranslator {
 
   private static final Pattern ARRAY_ACCESS =
       Pattern.compile("\\(([A-Za-z_]\\w*)\\s+([A-Za-z_]\\w*)\\)");
+
+  /** SMT-LIB keywords/operators that must never be treated as bare identifiers. */
+  private static final Set<String> SMT_KEYWORDS =
+      Set.of(
+          "select", "store", "bvadd", "bvsub", "bvmul", "bvshl", "bvlshr", "bvashr",
+          "bvneg", "bvurem", "extract", "and", "or", "not", "=", ">", "<", ">=", "<=",
+          "bvslt", "bvsgt", "bvsle", "bvsge", "+", "-", "*", "mod", "_", "bv", "declare-fun");
   private static final Pattern DECLARE_BV =
       Pattern.compile("\\(declare-fun\\s+([^ )]+)\\s+\\(\\)\\s+\\(_ BitVec\\s+(\\d+)\\)\\)");
 
@@ -90,7 +97,7 @@ final class ArrayTermTranslator {
         continue;
       }
       String bare = encoded.contains("::") ? encoded.substring(encoded.lastIndexOf("::") + 2) : encoded;
-      if (!bare.isEmpty() && !keys.contains(bare)) {
+      if (!bare.isEmpty() && !SMT_KEYWORDS.contains(bare) && !keys.contains(bare)) {
         keys.add(bare);
       }
     }

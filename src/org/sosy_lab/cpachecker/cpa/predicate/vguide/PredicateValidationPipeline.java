@@ -199,6 +199,24 @@ public final class PredicateValidationPipeline {
                     "trivially true or false"));
             continue;
           }
+          // Scope check on the unversioned formula BEFORE instantiation: versioned
+          // names from the SSAMap would not match the encoded vocabulary exactly.
+          List<String> preOutOfScope = new ArrayList<>();
+          for (String v : fmgr.extractVariableNames(headParsed)) {
+            if (!isVisibleAt(v, head, pack.encodedVars())) {
+              preOutOfScope.add(v);
+            }
+          }
+          if (!preOutOfScope.isEmpty()) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_VARIABLE_NOT_IN_SCOPE,
+                    "variables not visible at " + head.label() + ": " + preOutOfScope));
+            continue;
+          }
           SSAMap headSsa = ssaByNode.get(head.node());
           if (headSsa == null) {
             rejections.add(
@@ -322,15 +340,28 @@ public final class PredicateValidationPipeline {
    * globals) are treated as visible everywhere.
    */
   private static boolean isVisibleAt(String varName, LoopHeadInfo head, Set<String> encodedVars) {
-    if (!encodedVars.contains(varName)) {
+    // Accept both unversioned ("main::i") and versioned ("main::i@3" / "|main::i@3|") names.
+    String bare = varName;
+    if (bare.length() >= 2 && bare.startsWith("|") && bare.endsWith("|")) {
+      bare = bare.substring(1, bare.length() - 1);
+    }
+    int at = bare.lastIndexOf('@');
+    if (at >= 0) {
+      bare = bare.substring(0, at);
+    }
+    String barePrefix = bare + "@";
+    boolean known =
+        encodedVars.contains(varName)
+            || encodedVars.contains(bare)
+            || encodedVars.stream().anyMatch(e -> e.startsWith(barePrefix));
+    if (!known) {
       return false;
     }
-    int scope = varName.indexOf("::");
+    int scope = bare.indexOf("::");
     if (scope < 0) {
       return true;
     }
-    int start = varName.startsWith("|") ? 1 : 0;
-    return varName.substring(start, scope).equals(head.functionName());
+    return bare.substring(0, scope).equals(head.functionName());
   }
 
   private void crossCheckDeclaredVariables(LoopHeadCandidate candidate, Set<String> freeVars) {
