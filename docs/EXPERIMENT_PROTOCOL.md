@@ -52,3 +52,17 @@ may still be reported with an explicit caveat.
   (base = latest upstream CPAchecker main).
 - The core-only evaluation harness (`run_core_only.sh`) implements §1–§2;
   the legacy fork keeps the historical implementation for reference.
+
+## 5. Fleet build hygiene (learned 2026-08-12)
+
+- NEVER trust incremental `ant build` after syncing code to a fleet machine:
+  NFS mtime skew defeats ant's up-to-date checks, and stale `classes/`
+  (built by a previous agent from different source) survives silently.
+  Symptom: `NoSuchMethodError` at runtime (augmented arm crashed 167/224
+  with `VGuideOptions.isShadowPredicateUtilityGateEnabled`).
+- Always `ant clean` before `ant build` after a code sync; a full build is
+  ~1m30s (anything much faster means nothing was recompiled).
+- The launcher classpath is `~/cpachecker/classes` (not `build/classes`).
+- Validate after a rebuild: run the 12-task smoke on the target machine and
+  inspect per-task logs for real CPAchecker startup (a "instant completion"
+  run with all-UNKNOWN verdicts is a red flag, not a pass).
