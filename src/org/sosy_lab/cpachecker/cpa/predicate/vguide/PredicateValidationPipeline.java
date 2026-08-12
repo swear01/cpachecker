@@ -46,6 +46,7 @@ public final class PredicateValidationPipeline {
   public static final String REASON_UNKNOWN_LOOP_HEAD = "unknown_loop_head";
   public static final String REASON_HEAD_NOT_ON_TRACE = "head_not_on_trace";
   public static final String REASON_PARSE_ERROR = "parse_error";
+  public static final String REASON_NO_SSA_MAP = "no_ssa_map";
   public static final String REASON_CONTRACT_VIOLATION = "contract_violation";
   public static final String REASON_VARIABLE_NOT_IN_SCOPE = "variable_not_in_scope";
 
@@ -161,6 +162,7 @@ public final class PredicateValidationPipeline {
         formulaText = fmgr.dumpFormula(parsed).toString().replace('\n', ' ');
       }
       StringBuilder perHead = new StringBuilder();
+      String lastFormulaText = formulaText;
       for (LoopHeadInfo head : heads) {
         BooleanFormula headParsed = parsed;
         Set<String> headFreeVars = freeVars;
@@ -204,7 +206,7 @@ public final class PredicateValidationPipeline {
                     candidate.toString(),
                     head.label(),
                     candidate.predicate(),
-                    REASON_PARSE_ERROR,
+                    REASON_NO_SSA_MAP,
                     "no SSA map at " + head.label() + " for array candidate"));
             continue;
           }
@@ -228,6 +230,7 @@ public final class PredicateValidationPipeline {
         if (!validatedPairs.add(pairKey)) {
           continue;
         }
+        lastFormulaText = headFormulaText;
         List<String> outOfScope = new ArrayList<>();
         for (String v : headFreeVars) {
           if (!isVisibleAt(v, head, pack.encodedVars())) {
@@ -287,7 +290,7 @@ public final class PredicateValidationPipeline {
           perHead.append("(group_conflict)");
         }
       }
-      logger.log(Level.INFO, "VGuide predicate ", formulaText, " [", perHead, "]");
+      logger.log(Level.INFO, "VGuide predicate ", lastFormulaText, " [", perHead, "]");
     }
     return new CandidateValidationOutcome(
         new ValidationResult(ImmutableList.copyOf(out)), ImmutableList.copyOf(rejections));

@@ -467,14 +467,23 @@ public class VocabularyGuide {
         }
         BitvectorFormula extracted =
             parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        yield extracted != null ? bvmgr.extract(extracted, 31, 0) : null;
+        if (extracted == null || bvmgr.getLength(extracted) < 32) {
+          yield null;
+        }
+        yield bvmgr.extract(extracted, 31, 0);
       }
       case "bvshl" -> {
+        if (args.size() < 2) {
+          yield null;
+        }
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         yield (left != null && right != null) ? bvmgr.shiftLeft(left, right) : null;
       }
       case "select" -> {
+        if (args.size() < 2) {
+          yield null;
+        }
         String heapName = resolveVariableName(args.get(0), encodedVariableNames);
         FormulaType<?> arrayType = arrayTypes.get(unversioned(heapName));
         if (arrayType == null) {

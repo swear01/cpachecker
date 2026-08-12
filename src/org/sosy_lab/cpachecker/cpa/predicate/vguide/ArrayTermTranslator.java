@@ -168,8 +168,8 @@ final class ArrayTermTranslator {
     // Rewrite all remaining bare source identifiers to their scoped unversioned names
     // (e.g. i -> main::i) so the whole predicate can be instantiated with the head SSAMap.
     String result = out.toString();
-    // Resolve bare identifiers within the active function scope to avoid collisions
-    // between same-named locals of different functions (review #62).
+    // Resolve bare identifiers within the active function scope in ONE pass
+    // (longest keys first) to avoid double-prefixing and non-determinism.
     Map<String, String> activeVars = new HashMap<>();
     String prefix = functionName + "::";
     for (String encoded : varBits.keySet()) {
@@ -179,11 +179,24 @@ final class ArrayTermTranslator {
         activeVars.put(encoded.substring(prefix.length()), encoded);
       }
     }
-    for (var e : activeVars.entrySet()) {
-      result =
-          result.replaceAll(
-              "(?<![A-Za-z0-9_@|:])" + Pattern.quote(e.getKey()) + "(?![A-Za-z0-9_@|])",
-              Matcher.quoteReplacement(e.getValue()));
+    if (!activeVars.isEmpty()) {
+      List<String> keys = new ArrayList<>(activeVars.keySet());
+      keys.sort((a, b) -> Integer.compare(b.length(), a.length()));
+      StringBuilder alt = new StringBuilder();
+      for (String k : keys) {
+        if (alt.length() > 0) {
+          alt.append('|');
+        }
+        alt.append(Pattern.quote(k));
+      }
+      Matcher idMatcher =
+          Pattern.compile("(?<![A-Za-z0-9_@|:])(" + alt + ")(?![A-Za-z0-9_@|])").matcher(result);
+      StringBuilder sb = new StringBuilder();
+      while (idMatcher.find()) {
+        idMatcher.appendReplacement(sb, Matcher.quoteReplacement(activeVars.get(idMatcher.group(1))));
+      }
+      idMatcher.appendTail(sb);
+      result = sb.toString();
     }
     // Fallback: index variables of the translated arrays (works without declare-fun dumps).
     for (AccessTemplate t : templates.values()) {
