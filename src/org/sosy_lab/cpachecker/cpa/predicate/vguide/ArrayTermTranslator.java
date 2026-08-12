@@ -213,6 +213,10 @@ final class ArrayTermTranslator {
       // active function; the template's index variable is only used for the
       // narrowing bounds and as a fallback (review #62).
       String candidateIdx = scopePrefix(t.idxVar()) + m.group(2);
+      if (!varBits.containsKey(candidateIdx) && varBits.containsKey(m.group(2))) {
+        // The index names a global (unscoped) variable.
+        candidateIdx = m.group(2);
+      }
       if (t.extractMsb() >= 0 && varBits.getOrDefault(candidateIdx, 32) > t.extractMsb()) {
         // Mirror the CEGAR encoding: narrow the index exactly as the trace does.
         out.append("((_ extract ")
@@ -358,28 +362,28 @@ final class ArrayTermTranslator {
   /** Returns the extract bounds when {@code n} is an extract wrapper, else null. */
   private static ExtractInfo unwrapExtractInfo(Node n, Map<String, Node> defs) {
     Node cur = resolve(n, defs);
-    if (cur.isList("_") && cur.children.size() >= 4 && cur.children.get(1).isAtom()
-        && cur.children.get(1).atom.equals("extract")) {
-      try {
+    try {
+      if (cur.isList("_") && cur.children.size() >= 4 && cur.children.get(1).isAtom()
+          && cur.children.get(1).atom.equals("extract")
+          && cur.children.get(2).isAtom()
+          && cur.children.get(3).isAtom()) {
         return new ExtractInfo(
             Integer.parseInt(cur.children.get(2).atom), Integer.parseInt(cur.children.get(3).atom));
-      } catch (NumberFormatException e) {
-        return null;
       }
-    }
-    if (cur.children != null
-        && cur.children.size() >= 2
-        && cur.children.get(0).isList("_")
-        && cur.children.get(0).children.size() >= 4
-        && cur.children.get(0).children.get(1).isAtom()
-        && cur.children.get(0).children.get(1).atom.equals("extract")) {
-      try {
+      if (cur.children != null
+          && cur.children.size() >= 2
+          && cur.children.get(0).isList("_")
+          && cur.children.get(0).children.size() >= 4
+          && cur.children.get(0).children.get(1).isAtom()
+          && cur.children.get(0).children.get(1).atom.equals("extract")
+          && cur.children.get(0).children.get(2).isAtom()
+          && cur.children.get(0).children.get(3).isAtom()) {
         return new ExtractInfo(
             Integer.parseInt(cur.children.get(0).children.get(2).atom),
             Integer.parseInt(cur.children.get(0).children.get(3).atom));
-      } catch (NumberFormatException e) {
-        return null;
       }
+    } catch (RuntimeException e) {
+      return null; // malformed extract structure
     }
     return null;
   }
