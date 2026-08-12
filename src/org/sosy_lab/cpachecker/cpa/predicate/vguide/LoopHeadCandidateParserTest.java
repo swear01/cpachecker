@@ -97,7 +97,7 @@ public class LoopHeadCandidateParserTest {
         LoopHeadCandidateParser.parseWithRejects(
             """
             {"schema_version":"loop-head-candidate-v1","candidates":[
-              {"loop_head":"N12","predicate":"(select A i)"}
+              {"loop_head":"N12","predicate":"(= A[i] (_ bv0 32))"}
             ]}
             """);
 

@@ -18,7 +18,9 @@ import org.sosy_lab.common.log.LogManager;
 
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractState;
 import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
+import org.sosy_lab.cpachecker.util.predicates.pathformula.SSAMap;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
 import org.sosy_lab.java_smt.api.BooleanFormula;
@@ -26,6 +28,8 @@ import org.sosy_lab.java_smt.api.BooleanFormulaManager;
 import org.sosy_lab.java_smt.api.ProverEnvironment;
 import org.sosy_lab.java_smt.api.SolverContext.ProverOptions;
 import org.sosy_lab.java_smt.api.SolverException;
+import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
+import static org.sosy_lab.cpachecker.util.AbstractStates.extractStateByType;
 
 /**
  * L1 contract + L2 parse + scope check + L3 SMT entailment per named loop head.
@@ -75,6 +79,18 @@ public final class PredicateValidationPipeline {
     BooleanFormulaManager bfmgr = fmgr.getBooleanFormulaManager();
     Map<CFANode, BooleanFormula> blockByNode =
         LoopHeadBlockFormulaIndex.fromTrace(pack.blockFormulas(), absTrace);
+    ArrayTermTranslator arrayTranslator = ArrayTermTranslator.extract(pack.blockFormulas(), fmgr);
+    Map<CFANode, SSAMap> ssaByNode = new HashMap<>();
+    for (AbstractState state : absTrace) {
+      CFANode node = extractLocation(state);
+      if (node == null) {
+        continue;
+      }
+      PredicateAbstractState pas = extractStateByType(state, PredicateAbstractState.class);
+      if (pas != null && !ssaByNode.containsKey(node)) {
+        ssaByNode.put(node, pas.getPathFormula().getSsa());
+      }
+    }
     Map<CFANode, Set<String>> blockVarsCache = new HashMap<>();
     Map<CFANode, List<BooleanFormula>> validatedAtHead = new HashMap<>();
     List<ValidatedPredicate> out = new ArrayList<>();
@@ -114,39 +130,101 @@ public final class PredicateValidationPipeline {
       if (heads.isEmpty()) {
         continue;
       }
-      BooleanFormula parsed =
-          VocabularyGuide.parsePredicate(candidate.predicate(), fmgr, pack.encodedVars());
-      if (parsed == null) {
-        rejections.add(
-            new CandidateRejection(
-                candidate.toString(),
-                heads.get(0).label(),
-                candidate.predicate(),
-                REASON_PARSE_ERROR,
-                "SMT-LIB parse failed"));
-        continue;
+      boolean arrayCandidate = arrayTranslator.hasArrayAccess(candidate.predicate());
+      BooleanFormula parsed = null;
+      Set<String> freeVars = null;
+      String formulaText = null;
+      if (!arrayCandidate) {
+        parsed = VocabularyGuide.parsePredicate(candidate.predicate(), fmgr, pack.encodedVars());
+        if (parsed == null) {
+          rejections.add(
+              new CandidateRejection(
+                  candidate.toString(),
+                  heads.get(0).label(),
+                  candidate.predicate(),
+                  REASON_PARSE_ERROR,
+                  "SMT-LIB parse failed"));
+          continue;
+        }
+        if (bfmgr.isTrue(parsed) || bfmgr.isFalse(parsed)) {
+          rejections.add(
+              new CandidateRejection(
+                  candidate.toString(),
+                  heads.get(0).label(),
+                  candidate.predicate(),
+                  REASON_CONTRACT_VIOLATION,
+                  "trivially true or false"));
+          continue;
+        }
+        freeVars = fmgr.extractVariableNames(parsed);
+        crossCheckDeclaredVariables(candidate, freeVars);
+        formulaText = fmgr.dumpFormula(parsed).toString().replace('\n', ' ');
       }
-      if (bfmgr.isTrue(parsed) || bfmgr.isFalse(parsed)) {
-        rejections.add(
-            new CandidateRejection(
-                candidate.toString(),
-                heads.get(0).label(),
-                candidate.predicate(),
-                REASON_CONTRACT_VIOLATION,
-                "trivially true or false"));
-        continue;
-      }
-      Set<String> freeVars = fmgr.extractVariableNames(parsed);
-      crossCheckDeclaredVariables(candidate, freeVars);
-      String formulaText = fmgr.dumpFormula(parsed).toString().replace('\n', ' ');
       StringBuilder perHead = new StringBuilder();
       for (LoopHeadInfo head : heads) {
-        String pairKey = head.node().getNodeNumber() + "#" + formulaText;
+        BooleanFormula headParsed = parsed;
+        Set<String> headFreeVars = freeVars;
+        String headFormulaText = formulaText;
+        if (arrayCandidate) {
+          // Translate source-level array reads (c i) to the heap-select encoding, then
+          // instantiate with the head's SSAMap (issue #60); per-head because versions differ.
+          String translated = arrayTranslator.translate(candidate.predicate());
+          headParsed =
+              VocabularyGuide.parsePredicate(
+                  translated, fmgr, pack.encodedVars(), arrayTranslator.arrayTypes());
+          if (headParsed == null) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_PARSE_ERROR,
+                    "array-translated SMT-LIB parse failed"));
+            continue;
+          }
+          if (bfmgr.isTrue(headParsed) || bfmgr.isFalse(headParsed)) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_CONTRACT_VIOLATION,
+                    "trivially true or false"));
+            continue;
+          }
+          SSAMap headSsa = ssaByNode.get(head.node());
+          if (headSsa == null) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_PARSE_ERROR,
+                    "no SSA map at " + head.label() + " for array candidate"));
+            continue;
+          }
+          try {
+            headParsed = fmgr.instantiate(headParsed, headSsa);
+          } catch (IllegalArgumentException e) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_PARSE_ERROR,
+                    "SSA instantiate failed at " + head.label() + ": " + e.getMessage()));
+            continue;
+          }
+          headFreeVars = fmgr.extractVariableNames(headParsed);
+          crossCheckDeclaredVariables(candidate, headFreeVars);
+          headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
+        }
+        String pairKey = head.node().getNodeNumber() + "#" + headFormulaText;
         if (!validatedPairs.add(pairKey)) {
           continue;
         }
         List<String> outOfScope = new ArrayList<>();
-        for (String v : freeVars) {
+        for (String v : headFreeVars) {
           if (!isVisibleAt(v, head, pack.encodedVars())) {
             outOfScope.add(v);
           }
@@ -165,28 +243,28 @@ public final class PredicateValidationPipeline {
         Set<String> blockVars =
             blockVarsCache.computeIfAbsent(head.node(), node -> fmgr.extractVariableNames(block));
         boolean overSpecific =
-            !freeVars.isEmpty()
-                && freeVars.stream()
+            !headFreeVars.isEmpty()
+                && headFreeVars.stream()
                     .anyMatch(v -> pack.encodedVars().contains(v) && !blockVars.contains(v));
         ValidatedPredicate.Classification cls =
             enableL3Entailment
-                ? classify(block, parsed, bfmgr)
+                ? classify(block, headParsed, bfmgr)
                 : ValidatedPredicate.Classification.PRECISION_ONLY;
         boolean groupConflict = false;
         if (enableL3Entailment) {
           List<BooleanFormula> previous = validatedAtHead.get(head.node());
           if (previous != null && !previous.isEmpty()) {
-            groupConflict = !consistentWithGroup(block, previous, parsed);
+            groupConflict = !consistentWithGroup(block, previous, headParsed);
           }
           if (!groupConflict) {
             // Keep the accumulated set consistent so one conflict does not poison
             // the group check for every later candidate at this head.
-            validatedAtHead.computeIfAbsent(head.node(), node -> new ArrayList<>()).add(parsed);
+            validatedAtHead.computeIfAbsent(head.node(), node -> new ArrayList<>()).add(headParsed);
           }
         }
         out.add(
             new ValidatedPredicate(
-                parsed,
+                headParsed,
                 head.node(),
                 cls,
                 candidate.role(),

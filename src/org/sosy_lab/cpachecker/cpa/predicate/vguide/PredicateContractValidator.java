@@ -15,12 +15,9 @@ public final class PredicateContractValidator {
     Pattern.compile("\\|[a-z_]\\w+::"),
     Pattern.compile("\\.def_\\d+"),
     Pattern.compile("(?<!\\|)\\b\\w+@\\d+\\b"),
+    // Array reads are allowed but ONLY in the source-level "(c i)" form translated by
+    // ArrayTermTranslator; raw C syntax A[i] stays forbidden (issue #59).
     Pattern.compile("\\b[A-Za-z_]\\w*\\s*\\["), // C array subscript A[i], not SMT symbols
-    Pattern.compile("\\bselect\\b"),
-    Pattern.compile("\\bstore\\b"),
-    Pattern.compile("\\bbvshl\\b"),
-    Pattern.compile("\\bbvlshr\\b"),
-    Pattern.compile("\\bbvashr\\b"),
   };
 
   private PredicateContractValidator() {}

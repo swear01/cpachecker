@@ -1,0 +1,447 @@
+// This file is part of CPAchecker,
+// a tool for configurable software verification:
+// https://cpachecker.sosy-lab.org
+//
+// SPDX-FileCopyrightText: 2007-2024 Dirk Beyer <https://www.sosy-lab.org>
+//
+// SPDX-License-Identifier: Apache-2.0
+
+package org.sosy_lab.cpachecker.cpa.predicate.vguide;
+
+import com.google.common.collect.ImmutableMap;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
+import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
+import org.sosy_lab.java_smt.api.BooleanFormula;
+import org.sosy_lab.java_smt.api.FormulaType;
+
+/**
+ * Bridges LLM source-level array reads (e.g. {@code (c i)} for {@code c[i]}) to the heap-select
+ * encoding used by the CEGAR formulas (issues #58/#59/#60).
+ *
+ * <p>The CEGAR encoding has no array-value symbols: a C array is an address bitvector and an
+ * element read is {@code (select *heap@N (+ addr@N (bvshl idx@K size)))}, usually wrapped in
+ * let-defs. The LLM only knows source names, so its element-wise candidates could never be
+ * parsed. Templates are extracted from the trace's own block formulas (select + bvadd + bvshl
+ * shape, let-defs resolved); versions are applied later via {@link FormulaManagerView#instantiate}
+ * with the target loop head's SSAMap — never guessed from text.
+ */
+final class ArrayTermTranslator {
+
+  /** Unversioned access template for one C array. */
+  record AccessTemplate(
+      String heapVar, // unversioned heap array name, e.g. "*long_long_int"
+      String addrVar, // unversioned address var, e.g. "main::c"
+      String idxVar, // unversioned index var, e.g. "main::i"
+      int shiftBits, // shift amount of the bvshl (log2 of byte size)
+      FormulaType<?> arrayType) {
+
+    /** Element size in bits (byte-addressed heaps: bits = (1 << shift) * 8). */
+    int elementBits() {
+      return (1 << shiftBits) * 8;
+    }
+
+    /** Source array name (e.g. "c" for main::c). */
+    String addrSourceName() {
+      return sourceNameOf(addrVar);
+    }
+  }
+
+  private static final Pattern ARRAY_ACCESS =
+      Pattern.compile("\\(([A-Za-z_]\\w*)\\s+([A-Za-z_]\\w*)\\)");
+  private static final Pattern DECLARE_BV =
+      Pattern.compile("\\(declare-fun ([^ ]+) \\(\\) \\(_ BitVec (\\d+)\\)\\)");
+
+  private final ImmutableMap<String, AccessTemplate> templates; // source array name -> template
+  private final ImmutableMap<String, String> sourceToEncoded; // "i" -> "main::i" (unversioned)
+  private final ImmutableMap<String, Integer> varBits; // "main::i" -> 64 (unversioned)
+
+  ArrayTermTranslator(
+      ImmutableMap<String, AccessTemplate> templates,
+      ImmutableMap<String, String> sourceToEncoded,
+      ImmutableMap<String, Integer> varBits) {
+    this.templates = templates;
+    this.sourceToEncoded = sourceToEncoded;
+    this.varBits = varBits;
+  }
+
+  /** Test convenience constructor (no declared-variable maps). */
+  ArrayTermTranslator(ImmutableMap<String, AccessTemplate> templates) {
+    this(templates, ImmutableMap.of(), ImmutableMap.of());
+  }
+
+  /** Extracts array-access templates and declared variable sizes from the trace's formulas. */
+  static ArrayTermTranslator extract(BlockFormulas blockFormulas, FormulaManagerView fmgr) {
+    Map<String, AccessTemplate> found = new LinkedHashMap<>();
+    Map<String, String> sourceToEncoded = new LinkedHashMap<>();
+    Map<String, Integer> bits = new LinkedHashMap<>();
+    for (BooleanFormula f : blockFormulas.getFormulas()) {
+      String text;
+      try {
+        text = fmgr.dumpFormula(f).toString();
+      } catch (Exception e) {
+        continue;
+      }
+      collectTemplates(text, found);
+      collectDeclaredVariables(text, sourceToEncoded, bits);
+    }
+    return new ArrayTermTranslator(
+        ImmutableMap.copyOf(found), ImmutableMap.copyOf(sourceToEncoded), ImmutableMap.copyOf(bits));
+  }
+
+  /** Collects access templates from a dumped-formula text (package-visible for tests). */
+  static void collectTemplates(String text, Map<String, AccessTemplate> found) {
+    List<Node> roots = Node.parseAll(text);
+    Map<String, Node> defs = new HashMap<>();
+    for (Node root : roots) {
+      root.collectDefs(defs);
+    }
+    for (Node root : roots) {
+      for (Node sel : root.findAll("select")) {
+        Optional<AccessTemplate> t = templateForSelect(sel, defs);
+        if (t.isPresent()) {
+          AccessTemplate tmpl = t.orElseThrow();
+          if (!found.containsKey(tmpl.addrSourceName())) {
+            found.put(tmpl.addrSourceName(), tmpl);
+          }
+        }
+      }
+    }
+  }
+
+  /** Collects declared bitvector variables (name -> bitwidth) from a dumped formula. */
+  static void collectDeclaredVariables(
+      String text, Map<String, String> sourceToEncoded, Map<String, Integer> bits) {
+    Matcher m = DECLARE_BV.matcher(text);
+    while (m.find()) {
+      String unversioned = unversion(m.group(1));
+      String source = sourceNameOf(unversioned);
+      if (source.isEmpty()) {
+        continue;
+      }
+      sourceToEncoded.putIfAbsent(source, unversioned);
+      bits.putIfAbsent(unversioned, Integer.parseInt(m.group(2)));
+    }
+  }
+
+  /** Whether the predicate text contains a translatable array access. */
+  boolean hasArrayAccess(String predicateText) {
+    Matcher m = ARRAY_ACCESS.matcher(predicateText);
+    while (m.find()) {
+      if (templates.containsKey(m.group(1))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Translates {@code (c i)} array accesses to unversioned select terms and rewrites all bare
+   * source identifiers to their scoped unversioned names. The result still needs {@link
+   * FormulaManagerView#instantiate} with the target head's SSAMap before validation.
+   */
+  String translate(String predicateText) {
+    Matcher m = ARRAY_ACCESS.matcher(predicateText);
+    StringBuilder out = new StringBuilder();
+    int last = 0;
+    while (m.find()) {
+      AccessTemplate t = templates.get(m.group(1));
+      if (t == null) {
+        continue;
+      }
+      out.append(predicateText, last, m.start());
+      out.append("(select ");
+      out.append(t.heapVar());
+      out.append(" (bvadd ").append(t.addrVar());
+      out.append(" (bvshl ");
+      int idxBits = varBits.getOrDefault(t.idxVar(), 32);
+      if (idxBits > 32) {
+        // Mirror the CEGAR encoding: narrow the index to 32 bits before the shift.
+        out.append("((_ extract 31 0) ").append(t.idxVar()).append(")");
+      } else {
+        out.append(t.idxVar());
+      }
+      out.append(" (_ bv").append(t.shiftBits()).append(" 32))))");
+      last = m.end();
+    }
+    if (last == 0) {
+      return predicateText;
+    }
+    out.append(predicateText, last, predicateText.length());
+    // Rewrite all remaining bare source identifiers to their scoped unversioned names
+    // (e.g. i -> main::i) so the whole predicate can be instantiated with the head SSAMap.
+    String result = out.toString();
+    for (var e : sourceToEncoded.entrySet()) {
+      result =
+          result.replaceAll(
+              "(?<![A-Za-z0-9_@|:])" + Pattern.quote(e.getKey()) + "(?![A-Za-z0-9_@|])",
+              Matcher.quoteReplacement(e.getValue()));
+    }
+    // Fallback: index variables of the translated arrays (works without declare-fun dumps).
+    for (AccessTemplate t : templates.values()) {
+      String sourceIdx = sourceNameOf(t.idxVar());
+      if (!sourceIdx.isEmpty()) {
+        result =
+            result.replaceAll(
+                "(?<![A-Za-z0-9_@|:])" + Pattern.quote(sourceIdx) + "(?![A-Za-z0-9_@|])",
+                Matcher.quoteReplacement(t.idxVar()));
+      }
+    }
+    return result;
+  }
+
+  /** Unversioned variable bitwidths for the parser's variable creation. */
+  Map<String, Integer> varBits() {
+    return varBits;
+  }
+
+  /** Unversioned heap names and their array types, for the parser's select case. */
+  Map<String, FormulaType<?>> arrayTypes() {
+    Map<String, FormulaType<?>> types = new LinkedHashMap<>();
+    for (AccessTemplate t : templates.values()) {
+      types.put(t.heapVar(), t.arrayType());
+    }
+    return types;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // helpers
+  // ---------------------------------------------------------------------------------------------
+
+  private static Optional<AccessTemplate> templateForSelect(Node sel, Map<String, Node> defs) {
+    // Node children include the operator at index 0: (select HEAP ARG).
+    if (sel.children.size() < 3 || !sel.children.get(1).isAtom()) {
+      return Optional.empty();
+    }
+    String heapName = unversion(sel.children.get(1).atom);
+    if (!heapName.startsWith("*")) {
+      return Optional.empty();
+    }
+    Node arg = resolve(sel.children.get(2), defs);
+    if (!arg.isList("bvadd") || arg.children.size() < 3 || !arg.children.get(1).isAtom()) {
+      return Optional.empty();
+    }
+    String addrName = unversion(arg.children.get(1).atom);
+    Node off = resolve(arg.children.get(2), defs);
+    Node shiftNode = unwrapExtract(off);
+    if (!shiftNode.isList("bvshl") || shiftNode.children.size() < 3) {
+      return Optional.empty();
+    }
+    Node idxNode = unwrapExtract(resolve(shiftNode.children.get(1), defs));
+    if (!idxNode.isAtom()) {
+      return Optional.empty();
+    }
+    Integer shift = bvConstantValue(shiftNode.children.get(2));
+    if (shift == null) {
+      return Optional.empty();
+    }
+    String idxName = unversion(idxNode.atom);
+    FormulaType<?> arrayType =
+        FormulaType.getArrayType(
+            FormulaType.getBitvectorTypeWithSize(32),
+            FormulaType.getBitvectorTypeWithSize((1 << shift) * 8));
+    return Optional.of(new AccessTemplate(heapName, addrName, idxName, shift, arrayType));
+  }
+
+  private static String unversion(String name) {
+    // Dump text escapes symbols as |name@N|; the solver's own symbols are bar-less.
+    if (name.startsWith("|") && name.endsWith("|")) {
+      name = name.substring(1, name.length() - 1);
+    }
+    int at = name.lastIndexOf('@');
+    return at < 0 ? name : name.substring(0, at);
+  }
+
+  private static String sourceNameOf(String unversionedName) {
+    String name = unversionedName;
+    if (name.startsWith("|") && name.endsWith("|")) {
+      name = name.substring(1, name.length() - 1);
+    }
+    int scope = name.lastIndexOf("::");
+    if (scope >= 0) {
+      name = name.substring(scope + 2);
+    }
+    return name.strip();
+  }
+
+  private static Node resolve(Node n, Map<String, Node> defs) {
+    Node cur = n;
+    for (int i = 0; i < 16; i++) {
+      if (cur.isAtom() && cur.atom.startsWith(".def_")) {
+        Node next = defs.get(cur.atom);
+        if (next == null) {
+          return cur;
+        }
+        cur = next;
+      } else {
+        return cur;
+      }
+    }
+    return cur;
+  }
+
+  /** Unwraps {@code ((_ extract 31 0) VAR)} wrappers used for 64-to-32-bit index narrowing. */
+  private static Node unwrapExtract(Node n) {
+    if (n.isList("_") && n.children.size() >= 3 && n.children.get(1).isAtom()
+        && n.children.get(1).atom.equals("extract")) {
+      return n.children.get(2);
+    }
+    // SMT-LIB writes indexed ops as ((_ extract 31 0) VAR): a nested list + argument.
+    if (n.children != null
+        && n.children.size() >= 2
+        && n.children.get(0).isList("_")
+        && n.children.get(0).children.size() >= 2
+        && n.children.get(0).children.get(1).isAtom()
+        && n.children.get(0).children.get(1).atom.equals("extract")) {
+      return n.children.get(1);
+    }
+    return n;
+  }
+
+  private static Integer bvConstantValue(Node n) {
+    if (n.isList("_") && n.children.size() >= 2 && n.children.get(1).isAtom()
+        && n.children.get(1).atom.startsWith("bv")) {
+      try {
+        return Integer.parseInt(n.children.get(1).atom.substring(2));
+      } catch (NumberFormatException e) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // minimal s-expression tree for dumped formulas
+  // ---------------------------------------------------------------------------------------------
+
+  private static final class Node {
+    final String atom;
+    final List<Node> children;
+
+    private Node(String atom, List<Node> children) {
+      this.atom = atom;
+      this.children = children;
+    }
+
+    boolean isAtom() {
+      return children == null;
+    }
+
+    boolean isList(String op) {
+      return children != null && children.size() > 0 && children.get(0).isAtom()
+          && children.get(0).atom.equals(op);
+    }
+
+    static Node parse(String text) {
+      List<Node> all = parseAll(text);
+      return all.isEmpty() ? null : all.get(0);
+    }
+
+    /** Parses all top-level s-expressions (declares + body) of a dumped formula. */
+    static List<Node> parseAll(String text) {
+      List<Node> out = new ArrayList<>();
+      int[] pos = {0};
+      while (true) {
+        skipWs(text, pos);
+        if (pos[0] >= text.length()) {
+          break;
+        }
+        if (text.charAt(pos[0]) == ')') {
+          pos[0]++;
+          continue;
+        }
+        Node n = parseNode(text, pos);
+        if (n == null) {
+          break;
+        }
+        out.add(n);
+      }
+      return out;
+    }
+
+    private static Node parseNode(String text, int[] pos) {
+      skipWs(text, pos);
+      if (pos[0] >= text.length()) {
+        return null;
+      }
+      if (text.charAt(pos[0]) != '(') {
+        int start = pos[0];
+        while (pos[0] < text.length()
+            && !Character.isWhitespace(text.charAt(pos[0]))
+            && text.charAt(pos[0]) != ')') {
+          pos[0]++;
+        }
+        return new Node(text.substring(start, pos[0]), null);
+      }
+      pos[0]++; // consume '('
+      List<Node> children = new ArrayList<>();
+      while (true) {
+        skipWs(text, pos);
+        if (pos[0] >= text.length()) {
+          return null;
+        }
+        if (text.charAt(pos[0]) == ')') {
+          pos[0]++;
+          return new Node(null, children);
+        }
+        Node child = parseNode(text, pos);
+        if (child == null) {
+          return null;
+        }
+        children.add(child);
+      }
+    }
+
+    private static void skipWs(String text, int[] pos) {
+      while (pos[0] < text.length() && Character.isWhitespace(text.charAt(pos[0]))) {
+        pos[0]++;
+      }
+    }
+
+    List<Node> findAll(String op) {
+      List<Node> out = new ArrayList<>();
+      collect(this, op, out);
+      return out;
+    }
+
+    private static void collect(Node n, String op, List<Node> out) {
+      if (n.isList(op)) {
+        out.add(n);
+      }
+      if (n.children != null) {
+        for (Node c : n.children) {
+          collect(c, op, out);
+        }
+      }
+    }
+
+    /** Records {@code (let ((.def_N TERM) ...) BODY)} bindings into {@code defs}. */
+    void collectDefs(Map<String, Node> defs) {
+      collectOwnDefs(defs);
+      if (children == null) {
+        return;
+      }
+      for (Node c : children) {
+        c.collectDefs(defs);
+      }
+    }
+
+    private void collectOwnDefs(Map<String, Node> defs) {
+      if (isList("let") && children.size() >= 2 && children.get(1).children != null) {
+        for (Node binding : children.get(1).children) {
+          if (binding.children != null && binding.children.size() >= 2
+              && binding.children.get(0).isAtom()) {
+            defs.putIfAbsent(binding.children.get(0).atom, binding.children.get(1));
+          }
+        }
+      }
+    }
+  }
+}
