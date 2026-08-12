@@ -440,7 +440,7 @@ public class VocabularyGuide {
           parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       int msb = Integer.parseInt(extractOp.group(1));
       int lsb = Integer.parseInt(extractOp.group(2));
-      if (extracted == null || bvmgr.getLength(extracted) <= msb) {
+      if (extracted == null || msb < lsb || bvmgr.getLength(extracted) <= msb) {
         return null;
       }
       return bvmgr.extract(extracted, msb, lsb);
@@ -481,6 +481,9 @@ public class VocabularyGuide {
         if (args.size() == 2 && args.get(0).startsWith("bv")) {
           try {
             int width = Integer.parseInt(args.get(1));
+            if (width <= 0) {
+              yield null;
+            }
             yield bvmgr.makeBitvector(width, new java.math.BigInteger(args.get(0).substring(2)));
           } catch (NumberFormatException e) {
             yield null;
@@ -494,7 +497,8 @@ public class VocabularyGuide {
         }
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        yield (left != null && right != null) ? bvmgr.shiftLeft(left, right) : null;
+        BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
+        yield aligned != null ? bvmgr.shiftLeft(aligned[0], aligned[1]) : null;
       }
       case "select" -> {
         if (args.size() < 2) {
