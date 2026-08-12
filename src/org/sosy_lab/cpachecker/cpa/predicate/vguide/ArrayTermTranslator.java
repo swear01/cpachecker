@@ -199,14 +199,23 @@ final class ArrayTermTranslator {
       out.append(t.heapVar());
       out.append(" (bvadd ").append(t.addrVar());
       out.append(" (bvshl ");
-      int idxBits = varBits.getOrDefault(t.idxVar(), 32);
-      if (idxBits > 32) {
-        // Mirror the CEGAR encoding: narrow the index to 32 bits before the shift.
-        out.append("((_ extract 31 0) ").append(t.idxVar()).append(")");
+      if (t.extractMsb() >= 0) {
+        // Mirror the CEGAR encoding: narrow the index exactly as the trace does.
+        out.append("((_ extract ")
+            .append(t.extractMsb())
+            .append(" ")
+            .append(t.extractLsb())
+            .append(") ")
+            .append(t.idxVar())
+            .append(")");
       } else {
         out.append(t.idxVar());
       }
-      out.append(" (_ bv").append(t.shiftBits()).append(" 32))))");
+      out.append(" (_ bv")
+          .append(t.shiftBits())
+          .append(" ")
+          .append(t.shiftConstBits())
+          .append("))))");
       last = m.end();
     }
     if (last == 0) {

@@ -17,6 +17,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.util.predicates.smt.BooleanFormulaManagerView;
@@ -424,6 +426,21 @@ public class VocabularyGuide {
     String op = tokens.get(0);
     List<String> args = tokens.subList(1, tokens.size());
 
+    Matcher extractOp = EXTRACT_OP.matcher(op);
+    if (extractOp.matches()) {
+      if (args.size() < 1) {
+        return null;
+      }
+      BitvectorFormula extracted =
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+      int msb = Integer.parseInt(extractOp.group(1));
+      int lsb = Integer.parseInt(extractOp.group(2));
+      if (extracted == null || bvmgr.getLength(extracted) <= msb) {
+        return null;
+      }
+      return bvmgr.extract(extracted, msb, lsb);
+    }
+
     return switch (op) {
       case "+" -> {
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
@@ -462,17 +479,6 @@ public class VocabularyGuide {
         }
         yield null;
       }
-      case "(_ extract 31 0)" -> {
-        if (args.size() < 1) {
-          yield null;
-        }
-        BitvectorFormula extracted =
-            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        if (extracted == null || bvmgr.getLength(extracted) < 32) {
-          yield null;
-        }
-        yield bvmgr.extract(extracted, 31, 0);
-      }
       case "bvshl" -> {
         if (args.size() < 2) {
           yield null;
@@ -506,6 +512,9 @@ public class VocabularyGuide {
       default -> null;
     };
   }
+
+  private static final Pattern EXTRACT_OP =
+      Pattern.compile("\\(_ extract (\\d+) (\\d+)\\)");
 
   private static String resolveVariableName(String simpleName, Set<String> encodedNames) {
     for (String encoded : encodedNames) {
