@@ -82,19 +82,17 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
   @Test
   public void translatesArrayAccessAndIndexOccurrences() {
     Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
-    Map<String, String> src2enc = new LinkedHashMap<>();
     Map<String, Integer> bits = new LinkedHashMap<>();
-    ArrayTermTranslator.collectDeclaredVariables(IFCOMP_SHAPED_DUMP, src2enc, bits);
+    ArrayTermTranslator.collectDeclaredVariables(IFCOMP_SHAPED_DUMP, bits);
     ArrayTermTranslator translator =
         new ArrayTermTranslator(
             com.google.common.collect.ImmutableMap.copyOf(found),
-            com.google.common.collect.ImmutableMap.copyOf(src2enc),
             com.google.common.collect.ImmutableMap.copyOf(bits));
 
     assertThat(translator.hasArrayAccess("(= (c i) (bvmul (bvmul i i) i))")).isTrue();
     assertThat(translator.hasArrayAccess("(bvslt i (_ bv10 32))")).isFalse();
 
-    String out = translator.translate("(= (c i) (bvmul (bvmul i i) i))");
+    String out = translator.translate("(= (c i) (bvmul (bvmul i i) i))", "main");
     assertThat(out)
         .isEqualTo(
             "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3 32))))"
@@ -106,22 +104,20 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
     Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
     ArrayTermTranslator translator =
         new ArrayTermTranslator(com.google.common.collect.ImmutableMap.copyOf(found));
-    assertThat(translator.translate("(bvslt i (_ bv10 32))"))
+    assertThat(translator.translate("(bvslt i (_ bv10 32))", "main"))
         .isEqualTo("(bvslt i (_ bv10 32))");
   }
 
   @Test
   public void translatedSelectParsesWithSolver() throws Exception {
     Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
-    Map<String, String> src2enc = new LinkedHashMap<>();
     Map<String, Integer> bits = new LinkedHashMap<>();
-    ArrayTermTranslator.collectDeclaredVariables(IFCOMP_SHAPED_DUMP, src2enc, bits);
+    ArrayTermTranslator.collectDeclaredVariables(IFCOMP_SHAPED_DUMP, bits);
     ArrayTermTranslator translator =
         new ArrayTermTranslator(
             com.google.common.collect.ImmutableMap.copyOf(found),
-            com.google.common.collect.ImmutableMap.copyOf(src2enc),
             com.google.common.collect.ImmutableMap.copyOf(bits));
-    String translated = translator.translate("(= (c i) (bvmul (bvmul i i) i))");
+    String translated = translator.translate("(= (c i) (bvmul (bvmul i i) i))", "main");
     assertThat(translated)
         .isEqualTo(
             "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3 32))))"

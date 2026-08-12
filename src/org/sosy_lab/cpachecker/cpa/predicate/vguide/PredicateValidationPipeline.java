@@ -168,7 +168,8 @@ public final class PredicateValidationPipeline {
         if (arrayCandidate) {
           // Translate source-level array reads (c i) to the heap-select encoding, then
           // instantiate with the head's SSAMap (issue #60); per-head because versions differ.
-          String translated = arrayTranslator.translate(candidate.predicate());
+          String translated =
+              arrayTranslator.translate(candidate.predicate(), head.node().getFunctionName());
           headParsed =
               VocabularyGuide.parsePredicate(
                   translated, fmgr, pack.encodedVars(), arrayTranslator.arrayTypes());

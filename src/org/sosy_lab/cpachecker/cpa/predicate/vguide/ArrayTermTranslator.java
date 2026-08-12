@@ -60,27 +60,22 @@ final class ArrayTermTranslator {
       Pattern.compile("\\(declare-fun ([^ ]+) \\(\\) \\(_ BitVec (\\d+)\\)\\)");
 
   private final ImmutableMap<String, AccessTemplate> templates; // source array name -> template
-  private final ImmutableMap<String, String> sourceToEncoded; // "i" -> "main::i" (unversioned)
   private final ImmutableMap<String, Integer> varBits; // "main::i" -> 64 (unversioned)
 
   ArrayTermTranslator(
-      ImmutableMap<String, AccessTemplate> templates,
-      ImmutableMap<String, String> sourceToEncoded,
-      ImmutableMap<String, Integer> varBits) {
+      ImmutableMap<String, AccessTemplate> templates, ImmutableMap<String, Integer> varBits) {
     this.templates = templates;
-    this.sourceToEncoded = sourceToEncoded;
     this.varBits = varBits;
   }
 
   /** Test convenience constructor (no declared-variable maps). */
   ArrayTermTranslator(ImmutableMap<String, AccessTemplate> templates) {
-    this(templates, ImmutableMap.of(), ImmutableMap.of());
+    this(templates, ImmutableMap.of());
   }
 
   /** Extracts array-access templates and declared variable sizes from the trace's formulas. */
   static ArrayTermTranslator extract(BlockFormulas blockFormulas, FormulaManagerView fmgr) {
     Map<String, AccessTemplate> found = new LinkedHashMap<>();
-    Map<String, String> sourceToEncoded = new LinkedHashMap<>();
     Map<String, Integer> bits = new LinkedHashMap<>();
     for (BooleanFormula f : blockFormulas.getFormulas()) {
       String text;
@@ -90,10 +85,9 @@ final class ArrayTermTranslator {
         continue;
       }
       collectTemplates(text, found);
-      collectDeclaredVariables(text, sourceToEncoded, bits);
+      collectDeclaredVariables(text, bits);
     }
-    return new ArrayTermTranslator(
-        ImmutableMap.copyOf(found), ImmutableMap.copyOf(sourceToEncoded), ImmutableMap.copyOf(bits));
+    return new ArrayTermTranslator(ImmutableMap.copyOf(found), ImmutableMap.copyOf(bits));
   }
 
   /** Collects access templates from a dumped-formula text (package-visible for tests). */
@@ -117,17 +111,13 @@ final class ArrayTermTranslator {
   }
 
   /** Collects declared bitvector variables (name -> bitwidth) from a dumped formula. */
-  static void collectDeclaredVariables(
-      String text, Map<String, String> sourceToEncoded, Map<String, Integer> bits) {
+  static void collectDeclaredVariables(String text, Map<String, Integer> bits) {
     Matcher m = DECLARE_BV.matcher(text);
     while (m.find()) {
       String unversioned = unversion(m.group(1));
-      String source = sourceNameOf(unversioned);
-      if (source.isEmpty()) {
-        continue;
+      if (!unversioned.isEmpty()) {
+        bits.putIfAbsent(unversioned, Integer.parseInt(m.group(2)));
       }
-      sourceToEncoded.putIfAbsent(source, unversioned);
-      bits.putIfAbsent(unversioned, Integer.parseInt(m.group(2)));
     }
   }
 
@@ -147,7 +137,7 @@ final class ArrayTermTranslator {
    * source identifiers to their scoped unversioned names. The result still needs {@link
    * FormulaManagerView#instantiate} with the target head's SSAMap before validation.
    */
-  String translate(String predicateText) {
+  String translate(String predicateText, String functionName) {
     Matcher m = ARRAY_ACCESS.matcher(predicateText);
     StringBuilder out = new StringBuilder();
     int last = 0;
@@ -178,7 +168,18 @@ final class ArrayTermTranslator {
     // Rewrite all remaining bare source identifiers to their scoped unversioned names
     // (e.g. i -> main::i) so the whole predicate can be instantiated with the head SSAMap.
     String result = out.toString();
-    for (var e : sourceToEncoded.entrySet()) {
+    // Resolve bare identifiers within the active function scope to avoid collisions
+    // between same-named locals of different functions (review #62).
+    Map<String, String> activeVars = new HashMap<>();
+    String prefix = functionName + "::";
+    for (String encoded : varBits.keySet()) {
+      if (!encoded.contains("::")) {
+        activeVars.put(encoded, encoded);
+      } else if (encoded.startsWith(prefix)) {
+        activeVars.put(encoded.substring(prefix.length()), encoded);
+      }
+    }
+    for (var e : activeVars.entrySet()) {
       result =
           result.replaceAll(
               "(?<![A-Za-z0-9_@|:])" + Pattern.quote(e.getKey()) + "(?![A-Za-z0-9_@|])",
@@ -287,11 +288,12 @@ final class ArrayTermTranslator {
     return cur;
   }
 
-  /** Unwraps {@code ((_ extract 31 0) VAR)} wrappers used for 64-to-32-bit index narrowing. */
+  /** Unwraps extract wrappers used for 64-to-32-bit index narrowing. */
   private static Node unwrapExtract(Node n) {
-    if (n.isList("_") && n.children.size() >= 3 && n.children.get(1).isAtom()
+    // Flat SMT-LIB form: (_ extract 31 0 VAR) — the variable is the last child.
+    if (n.isList("_") && n.children.size() >= 5 && n.children.get(1).isAtom()
         && n.children.get(1).atom.equals("extract")) {
-      return n.children.get(2);
+      return n.children.get(4);
     }
     // SMT-LIB writes indexed ops as ((_ extract 31 0) VAR): a nested list + argument.
     if (n.children != null

@@ -395,6 +395,9 @@ public class VocabularyGuide {
   }
 
   private static String unversioned(String name) {
+    if (name.startsWith("|") && name.endsWith("|")) {
+      name = name.substring(1, name.length() - 1);
+    }
     int at = name.lastIndexOf('@');
     return at < 0 ? name : name.substring(0, at);
   }
@@ -466,14 +469,12 @@ public class VocabularyGuide {
       }
       case "select" -> {
         String heapName = resolveVariableName(args.get(0), encodedVariableNames);
-        FormulaType<?> arrayType = arrayTypes.get(heapName);
+        FormulaType<?> arrayType = arrayTypes.get(unversioned(heapName));
         if (arrayType == null) {
-          System.err.println("DBG select: no arrayType for " + heapName + " (types=" + arrayTypes.keySet() + ")");
           yield null;
         }
         BitvectorFormula index = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         if (index == null) {
-          System.err.println("DBG select: index null for " + args.get(1));
           yield null;
         }
         try {
@@ -481,8 +482,7 @@ public class VocabularyGuide {
           ArrayFormula<BitvectorFormula, BitvectorFormula> heap =
               (ArrayFormula) fmgr.makeVariable(arrayType, heapName);
           yield fmgr.getArrayFormulaManager().select(heap, index);
-        } catch (Throwable e) {
-          System.err.println("DBG select THROW: " + e);
+        } catch (IllegalArgumentException e) {
           yield null;
         }
       }
