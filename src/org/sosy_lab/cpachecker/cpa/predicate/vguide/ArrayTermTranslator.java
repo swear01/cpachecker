@@ -414,25 +414,22 @@ final class ArrayTermTranslator {
       }
       width = Math.max(width, right.width());
       varWidth = Math.max(varWidth, right.varWidth());
-      if (varWidth > 0 && varWidth < 32 && width > varWidth) {
-        return null; // narrow variable mixed with a wider constant: ill-sorted
-      }
       int constWidth = Math.max(width, 32); // C: constants promote to at least int
       left =
           op == '+'
               ? new IndexExpr(
                   "(bvadd "
-                      + rewidth(left.smt(), constWidth)
+                      + alignOperand(left.smt(), left.varWidth(), constWidth)
                       + " "
-                      + rewidth(right.smt(), constWidth)
+                      + alignOperand(right.smt(), right.varWidth(), constWidth)
                       + ")",
                   width,
                   varWidth)
               : new IndexExpr(
                   "(bvsub "
-                      + rewidth(left.smt(), constWidth)
+                      + alignOperand(left.smt(), left.varWidth(), constWidth)
                       + " "
-                      + rewidth(right.smt(), constWidth)
+                      + alignOperand(right.smt(), right.varWidth(), constWidth)
                       + ")",
                   width,
                   varWidth);
@@ -462,26 +459,23 @@ final class ArrayTermTranslator {
       }
       width = Math.max(width, right.width());
       varWidth = Math.max(varWidth, right.varWidth());
-      if (varWidth > 0 && varWidth < 32 && width > varWidth) {
-        return null; // narrow variable mixed with a wider constant: ill-sorted
-      }
       int constWidth = Math.max(width, 32);
       // C integer division is signed: bvsdiv (review #69).
       left =
           op == '*'
               ? new IndexExpr(
                   "(bvmul "
-                      + rewidth(left.smt(), constWidth)
+                      + alignOperand(left.smt(), left.varWidth(), constWidth)
                       + " "
-                      + rewidth(right.smt(), constWidth)
+                      + alignOperand(right.smt(), right.varWidth(), constWidth)
                       + ")",
                   width,
                   varWidth)
               : new IndexExpr(
                   "(bvsdiv "
-                      + rewidth(left.smt(), constWidth)
+                      + alignOperand(left.smt(), left.varWidth(), constWidth)
                       + " "
-                      + rewidth(right.smt(), constWidth)
+                      + alignOperand(right.smt(), right.varWidth(), constWidth)
                       + ")",
                   width,
                   varWidth);
@@ -563,6 +557,20 @@ final class ArrayTermTranslator {
   /** Rewidths width-0 constants in an index expression to {@code width}. */
   private static String rewidth(String smt, int width) {
     return CONST_WIDTH_0.matcher(smt).replaceAll(mr -> "(_ bv" + mr.group(1) + " " + width + ")");
+  }
+
+  /**
+   * Aligns an operand to {@code targetWidth}: constants are rewidthed, narrower
+   * variables are sign-extended (C integer promotion; gemini-review #69).
+   */
+  private static String alignOperand(String smt, int operandVarWidth, int targetWidth) {
+    if (smt.startsWith("(_ bv")) {
+      return rewidth(smt, targetWidth);
+    }
+    if (operandVarWidth > 0 && operandVarWidth < targetWidth) {
+      return "((_ sign_extend " + (targetWidth - operandVarWidth) + ") " + smt + ")";
+    }
+    return smt;
   }
 
   private static void skipWs(String expr, int[] pos) {

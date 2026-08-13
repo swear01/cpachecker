@@ -446,6 +446,19 @@ public class VocabularyGuide {
       return bvmgr.extract(extracted, msb, lsb);
     }
 
+    Matcher signExtendOp = SIGN_EXTEND_OP.matcher(op);
+    if (signExtendOp.matches()) {
+      if (args.size() < 1) {
+        return null;
+      }
+      BitvectorFormula operand =
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+      if (operand == null) {
+        return null;
+      }
+      return bvmgr.extend(operand, Integer.parseInt(signExtendOp.group(1)), true);
+    }
+
     return switch (op) {
       case "+" -> {
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
@@ -535,6 +548,8 @@ public class VocabularyGuide {
 
   private static final Pattern EXTRACT_OP =
       Pattern.compile("\\(_ extract (\\d+) (\\d+)\\)");
+  private static final Pattern SIGN_EXTEND_OP =
+      Pattern.compile("\\(_ sign_extend (\\d+)\\)");
 
 
   /**
