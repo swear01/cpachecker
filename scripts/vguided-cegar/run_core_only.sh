@@ -63,7 +63,7 @@ done
 [[ "$ARM" == "stock" || "$ARM" == "augmented" ]] || die "--arm must be stock or augmented"
 [[ -f "$MANIFEST" ]] || die "--manifest file required: $MANIFEST"
 [[ -n "$OUT" ]] || die "--out required"
-[[ "$TIMELIMIT" =~ ^[0-9]+$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
+[[ "$TIMELIMIT" =~ ^[1-9][0-9]*$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
 [[ -d "$SV_BENCHMARKS" ]] || die "SV_BENCHMARKS not found: $SV_BENCHMARKS (export SV_BENCHMARKS=~/sv-benchmarks/c)"
 
 # Refuse to start a formal run when foreign processes occupy the P-core pool

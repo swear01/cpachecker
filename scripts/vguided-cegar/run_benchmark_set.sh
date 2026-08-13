@@ -77,7 +77,12 @@ fi
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-[[ "$TIMELIMIT" =~ ^[0-9]+$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
+# Caps a wall value at the limit, preserving decimals below the cap (issue #71).
+cap_wall() {
+  awk -v w="$1" -v l="$2" 'BEGIN { if (w+0 > l+0) printf "%d", l; else printf "%s", w }'
+}
+
+[[ "$TIMELIMIT" =~ ^[1-9][0-9]*$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
 [[ "$TIMEOUT_GRACE" =~ ^[0-9]+$ ]] || die "TIMEOUT_GRACE must be a non-negative integer, got: $TIMEOUT_GRACE"
 
 usage() {
@@ -137,7 +142,7 @@ summary_row_from_log() {
   [[ -n "$wall" ]] || wall="0"
   # Cap the recorded wall at TIMELIMIT (issue #71): the wall timeout fires at
   # TIMELIMIT+grace, so a wall-killed run may have printed up to grace more.
-  wall="$(awk -v w="$wall" -v l="$TIMELIMIT" 'BEGIN { if (w+0 > l+0) printf "%d", l; else printf "%s", w }')"
+  wall="$(cap_wall "$wall" "$TIMELIMIT")"
   [[ -n "$wall" ]] || wall="0"
   rel="${task}.i"
   while IFS= read -r mline || [[ -n "$mline" ]]; do
@@ -275,7 +280,7 @@ run_one() {
   [[ -n "$wall" ]] || wall="0"
   # Cap the recorded wall at TIMELIMIT (issue #71): the wall timeout fires at
   # TIMELIMIT+grace, so a wall-killed run may have printed up to grace more.
-  wall="$(awk -v w="$wall" -v l="$TIMELIMIT" 'BEGIN { if (w+0 > l+0) printf "%d", l; else printf "%s", w }')"
+  wall="$(cap_wall "$wall" "$TIMELIMIT")"
   [[ -n "$wall" ]] || wall="0"
   echo "$task → $result refs=$refs wall=${wall}s" >&2
   echo "$task,$(basename "$prog"),$result,$refs,$wall,$log"
