@@ -281,7 +281,7 @@ final class ArrayTermTranslator {
         return null;
       }
       out.append(predicateText, last, m.start());
-      appendSelect(out, t, idx.smt(), idx.width());
+      appendSelect(out, t, idx.smt(), idx.varWidth());
       last = m.end();
     }
     if (last == 0) {
@@ -324,12 +324,13 @@ final class ArrayTermTranslator {
 
   /** Appends the heap-select term for an array read with the given index SMT. */
   private void appendSelect(
-      StringBuilder out, AccessTemplate t, String indexSmt, int indexWidth) {
+      StringBuilder out, AccessTemplate t, String indexSmt, int indexVarWidth) {
     out.append("(select ");
     out.append(t.heapVar());
     out.append(" (bvadd ").append(t.addrVar());
     out.append(" (bvshl ");
-    if (t.extractMsb() >= 0 && indexWidth > t.extractMsb()) {
+    boolean narrowed = t.extractMsb() >= 0 && indexVarWidth > t.extractMsb();
+    if (narrowed) {
       // Mirror the CEGAR encoding: narrow the index exactly as the trace does.
       out.append("((_ extract ")
           .append(t.extractMsb())
@@ -342,12 +343,12 @@ final class ArrayTermTranslator {
       out.append(indexSmt);
     }
     int shiftConstWidth;
-    if (t.extractMsb() >= 0 && indexWidth > t.extractMsb()) {
+    if (narrowed) {
       // Narrowed: the shift operand width is the extract range.
       shiftConstWidth = t.extractMsb() - t.extractLsb() + 1;
     } else {
       // Not narrowed: the shift operand keeps the index width.
-      shiftConstWidth = Math.max(indexWidth, t.shiftConstBits());
+      shiftConstWidth = Math.max(indexVarWidth, t.shiftConstBits());
     }
     out.append(" (_ bv")
         .append(t.shiftBits())
@@ -356,7 +357,11 @@ final class ArrayTermTranslator {
         .append("))))");
   }
 
-  private record IndexExpr(String smt, int width) {}
+  private record IndexExpr(String smt, int width, int varWidth) {
+    IndexExpr(String smt, int width) {
+      this(smt, width, width);
+    }
+  }
 
   /**
    * Parses a C index expression ({@code i}, {@code 0}, {@code 4*j+1}, ...) into SMT
@@ -375,11 +380,10 @@ final class ArrayTermTranslator {
     if (pos[0] != expr.length()) {
       return null;
     }
-    // Constant-only expressions have width 0 and default to 32 bits; anything
-    // with a variable keeps the variable's actual width (a 16-bit index var
-    // must not be forced to 32, which would break the extract bounds).
-    int width = e.width() > 0 ? e.width() : 32;
-    return new IndexExpr(rewidth(e.smt(), width), width);
+    // Constants promote to at least int (32); the variable width is kept for
+    // the extract decision (a 16-bit index var must not be forced to 32).
+    int width = Math.max(e.varWidth(), 32);
+    return new IndexExpr(rewidth(e.smt(), width), width, e.varWidth());
   }
 
   private @Nullable IndexExpr parseAddSub(String expr, int[] pos, String functionName) {
@@ -388,6 +392,7 @@ final class ArrayTermTranslator {
       return null;
     }
     int width = left.width();
+    int varWidth = left.varWidth();
     while (true) {
       skipWs(expr, pos);
       if (pos[0] >= expr.length()) {
@@ -403,16 +408,26 @@ final class ArrayTermTranslator {
         return null;
       }
       width = Math.max(width, right.width());
-      // Constants are emitted with width 0; rewidth them to the operand width
-      // so both sides of the SMT operation share the same sort (review #69).
+      varWidth = Math.max(varWidth, right.varWidth());
+      int constWidth = Math.max(width, 32); // C: constants promote to at least int
       left =
           op == '+'
               ? new IndexExpr(
-                  "(bvadd " + rewidth(left.smt(), width) + " " + rewidth(right.smt(), width) + ")",
-                  width)
+                  "(bvadd "
+                      + rewidth(left.smt(), constWidth)
+                      + " "
+                      + rewidth(right.smt(), constWidth)
+                      + ")",
+                  width,
+                  varWidth)
               : new IndexExpr(
-                  "(bvsub " + rewidth(left.smt(), width) + " " + rewidth(right.smt(), width) + ")",
-                  width);
+                  "(bvsub "
+                      + rewidth(left.smt(), constWidth)
+                      + " "
+                      + rewidth(right.smt(), constWidth)
+                      + ")",
+                  width,
+                  varWidth);
     }
   }
 
@@ -422,6 +437,7 @@ final class ArrayTermTranslator {
       return null;
     }
     int width = left.width();
+    int varWidth = left.varWidth();
     while (true) {
       skipWs(expr, pos);
       if (pos[0] >= expr.length()) {
@@ -437,15 +453,27 @@ final class ArrayTermTranslator {
         return null;
       }
       width = Math.max(width, right.width());
+      varWidth = Math.max(varWidth, right.varWidth());
+      int constWidth = Math.max(width, 32);
       // C integer division is signed: bvsdiv (review #69).
       left =
           op == '*'
               ? new IndexExpr(
-                  "(bvmul " + rewidth(left.smt(), width) + " " + rewidth(right.smt(), width) + ")",
-                  width)
+                  "(bvmul "
+                      + rewidth(left.smt(), constWidth)
+                      + " "
+                      + rewidth(right.smt(), constWidth)
+                      + ")",
+                  width,
+                  varWidth)
               : new IndexExpr(
-                  "(bvsdiv " + rewidth(left.smt(), width) + " " + rewidth(right.smt(), width) + ")",
-                  width);
+                  "(bvsdiv "
+                      + rewidth(left.smt(), constWidth)
+                      + " "
+                      + rewidth(right.smt(), constWidth)
+                      + ")",
+                  width,
+                  varWidth);
     }
   }
 
@@ -491,7 +519,7 @@ final class ArrayTermTranslator {
       scoped = token; // global variable
     }
     int width = varBits.getOrDefault(scoped, 32);
-    return new IndexExpr(scoped, width);
+    return new IndexExpr(scoped, width, width);
   }
 
   /** Parses a C integer literal (dec/hex, optional u/l/ll suffixes) or null. */
@@ -503,6 +531,12 @@ final class ArrayTermTranslator {
     try {
       if (t.startsWith("0x") || t.startsWith("0X")) {
         return Long.parseUnsignedLong(t.substring(2), 16);
+      }
+      if (t.startsWith("0b") || t.startsWith("0B")) {
+        return Long.parseUnsignedLong(t.substring(2), 2);
+      }
+      if (t.length() > 1 && t.startsWith("0")) {
+        return Long.parseUnsignedLong(t.substring(1), 8); // C octal literal
       }
       return Long.parseUnsignedLong(t);
     } catch (NumberFormatException e) {

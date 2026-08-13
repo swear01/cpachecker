@@ -158,14 +158,14 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
     String hex = translator.translate("(bvsge c[0x10] (_ bv0 64))", "main");
     assertThat(hex)
         .isEqualTo(
-            "(bvsge (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) (_ bv16 32)) (_ bv3 32))))"
+            "(bvsge (select *long_long_int (bvadd main::c (bvshl (_ bv16 32) (_ bv3 32))))"
                 + " (_ bv0 64))");
 
     // Constant index: c[0]
     String cnst = translator.translate("(bvsle c[0] (_ bv5 64))", "main");
     assertThat(cnst)
         .isEqualTo(
-            "(bvsle (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) (_ bv0 32)) (_ bv3 32))))"
+            "(bvsle (select *long_long_int (bvadd main::c (bvshl (_ bv0 32) (_ bv3 32))))"
                 + " (_ bv5 64))");
   }
 
