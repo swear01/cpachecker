@@ -279,14 +279,10 @@ final class ArrayTermTranslator {
     while (m.find()) {
       String scope = m.group(2);
       String bare = m.group(3);
-      String scoped;
-      if (scope != null && !scope.isEmpty()) {
-        scoped = scope + bare; // keep the leaked scope (main::x@3 -> main::x)
-      } else {
-        scoped = functionName + "::" + bare;
-        if (!varBits.containsKey(scoped) && varBits.containsKey(bare)) {
-          scoped = bare; // global variable
-        }
+      String scoped =
+          (scope != null && !scope.isEmpty()) ? scope + bare : functionName + "::" + bare;
+      if (!varBits.containsKey(scoped) && varBits.containsKey(bare)) {
+        scoped = bare; // global variable (also when leaked with a scope prefix)
       }
       m.appendReplacement(sb, Matcher.quoteReplacement(scoped));
     }
