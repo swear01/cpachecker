@@ -224,7 +224,11 @@ final class ArrayTermTranslator {
     }
     // Pass 2: S-expr array reads (c i) (backward compatible).
     result = translateSexpr(result, functionName);
-    // Pass 3: rewrite remaining bare identifiers to their scoped unversioned names
+    // Pass 3a: strip leaked SSA versions (N@2 -> main::N) — the LLM sometimes
+    // echoes versioned names; the head SSAMap instantiation then applies the
+    // correct version (reject-cleanup, issue #67/#70).
+    result = stripSsaVersions(result, functionName);
+    // Pass 3b: rewrite remaining bare identifiers to their scoped unversioned names
     // (e.g. i -> main::i) so the whole predicate can be instantiated with the head SSAMap.
     if (bareIdentifierPattern != null) {
       Map<String, String> activeVars = new HashMap<>();
@@ -262,6 +266,25 @@ final class ArrayTermTranslator {
       }
     }
     return result;
+  }
+
+  private static final Pattern SSA_VERSION =
+      Pattern.compile("(?<![A-Za-z0-9_@|:.])([A-Za-z_]\\w*)@\\d+(?![A-Za-z0-9_@|:])");
+
+  /** Replaces leaked SSA versions ({@code N@2}) with scoped unversioned names. */
+  private String stripSsaVersions(String text, String functionName) {
+    Matcher m = SSA_VERSION.matcher(text);
+    StringBuilder sb = new StringBuilder();
+    while (m.find()) {
+      String bare = m.group(1);
+      String scoped = functionName + "::" + bare;
+      if (!varBits.containsKey(scoped) && varBits.containsKey(bare)) {
+        scoped = bare; // global variable
+      }
+      m.appendReplacement(sb, Matcher.quoteReplacement(scoped));
+    }
+    m.appendTail(sb);
+    return sb.toString();
   }
 
   /** Translates {@code a[i]} C-syntax array reads (issue #68). */

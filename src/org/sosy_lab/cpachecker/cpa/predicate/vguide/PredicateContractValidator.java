@@ -14,7 +14,6 @@ public final class PredicateContractValidator {
   private static final Pattern[] FORBIDDEN = {
     Pattern.compile("\\|[a-z_]\\w+::"),
     Pattern.compile("\\.def_\\d+"),
-    Pattern.compile("(?<!\\|)\\b\\w+@\\d+\\b"),
   };
 
   private PredicateContractValidator() {}

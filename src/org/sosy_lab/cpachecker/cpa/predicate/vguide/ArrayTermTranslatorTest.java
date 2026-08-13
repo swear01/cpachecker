@@ -170,6 +170,25 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
   }
 
   @Test
+  public void stripsSsaVersionsInArrayCandidates() {
+    Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
+    Map<String, Integer> bits = new LinkedHashMap<>();
+    ArrayTermTranslator.collectDeclaredVariables(IFCOMP_SHAPED_DUMP, bits);
+    bits.put("main::N", 32);
+    ArrayTermTranslator translator =
+        new ArrayTermTranslator(
+            com.google.common.collect.ImmutableMap.copyOf(found),
+            com.google.common.collect.ImmutableMap.copyOf(bits));
+    // The LLM leaked the SSA version N@2: it must become the scoped unversioned
+    // main::N so the head SSAMap instantiation applies the correct version.
+    String out = translator.translate("(and (bvslt c[i] N@2) (bvsge i (_ bv0 32)))", "main");
+    assertThat(out)
+        .isEqualTo(
+            "(and (bvslt (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3 32))))"
+                + " main::N) (bvsge main::i (_ bv0 32)))");
+  }
+
+  @Test
   public void translatedSelectParsesWithSolver() throws Exception {
     Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
     Map<String, Integer> bits = new LinkedHashMap<>();

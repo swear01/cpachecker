@@ -484,6 +484,12 @@ public class VocabularyGuide {
         BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.divide(aligned[0], aligned[1], true) : null;
       }
+      case "udiv" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
+        yield aligned != null ? bvmgr.divide(aligned[0], aligned[1], false) : null;
+      }
       case "mod" -> {
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
@@ -494,6 +500,7 @@ public class VocabularyGuide {
       case "bvmul" -> parseBvSexp("(* " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "bvsub" -> parseBvSexp("(- " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "bvurem" -> parseBvSexp("(mod " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+      case "bvudiv" -> parseBvSexp("(udiv " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "bvsdiv" -> parseBvSexp("(div " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "bvneg" -> parseBvSexp("(- 0 " + args.get(0) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "_" -> {
