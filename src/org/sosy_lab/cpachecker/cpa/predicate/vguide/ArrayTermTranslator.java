@@ -269,17 +269,19 @@ final class ArrayTermTranslator {
   }
 
   private static final Pattern SSA_VERSION =
-      Pattern.compile("(?<![A-Za-z0-9_@|.])([A-Za-z_]\\w*)@\\d+(?![A-Za-z0-9_@|:])");
+      Pattern.compile(
+          "(?<![A-Za-z0-9_@|.])(([A-Za-z_]\\w*::)?)([A-Za-z_]\\w*)@\\d+(?![A-Za-z0-9_@|:])");
 
   /** Replaces leaked SSA versions ({@code N@2}, {@code main::x@3}) with unversioned names. */
   private String stripSsaVersions(String text, String functionName) {
     Matcher m = SSA_VERSION.matcher(text);
     StringBuilder sb = new StringBuilder();
     while (m.find()) {
-      String bare = m.group(1);
+      String scope = m.group(2);
+      String bare = m.group(3);
       String scoped;
-      if (bare.contains("::")) {
-        scoped = bare; // already scoped (main::x@3 -> main::x)
+      if (scope != null && !scope.isEmpty()) {
+        scoped = scope + bare; // keep the leaked scope (main::x@3 -> main::x)
       } else {
         scoped = functionName + "::" + bare;
         if (!varBits.containsKey(scoped) && varBits.containsKey(bare)) {
