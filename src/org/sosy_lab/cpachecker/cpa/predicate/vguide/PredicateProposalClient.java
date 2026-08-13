@@ -348,6 +348,9 @@ public final class PredicateProposalClient {
       if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
         throw new IllegalArgumentException("scheme must be http or https, got: " + scheme);
       }
+      if (uri.getHost() == null) {
+        throw new IllegalArgumentException("URI has no valid host: " + trimmed);
+      }
       return uri;
     } catch (IllegalArgumentException e) {
       throw new IllegalStateException(
