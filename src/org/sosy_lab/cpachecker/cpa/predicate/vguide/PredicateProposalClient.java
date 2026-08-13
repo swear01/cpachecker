@@ -6,7 +6,6 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
-import org.sosy_lab.cpachecker.cpa.predicate.LlmApiUrl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -27,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.sosy_lab.cpachecker.cpa.predicate.LlmApiUrl;
 import org.sosy_lab.common.log.LogManager;
 
 /**
