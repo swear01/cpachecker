@@ -23,8 +23,9 @@ public class PredicateContractValidatorTest {
   }
 
   @Test
-  public void rejectsBareSsaAtSuffix() {
-    assertThat(PredicateContractValidator.isValid("(= i@3 j)")).isFalse();
+  public void allowsBareSsaAtSuffixForTranslator() {
+    // Issue #70: leaked SSA versions are stripped by ArrayTermTranslator.
+    assertThat(PredicateContractValidator.isValid("(= i@3 j)")).isTrue();
   }
 
   @Test
@@ -42,8 +43,9 @@ public class PredicateContractValidatorTest {
   }
 
   @Test
-  public void rejectsVersionedSsaNames() {
-    assertThat(PredicateContractValidator.isValid("(= main::x@3 (_ bv0 32))")).isFalse();
+  public void allowsVersionedSsaNamesForTranslator() {
+    // Issue #70: leaked SSA versions are stripped by ArrayTermTranslator.
+    assertThat(PredicateContractValidator.isValid("(= main::x@3 (_ bv0 32))")).isTrue();
   }
 
   @Test

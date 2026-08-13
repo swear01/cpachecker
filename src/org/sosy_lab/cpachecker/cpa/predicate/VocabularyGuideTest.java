@@ -132,6 +132,12 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
     assertThat(vg.hasVariableOverlap(formulas.get(0))).isTrue();
   }
 
+  @Test
+  public void parsesBvudiv() {
+    var f = parse("(= (bvudiv x (_ bv2 32)) (_ bv1 32))", mgrv);
+    assertThat(f).isNotNull();
+  }
+
   private static BooleanFormula parse(
       String expr,
       FormulaManagerView fmgr) {

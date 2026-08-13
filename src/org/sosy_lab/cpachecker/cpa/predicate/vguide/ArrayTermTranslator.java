@@ -210,21 +210,25 @@ final class ArrayTermTranslator {
    * FormulaManagerView#instantiate} with the target head's SSAMap before validation.
    */
   @Nullable String translate(String predicateText, String functionName) {
-    if (!hasArrayAccess(predicateText)) {
-      // No array reads: leave scalar-only predicates untouched (the parser's
-      // resolveVariableName handles them as before).
-      return predicateText;
+    // Pass 0: strip leaked SSA versions (N@2 -> main::N, main::x@3 -> main::x)
+    // for ALL predicates — the LLM sometimes echoes versioned names
+    // (reject-cleanup, issue #67/#70; gemini-review #70).
+    String result = stripSsaVersions(predicateText, functionName);
+    if (!hasArrayAccess(result)) {
+      // No array reads: return the (SSA-stripped) text — the parser's
+      // resolveVariableName handles scalar variables as before.
+      return result;
     }
     // Pass 1: C-syntax array reads a[i] (the LLM's preferred form; issue #68).
     // Returns null when an index expression cannot be translated — the whole
     // candidate is then rejected (gemini-review #69).
-    String result = translateCSyntax(predicateText, functionName);
+    result = translateCSyntax(result, functionName);
     if (result == null) {
       return null;
     }
     // Pass 2: S-expr array reads (c i) (backward compatible).
     result = translateSexpr(result, functionName);
-    // Pass 3: rewrite remaining bare identifiers to their scoped unversioned names
+    // Pass 3b: rewrite remaining bare identifiers to their scoped unversioned names
     // (e.g. i -> main::i) so the whole predicate can be instantiated with the head SSAMap.
     if (bareIdentifierPattern != null) {
       Map<String, String> activeVars = new HashMap<>();
@@ -262,6 +266,28 @@ final class ArrayTermTranslator {
       }
     }
     return result;
+  }
+
+  private static final Pattern SSA_VERSION =
+      Pattern.compile(
+          "(?<![A-Za-z0-9_@|.])(([A-Za-z_]\\w*::)?)([A-Za-z_]\\w*)@\\d+(?![A-Za-z0-9_@|:])");
+
+  /** Replaces leaked SSA versions ({@code N@2}, {@code main::x@3}) with unversioned names. */
+  private String stripSsaVersions(String text, String functionName) {
+    Matcher m = SSA_VERSION.matcher(text);
+    StringBuilder sb = new StringBuilder();
+    while (m.find()) {
+      String scope = m.group(2);
+      String bare = m.group(3);
+      String scoped =
+          (scope != null && !scope.isEmpty()) ? scope + bare : functionName + "::" + bare;
+      if (!varBits.containsKey(scoped) && varBits.containsKey(bare)) {
+        scoped = bare; // global variable (also when leaked with a scope prefix)
+      }
+      m.appendReplacement(sb, Matcher.quoteReplacement(scoped));
+    }
+    m.appendTail(sb);
+    return sb.toString();
   }
 
   /** Translates {@code a[i]} C-syntax array reads (issue #68). */
