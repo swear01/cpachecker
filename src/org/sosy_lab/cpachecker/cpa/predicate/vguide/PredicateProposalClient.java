@@ -48,14 +48,24 @@ public final class PredicateProposalClient {
   private final String apiKey;
 
   private static URI validateApiUrl(String configured) {
-    URI uri =
-        configured == null || configured.isBlank()
-            ? URI.create(DEFAULT_API_URL)
-            : URI.create(configured);
-    if (!uri.isAbsolute()) {
-      throw new IllegalStateException("VGUIDE_LLM_API_URL must be an absolute URI, got: " + configured);
+    String trimmed = configured == null ? null : configured.strip();
+    if (trimmed == null || trimmed.isEmpty()) {
+      return URI.create(DEFAULT_API_URL);
     }
-    return uri;
+    try {
+      URI uri = URI.create(trimmed);
+      if (!uri.isAbsolute()) {
+        throw new IllegalArgumentException("not an absolute URI");
+      }
+      String scheme = uri.getScheme();
+      if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
+        throw new IllegalArgumentException("scheme must be http or https, got: " + scheme);
+      }
+      return uri;
+    } catch (IllegalArgumentException e) {
+      throw new IllegalStateException(
+          "VGUIDE_LLM_API_URL is invalid: " + e.getMessage() + " (got: " + configured + ")", e);
+    }
   }
   private final String model;
   private final boolean thinkingEnabled;
