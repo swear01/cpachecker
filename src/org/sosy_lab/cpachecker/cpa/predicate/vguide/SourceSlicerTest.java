@@ -112,6 +112,26 @@ public class SourceSlicerTest {
   }
 
   @Test
+  public void assertionRangesTolerateWhitespaceBeforeParen() {
+    String source = "int main() {\n  __VERIFIER_assert (x == 0);\n  reach_error ();\n}\n";
+    List<int[]> ranges = SourceSlicer.assertionRanges(source);
+    assertThat(toKeys(ranges)).containsExactly("2-2", "3-3");
+  }
+
+  @Test
+  public void assertionRangesExternPrototypeDoesNotStartHelperMode() {
+    String source =
+        """
+        extern void __VERIFIER_assert(int cond);
+        int main() {
+          __VERIFIER_assert(x == 0);
+        }
+        """;
+    List<int[]> ranges = SourceSlicer.assertionRanges(source);
+    assertThat(toKeys(ranges)).containsExactly("3-3");
+  }
+
+  @Test
   public void topLevelDeclarationRangesKeepGlobalsAndSkipBody() {
     String source =
         """
@@ -125,6 +145,37 @@ public class SourceSlicerTest {
         """;
     List<int[]> ranges = SourceSlicer.topLevelDeclarationRanges(source);
     assertThat(toKeys(ranges)).containsExactly("1-1", "2-2", "3-3");
+  }
+
+  @Test
+  public void topLevelRangesResetDepthAtEndif() {
+    String source =
+        """
+        #if 0
+        int fragment() {
+        #endif
+        int g = 0;
+        int main() {
+          return 0;
+        }
+        """;
+    List<int[]> ranges = SourceSlicer.topLevelDeclarationRanges(source);
+    assertThat(toKeys(ranges)).containsExactly("1-1", "2-2", "3-3", "4-4", "5-5");
+  }
+
+  @Test
+  public void sliceElidesOneLineInitializerValues() {
+    StringBuilder sb = new StringBuilder();
+    sb.append("const int w[100] = {");
+    for (int i = 0; i < 100; i++) {
+      sb.append("111111,");
+    }
+    sb.append("};\nint main() { return 0; }\n");
+    String source = sb.toString();
+    String sliced = SourceSlicer.slice(source, List.of(new int[] {1, 2}), 0);
+    assertThat(sliced).doesNotContain("111111");
+    assertThat(sliced).contains("/* values elided */");
+    assertThat(sliced).contains("const int w[100]");
   }
 
   @Test

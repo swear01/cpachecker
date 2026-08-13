@@ -55,13 +55,15 @@ final class SourceSlicer {
         continue;
       }
       if (helperSignature) {
-        inHelper = true;
-        helperDepth = countBraces(lines.get(i));
+        // only a signature that opens a block (e.g. the multi-line helper body) starts
+        // helper mode; self-contained lines (extern prototypes, #define FLAG 1) do not
+        if (countBraces(lines.get(i)) > 0) {
+          inHelper = true;
+          helperDepth = countBraces(lines.get(i));
+        }
         continue;
       }
-      int assertIdx = lines.get(i).indexOf("__VERIFIER_assert(");
-      int reachIdx = lines.get(i).indexOf("reach_error();");
-      int idx = assertIdx >= 0 && (reachIdx < 0 || assertIdx < reachIdx) ? assertIdx : reachIdx;
+      int idx = callIndex(lines.get(i));
       if (idx < 0) {
         continue;
       }
@@ -85,8 +87,12 @@ final class SourceSlicer {
       String line = lines.get(i);
       int before = depth;
       // preprocessor lines and macro continuations are self-contained: they neither open a
-      // block nor depend on one
-      if (!line.stripLeading().startsWith("#") && !line.endsWith("\\")) {
+      // block nor depend on one; #endif resets the depth so inactive #if branches with
+      // unbalanced braces cannot corrupt later lines
+      if (line.stripLeading().startsWith("#endif")) {
+        depth = 0;
+        before = 0;
+      } else if (!line.stripLeading().startsWith("#") && !line.endsWith("\\")) {
         depth = Math.max(0, depth + countBraces(line));
       }
       if (before == 0 && !line.isBlank()) {
@@ -112,6 +118,9 @@ final class SourceSlicer {
     return sb.toString();
   }
 
+  /** Lines longer than this are elided in slices (generated one-line initializers). */
+  private static final int LINE_CAP = 400;
+
   /**
    * Merges the given 1-based line ranges (each {@code [start, end]}, inclusive) with a context
    * margin and emits the corresponding source lines.
@@ -133,10 +142,26 @@ final class SourceSlicer {
       int end = Math.min(lines.size(), r[1]);
       sb.append("// [lines ").append(start).append('-').append(end).append("]\n");
       for (int i = start; i <= end; i++) {
-        sb.append(lines.get(i - 1)).append('\n');
+        sb.append(capLine(lines.get(i - 1))).append('\n');
       }
     }
     return sb.toString();
+  }
+
+  /**
+   * Cuts lines beyond {@value #LINE_CAP} characters: if the cut falls inside an initializer
+   * (a '{' appears before the cap), only the declaration shape is kept and the values are
+   * elided; otherwise the line is cut at the cap.
+   */
+  private static String capLine(String line) {
+    if (line.length() <= LINE_CAP) {
+      return line;
+    }
+    int brace = line.indexOf('{');
+    if (brace >= 0 && brace < LINE_CAP) {
+      return line.substring(0, brace + 1) + " /* values elided */ };";
+    }
+    return line.substring(0, LINE_CAP) + " // truncated";
   }
 
   /** Merges overlapping/adjacent ranges and expands each by {@code margin} lines. */
@@ -154,6 +179,31 @@ final class SourceSlicer {
       }
     }
     return merged;
+  }
+
+  /**
+   * Index of the earliest assertion/reach_error call on the line, tolerating whitespace
+   * between the name and the opening paren, or -1.
+   */
+  private static int callIndex(String line) {
+    int best = -1;
+    for (String name : new String[] {"__VERIFIER_assert", "reach_error"}) {
+      int idx = line.indexOf(name);
+      while (idx >= 0) {
+        int paren = idx + name.length();
+        while (paren < line.length() && Character.isWhitespace(line.charAt(paren))) {
+          paren++;
+        }
+        if (paren < line.length() && line.charAt(paren) == '(') {
+          if (best < 0 || idx < best) {
+            best = idx;
+          }
+          break;
+        }
+        idx = line.indexOf(name, idx + name.length());
+      }
+    }
+    return best;
   }
 
   /** Line index of the paren matching the '(' at {@code openIdx} in line {@code lineIdx}. */

@@ -107,29 +107,35 @@ public final class ContextPackBuilder {
    * path, loop heads, top-level declarations and assertion so the prompt stays within the LLM
    * context budget. Slicing is per file so line numbers stay file-local.
    */
-  private String readSourceSliced(List<? extends AbstractState> fullTrace) {
+  private String readSourceSliced(List<ARGState> fullTrace) {
     try {
       StringBuilder sb = new StringBuilder();
       for (Path f : cfa.getFileNames()) {
         sb.append("// File: ").append(f.getFileName()).append('\n');
         String content = Files.readString(f);
+        if (sb.length() > SourceSlicer.HEAD_LIMIT) {
+          // cumulative budget exhausted: bound remaining files
+          sb.append(SourceSlicer.head(content)).append('\n');
+          continue;
+        }
         if (content.length() <= SourceSlicer.SLICE_THRESHOLD) {
           sb.append(content).append('\n');
           continue;
         }
         List<int[]> ranges = new ArrayList<>(SourceSlicer.topLevelDeclarationRanges(content));
+        Path target = f.toAbsolutePath().normalize();
         java.util.Optional<LoopStructure> loopStructure = cfa.getLoopStructure();
         if (loopStructure.isPresent()) {
-          for (Loop loop : loopStructure.orElseThrow().getAllLoops()) {
+          for (Loop loop : loopStructure.get().getAllLoops()) {
             for (CFANode head : loop.getLoopHeads()) {
-              collectNodeLines(f, head, ranges);
+              collectNodeLines(target, head, ranges);
             }
           }
         }
-        for (AbstractState state : fullTrace) {
+        for (ARGState state : fullTrace) {
           CFANode node = AbstractStates.extractLocation(state);
           if (node != null) {
-            collectNodeLines(f, node, ranges);
+            collectNodeLines(target, node, ranges);
           }
         }
         ranges.addAll(SourceSlicer.assertionRanges(content));
@@ -159,19 +165,19 @@ public final class ContextPackBuilder {
   }
 
   private static void collectEdgeLine(Path file, CFAEdge edge, List<int[]> ranges) {
-    if (edge instanceof CDeclarationEdge) {
+    if (edge instanceof CDeclarationEdge c && c.getDeclaration().isGlobal()) {
       // global initializer edges span the whole initializer (e.g. a huge constant array);
-      // the declaration itself is kept via the top-level declaration ranges
+      // the declaration itself is kept via the top-level declaration ranges. Local
+      // declarations on the path (e.g. int i = 0;) are retained.
       return;
     }
     FileLocation location = edge.getFileLocation();
     if (location.isRealLocation()
-        && location
-            .getFileName()
-            .toAbsolutePath()
-            .normalize()
-            .equals(file.toAbsolutePath().normalize())) {
-      ranges.add(new int[] {location.getStartingLineNumber(), location.getEndingLineNumber()});
+        && location.getFileName().toAbsolutePath().normalize().equals(file)) {
+      // origin line numbers map to the original source even when preprocessing or line
+      // directives changed the analysis-code line numbers
+      ranges.add(
+          new int[] {location.getStartingLineInOrigin(), location.getEndingLineInOrigin()});
     }
   }
 
