@@ -70,7 +70,7 @@ public final class PredicateProposalClient {
     return new PredicateProposalClient(pLogger, pMaxCompletionTokens);
   }
 
-  private final String apiUrl;
+  private final URI apiUrl;
 
   public PredicateProposalClient(LogManager pLogger) {
     this(pLogger, readPositiveIntEnv("VGUIDE_LLM_MAX_COMPLETION_TOKENS", 1024));
@@ -79,9 +79,11 @@ public final class PredicateProposalClient {
   public PredicateProposalClient(LogManager pLogger, int pMaxCompletionTokens) {
     logger = pLogger;
     responseCache = responseCacheFromEnvironment();
-    apiUrl = System.getenv("VGUIDE_LLM_API_URL") == null
-        ? DEFAULT_API_URL
-        : System.getenv("VGUIDE_LLM_API_URL");
+    String configuredApiUrl = System.getenv("VGUIDE_LLM_API_URL");
+    apiUrl =
+        configuredApiUrl == null || configuredApiUrl.isBlank()
+            ? URI.create(DEFAULT_API_URL)
+            : URI.create(configuredApiUrl);
     String configuredApiKey = System.getenv("DEEPSEEK_API_KEY");
     apiKey = configuredApiKey == null ? "" : configuredApiKey;
     if (apiKey.isBlank()
@@ -125,7 +127,7 @@ public final class PredicateProposalClient {
     }
     HttpRequest req =
         HttpRequest.newBuilder()
-            .uri(URI.create(apiUrl))
+            .uri(apiUrl)
             .header("Authorization", "Bearer " + apiKey)
             .header("Content-Type", "application/json")
             .timeout(Duration.ofSeconds(timeoutSeconds))
