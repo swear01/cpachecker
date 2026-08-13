@@ -341,8 +341,14 @@ final class ArrayTermTranslator {
     } else {
       out.append(indexSmt);
     }
-    int shiftConstWidth =
-        t.extractMsb() >= 0 ? t.extractMsb() + 1 : Math.max(indexWidth, t.shiftConstBits());
+    int shiftConstWidth;
+    if (t.extractMsb() >= 0 && indexWidth > t.extractMsb()) {
+      // Narrowed: the shift operand width is the extract range.
+      shiftConstWidth = t.extractMsb() - t.extractLsb() + 1;
+    } else {
+      // Not narrowed: the shift operand keeps the index width.
+      shiftConstWidth = Math.max(indexWidth, t.shiftConstBits());
+    }
     out.append(" (_ bv")
         .append(t.shiftBits())
         .append(" ")
