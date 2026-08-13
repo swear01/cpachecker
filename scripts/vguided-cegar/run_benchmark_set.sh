@@ -14,7 +14,8 @@
 #
 # Environment:
 #   JAVA, HEAP (default 2000M), TIMELIMIT (default 300s)
-#   VGUIDE_TIMEOUT_GRACE — outer timeout slack beyond TIMELIMIT (default 30; batch = 330s)
+#   VGUIDE_TIMEOUT_GRACE — outer timeout slack beyond TIMELIMIT (default 10; clean-shutdown margin)
+#   The recorded wall is capped at TIMELIMIT (synthetic UNKNOWN), so PAR-2 stays fair.
 #   VGUIDE_INTERP_TIMELIMIT_MS — optional; e.g. 120000 (not used in published full_scalar runs)
 #   VGUIDE_PARALLEL or PARALLEL — max concurrent CPA jobs (default 8)
 #   VGUIDE_SET_DIR — override manifest directory
@@ -58,9 +59,11 @@ SET_DIR="${VGUIDE_SET_DIR:-$REPO/docs/vguided-cegar/benchmark_sets}"
 JAVA="${JAVA:-}"
 HEAP="${HEAP:-2000M}"
 TIMELIMIT="${TIMELIMIT:-300}"
-# Outer timeout = TIMELIMIT + grace (default 30s → 330s total), same as full_scalar batch runs.
-# Optional: VGUIDE_TIMEOUT_GRACE=60 for ops; changes timing vs published 217-task numbers.
-TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-30}"
+TIMELIMIT="${TIMELIMIT%s}" # strip a trailing 's' ('300s' -> 300)
+# Outer timeout = TIMELIMIT + grace (default 10s → 310s total); recorded wall capped at TIMELIMIT.
+# Optional: VGUIDE_TIMEOUT_GRACE=60 for ops; changes timing vs published numbers.
+TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-10}"
+TIMEOUT_GRACE="${TIMEOUT_GRACE%s}" # strip a trailing 's'
 OUT_BASE="${VGUIDE_OUT_BASE:-$REPO/output/vguide/batch}"
 SV_BENCHMARKS="${SV_BENCHMARKS:-$HOME/sv-benchmarks/c}"
 SKIP_MISSING="${VGUIDE_SKIP_MISSING:-1}"
@@ -73,6 +76,14 @@ if [[ ! -v VGUIDE_USE_VOCABULARY_GUIDE ]] \
 fi
 
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+# Caps a wall value at the limit, preserving decimals below the cap (issue #71).
+cap_wall() {
+  awk -v w="$1" -v l="$2" 'BEGIN { if (w+0 > l+0) printf "%d", l; else printf "%s", w }'
+}
+
+[[ "$TIMELIMIT" =~ ^[1-9][0-9]*$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
+[[ "$TIMEOUT_GRACE" =~ ^[0-9]+$ ]] || die "TIMEOUT_GRACE must be a non-negative integer, got: $TIMEOUT_GRACE"
 
 usage() {
   sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'
@@ -128,6 +139,10 @@ summary_row_from_log() {
   wall="$(extract 'Total time for CPAchecker:' "$log" | grep -oE '[0-9.]+' | head -1)"
   [[ -n "$result" ]] || result="UNKNOWN"
   [[ -n "$refs" ]] || refs="0"
+  [[ -n "$wall" ]] || wall="0"
+  # Cap the recorded wall at TIMELIMIT (issue #71): the wall timeout fires at
+  # TIMELIMIT+grace, so a wall-killed run may have printed up to grace more.
+  wall="$(cap_wall "$wall" "$TIMELIMIT")"
   [[ -n "$wall" ]] || wall="0"
   rel="${task}.i"
   while IFS= read -r mline || [[ -n "$mline" ]]; do
@@ -262,6 +277,10 @@ run_one() {
   wall="$(extract 'Total time for CPAchecker:' "$log" | grep -oE '[0-9.]+' | head -1)"
   [[ -n "$result" ]] || result="UNKNOWN"
   [[ -n "$refs" ]] || refs="0"
+  [[ -n "$wall" ]] || wall="0"
+  # Cap the recorded wall at TIMELIMIT (issue #71): the wall timeout fires at
+  # TIMELIMIT+grace, so a wall-killed run may have printed up to grace more.
+  wall="$(cap_wall "$wall" "$TIMELIMIT")"
   [[ -n "$wall" ]] || wall="0"
   echo "$task → $result refs=$refs wall=${wall}s" >&2
   echo "$task,$(basename "$prog"),$result,$refs,$wall,$log"

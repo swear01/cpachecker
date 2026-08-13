@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
     --manifest) MANIFEST="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --parallel) PARALLEL="$2"; shift 2 ;;
-    --timelimit) TIMELIMIT="$2"; shift 2 ;;
+    --timelimit) TIMELIMIT="${2%s}"; shift 2 ;;
     --heap) HEAP="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     *) die "unknown argument: $1" ;;
@@ -63,6 +63,7 @@ done
 [[ "$ARM" == "stock" || "$ARM" == "augmented" ]] || die "--arm must be stock or augmented"
 [[ -f "$MANIFEST" ]] || die "--manifest file required: $MANIFEST"
 [[ -n "$OUT" ]] || die "--out required"
+[[ "$TIMELIMIT" =~ ^[1-9][0-9]*$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
 [[ -d "$SV_BENCHMARKS" ]] || die "SV_BENCHMARKS not found: $SV_BENCHMARKS (export SV_BENCHMARKS=~/sv-benchmarks/c)"
 
 # Refuse to start a formal run when foreign processes occupy the P-core pool
@@ -100,7 +101,9 @@ else
   USE_VGUIDE="true"
 fi
 SPEC="$REPO/config/specification/sv-comp-reachability.spc"
-TIMEOUT_GRACE=30
+TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-10}"
+TIMEOUT_GRACE="${TIMEOUT_GRACE%s}" # strip a trailing 's'
+[[ "$TIMEOUT_GRACE" =~ ^[0-9]+$ ]] || die "TIMEOUT_GRACE must be a non-negative integer, got: $TIMEOUT_GRACE"
 
 if [[ "$DRY" == "1" ]]; then
   echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE"

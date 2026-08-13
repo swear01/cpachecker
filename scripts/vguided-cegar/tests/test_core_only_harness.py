@@ -154,7 +154,7 @@ def test_record_from_run_parses_log_and_dump(tmp_path):
     r = rec.record_from_run(task_row, log, dump_root, "cfgsha", "commitsha", "augmented", 300)
     assert r["solver"] == "MathSAT5 5.6.11"
     assert r["refinements"] == 47
-    assert r["wall_s"] == 300.796
+    assert r["wall_s"] == 300.0  # capped at timelimit (issue #71)
     assert r["cpu_s"] == 300.25
     assert r["memory_mb"] == "512.0"
     assert r["verdict"] == "UNKNOWN"
