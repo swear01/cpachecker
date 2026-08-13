@@ -222,6 +222,7 @@ run_one() {
   local log="$OUT_BASE/logs/${task}.log"
   local cmd=(
     timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
+    taskset -c "0,2,4,6,8,10,12,14"
     "$CPA_SH" --heap "$HEAP"
     --config "$CONFIG"
   )
