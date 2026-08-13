@@ -6,6 +6,7 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
+import org.sosy_lab.cpachecker.cpa.predicate.LlmApiUrl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -40,7 +41,6 @@ import org.sosy_lab.common.log.LogManager;
  */
 public final class PredicateProposalClient {
 
-  private static final String DEFAULT_API_URL = "https://api.deepseek.com/chat/completions";
   private static final String DEFAULT_MODEL = "deepseek-v4-pro";
   private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -78,7 +78,10 @@ public final class PredicateProposalClient {
   public PredicateProposalClient(LogManager pLogger, int pMaxCompletionTokens) {
     logger = pLogger;
     responseCache = responseCacheFromEnvironment();
-    apiUrl = validateApiUrl(System.getenv("VGUIDE_LLM_API_URL"));
+    apiUrl =
+        responseCache != null && responseCache.mode() == LlmResponseCache.Mode.REPLAY
+            ? URI.create(LlmApiUrl.DEFAULT_API_URL)
+            : LlmApiUrl.validate(System.getenv("VGUIDE_LLM_API_URL"));
     String configuredApiKey = System.getenv("DEEPSEEK_API_KEY");
     apiKey = configuredApiKey == null ? "" : configuredApiKey;
     if (apiKey.isBlank()
@@ -334,27 +337,4 @@ public final class PredicateProposalClient {
         .toString();
   }
 
-  private static URI validateApiUrl(String configured) {
-    String trimmed = configured == null ? null : configured.strip();
-    if (trimmed == null || trimmed.isEmpty()) {
-      return URI.create(DEFAULT_API_URL);
-    }
-    try {
-      URI uri = URI.create(trimmed);
-      if (!uri.isAbsolute()) {
-        throw new IllegalArgumentException("not an absolute URI");
-      }
-      String scheme = uri.getScheme();
-      if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
-        throw new IllegalArgumentException("scheme must be http or https, got: " + scheme);
-      }
-      if (uri.getHost() == null) {
-        throw new IllegalArgumentException("URI has no valid host: " + trimmed);
-      }
-      return uri;
-    } catch (IllegalArgumentException e) {
-      throw new IllegalStateException(
-          "VGUIDE_LLM_API_URL is invalid: " + e.getMessage() + " (got: " + configured + ")", e);
-    }
-  }
 }
