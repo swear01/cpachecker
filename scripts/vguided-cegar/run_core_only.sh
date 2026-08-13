@@ -100,7 +100,7 @@ else
   USE_VGUIDE="true"
 fi
 SPEC="$REPO/config/specification/sv-comp-reachability.spc"
-TIMEOUT_GRACE=10
+TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-10}"
 
 if [[ "$DRY" == "1" ]]; then
   echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE"
