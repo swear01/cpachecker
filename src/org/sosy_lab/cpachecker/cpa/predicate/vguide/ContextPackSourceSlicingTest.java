@@ -47,11 +47,39 @@ public class ContextPackSourceSlicingTest extends SolverViewBasedTest0 {
     assertThat(pack.sourceCode()).contains("// source truncated");
     assertThat(pack.sourceCode()).contains("__VERIFIER_assert");
     assertThat(pack.sourceCode()).contains("while (i < N)");
-    // the huge constant array lines are dropped from the prompt
-    assertThat(pack.sourceCode()).doesNotContain("314159");
+    // top-level declarations are preserved (loop references them)
+    assertThat(pack.sourceCode()).contains("const int weights[16000]");
+    assertThat(pack.sourceCode()).contains("int N = 16000;");
+    // the huge constant array values (middle of the array, beyond the margin) are dropped
+    assertThat(pack.sourceCode()).doesNotContain("8000");
     assertThat(pack.sourceCode().length()).isLessThan(SourceSlicer.SLICE_THRESHOLD);
     // assertion text still extracted from the sliced source
     assertThat(pack.assertion()).contains("sum");
+  }
+
+  @Test
+  public void hugeLoopFreeSourceIsBounded() throws Exception {
+    Path cFile = Files.createTempFile("vguide_head_", ".c");
+    cFile.toFile().deleteOnExit();
+    String source = generateHugeLoopFreeSource();
+    assertThat(source.length()).isGreaterThan(SourceSlicer.SLICE_THRESHOLD);
+    Files.writeString(cFile, source);
+
+    CFACreator parser =
+        new CFACreator(
+            TestDataTools.configurationForTest().build(),
+            LogManager.createTestLogManager(),
+            ShutdownNotifier.createDummy());
+    CFA cfa = parser.parseFileAndCreateCFA(ImmutableList.of(cFile.toString()));
+
+    ContextPackBuilder builder =
+        new ContextPackBuilder(cfa, new LoopHeadIndex(cfa.getLoopStructure()), mgrv);
+    ContextPack pack = builder.buildSourceOnly();
+
+    // no loop heads and no assertion: top-level declarations + main signature only
+    assertThat(pack.sourceCode()).contains("// source truncated");
+    assertThat(pack.sourceCode().length()).isLessThan(SourceSlicer.SLICE_THRESHOLD);
+    assertThat(pack.sourceCode()).doesNotContain("x += 39999;");
   }
 
   /** Mirrors the neural-net family: one loop over a huge constant array. */
@@ -60,7 +88,7 @@ public class ContextPackSourceSlicingTest extends SolverViewBasedTest0 {
     sb.append("int N = 16000;\n");
     sb.append("const int weights[16000] = {\n");
     for (int i = 0; i < 16000; i++) {
-      sb.append("314159");
+      sb.append(i);
       if (i + 1 < 16000) {
         sb.append(", ");
       }
@@ -78,6 +106,19 @@ public class ContextPackSourceSlicingTest extends SolverViewBasedTest0 {
     sb.append("  }\n");
     sb.append("  __VERIFIER_assert(sum != 0);\n");
     sb.append("  return 0;\n");
+    sb.append("}\n");
+    return sb.toString();
+  }
+
+  /** Huge, loop-free, no assertion: nothing to slice to, must fall back to the head. */
+  private static String generateHugeLoopFreeSource() {
+    StringBuilder sb = new StringBuilder();
+    sb.append("int main() {\n");
+    sb.append("  volatile int x = 0;\n");
+    for (int i = 0; i < 40_000; i++) {
+      sb.append("  x += ").append(i).append(";\n");
+    }
+    sb.append("  return x;\n");
     sb.append("}\n");
     return sb.toString();
   }

@@ -68,6 +68,7 @@ public final class ContextPackBuilder {
       int refinementIndex,
       BlockFormulas formulas,
       CounterexampleTraceInfo counterexample,
+      List<? extends org.sosy_lab.cpachecker.core.interfaces.AbstractState> fullTrace,
       List<? extends org.sosy_lab.cpachecker.core.interfaces.AbstractState> abstractionTrace) {
     Set<String> encodedVars = new HashSet<>();
     for (BooleanFormula f : formulas.getFormulas()) {
@@ -77,7 +78,7 @@ public final class ContextPackBuilder {
         counterexample.isSpurious() && counterexample.getInterpolants() != null
             ? counterexample.getInterpolants()
             : ImmutableList.of();
-    String source = readSourceSliced(abstractionTrace);
+    String source = readSourceSliced(fullTrace);
     String assertion = extractAssertion(source);
     var varContract = VarContractBuilder.build(encodedVars);
     ImmutableList<LoopHeadInfo> loopHeads = loopHeadIndex.getLoopHeads();
@@ -100,56 +101,73 @@ public final class ContextPackBuilder {
   }
 
   /**
-   * Reads the source; for very large sources (issue #74) slices it to the counterexample path,
-   * loop heads and assertion so the prompt stays within the LLM context budget.
+   * Reads the source; for very large files (issue #74) slices each to the full counterexample
+   * path, loop heads, top-level declarations and assertion so the prompt stays within the LLM
+   * context budget. Slicing is per file so line numbers stay file-local.
    */
-  private String readSourceSliced(List<? extends AbstractState> abstractionTrace) {
-    String source = readSource();
-    if (source.length() <= SourceSlicer.SLICE_THRESHOLD) {
-      return source;
-    }
-    List<int[]> ranges = new ArrayList<>();
-    java.util.Optional<LoopStructure> loopStructure = cfa.getLoopStructure();
-    if (loopStructure.isPresent()) {
-      for (Loop loop : loopStructure.orElseThrow().getAllLoops()) {
-        for (CFANode head : loop.getLoopHeads()) {
-          collectNodeLines(head, ranges);
-        }
-      }
-    }
-    for (AbstractState state : abstractionTrace) {
-      CFANode node = AbstractStates.extractLocation(state);
-      if (node != null) {
-        collectNodeLines(node, ranges);
-      }
-    }
-    int assertionLine = SourceSlicer.assertionLine(source);
-    if (assertionLine > 0) {
-      ranges.add(new int[] {assertionLine, assertionLine});
-    }
-    return SourceSlicer.slice(source, ranges, 2);
-  }
-
-  /** Collects the line ranges of all leaving edges of the node (its statements). */
-  private static void collectNodeLines(CFANode node, List<int[]> ranges) {
-    for (CFAEdge edge : node.getLeavingEdges()) {
-      FileLocation location = edge.getFileLocation();
-      if (location.isRealLocation()) {
-        ranges.add(new int[] {location.getStartingLineNumber(), location.getEndingLineNumber()});
-      }
-    }
-  }
-
-  private String readSource() {
+  private String readSourceSliced(List<? extends AbstractState> fullTrace) {
     try {
       StringBuilder sb = new StringBuilder();
       for (Path f : cfa.getFileNames()) {
         sb.append("// File: ").append(f.getFileName()).append('\n');
-        sb.append(Files.readString(f)).append('\n');
+        String content = Files.readString(f);
+        if (content.length() <= SourceSlicer.SLICE_THRESHOLD) {
+          sb.append(content).append('\n');
+          continue;
+        }
+        List<int[]> ranges = new ArrayList<>(SourceSlicer.topLevelDeclarationRanges(content));
+        java.util.Optional<LoopStructure> loopStructure = cfa.getLoopStructure();
+        if (loopStructure.isPresent()) {
+          for (Loop loop : loopStructure.orElseThrow().getAllLoops()) {
+            for (CFANode head : loop.getLoopHeads()) {
+              collectNodeLines(f, head, ranges);
+            }
+          }
+        }
+        for (AbstractState state : fullTrace) {
+          CFANode node = AbstractStates.extractLocation(state);
+          if (node != null) {
+            collectNodeLines(f, node, ranges);
+          }
+        }
+        int assertionLine = SourceSlicer.assertionLine(content);
+        if (assertionLine > 0) {
+          ranges.add(new int[] {assertionLine, assertionLine});
+        }
+        if (ranges.isEmpty()) {
+          // no loop heads / assertion / declarations detected: bounded head instead of the
+          // full oversized payload
+          sb.append(SourceSlicer.head(content));
+        } else {
+          sb.append(SourceSlicer.slice(content, ranges, 2));
+        }
+        sb.append('\n');
       }
       return sb.toString();
     } catch (IOException e) {
       return "// source unavailable";
+    }
+  }
+
+  /** Collects the line ranges of all entering and leaving edges of the node (its statements). */
+  private static void collectNodeLines(Path file, CFANode node, List<int[]> ranges) {
+    for (CFAEdge edge : node.getLeavingEdges()) {
+      collectEdgeLine(file, edge, ranges);
+    }
+    for (CFAEdge edge : node.getEnteringEdges()) {
+      collectEdgeLine(file, edge, ranges);
+    }
+  }
+
+  private static void collectEdgeLine(Path file, CFAEdge edge, List<int[]> ranges) {
+    FileLocation location = edge.getFileLocation();
+    if (location.isRealLocation()
+        && location
+            .getFileName()
+            .toAbsolutePath()
+            .normalize()
+            .equals(file.toAbsolutePath().normalize())) {
+      ranges.add(new int[] {location.getStartingLineNumber(), location.getEndingLineNumber()});
     }
   }
 

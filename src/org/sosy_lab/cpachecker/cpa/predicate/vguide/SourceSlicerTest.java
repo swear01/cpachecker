@@ -68,6 +68,51 @@ public class SourceSlicerTest {
   }
 
   @Test
+  public void assertionLineSkipsHelperDeclaration() {
+    String source =
+        """
+        extern void __VERIFIER_assert(int cond);
+        #define __VERIFIER_assert(cond) do { if (!(cond)) __VERIFIER_error(); } while (0)
+        int main() {
+          __VERIFIER_assert(x == 0);
+        }
+        """;
+    assertThat(SourceSlicer.assertionLine(source)).isEqualTo(4);
+  }
+
+  @Test
+  public void topLevelDeclarationRangesKeepGlobalsAndSkipBody() {
+    String source =
+        """
+        #include <stdint.h>
+        const int weights[2] = {1, 2};
+        int main() {
+          int x = 0;
+          while (x < 1) { x++; }
+          return 0;
+        }
+        """;
+    List<int[]> ranges = SourceSlicer.topLevelDeclarationRanges(source);
+    assertThat(
+            ranges.stream().map(r -> r[0] + "-" + r[1]).collect(java.util.stream.Collectors.toList()))
+        .containsExactly("1-1", "2-2", "3-3");
+  }
+
+  @Test
+  public void headBoundsLargeSourceAtLineBoundary() {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 1; i <= 100_000; i++) {
+      sb.append("l").append(i).append('\n');
+    }
+    String source = sb.toString();
+    String head = SourceSlicer.head(source);
+    assertThat(head.length()).isLessThan(SourceSlicer.HEAD_LIMIT + 100);
+    assertThat(head).contains("// source truncated to head");
+    assertThat(head).contains("l5000"); // early content preserved
+    assertThat(head).doesNotContain("l99999"); // tail cut off
+  }
+
+  @Test
   public void assertionLineWithoutAssertIsMinusOne() {
     assertThat(SourceSlicer.assertionLine("int x;\nreturn 0;\n")).isEqualTo(-1);
   }
