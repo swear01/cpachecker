@@ -216,7 +216,12 @@ final class ArrayTermTranslator {
       return predicateText;
     }
     // Pass 1: C-syntax array reads a[i] (the LLM's preferred form; issue #68).
+    // Returns null when an index expression cannot be translated — the whole
+    // candidate is then rejected (gemini-review #69).
     String result = translateCSyntax(predicateText, functionName);
+    if (result == null) {
+      return null;
+    }
     // Pass 2: S-expr array reads (c i) (backward compatible).
     result = translateSexpr(result, functionName);
     // Pass 3: rewrite remaining bare identifiers to their scoped unversioned names
@@ -271,11 +276,9 @@ final class ArrayTermTranslator {
       }
       IndexExpr idx = parseIndexExpr(m.group(2), functionName);
       if (idx == null) {
-        // Unsupported index expression (modulo, nested brackets, ...): abort the
-        // whole translation so the raw C syntax reaches the parser and the
-        // candidate is rejected cleanly instead of being mangled by the
-        // bare-identifier rewrite (swear-review #69).
-        return predicateText;
+        // Unsupported index expression (modulo, nested brackets, digit-leading
+        // junk, ...): abort the whole translation — the candidate is rejected.
+        return null;
       }
       out.append(predicateText, last, m.start());
       appendSelect(out, t, idx.smt(), idx.width());
@@ -338,10 +341,12 @@ final class ArrayTermTranslator {
     } else {
       out.append(indexSmt);
     }
+    int shiftConstWidth =
+        t.extractMsb() >= 0 ? t.extractMsb() + 1 : Math.max(indexWidth, t.shiftConstBits());
     out.append(" (_ bv")
         .append(t.shiftBits())
         .append(" ")
-        .append(t.shiftConstBits())
+        .append(shiftConstWidth)
         .append("))))");
   }
 
@@ -471,6 +476,9 @@ final class ArrayTermTranslator {
       // Width 0 placeholder: rewidthed to the operand width by the caller.
       // toUnsignedString keeps > Long.MAX_VALUE literals positive in SMT.
       return new IndexExpr("(_ bv" + Long.toUnsignedString(constant) + " 0)", 0);
+    }
+    if (Character.isDigit(token.charAt(0))) {
+      return null; // digit-leading junk like 123abc is neither literal nor variable
     }
     String scoped = functionName + "::" + token;
     if (!varBits.containsKey(scoped) && varBits.containsKey(token)) {

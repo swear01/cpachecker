@@ -184,6 +184,16 @@ public final class PredicateValidationPipeline {
           // instantiate with the head's SSAMap (issue #60); per-head because versions differ.
           String translated =
               arrayTranslator.translate(candidate.predicate(), head.node().getFunctionName());
+          if (translated == null) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_PARSE_ERROR,
+                    "array index expression not translatable"));
+            continue;
+          }
           headParsed =
               VocabularyGuide.parsePredicate(
                   translated,
