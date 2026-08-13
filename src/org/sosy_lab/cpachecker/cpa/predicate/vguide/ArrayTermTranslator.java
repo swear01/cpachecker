@@ -360,7 +360,10 @@ final class ArrayTermTranslator {
     if (pos[0] != expr.length()) {
       return null;
     }
-    int width = Math.max(e.width(), 32);
+    // Constant-only expressions have width 0 and default to 32 bits; anything
+    // with a variable keeps the variable's actual width (a 16-bit index var
+    // must not be forced to 32, which would break the extract bounds).
+    int width = e.width() > 0 ? e.width() : 32;
     return new IndexExpr(rewidth(e.smt(), width), width);
   }
 
