@@ -46,6 +46,17 @@ public final class PredicateProposalClient {
 
   private final LogManager logger;
   private final String apiKey;
+
+  private static URI validateApiUrl(String configured) {
+    URI uri =
+        configured == null || configured.isBlank()
+            ? URI.create(DEFAULT_API_URL)
+            : URI.create(configured);
+    if (!uri.isAbsolute()) {
+      throw new IllegalStateException("VGUIDE_LLM_API_URL must be an absolute URI, got: " + configured);
+    }
+    return uri;
+  }
   private final String model;
   private final boolean thinkingEnabled;
   private final @Nullable String reasoningEffort;
@@ -80,10 +91,7 @@ public final class PredicateProposalClient {
     logger = pLogger;
     responseCache = responseCacheFromEnvironment();
     String configuredApiUrl = System.getenv("VGUIDE_LLM_API_URL");
-    apiUrl =
-        configuredApiUrl == null || configuredApiUrl.isBlank()
-            ? URI.create(DEFAULT_API_URL)
-            : URI.create(configuredApiUrl);
+    apiUrl = validateApiUrl(configuredApiUrl);
     String configuredApiKey = System.getenv("DEEPSEEK_API_KEY");
     apiKey = configuredApiKey == null ? "" : configuredApiKey;
     if (apiKey.isBlank()
