@@ -14,7 +14,7 @@
 #
 # Environment:
 #   JAVA, HEAP (default 2000M), TIMELIMIT (default 300s)
-#   VGUIDE_TIMEOUT_GRACE — outer timeout slack beyond TIMELIMIT (default 30; batch = 330s)
+#   VGUIDE_TIMEOUT_GRACE — outer timeout slack beyond TIMELIMIT (default 0; wall limit = TIMELIMIT)
 #   VGUIDE_INTERP_TIMELIMIT_MS — optional; e.g. 120000 (not used in published full_scalar runs)
 #   VGUIDE_PARALLEL or PARALLEL — max concurrent CPA jobs (default 8)
 #   VGUIDE_SET_DIR — override manifest directory
@@ -60,7 +60,7 @@ HEAP="${HEAP:-2000M}"
 TIMELIMIT="${TIMELIMIT:-300}"
 # Outer timeout = TIMELIMIT + grace (default 30s → 330s total), same as full_scalar batch runs.
 # Optional: VGUIDE_TIMEOUT_GRACE=60 for ops; changes timing vs published 217-task numbers.
-TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-30}"
+TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-0}"
 OUT_BASE="${VGUIDE_OUT_BASE:-$REPO/output/vguide/batch}"
 SV_BENCHMARKS="${SV_BENCHMARKS:-$HOME/sv-benchmarks/c}"
 SKIP_MISSING="${VGUIDE_SKIP_MISSING:-1}"
