@@ -210,24 +210,24 @@ final class ArrayTermTranslator {
    * FormulaManagerView#instantiate} with the target head's SSAMap before validation.
    */
   @Nullable String translate(String predicateText, String functionName) {
-    if (!hasArrayAccess(predicateText)) {
-      // No array reads: leave scalar-only predicates untouched (the parser's
-      // resolveVariableName handles them as before).
-      return predicateText;
+    // Pass 0: strip leaked SSA versions (N@2 -> main::N, main::x@3 -> main::x)
+    // for ALL predicates — the LLM sometimes echoes versioned names
+    // (reject-cleanup, issue #67/#70; gemini-review #70).
+    String result = stripSsaVersions(predicateText, functionName);
+    if (!hasArrayAccess(result)) {
+      // No array reads: return the (SSA-stripped) text — the parser's
+      // resolveVariableName handles scalar variables as before.
+      return result;
     }
     // Pass 1: C-syntax array reads a[i] (the LLM's preferred form; issue #68).
     // Returns null when an index expression cannot be translated — the whole
     // candidate is then rejected (gemini-review #69).
-    String result = translateCSyntax(predicateText, functionName);
+    result = translateCSyntax(result, functionName);
     if (result == null) {
       return null;
     }
     // Pass 2: S-expr array reads (c i) (backward compatible).
     result = translateSexpr(result, functionName);
-    // Pass 3a: strip leaked SSA versions (N@2 -> main::N) — the LLM sometimes
-    // echoes versioned names; the head SSAMap instantiation then applies the
-    // correct version (reject-cleanup, issue #67/#70).
-    result = stripSsaVersions(result, functionName);
     // Pass 3b: rewrite remaining bare identifiers to their scoped unversioned names
     // (e.g. i -> main::i) so the whole predicate can be instantiated with the head SSAMap.
     if (bareIdentifierPattern != null) {

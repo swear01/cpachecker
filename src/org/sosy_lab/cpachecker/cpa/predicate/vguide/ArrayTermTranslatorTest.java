@@ -170,6 +170,20 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
   }
 
   @Test
+  public void stripsSsaVersionsInScalarPredicates() {
+    Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
+    Map<String, Integer> bits = new LinkedHashMap<>();
+    ArrayTermTranslator.collectDeclaredVariables(IFCOMP_SHAPED_DUMP, bits);
+    ArrayTermTranslator translator =
+        new ArrayTermTranslator(
+            com.google.common.collect.ImmutableMap.copyOf(found),
+            com.google.common.collect.ImmutableMap.copyOf(bits));
+    // Scalar-only predicates also get the SSA strip (gemini-review #70).
+    assertThat(translator.translate("(bvslt i N@2)", "main"))
+        .isEqualTo("(bvslt i main::N)"); // scalar names are resolved by the parser
+  }
+
+  @Test
   public void stripsSsaVersionsInArrayCandidates() {
     Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
     Map<String, Integer> bits = new LinkedHashMap<>();
