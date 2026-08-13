@@ -40,7 +40,7 @@ import org.sosy_lab.common.log.LogManager;
  */
 public final class PredicateProposalClient {
 
-  private static final String API_URL = "https://api.deepseek.com/chat/completions";
+  private static final String DEFAULT_API_URL = "https://api.deepseek.com/chat/completions";
   private static final String DEFAULT_MODEL = "deepseek-v4-pro";
   private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -70,6 +70,8 @@ public final class PredicateProposalClient {
     return new PredicateProposalClient(pLogger, pMaxCompletionTokens);
   }
 
+  private final String apiUrl;
+
   public PredicateProposalClient(LogManager pLogger) {
     this(pLogger, readPositiveIntEnv("VGUIDE_LLM_MAX_COMPLETION_TOKENS", 1024));
   }
@@ -77,6 +79,9 @@ public final class PredicateProposalClient {
   public PredicateProposalClient(LogManager pLogger, int pMaxCompletionTokens) {
     logger = pLogger;
     responseCache = responseCacheFromEnvironment();
+    apiUrl = System.getenv("VGUIDE_LLM_API_URL") == null
+        ? DEFAULT_API_URL
+        : System.getenv("VGUIDE_LLM_API_URL");
     String configuredApiKey = System.getenv("DEEPSEEK_API_KEY");
     apiKey = configuredApiKey == null ? "" : configuredApiKey;
     if (apiKey.isBlank()
@@ -120,7 +125,7 @@ public final class PredicateProposalClient {
     }
     HttpRequest req =
         HttpRequest.newBuilder()
-            .uri(URI.create(API_URL))
+            .uri(URI.create(apiUrl))
             .header("Authorization", "Bearer " + apiKey)
             .header("Content-Type", "application/json")
             .timeout(Duration.ofSeconds(timeoutSeconds))
