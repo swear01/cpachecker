@@ -56,7 +56,7 @@ import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
  */
 public class LLMConnector {
 
-  private static final String API_URL = "https://api.deepseek.com/chat/completions";
+  private static final String DEFAULT_API_URL = "https://api.deepseek.com/chat/completions";
   private static final String DEFAULT_MODEL = "deepseek-v4-pro";
   private static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 120;
   private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
@@ -74,6 +74,7 @@ public class LLMConnector {
   private final ShutdownNotifier sd;
   private final CFA cfa;
   private final String apiKey;
+  private final URI apiUrl;
   private final String model;
   private final int completionTokens;
   private final int reasoningTokens;
@@ -105,6 +106,7 @@ public class LLMConnector {
     logger = pLogger;
     sd = pSd;
     cfa = pCfa;
+    apiUrl = validateApiUrl(System.getenv("VGUIDE_LLM_API_URL"));
     apiKey = pApiKey;
     String configuredModel = System.getenv("DEEPSEEK_MODEL");
     model = configuredModel == null || configuredModel.isBlank() ? DEFAULT_MODEL : configuredModel;
@@ -279,7 +281,7 @@ public class LLMConnector {
 
     HttpRequest req =
         HttpRequest.newBuilder()
-            .uri(URI.create(API_URL))
+            .uri(apiUrl)
             .header("Authorization", "Bearer " + apiKey)
             .header("Content-Type", "application/json")
             .timeout(Duration.ofSeconds(requestTimeoutSeconds))
@@ -689,6 +691,27 @@ public class LLMConnector {
       return sb.toString();
     } catch (IOException e) {
       return "// source unavailable";
+    }
+  }
+
+  private static URI validateApiUrl(String configured) {
+    String trimmed = configured == null ? null : configured.strip();
+    if (trimmed == null || trimmed.isEmpty()) {
+      return URI.create(DEFAULT_API_URL);
+    }
+    try {
+      URI uri = URI.create(trimmed);
+      if (!uri.isAbsolute()) {
+        throw new IllegalArgumentException("not an absolute URI");
+      }
+      String scheme = uri.getScheme();
+      if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
+        throw new IllegalArgumentException("scheme must be http or https, got: " + scheme);
+      }
+      return uri;
+    } catch (IllegalArgumentException e) {
+      throw new IllegalStateException(
+          "VGUIDE_LLM_API_URL is invalid: " + e.getMessage() + " (got: " + configured + ")", e);
     }
   }
 }

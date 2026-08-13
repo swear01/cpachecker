@@ -45,28 +45,8 @@ public final class PredicateProposalClient {
   private static final ObjectMapper JSON = new ObjectMapper();
 
   private final LogManager logger;
+  private final URI apiUrl;
   private final String apiKey;
-
-  private static URI validateApiUrl(String configured) {
-    String trimmed = configured == null ? null : configured.strip();
-    if (trimmed == null || trimmed.isEmpty()) {
-      return URI.create(DEFAULT_API_URL);
-    }
-    try {
-      URI uri = URI.create(trimmed);
-      if (!uri.isAbsolute()) {
-        throw new IllegalArgumentException("not an absolute URI");
-      }
-      String scheme = uri.getScheme();
-      if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
-        throw new IllegalArgumentException("scheme must be http or https, got: " + scheme);
-      }
-      return uri;
-    } catch (IllegalArgumentException e) {
-      throw new IllegalStateException(
-          "VGUIDE_LLM_API_URL is invalid: " + e.getMessage() + " (got: " + configured + ")", e);
-    }
-  }
   private final String model;
   private final boolean thinkingEnabled;
   private final @Nullable String reasoningEffort;
@@ -91,8 +71,6 @@ public final class PredicateProposalClient {
     return new PredicateProposalClient(pLogger, pMaxCompletionTokens);
   }
 
-  private final URI apiUrl;
-
   public PredicateProposalClient(LogManager pLogger) {
     this(pLogger, readPositiveIntEnv("VGUIDE_LLM_MAX_COMPLETION_TOKENS", 1024));
   }
@@ -100,8 +78,7 @@ public final class PredicateProposalClient {
   public PredicateProposalClient(LogManager pLogger, int pMaxCompletionTokens) {
     logger = pLogger;
     responseCache = responseCacheFromEnvironment();
-    String configuredApiUrl = System.getenv("VGUIDE_LLM_API_URL");
-    apiUrl = validateApiUrl(configuredApiUrl);
+    apiUrl = validateApiUrl(System.getenv("VGUIDE_LLM_API_URL"));
     String configuredApiKey = System.getenv("DEEPSEEK_API_KEY");
     apiKey = configuredApiKey == null ? "" : configuredApiKey;
     if (apiKey.isBlank()
@@ -355,5 +332,26 @@ public final class PredicateProposalClient {
     return com.google.common.hash.Hashing.sha256()
         .hashString(requestBody, StandardCharsets.UTF_8)
         .toString();
+  }
+
+  private static URI validateApiUrl(String configured) {
+    String trimmed = configured == null ? null : configured.strip();
+    if (trimmed == null || trimmed.isEmpty()) {
+      return URI.create(DEFAULT_API_URL);
+    }
+    try {
+      URI uri = URI.create(trimmed);
+      if (!uri.isAbsolute()) {
+        throw new IllegalArgumentException("not an absolute URI");
+      }
+      String scheme = uri.getScheme();
+      if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
+        throw new IllegalArgumentException("scheme must be http or https, got: " + scheme);
+      }
+      return uri;
+    } catch (IllegalArgumentException e) {
+      throw new IllegalStateException(
+          "VGUIDE_LLM_API_URL is invalid: " + e.getMessage() + " (got: " + configured + ")", e);
+    }
   }
 }
