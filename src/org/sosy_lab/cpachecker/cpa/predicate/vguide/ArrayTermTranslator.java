@@ -64,6 +64,7 @@ final class ArrayTermTranslator {
       Pattern.compile("\\(\\s*([A-Za-z_]\\w*)\\s+([A-Za-z_]\\w*)\\s*\\)");
   private static final Pattern C_ARRAY_ACCESS =
       Pattern.compile("([A-Za-z_]\\w*)\\[([^\\]]+)\\]");
+  private static final Pattern CONST_WIDTH_0 = Pattern.compile("\\(_ bv(\\d+) 0\\)");
 
   /** SMT-LIB keywords/operators that must never be treated as bare identifiers. */
   private static final Set<String> SMT_KEYWORDS =
@@ -356,7 +357,11 @@ final class ArrayTermTranslator {
     while (pos[0] < expr.length() && Character.isWhitespace(expr.charAt(pos[0]))) {
       pos[0]++;
     }
-    return pos[0] == expr.length() ? e : null;
+    if (pos[0] != expr.length()) {
+      return null;
+    }
+    int width = Math.max(e.width(), 32);
+    return new IndexExpr(rewidth(e.smt(), width), width);
   }
 
   private @Nullable IndexExpr parseAddSub(String expr, int[] pos, String functionName) {
@@ -380,10 +385,16 @@ final class ArrayTermTranslator {
         return null;
       }
       width = Math.max(width, right.width());
+      // Constants are emitted with width 0; rewidth them to the operand width
+      // so both sides of the SMT operation share the same sort (review #69).
       left =
           op == '+'
-              ? new IndexExpr("(bvadd " + left.smt() + " " + right.smt() + ")", width)
-              : new IndexExpr("(bvsub " + left.smt() + " " + right.smt() + ")", width);
+              ? new IndexExpr(
+                  "(bvadd " + rewidth(left.smt(), width) + " " + rewidth(right.smt(), width) + ")",
+                  width)
+              : new IndexExpr(
+                  "(bvsub " + rewidth(left.smt(), width) + " " + rewidth(right.smt(), width) + ")",
+                  width);
     }
   }
 
@@ -408,10 +419,15 @@ final class ArrayTermTranslator {
         return null;
       }
       width = Math.max(width, right.width());
+      // C integer division is signed: bvsdiv (review #69).
       left =
           op == '*'
-              ? new IndexExpr("(bvmul " + left.smt() + " " + right.smt() + ")", width)
-              : new IndexExpr("(bvudiv " + left.smt() + " " + right.smt() + ")", width);
+              ? new IndexExpr(
+                  "(bvmul " + rewidth(left.smt(), width) + " " + rewidth(right.smt(), width) + ")",
+                  width)
+              : new IndexExpr(
+                  "(bvsdiv " + rewidth(left.smt(), width) + " " + rewidth(right.smt(), width) + ")",
+                  width);
     }
   }
 
@@ -443,9 +459,10 @@ final class ArrayTermTranslator {
       return null;
     }
     String token = expr.substring(start, pos[0]);
-    if (token.chars().allMatch(Character::isDigit)) {
-      int width = 32;
-      return new IndexExpr("(_ bv" + token + " " + width + ")", width);
+    Long constant = cIntegerLiteral(token);
+    if (constant != null) {
+      // Width 0 placeholder: rewidthed to the operand width by the caller.
+      return new IndexExpr("(_ bv" + constant + " 0)", 0);
     }
     String scoped = functionName + "::" + token;
     if (!varBits.containsKey(scoped) && varBits.containsKey(token)) {
@@ -453,6 +470,27 @@ final class ArrayTermTranslator {
     }
     int width = varBits.getOrDefault(scoped, 32);
     return new IndexExpr(scoped, width);
+  }
+
+  /** Parses a C integer literal (dec/hex, optional u/l/ll suffixes) or null. */
+  private static Long cIntegerLiteral(String token) {
+    String t = token;
+    while (!t.isEmpty() && (t.endsWith("u") || t.endsWith("U") || t.endsWith("l") || t.endsWith("L"))) {
+      t = t.substring(0, t.length() - 1);
+    }
+    try {
+      if (t.startsWith("0x") || t.startsWith("0X")) {
+        return Long.parseLong(t.substring(2), 16);
+      }
+      return Long.parseLong(t);
+    } catch (NumberFormatException e) {
+      return null;
+    }
+  }
+
+  /** Rewidths width-0 constants in an index expression to {@code width}. */
+  private static String rewidth(String smt, int width) {
+    return CONST_WIDTH_0.matcher(smt).replaceAll(mr -> "(_ bv" + mr.group(1) + " " + width + ")");
   }
 
   private static void skipWs(String expr, int[] pos) {

@@ -154,6 +154,13 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
                 + " (bvadd (bvmul (_ bv4 32) main::j) (_ bv1 32))) (_ bv3 32))))"
                 + " (bvmul j (_ bv2 64)))"); // j undeclared in the test dump: only the array index is scoped
 
+    // Hex literal index: c[0x10]
+    String hex = translator.translate("(bvsge c[0x10] (_ bv0 64))", "main");
+    assertThat(hex)
+        .isEqualTo(
+            "(bvsge (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) (_ bv16 32)) (_ bv3 32))))"
+                + " (_ bv0 64))");
+
     // Constant index: c[0]
     String cnst = translator.translate("(bvsle c[0] (_ bv5 64))", "main");
     assertThat(cnst)
