@@ -136,8 +136,8 @@ summary_row_from_log() {
   [[ -n "$wall" ]] || wall="0"
   # Cap the recorded wall at TIMELIMIT (issue #71): the wall timeout fires at
   # TIMELIMIT+grace, so a wall-killed run may have printed up to grace more.
-  wall="$(python3 -c "print(min(float('$wall'), $TIMELIMIT))" 2>/dev/null || echo "$wall")"
-  wall="${wall%.0}" # '300.0' -> '300'
+  wall="$(awk -v w="$wall" -v l="$TIMELIMIT" 'BEGIN { if (w > l) w = l; printf "%d", w }')"
+  [[ -n "$wall" ]] || wall="0"
   rel="${task}.i"
   while IFS= read -r mline || [[ -n "$mline" ]]; do
     [[ "$mline" =~ ^[[:space:]]*# ]] && continue
@@ -274,8 +274,8 @@ run_one() {
   [[ -n "$wall" ]] || wall="0"
   # Cap the recorded wall at TIMELIMIT (issue #71): the wall timeout fires at
   # TIMELIMIT+grace, so a wall-killed run may have printed up to grace more.
-  wall="$(python3 -c "print(min(float('$wall'), $TIMELIMIT))" 2>/dev/null || echo "$wall")"
-  wall="${wall%.0}" # '300.0' -> '300'
+  wall="$(awk -v w="$wall" -v l="$TIMELIMIT" 'BEGIN { if (w > l) w = l; printf "%d", w }')"
+  [[ -n "$wall" ]] || wall="0"
   echo "$task → $result refs=$refs wall=${wall}s" >&2
   echo "$task,$(basename "$prog"),$result,$refs,$wall,$log"
 }
