@@ -281,7 +281,7 @@ final class ArrayTermTranslator {
         return null;
       }
       out.append(predicateText, last, m.start());
-      appendSelect(out, t, idx.smt(), idx.varWidth());
+      appendSelect(out, t, idx.smt(), idx.width(), idx.varWidth());
       last = m.end();
     }
     if (last == 0) {
@@ -312,7 +312,7 @@ final class ArrayTermTranslator {
       }
       int width = varBits.getOrDefault(candidateIdx, 32);
       out.append(predicateText, last, m.start());
-      appendSelect(out, t, candidateIdx, width);
+      appendSelect(out, t, candidateIdx, width, width);
       last = m.end();
     }
     if (last == 0) {
@@ -324,7 +324,11 @@ final class ArrayTermTranslator {
 
   /** Appends the heap-select term for an array read with the given index SMT. */
   private void appendSelect(
-      StringBuilder out, AccessTemplate t, String indexSmt, int indexVarWidth) {
+      StringBuilder out,
+      AccessTemplate t,
+      String indexSmt,
+      int indexWidth,
+      int indexVarWidth) {
     out.append("(select ");
     out.append(t.heapVar());
     out.append(" (bvadd ").append(t.addrVar());
@@ -347,9 +351,8 @@ final class ArrayTermTranslator {
       // Narrowed: the shift operand width is the extract range.
       shiftConstWidth = t.extractMsb() - t.extractLsb() + 1;
     } else {
-      // Not narrowed: the shift operand keeps the index width (constants default
-      // to 32 bits); never the template's width, which assumes 32-bit narrowing.
-      shiftConstWidth = Math.max(indexVarWidth, 32);
+      // Not narrowed: the shift operand keeps the expression width.
+      shiftConstWidth = indexWidth;
     }
     out.append(" (_ bv")
         .append(t.shiftBits())
@@ -381,9 +384,10 @@ final class ArrayTermTranslator {
     if (pos[0] != expr.length()) {
       return null;
     }
-    // Constants promote to at least int (32); the variable width is kept for
-    // the extract decision (a 16-bit index var must not be forced to 32).
-    int width = Math.max(e.varWidth(), 32);
+    // The expression width drives the shift-constant width and constant
+    // rewidthding; a pure 16-bit variable keeps its width (the extract
+    // decision uses varWidth separately).
+    int width = Math.max(e.width(), 32);
     return new IndexExpr(rewidth(e.smt(), width), width, e.varWidth());
   }
 
@@ -410,6 +414,9 @@ final class ArrayTermTranslator {
       }
       width = Math.max(width, right.width());
       varWidth = Math.max(varWidth, right.varWidth());
+      if (varWidth > 0 && varWidth < 32 && width > varWidth) {
+        return null; // narrow variable mixed with a wider constant: ill-sorted
+      }
       int constWidth = Math.max(width, 32); // C: constants promote to at least int
       left =
           op == '+'
@@ -455,6 +462,9 @@ final class ArrayTermTranslator {
       }
       width = Math.max(width, right.width());
       varWidth = Math.max(varWidth, right.varWidth());
+      if (varWidth > 0 && varWidth < 32 && width > varWidth) {
+        return null; // narrow variable mixed with a wider constant: ill-sorted
+      }
       int constWidth = Math.max(width, 32);
       // C integer division is signed: bvsdiv (review #69).
       left =
@@ -508,9 +518,14 @@ final class ArrayTermTranslator {
     String token = expr.substring(start, pos[0]);
     Long constant = cIntegerLiteral(token);
     if (constant != null) {
-      // Width 0 placeholder: rewidthed to the operand width by the caller.
-      // toUnsignedString keeps > Long.MAX_VALUE literals positive in SMT.
-      return new IndexExpr("(_ bv" + Long.toUnsignedString(constant) + " 0)", 0);
+      // Constants that need more than 32 bits (>= 2^31 in C are long) are
+      // emitted directly at 64 bits; smaller ones use a width-0 placeholder
+      // rewidthed to the operand width by the caller.
+      boolean wide = (constant & 0xFFFFFFFFL) != constant;
+      if (wide) {
+        return new IndexExpr("(_ bv" + Long.toUnsignedString(constant) + " 64)", 64, 0);
+      }
+      return new IndexExpr("(_ bv" + Long.toUnsignedString(constant) + " 0)", 0, 0);
     }
     if (Character.isDigit(token.charAt(0))) {
       return null; // digit-leading junk like 123abc is neither literal nor variable
