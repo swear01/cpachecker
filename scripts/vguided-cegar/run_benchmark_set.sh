@@ -60,12 +60,10 @@ JAVA="${JAVA:-}"
 HEAP="${HEAP:-2000M}"
 TIMELIMIT="${TIMELIMIT:-300}"
 TIMELIMIT="${TIMELIMIT%s}" # strip a trailing 's' ('300s' -> 300)
-[[ "$TIMELIMIT" =~ ^[0-9]+$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
 # Outer timeout = TIMELIMIT + grace (default 10s → 310s total); recorded wall capped at TIMELIMIT.
 # Optional: VGUIDE_TIMEOUT_GRACE=60 for ops; changes timing vs published numbers.
 TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-10}"
 TIMEOUT_GRACE="${TIMEOUT_GRACE%s}" # strip a trailing 's'
-[[ "$TIMEOUT_GRACE" =~ ^[0-9]+$ ]] || die "TIMEOUT_GRACE must be a non-negative integer, got: $TIMEOUT_GRACE"
 OUT_BASE="${VGUIDE_OUT_BASE:-$REPO/output/vguide/batch}"
 SV_BENCHMARKS="${SV_BENCHMARKS:-$HOME/sv-benchmarks/c}"
 SKIP_MISSING="${VGUIDE_SKIP_MISSING:-1}"
@@ -78,6 +76,9 @@ if [[ ! -v VGUIDE_USE_VOCABULARY_GUIDE ]] \
 fi
 
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+[[ "$TIMELIMIT" =~ ^[0-9]+$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
+[[ "$TIMEOUT_GRACE" =~ ^[0-9]+$ ]] || die "TIMEOUT_GRACE must be a non-negative integer, got: $TIMEOUT_GRACE"
 
 usage() {
   sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'
@@ -136,7 +137,7 @@ summary_row_from_log() {
   [[ -n "$wall" ]] || wall="0"
   # Cap the recorded wall at TIMELIMIT (issue #71): the wall timeout fires at
   # TIMELIMIT+grace, so a wall-killed run may have printed up to grace more.
-  wall="$(awk -v w="$wall" -v l="$TIMELIMIT" 'BEGIN { if (w > l) w = l; printf "%d", w }')"
+  wall="$(awk -v w="$wall" -v l="$TIMELIMIT" 'BEGIN { if (w+0 > l+0) printf "%d", l; else printf "%s", w }')"
   [[ -n "$wall" ]] || wall="0"
   rel="${task}.i"
   while IFS= read -r mline || [[ -n "$mline" ]]; do
@@ -274,7 +275,7 @@ run_one() {
   [[ -n "$wall" ]] || wall="0"
   # Cap the recorded wall at TIMELIMIT (issue #71): the wall timeout fires at
   # TIMELIMIT+grace, so a wall-killed run may have printed up to grace more.
-  wall="$(awk -v w="$wall" -v l="$TIMELIMIT" 'BEGIN { if (w > l) w = l; printf "%d", w }')"
+  wall="$(awk -v w="$wall" -v l="$TIMELIMIT" 'BEGIN { if (w+0 > l+0) printf "%d", l; else printf "%s", w }')"
   [[ -n "$wall" ]] || wall="0"
   echo "$task → $result refs=$refs wall=${wall}s" >&2
   echo "$task,$(basename "$prog"),$result,$refs,$wall,$log"
