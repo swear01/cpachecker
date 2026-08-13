@@ -120,45 +120,58 @@ public final class ContextPackBuilder {
     try {
       StringBuilder sb = new StringBuilder();
       for (Path f : cfa.getFileNames()) {
-        sb.append("// File: ").append(f.getFileName()).append('\n');
-        String content = Files.readString(f);
         if (sb.length() >= PROMPT_BUDGET) {
           break; // budget exhausted: no more files
         }
+        sb.append("// File: ").append(f.getFileName()).append('\n');
+        String content = Files.readString(f);
         if (content.length() <= SourceSlicer.SLICE_THRESHOLD) {
           if (sb.length() + content.length() <= PROMPT_BUDGET) {
             sb.append(content).append('\n');
           } else {
-            // only partial space left: keep the assertion sites so the property survives
-            sb.append(SourceSlicer.slice(content, SourceSlicer.assertionRanges(content), 2))
+            // only partial space left: keep the assertion sites so the property survives;
+            // a file without assertions is bounded by its head instead of appended in full
+            List<int[]> assertionRanges = SourceSlicer.assertionRanges(content);
+            sb.append(
+                    assertionRanges.isEmpty()
+                        ? SourceSlicer.head(content)
+                        : SourceSlicer.slice(content, assertionRanges, 2))
                 .append('\n');
           }
           continue;
         }
-        List<int[]> ranges = new ArrayList<>(SourceSlicer.topLevelDeclarationRanges(content));
+        List<int[]> topLevelRanges = SourceSlicer.topLevelDeclarationRanges(content);
+        List<int[]> essentialRanges = new ArrayList<>();
         Path target = f.toAbsolutePath().normalize();
         java.util.Optional<LoopStructure> loopStructure = cfa.getLoopStructure();
         if (loopStructure.isPresent()) {
           for (Loop loop : loopStructure.get().getAllLoops()) {
             for (CFANode head : loop.getLoopHeads()) {
-              collectNodeLines(target, head, ranges);
+              collectNodeLines(target, head, essentialRanges);
             }
           }
         }
         for (ARGState state : fullTrace) {
           CFANode node = AbstractStates.extractLocation(state);
           if (node != null) {
-            collectNodeLines(target, node, ranges);
+            collectNodeLines(target, node, essentialRanges);
           }
         }
-        ranges.addAll(SourceSlicer.assertionRanges(content));
+        essentialRanges.addAll(SourceSlicer.assertionRanges(content));
+        List<int[]> allRanges = new ArrayList<>(topLevelRanges);
+        allRanges.addAll(essentialRanges);
         String part;
-        if (ranges.isEmpty()) {
+        if (allRanges.isEmpty()) {
           // no loop heads / assertion / declarations detected: bounded head instead of the
           // full oversized payload
           part = SourceSlicer.head(content);
         } else {
-          part = SourceSlicer.slice(content, ranges, 2);
+          part = SourceSlicer.slice(content, allRanges, 2);
+        }
+        if (sb.length() + part.length() > PROMPT_BUDGET) {
+          // declarations crowd out the essentials: re-slice without them (path + loops +
+          // assertion only), and fall back to a head for pathological oversized paths
+          part = SourceSlicer.slice(content, essentialRanges, 2);
         }
         if (sb.length() + part.length() > PROMPT_BUDGET) {
           part = SourceSlicer.head(part);
