@@ -107,19 +107,32 @@ public final class ContextPackBuilder {
    * path, loop heads, top-level declarations and assertion so the prompt stays within the LLM
    * context budget. Slicing is per file so line numbers stay file-local.
    */
+  /** Total prompt-source budget across all files. */
+  private static final int PROMPT_BUDGET = 300_000;
+
+  /**
+   * Reads the source; for very large files (issue #74) slices each to the full counterexample
+   * path, loop heads, top-level declarations and assertion so the prompt stays within the LLM
+   * context budget. Slicing is per file so line numbers stay file-local; the cumulative total
+   * is capped at {@link #PROMPT_BUDGET}.
+   */
   private String readSourceSliced(List<ARGState> fullTrace) {
     try {
       StringBuilder sb = new StringBuilder();
       for (Path f : cfa.getFileNames()) {
         sb.append("// File: ").append(f.getFileName()).append('\n');
         String content = Files.readString(f);
-        if (sb.length() > SourceSlicer.HEAD_LIMIT) {
-          // cumulative budget exhausted: bound remaining files
-          sb.append(SourceSlicer.head(content)).append('\n');
-          continue;
+        if (sb.length() >= PROMPT_BUDGET) {
+          break; // budget exhausted: no more files
         }
         if (content.length() <= SourceSlicer.SLICE_THRESHOLD) {
-          sb.append(content).append('\n');
+          if (sb.length() + content.length() <= PROMPT_BUDGET) {
+            sb.append(content).append('\n');
+          } else {
+            // only partial space left: keep the assertion sites so the property survives
+            sb.append(SourceSlicer.slice(content, SourceSlicer.assertionRanges(content), 2))
+                .append('\n');
+          }
           continue;
         }
         List<int[]> ranges = new ArrayList<>(SourceSlicer.topLevelDeclarationRanges(content));
@@ -139,14 +152,18 @@ public final class ContextPackBuilder {
           }
         }
         ranges.addAll(SourceSlicer.assertionRanges(content));
+        String part;
         if (ranges.isEmpty()) {
           // no loop heads / assertion / declarations detected: bounded head instead of the
           // full oversized payload
-          sb.append(SourceSlicer.head(content));
+          part = SourceSlicer.head(content);
         } else {
-          sb.append(SourceSlicer.slice(content, ranges, 2));
+          part = SourceSlicer.slice(content, ranges, 2);
         }
-        sb.append('\n');
+        if (sb.length() + part.length() > PROMPT_BUDGET) {
+          part = SourceSlicer.head(part);
+        }
+        sb.append(part).append('\n');
       }
       return sb.toString();
     } catch (IOException e) {
