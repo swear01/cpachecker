@@ -487,7 +487,8 @@ public class VocabularyGuide {
       case "udiv" -> {
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
+        // Unsigned operands align by ZERO extension (sign extension corrupts values).
+        BitvectorFormula[] aligned = zeroExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.divide(aligned[0], aligned[1], false) : null;
       }
       case "mod" -> {
@@ -563,6 +564,24 @@ public class VocabularyGuide {
    * Aligns two bitvector operands to the same width, sign-extending the narrower one
    * (mirrors C integer promotion for mixed-width comparisons; review #62).
    */
+  private static BitvectorFormula[] zeroExtendToMatch(
+      BitvectorFormula left,
+      BitvectorFormula right,
+      BitvectorFormulaManagerView bvmgr) {
+    if (left == null || right == null) {
+      return null;
+    }
+    int l = bvmgr.getLength(left);
+    int r = bvmgr.getLength(right);
+    if (l == r) {
+      return new BitvectorFormula[] {left, right};
+    }
+    if (l < r) {
+      return new BitvectorFormula[] {bvmgr.extend(left, r - l, false), right};
+    }
+    return new BitvectorFormula[] {left, bvmgr.extend(right, l - r, false)};
+  }
+
   private static BitvectorFormula[] signExtendToMatch(
       BitvectorFormula left,
       BitvectorFormula right,
