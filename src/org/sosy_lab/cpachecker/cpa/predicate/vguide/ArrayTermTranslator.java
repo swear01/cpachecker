@@ -209,7 +209,7 @@ final class ArrayTermTranslator {
    * source identifiers to their scoped unversioned names. The result still needs {@link
    * FormulaManagerView#instantiate} with the target head's SSAMap before validation.
    */
-  String translate(String predicateText, String functionName) {
+  @Nullable String translate(String predicateText, String functionName) {
     if (!hasArrayAccess(predicateText)) {
       // No array reads: leave scalar-only predicates untouched (the parser's
       // resolveVariableName handles them as before).
@@ -265,7 +265,7 @@ final class ArrayTermTranslator {
   }
 
   /** Translates {@code a[i]} C-syntax array reads (issue #68). */
-  private String translateCSyntax(String predicateText, String functionName) {
+  private @Nullable String translateCSyntax(String predicateText, String functionName) {
     Matcher m = C_ARRAY_ACCESS.matcher(predicateText);
     StringBuilder out = new StringBuilder();
     int last = 0;
