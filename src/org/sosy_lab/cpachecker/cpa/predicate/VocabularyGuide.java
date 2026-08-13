@@ -494,7 +494,8 @@ public class VocabularyGuide {
       case "mod" -> {
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
+        // Unsigned remainder aligns by ZERO extension (sign extension corrupts values).
+        BitvectorFormula[] aligned = zeroExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.remainder(aligned[0], aligned[1], false) : null;
       }
       case "bvadd" -> parseBvSexp("(+ " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
