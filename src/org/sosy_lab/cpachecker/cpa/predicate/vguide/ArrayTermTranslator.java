@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.java_smt.api.BooleanFormula;
@@ -61,6 +62,9 @@ final class ArrayTermTranslator {
 
   private static final Pattern ARRAY_ACCESS =
       Pattern.compile("\\(\\s*([A-Za-z_]\\w*)\\s+([A-Za-z_]\\w*)\\s*\\)");
+  private static final Pattern C_ARRAY_ACCESS =
+      Pattern.compile("([A-Za-z_]\\w*)\\[([^\\]]+)\\]");
+  private static final Pattern CONST_WIDTH_0 = Pattern.compile("\\(_ bv(\\d+) 0\\)");
 
   /** SMT-LIB keywords/operators that must never be treated as bare identifiers. */
   private static final Set<String> SMT_KEYWORDS =
@@ -191,6 +195,12 @@ final class ArrayTermTranslator {
         return true;
       }
     }
+    Matcher cm = C_ARRAY_ACCESS.matcher(predicateText);
+    while (cm.find()) {
+      if (templates.containsKey(cm.group(1))) {
+        return true;
+      }
+    }
     return false;
   }
 
@@ -199,57 +209,23 @@ final class ArrayTermTranslator {
    * source identifiers to their scoped unversioned names. The result still needs {@link
    * FormulaManagerView#instantiate} with the target head's SSAMap before validation.
    */
-  String translate(String predicateText, String functionName) {
-    Matcher m = ARRAY_ACCESS.matcher(predicateText);
-    StringBuilder out = new StringBuilder();
-    int last = 0;
-    while (m.find()) {
-      AccessTemplate t = templates.get(m.group(1));
-      if (t == null) {
-        continue;
-      }
-      out.append(predicateText, last, m.start());
-      out.append("(select ");
-      out.append(t.heapVar());
-      out.append(" (bvadd ").append(t.addrVar());
-      out.append(" (bvshl ");
-      // The index comes from the CANDIDATE predicate (m.group(2)), scoped to the
-      // ACTIVE function (the template may come from a different function); the
-      // template's index variable is only used for the narrowing bounds and as a
-      // fallback (review #62).
-      String candidateIdx = functionName + "::" + m.group(2);
-      if (!varBits.containsKey(candidateIdx) && varBits.containsKey(m.group(2))) {
-        // The index names a global (unscoped) variable.
-        candidateIdx = m.group(2);
-      }
-      if (t.extractMsb() >= 0 && varBits.getOrDefault(candidateIdx, 32) > t.extractMsb()) {
-        // Mirror the CEGAR encoding: narrow the index exactly as the trace does.
-        out.append("((_ extract ")
-            .append(t.extractMsb())
-            .append(" ")
-            .append(t.extractLsb())
-            .append(") ")
-            .append(candidateIdx)
-            .append(")");
-      } else {
-        out.append(candidateIdx);
-      }
-      out.append(" (_ bv")
-          .append(t.shiftBits())
-          .append(" ")
-          .append(t.shiftConstBits())
-          .append("))))");
-      last = m.end();
-    }
-    if (last == 0) {
+  @Nullable String translate(String predicateText, String functionName) {
+    if (!hasArrayAccess(predicateText)) {
+      // No array reads: leave scalar-only predicates untouched (the parser's
+      // resolveVariableName handles them as before).
       return predicateText;
     }
-    out.append(predicateText, last, predicateText.length());
-    // Rewrite all remaining bare source identifiers to their scoped unversioned names
+    // Pass 1: C-syntax array reads a[i] (the LLM's preferred form; issue #68).
+    // Returns null when an index expression cannot be translated — the whole
+    // candidate is then rejected (gemini-review #69).
+    String result = translateCSyntax(predicateText, functionName);
+    if (result == null) {
+      return null;
+    }
+    // Pass 2: S-expr array reads (c i) (backward compatible).
+    result = translateSexpr(result, functionName);
+    // Pass 3: rewrite remaining bare identifiers to their scoped unversioned names
     // (e.g. i -> main::i) so the whole predicate can be instantiated with the head SSAMap.
-    String result = out.toString();
-    // Resolve bare identifiers within the active function scope in ONE pass
-    // (precompiled pattern; mapping is function-scoped).
     if (bareIdentifierPattern != null) {
       Map<String, String> activeVars = new HashMap<>();
       String prefix = functionName + "::";
@@ -286,6 +262,321 @@ final class ArrayTermTranslator {
       }
     }
     return result;
+  }
+
+  /** Translates {@code a[i]} C-syntax array reads (issue #68). */
+  private @Nullable String translateCSyntax(String predicateText, String functionName) {
+    Matcher m = C_ARRAY_ACCESS.matcher(predicateText);
+    StringBuilder out = new StringBuilder();
+    int last = 0;
+    while (m.find()) {
+      AccessTemplate t = templates.get(m.group(1));
+      if (t == null) {
+        continue;
+      }
+      IndexExpr idx = parseIndexExpr(m.group(2), functionName);
+      if (idx == null) {
+        // Unsupported index expression (modulo, nested brackets, digit-leading
+        // junk, ...): abort the whole translation — the candidate is rejected.
+        return null;
+      }
+      out.append(predicateText, last, m.start());
+      appendSelect(out, t, idx.smt(), idx.width(), idx.varWidth());
+      last = m.end();
+    }
+    if (last == 0) {
+      return predicateText;
+    }
+    out.append(predicateText, last, predicateText.length());
+    return out.toString();
+  }
+
+  /** Translates {@code (c i)} S-expr array reads (backward compatible). */
+  private String translateSexpr(String predicateText, String functionName) {
+    Matcher m = ARRAY_ACCESS.matcher(predicateText);
+    StringBuilder out = new StringBuilder();
+    int last = 0;
+    while (m.find()) {
+      AccessTemplate t = templates.get(m.group(1));
+      if (t == null) {
+        continue;
+      }
+      // The index comes from the CANDIDATE predicate (m.group(2)), scoped to the
+      // ACTIVE function (the template may come from a different function); the
+      // template's index variable is only used for the narrowing bounds and as a
+      // fallback (review #62).
+      String candidateIdx = functionName + "::" + m.group(2);
+      if (!varBits.containsKey(candidateIdx) && varBits.containsKey(m.group(2))) {
+        // The index names a global (unscoped) variable.
+        candidateIdx = m.group(2);
+      }
+      int width = varBits.getOrDefault(candidateIdx, 32);
+      out.append(predicateText, last, m.start());
+      appendSelect(out, t, candidateIdx, width, width);
+      last = m.end();
+    }
+    if (last == 0) {
+      return predicateText;
+    }
+    out.append(predicateText, last, predicateText.length());
+    return out.toString();
+  }
+
+  /** Appends the heap-select term for an array read with the given index SMT. */
+  private void appendSelect(
+      StringBuilder out,
+      AccessTemplate t,
+      String indexSmt,
+      int indexWidth,
+      int indexVarWidth) {
+    out.append("(select ");
+    out.append(t.heapVar());
+    out.append(" (bvadd ").append(t.addrVar());
+    out.append(" (bvshl ");
+    boolean narrowed = t.extractMsb() >= 0 && indexVarWidth > t.extractMsb();
+    if (narrowed) {
+      // Mirror the CEGAR encoding: narrow the index exactly as the trace does.
+      out.append("((_ extract ")
+          .append(t.extractMsb())
+          .append(" ")
+          .append(t.extractLsb())
+          .append(") ")
+          .append(indexSmt)
+          .append(")");
+    } else {
+      out.append(indexSmt);
+    }
+    int shiftConstWidth;
+    if (narrowed) {
+      // Narrowed: the shift operand width is the extract range.
+      shiftConstWidth = t.extractMsb() - t.extractLsb() + 1;
+    } else {
+      // Not narrowed: the shift operand keeps the expression width.
+      shiftConstWidth = indexWidth;
+    }
+    out.append(" (_ bv")
+        .append(t.shiftBits())
+        .append(" ")
+        .append(shiftConstWidth)
+        .append("))))");
+  }
+
+  private record IndexExpr(String smt, int width, int varWidth) {
+    IndexExpr(String smt, int width) {
+      this(smt, width, width);
+    }
+  }
+
+  /**
+   * Parses a C index expression ({@code i}, {@code 0}, {@code 4*j+1}, ...) into SMT
+   * with the width of its first identifier (default 32).
+   */
+  private @Nullable IndexExpr parseIndexExpr(String expr, String functionName) {
+    int[] pos = {0};
+    IndexExpr e = parseAddSub(expr, pos, functionName);
+    if (e == null) {
+      return null;
+    }
+    // skip trailing whitespace; require full consumption
+    while (pos[0] < expr.length() && Character.isWhitespace(expr.charAt(pos[0]))) {
+      pos[0]++;
+    }
+    if (pos[0] != expr.length()) {
+      return null;
+    }
+    // The expression width drives the shift-constant width and constant
+    // rewidthding; a pure 16-bit variable keeps its width (the extract
+    // decision uses varWidth separately).
+    int width = Math.max(e.width(), 32);
+    return new IndexExpr(rewidth(e.smt(), width), width, e.varWidth());
+  }
+
+  private @Nullable IndexExpr parseAddSub(String expr, int[] pos, String functionName) {
+    IndexExpr left = parseMulDiv(expr, pos, functionName);
+    if (left == null) {
+      return null;
+    }
+    int width = left.width();
+    int varWidth = left.varWidth();
+    while (true) {
+      skipWs(expr, pos);
+      if (pos[0] >= expr.length()) {
+        return left;
+      }
+      char op = expr.charAt(pos[0]);
+      if (op != '+' && op != '-') {
+        return left;
+      }
+      pos[0]++;
+      IndexExpr right = parseMulDiv(expr, pos, functionName);
+      if (right == null) {
+        return null;
+      }
+      width = Math.max(width, right.width());
+      varWidth = Math.max(varWidth, right.varWidth());
+      int constWidth = Math.max(width, 32); // C: constants promote to at least int
+      left =
+          op == '+'
+              ? new IndexExpr(
+                  "(bvadd "
+                      + alignOperand(left.smt(), left.width(), constWidth)
+                      + " "
+                      + alignOperand(right.smt(), right.width(), constWidth)
+                      + ")",
+                  constWidth,
+                  varWidth)
+              : new IndexExpr(
+                  "(bvsub "
+                      + alignOperand(left.smt(), left.width(), constWidth)
+                      + " "
+                      + alignOperand(right.smt(), right.width(), constWidth)
+                      + ")",
+                  constWidth,
+                  varWidth);
+    }
+  }
+
+  private @Nullable IndexExpr parseMulDiv(String expr, int[] pos, String functionName) {
+    IndexExpr left = parseFactor(expr, pos, functionName);
+    if (left == null) {
+      return null;
+    }
+    int width = left.width();
+    int varWidth = left.varWidth();
+    while (true) {
+      skipWs(expr, pos);
+      if (pos[0] >= expr.length()) {
+        return left;
+      }
+      char op = expr.charAt(pos[0]);
+      if (op != '*' && op != '/') {
+        return left;
+      }
+      pos[0]++;
+      IndexExpr right = parseFactor(expr, pos, functionName);
+      if (right == null) {
+        return null;
+      }
+      width = Math.max(width, right.width());
+      varWidth = Math.max(varWidth, right.varWidth());
+      int constWidth = Math.max(width, 32);
+      // C integer division is signed: bvsdiv (review #69).
+      left =
+          op == '*'
+              ? new IndexExpr(
+                  "(bvmul "
+                      + alignOperand(left.smt(), left.width(), constWidth)
+                      + " "
+                      + alignOperand(right.smt(), right.width(), constWidth)
+                      + ")",
+                  constWidth,
+                  varWidth)
+              : new IndexExpr(
+                  "(bvsdiv "
+                      + alignOperand(left.smt(), left.width(), constWidth)
+                      + " "
+                      + alignOperand(right.smt(), right.width(), constWidth)
+                      + ")",
+                  constWidth,
+                  varWidth);
+    }
+  }
+
+  private @Nullable IndexExpr parseFactor(String expr, int[] pos, String functionName) {
+    skipWs(expr, pos);
+    if (pos[0] >= expr.length()) {
+      return null;
+    }
+    char c = expr.charAt(pos[0]);
+    if (c == '(') {
+      pos[0]++;
+      IndexExpr inner = parseAddSub(expr, pos, functionName);
+      if (inner == null) {
+        return null;
+      }
+      skipWs(expr, pos);
+      if (pos[0] < expr.length() && expr.charAt(pos[0]) == ')') {
+        pos[0]++;
+        return inner;
+      }
+      return null;
+    }
+    int start = pos[0];
+    while (pos[0] < expr.length()
+        && (Character.isLetterOrDigit(expr.charAt(pos[0])) || expr.charAt(pos[0]) == '_')) {
+      pos[0]++;
+    }
+    if (start == pos[0]) {
+      return null;
+    }
+    String token = expr.substring(start, pos[0]);
+    Long constant = cIntegerLiteral(token);
+    if (constant != null) {
+      // Constants that need more than 32 bits (>= 2^31 in C are long) are
+      // emitted directly at 64 bits; smaller ones use a width-0 placeholder
+      // rewidthed to the operand width by the caller.
+      boolean wide = (constant & 0xFFFFFFFFL) != constant;
+      if (wide) {
+        return new IndexExpr("(_ bv" + Long.toUnsignedString(constant) + " 64)", 64, 0);
+      }
+      return new IndexExpr("(_ bv" + Long.toUnsignedString(constant) + " 0)", 0, 0);
+    }
+    if (Character.isDigit(token.charAt(0))) {
+      return null; // digit-leading junk like 123abc is neither literal nor variable
+    }
+    String scoped = functionName + "::" + token;
+    if (!varBits.containsKey(scoped) && varBits.containsKey(token)) {
+      scoped = token; // global variable
+    }
+    int width = varBits.getOrDefault(scoped, 32);
+    return new IndexExpr(scoped, width, width);
+  }
+
+  /** Parses a C integer literal (dec/hex, optional u/l/ll suffixes) or null. */
+  private static Long cIntegerLiteral(String token) {
+    String t = token;
+    while (!t.isEmpty() && (t.endsWith("u") || t.endsWith("U") || t.endsWith("l") || t.endsWith("L"))) {
+      t = t.substring(0, t.length() - 1);
+    }
+    try {
+      if (t.startsWith("0x") || t.startsWith("0X")) {
+        return Long.parseUnsignedLong(t.substring(2), 16);
+      }
+      if (t.startsWith("0b") || t.startsWith("0B")) {
+        return Long.parseUnsignedLong(t.substring(2), 2);
+      }
+      if (t.length() > 1 && t.startsWith("0")) {
+        return Long.parseUnsignedLong(t.substring(1), 8); // C octal literal
+      }
+      return Long.parseUnsignedLong(t);
+    } catch (NumberFormatException e) {
+      return null;
+    }
+  }
+
+  /** Rewidths width-0 constants in an index expression to {@code width}. */
+  private static String rewidth(String smt, int width) {
+    return CONST_WIDTH_0.matcher(smt).replaceAll(mr -> "(_ bv" + mr.group(1) + " " + width + ")");
+  }
+
+  /**
+   * Aligns an operand to {@code targetWidth}: constants are rewidthed, narrower
+   * variables are sign-extended (C integer promotion; gemini-review #69).
+   */
+  private static String alignOperand(String smt, int operandWidth, int targetWidth) {
+    if (smt.startsWith("(_ bv")) {
+      return rewidth(smt, targetWidth);
+    }
+    if (operandWidth > 0 && operandWidth < targetWidth) {
+      return "((_ sign_extend " + (targetWidth - operandWidth) + ") " + smt + ")";
+    }
+    return smt;
+  }
+
+  private static void skipWs(String expr, int[] pos) {
+    while (pos[0] < expr.length() && Character.isWhitespace(expr.charAt(pos[0]))) {
+      pos[0]++;
+    }
   }
 
   /** Unversioned variable bitwidths for the parser's variable creation. */

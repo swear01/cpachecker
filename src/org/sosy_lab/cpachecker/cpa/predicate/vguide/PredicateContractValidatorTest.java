@@ -36,8 +36,14 @@ public class PredicateContractValidatorTest {
   }
 
   @Test
-  public void rejectsCArraySubscriptSyntax() {
-    assertThat(PredicateContractValidator.isValid("(= A[i] 0)")).isFalse();
+  public void allowsCSyntaxArraySubscripts() {
+    // Issue #68: C-syntax array reads are translated by ArrayTermTranslator.
+    assertThat(PredicateContractValidator.isValid("(= A[i] 0)")).isTrue();
+  }
+
+  @Test
+  public void rejectsVersionedSsaNames() {
+    assertThat(PredicateContractValidator.isValid("(= main::x@3 (_ bv0 32))")).isFalse();
   }
 
   @Test

@@ -446,6 +446,19 @@ public class VocabularyGuide {
       return bvmgr.extract(extracted, msb, lsb);
     }
 
+    Matcher signExtendOp = SIGN_EXTEND_OP.matcher(op);
+    if (signExtendOp.matches()) {
+      if (args.size() < 1) {
+        return null;
+      }
+      BitvectorFormula operand =
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+      if (operand == null) {
+        return null;
+      }
+      return bvmgr.extend(operand, Integer.parseInt(signExtendOp.group(1)), true);
+    }
+
     return switch (op) {
       case "+" -> {
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
@@ -465,6 +478,12 @@ public class VocabularyGuide {
         BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.multiply(aligned[0], aligned[1]) : null;
       }
+      case "div" -> {
+        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
+        yield aligned != null ? bvmgr.divide(aligned[0], aligned[1], true) : null;
+      }
       case "mod" -> {
         BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
@@ -475,6 +494,7 @@ public class VocabularyGuide {
       case "bvmul" -> parseBvSexp("(* " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "bvsub" -> parseBvSexp("(- " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "bvurem" -> parseBvSexp("(mod " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+      case "bvsdiv" -> parseBvSexp("(div " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "bvneg" -> parseBvSexp("(- 0 " + args.get(0) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
       case "_" -> {
         // (_ bvK W): bitvector constant with the declared width.
@@ -528,6 +548,8 @@ public class VocabularyGuide {
 
   private static final Pattern EXTRACT_OP =
       Pattern.compile("\\(_ extract (\\d+) (\\d+)\\)");
+  private static final Pattern SIGN_EXTEND_OP =
+      Pattern.compile("\\(_ sign_extend (\\d+)\\)");
 
 
   /**

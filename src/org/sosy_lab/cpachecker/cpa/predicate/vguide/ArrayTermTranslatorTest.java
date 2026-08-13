@@ -128,6 +128,48 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
   }
 
   @Test
+  public void translatesCSyntaxArrayAccess() {
+    Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
+    Map<String, Integer> bits = new LinkedHashMap<>();
+    ArrayTermTranslator.collectDeclaredVariables(IFCOMP_SHAPED_DUMP, bits);
+    ArrayTermTranslator translator =
+        new ArrayTermTranslator(
+            com.google.common.collect.ImmutableMap.copyOf(found),
+            com.google.common.collect.ImmutableMap.copyOf(bits));
+
+    assertThat(translator.hasArrayAccess("(= c[i] (bvmul (bvmul i i) i))")).isTrue();
+
+    // Simple index: c[i]
+    String simple = translator.translate("(= c[i] (bvmul (bvmul i i) i))", "main");
+    assertThat(simple)
+        .isEqualTo(
+            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3 32))))"
+                + " (bvmul (bvmul main::i main::i) main::i))");
+
+    // Arithmetic index: c[4*j+1] (j not declared in the test dump -> 32-bit width)
+    String arith = translator.translate("(= c[4*j+1] (bvmul j (_ bv2 64)))", "main");
+    assertThat(arith)
+        .isEqualTo(
+            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0)"
+                + " (bvadd (bvmul (_ bv4 32) main::j) (_ bv1 32))) (_ bv3 32))))"
+                + " (bvmul j (_ bv2 64)))"); // j undeclared in the test dump: only the array index is scoped
+
+    // Hex literal index: c[0x10]
+    String hex = translator.translate("(bvsge c[0x10] (_ bv0 64))", "main");
+    assertThat(hex)
+        .isEqualTo(
+            "(bvsge (select *long_long_int (bvadd main::c (bvshl (_ bv16 32) (_ bv3 32))))"
+                + " (_ bv0 64))");
+
+    // Constant index: c[0]
+    String cnst = translator.translate("(bvsle c[0] (_ bv5 64))", "main");
+    assertThat(cnst)
+        .isEqualTo(
+            "(bvsle (select *long_long_int (bvadd main::c (bvshl (_ bv0 32) (_ bv3 32))))"
+                + " (_ bv5 64))");
+  }
+
+  @Test
   public void translatedSelectParsesWithSolver() throws Exception {
     Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
     Map<String, Integer> bits = new LinkedHashMap<>();
