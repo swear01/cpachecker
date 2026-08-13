@@ -19,9 +19,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
+import org.sosy_lab.cpachecker.cfa.model.c.CDeclarationEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
+import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.util.AbstractStates;
 import org.sosy_lab.cpachecker.util.LoopStructure;
 import org.sosy_lab.cpachecker.util.LoopStructure.Loop;
@@ -68,7 +70,7 @@ public final class ContextPackBuilder {
       int refinementIndex,
       BlockFormulas formulas,
       CounterexampleTraceInfo counterexample,
-      List<? extends org.sosy_lab.cpachecker.core.interfaces.AbstractState> fullTrace,
+      List<ARGState> fullTrace,
       List<? extends org.sosy_lab.cpachecker.core.interfaces.AbstractState> abstractionTrace) {
     Set<String> encodedVars = new HashSet<>();
     for (BooleanFormula f : formulas.getFormulas()) {
@@ -130,10 +132,7 @@ public final class ContextPackBuilder {
             collectNodeLines(f, node, ranges);
           }
         }
-        int assertionLine = SourceSlicer.assertionLine(content);
-        if (assertionLine > 0) {
-          ranges.add(new int[] {assertionLine, assertionLine});
-        }
+        ranges.addAll(SourceSlicer.assertionRanges(content));
         if (ranges.isEmpty()) {
           // no loop heads / assertion / declarations detected: bounded head instead of the
           // full oversized payload
@@ -160,6 +159,11 @@ public final class ContextPackBuilder {
   }
 
   private static void collectEdgeLine(Path file, CFAEdge edge, List<int[]> ranges) {
+    if (edge instanceof CDeclarationEdge) {
+      // global initializer edges span the whole initializer (e.g. a huge constant array);
+      // the declaration itself is kept via the top-level declaration ranges
+      return;
+    }
     FileLocation location = edge.getFileLocation();
     if (location.isRealLocation()
         && location

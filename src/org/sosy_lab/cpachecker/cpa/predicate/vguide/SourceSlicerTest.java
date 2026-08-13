@@ -9,6 +9,7 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 import static com.google.common.truth.Truth.assertThat;
 
 import java.util.List;
+import java.util.stream.Collectors;
 import org.junit.Test;
 
 public class SourceSlicerTest {
@@ -56,28 +57,58 @@ public class SourceSlicerTest {
   }
 
   @Test
-  public void assertionLineLocatesFirstAssert() {
+  public void assertionRangesLocateAllCallSites() {
     String source = "int a;\n__VERIFIER_assert(a == 0);\nint b;\n__VERIFIER_assert(b == 1);\n";
-    assertThat(SourceSlicer.assertionLine(source)).isEqualTo(2);
+    List<int[]> ranges = SourceSlicer.assertionRanges(source);
+    assertThat(toKeys(ranges)).containsExactly("2-2", "4-4");
   }
 
   @Test
-  public void assertionLineFindsReachError() {
-    String source = "void reach_error() { __assert_fail(\"0\", \"x\", 1, \"reach_error\"); }\nint main() {\n  reach_error();\n}\n";
-    assertThat(SourceSlicer.assertionLine(source)).isEqualTo(3);
-  }
-
-  @Test
-  public void assertionLineSkipsHelperDeclaration() {
+  public void assertionRangesSkipMultiLineHelperBody() {
     String source =
         """
-        extern void __VERIFIER_assert(int cond);
-        #define __VERIFIER_assert(cond) do { if (!(cond)) __VERIFIER_error(); } while (0)
+        void __VERIFIER_assert(int cond) {
+          if (!(cond)) { ERROR: {reach_error();abort();} }
+        }
         int main() {
           __VERIFIER_assert(x == 0);
         }
         """;
-    assertThat(SourceSlicer.assertionLine(source)).isEqualTo(4);
+    List<int[]> ranges = SourceSlicer.assertionRanges(source);
+    assertThat(toKeys(ranges)).containsExactly("5-5");
+  }
+
+  @Test
+  public void assertionRangesCoverMultiLineCall() {
+    String source =
+        """
+        int main() {
+          __VERIFIER_assert(
+              a == 0 &&
+              b == 1);
+        }
+        """;
+    List<int[]> ranges = SourceSlicer.assertionRanges(source);
+    assertThat(toKeys(ranges)).containsExactly("2-4");
+  }
+
+  @Test
+  public void assertionRangesIgnoreCommentsMentioningAssert() {
+    String source =
+        """
+        // __VERIFIER_assert is defined below
+        /* reach_error(); is used by the helper */
+        int main() {
+          __VERIFIER_assert(x == 0);
+        }
+        """;
+    List<int[]> ranges = SourceSlicer.assertionRanges(source);
+    assertThat(toKeys(ranges)).containsExactly("4-4");
+  }
+
+  @Test
+  public void assertionRangesWithoutAssertIsEmpty() {
+    assertThat(SourceSlicer.assertionRanges("int x;\nreturn 0;\n")).isEmpty();
   }
 
   @Test
@@ -93,9 +124,22 @@ public class SourceSlicerTest {
         }
         """;
     List<int[]> ranges = SourceSlicer.topLevelDeclarationRanges(source);
-    assertThat(
-            ranges.stream().map(r -> r[0] + "-" + r[1]).collect(java.util.stream.Collectors.toList()))
-        .containsExactly("1-1", "2-2", "3-3");
+    assertThat(toKeys(ranges)).containsExactly("1-1", "2-2", "3-3");
+  }
+
+  @Test
+  public void topLevelRangesIgnoreStringAndMacroBraces() {
+    String source =
+        """
+        const char *s = "{";
+        #define M(x) ({ int t = (x); t; })
+        int g = 0;
+        int main() {
+          return 0;
+        }
+        """;
+    List<int[]> ranges = SourceSlicer.topLevelDeclarationRanges(source);
+    assertThat(toKeys(ranges)).containsExactly("1-1", "2-2", "3-3", "4-4");
   }
 
   @Test
@@ -113,11 +157,6 @@ public class SourceSlicerTest {
   }
 
   @Test
-  public void assertionLineWithoutAssertIsMinusOne() {
-    assertThat(SourceSlicer.assertionLine("int x;\nreturn 0;\n")).isEqualTo(-1);
-  }
-
-  @Test
   public void sliceWithoutRangesReturnsSource() {
     String source = "int x;\n";
     assertThat(SourceSlicer.slice(source, List.of(), 2)).isEqualTo(source);
@@ -128,5 +167,17 @@ public class SourceSlicerTest {
     String source = "only one line";
     String sliced = SourceSlicer.slice(source, List.of(new int[] {1, 5}), 10);
     assertThat(sliced).contains("only one line");
+  }
+
+  @Test
+  public void sliceTrailingNewlineDoesNotAddPhantomLine() {
+    String source = "a\nb\n";
+    String sliced = SourceSlicer.slice(source, List.of(new int[] {1, 2}), 0);
+    assertThat(sliced).contains("2 lines)");
+    assertThat(sliced.trim()).endsWith("b");
+  }
+
+  private static List<String> toKeys(List<int[]> ranges) {
+    return ranges.stream().map(r -> r[0] + "-" + r[1]).collect(Collectors.toList());
   }
 }
