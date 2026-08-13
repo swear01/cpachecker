@@ -340,6 +340,7 @@ public final class VGuideRefinementBridge {
    */
   public CounterexampleTraceInfo onSpuriousBeforeRefinement(
       int refinementIndex,
+      List<ARGState> fullTrace,
       List<ARGState> abstractionStatesTrace,
       BlockFormulas formulas,
       CounterexampleTraceInfo counterexample,
@@ -350,7 +351,8 @@ public final class VGuideRefinementBridge {
     suppressCurrentPrecisionInjection = false;
 
     ContextPack pack =
-        contextPackBuilder.build(refinementIndex, formulas, counterexample, abstractionStatesTrace);
+        contextPackBuilder.build(
+            refinementIndex, formulas, counterexample, fullTrace, abstractionStatesTrace);
     int loopHeadVisits = countLoopHeadVisits(abstractionStatesTrace, pack.loopHeads());
     refinementOutcomeStore.recordStarted(
         refinementIndex,

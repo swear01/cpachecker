@@ -315,7 +315,12 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         if (vGuideBridge != null) {
           counterexample =
               vGuideBridge.onSpuriousBeforeRefinement(
-                  refinements, abstractionStatesTrace, formulas, counterexample, pReached);
+                  refinements,
+                  allStatesTrace.asStatesList(),
+                  abstractionStatesTrace,
+                  formulas,
+                  counterexample,
+                  pReached);
         }
 
         List<BooleanFormula> predicates = counterexample.getInterpolants();
