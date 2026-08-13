@@ -102,6 +102,7 @@ fi
 SPEC="$REPO/config/specification/sv-comp-reachability.spc"
 TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-10}"
 TIMEOUT_GRACE="${TIMEOUT_GRACE%s}" # strip a trailing 's'
+[[ "$TIMEOUT_GRACE" =~ ^[0-9]+$ ]] || die "TIMEOUT_GRACE must be a non-negative integer, got: $TIMEOUT_GRACE"
 
 if [[ "$DRY" == "1" ]]; then
   echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE"

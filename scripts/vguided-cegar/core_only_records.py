@@ -212,7 +212,7 @@ def record_from_run(
         "solver": solver,
         "verdict": result,
         "refinements": refs,
-        "wall_s": round(wall_s, 3),
+        "wall_s": round(min(wall_s, timelimit), 3),
         "cpu_s": round(cpu_s, 3),
         "memory_mb": memory_mb,
         "llm_calls": llm_calls,
