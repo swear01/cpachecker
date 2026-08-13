@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
     --manifest) MANIFEST="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --parallel) PARALLEL="$2"; shift 2 ;;
-    --timelimit) TIMELIMIT="$2"; shift 2 ;;
+    --timelimit) TIMELIMIT="${2%s}"; shift 2 ;;
     --heap) HEAP="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     *) die "unknown argument: $1" ;;
@@ -101,6 +101,7 @@ else
 fi
 SPEC="$REPO/config/specification/sv-comp-reachability.spc"
 TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-10}"
+TIMEOUT_GRACE="${TIMEOUT_GRACE%s}" # strip a trailing 's'
 
 if [[ "$DRY" == "1" ]]; then
   echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE"
