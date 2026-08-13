@@ -347,8 +347,9 @@ final class ArrayTermTranslator {
       // Narrowed: the shift operand width is the extract range.
       shiftConstWidth = t.extractMsb() - t.extractLsb() + 1;
     } else {
-      // Not narrowed: the shift operand keeps the index width.
-      shiftConstWidth = Math.max(indexVarWidth, t.shiftConstBits());
+      // Not narrowed: the shift operand keeps the index width (constants default
+      // to 32 bits); never the template's width, which assumes 32-bit narrowing.
+      shiftConstWidth = Math.max(indexVarWidth, 32);
     }
     out.append(" (_ bv")
         .append(t.shiftBits())
