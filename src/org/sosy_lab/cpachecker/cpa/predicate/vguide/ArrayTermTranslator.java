@@ -423,7 +423,7 @@ final class ArrayTermTranslator {
                       + " "
                       + alignOperand(right.smt(), right.varWidth(), constWidth)
                       + ")",
-                  width,
+                  constWidth,
                   varWidth)
               : new IndexExpr(
                   "(bvsub "
@@ -431,7 +431,7 @@ final class ArrayTermTranslator {
                       + " "
                       + alignOperand(right.smt(), right.varWidth(), constWidth)
                       + ")",
-                  width,
+                  constWidth,
                   varWidth);
     }
   }
@@ -469,7 +469,7 @@ final class ArrayTermTranslator {
                       + " "
                       + alignOperand(right.smt(), right.varWidth(), constWidth)
                       + ")",
-                  width,
+                  constWidth,
                   varWidth)
               : new IndexExpr(
                   "(bvsdiv "
@@ -477,7 +477,7 @@ final class ArrayTermTranslator {
                       + " "
                       + alignOperand(right.smt(), right.varWidth(), constWidth)
                       + ")",
-                  width,
+                  constWidth,
                   varWidth);
     }
   }
