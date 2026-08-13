@@ -9,7 +9,6 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.google.common.collect.ImmutableMap;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -20,6 +19,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.java_smt.api.BooleanFormula;
@@ -271,7 +271,11 @@ final class ArrayTermTranslator {
       }
       IndexExpr idx = parseIndexExpr(m.group(2), functionName);
       if (idx == null) {
-        continue;
+        // Unsupported index expression (modulo, nested brackets, ...): abort the
+        // whole translation so the raw C syntax reaches the parser and the
+        // candidate is rejected cleanly instead of being mangled by the
+        // bare-identifier rewrite (swear-review #69).
+        return predicateText;
       }
       out.append(predicateText, last, m.start());
       appendSelect(out, t, idx.smt(), idx.width());
