@@ -419,17 +419,17 @@ final class ArrayTermTranslator {
           op == '+'
               ? new IndexExpr(
                   "(bvadd "
-                      + alignOperand(left.smt(), left.varWidth(), constWidth)
+                      + alignOperand(left.smt(), left.width(), constWidth)
                       + " "
-                      + alignOperand(right.smt(), right.varWidth(), constWidth)
+                      + alignOperand(right.smt(), right.width(), constWidth)
                       + ")",
                   constWidth,
                   varWidth)
               : new IndexExpr(
                   "(bvsub "
-                      + alignOperand(left.smt(), left.varWidth(), constWidth)
+                      + alignOperand(left.smt(), left.width(), constWidth)
                       + " "
-                      + alignOperand(right.smt(), right.varWidth(), constWidth)
+                      + alignOperand(right.smt(), right.width(), constWidth)
                       + ")",
                   constWidth,
                   varWidth);
@@ -465,17 +465,17 @@ final class ArrayTermTranslator {
           op == '*'
               ? new IndexExpr(
                   "(bvmul "
-                      + alignOperand(left.smt(), left.varWidth(), constWidth)
+                      + alignOperand(left.smt(), left.width(), constWidth)
                       + " "
-                      + alignOperand(right.smt(), right.varWidth(), constWidth)
+                      + alignOperand(right.smt(), right.width(), constWidth)
                       + ")",
                   constWidth,
                   varWidth)
               : new IndexExpr(
                   "(bvsdiv "
-                      + alignOperand(left.smt(), left.varWidth(), constWidth)
+                      + alignOperand(left.smt(), left.width(), constWidth)
                       + " "
-                      + alignOperand(right.smt(), right.varWidth(), constWidth)
+                      + alignOperand(right.smt(), right.width(), constWidth)
                       + ")",
                   constWidth,
                   varWidth);
@@ -563,12 +563,12 @@ final class ArrayTermTranslator {
    * Aligns an operand to {@code targetWidth}: constants are rewidthed, narrower
    * variables are sign-extended (C integer promotion; gemini-review #69).
    */
-  private static String alignOperand(String smt, int operandVarWidth, int targetWidth) {
+  private static String alignOperand(String smt, int operandWidth, int targetWidth) {
     if (smt.startsWith("(_ bv")) {
       return rewidth(smt, targetWidth);
     }
-    if (operandVarWidth > 0 && operandVarWidth < targetWidth) {
-      return "((_ sign_extend " + (targetWidth - operandVarWidth) + ") " + smt + ")";
+    if (operandWidth > 0 && operandWidth < targetWidth) {
+      return "((_ sign_extend " + (targetWidth - operandWidth) + ") " + smt + ")";
     }
     return smt;
   }
