@@ -4,6 +4,8 @@
 
 ## Gotchas
 
+- **Source slicing for huge programs (issue #74, since 2026-08-14).** `ContextPackBuilder` slices sources >100K chars (`SourceSlicer.SLICE_THRESHOLD`) to the loop-head lines + CE-path statement lines + assertion line (margin ±2) before they enter the LLM prompt; small sources pass through untouched. Applies to both `build()` and `buildSourceOnly()`. The assertion line detection matches `__VERIFIER_assert` or `reach_error();` (eca family uses `reach_error()`). The slice keeps constant-array *declarations* but drops their values (neural-net weights etc.) — the SMT validator uses the real program constants, and loop invariants are structural, so values are not needed for LLM proposals. **Known limitation:** line numbers are per-file; slicing assumes a single source file (all 224 core-only tasks are single-file; multi-file programs >100K chars would misalign ranges).
+
 - **`cpachecker-experiments/records/archive/` is NOT authoritative.** If a grep result points into `cpachecker-experiments/records/archive/`, discard it and look in `docs/vguided-cegar/` instead. If no current equivalent exists, surface the gap to the user.
 - **`~/sv-benchmarks/c` is external.** It must exist locally before running experiments; it is not in the repo. Export `SV_BENCHMARKS=~/sv-benchmarks/c` before any `run.sh` call.
 - **`DEEPSEEK_API_KEY` is required for live/record mode.** A paired replay may omit it only when `VGUIDE_LLM_REPLAY_DIR` is set. Record/replay are mutually exclusive and a replay miss terminates the run instead of falling back to the live API or stock behavior.

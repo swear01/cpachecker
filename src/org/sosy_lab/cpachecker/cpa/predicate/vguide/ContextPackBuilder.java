@@ -11,12 +11,20 @@ import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.sosy_lab.cpachecker.cfa.CFA;
+import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
+import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
+import org.sosy_lab.cpachecker.cfa.model.CFANode;
+import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
+import org.sosy_lab.cpachecker.util.AbstractStates;
+import org.sosy_lab.cpachecker.util.LoopStructure;
+import org.sosy_lab.cpachecker.util.LoopStructure.Loop;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
@@ -39,7 +47,7 @@ public final class ContextPackBuilder {
   }
 
   public ContextPack buildSourceOnly() {
-    String source = readSource();
+    String source = readSourceSliced(List.of());
     String assertion = extractAssertion(source);
     ImmutableList<LoopHeadInfo> loopHeads = loopHeadIndex.getLoopHeads();
     var varContract = VarContractBuilder.build(Set.of());
@@ -69,7 +77,7 @@ public final class ContextPackBuilder {
         counterexample.isSpurious() && counterexample.getInterpolants() != null
             ? counterexample.getInterpolants()
             : ImmutableList.of();
-    String source = readSource();
+    String source = readSourceSliced(abstractionTrace);
     String assertion = extractAssertion(source);
     var varContract = VarContractBuilder.build(encodedVars);
     ImmutableList<LoopHeadInfo> loopHeads = loopHeadIndex.getLoopHeads();
@@ -89,6 +97,47 @@ public final class ContextPackBuilder {
         itps,
         ceSummary,
         "");
+  }
+
+  /**
+   * Reads the source; for very large sources (issue #74) slices it to the counterexample path,
+   * loop heads and assertion so the prompt stays within the LLM context budget.
+   */
+  private String readSourceSliced(List<? extends AbstractState> abstractionTrace) {
+    String source = readSource();
+    if (source.length() <= SourceSlicer.SLICE_THRESHOLD) {
+      return source;
+    }
+    List<int[]> ranges = new ArrayList<>();
+    java.util.Optional<LoopStructure> loopStructure = cfa.getLoopStructure();
+    if (loopStructure.isPresent()) {
+      for (Loop loop : loopStructure.orElseThrow().getAllLoops()) {
+        for (CFANode head : loop.getLoopHeads()) {
+          collectNodeLines(head, ranges);
+        }
+      }
+    }
+    for (AbstractState state : abstractionTrace) {
+      CFANode node = AbstractStates.extractLocation(state);
+      if (node != null) {
+        collectNodeLines(node, ranges);
+      }
+    }
+    int assertionLine = SourceSlicer.assertionLine(source);
+    if (assertionLine > 0) {
+      ranges.add(new int[] {assertionLine, assertionLine});
+    }
+    return SourceSlicer.slice(source, ranges, 2);
+  }
+
+  /** Collects the line ranges of all leaving edges of the node (its statements). */
+  private static void collectNodeLines(CFANode node, List<int[]> ranges) {
+    for (CFAEdge edge : node.getLeavingEdges()) {
+      FileLocation location = edge.getFileLocation();
+      if (location.isRealLocation()) {
+        ranges.add(new int[] {location.getStartingLineNumber(), location.getEndingLineNumber()});
+      }
+    }
   }
 
   private String readSource() {
