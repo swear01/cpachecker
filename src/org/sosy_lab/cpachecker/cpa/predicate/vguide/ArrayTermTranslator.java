@@ -480,9 +480,9 @@ final class ArrayTermTranslator {
     }
     try {
       if (t.startsWith("0x") || t.startsWith("0X")) {
-        return Long.parseLong(t.substring(2), 16);
+        return Long.parseUnsignedLong(t.substring(2), 16);
       }
-      return Long.parseLong(t);
+      return Long.parseUnsignedLong(t);
     } catch (NumberFormatException e) {
       return null;
     }
