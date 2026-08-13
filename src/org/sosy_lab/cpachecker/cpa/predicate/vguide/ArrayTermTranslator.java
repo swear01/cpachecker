@@ -462,7 +462,8 @@ final class ArrayTermTranslator {
     Long constant = cIntegerLiteral(token);
     if (constant != null) {
       // Width 0 placeholder: rewidthed to the operand width by the caller.
-      return new IndexExpr("(_ bv" + constant + " 0)", 0);
+      // toUnsignedString keeps > Long.MAX_VALUE literals positive in SMT.
+      return new IndexExpr("(_ bv" + Long.toUnsignedString(constant) + " 0)", 0);
     }
     String scoped = functionName + "::" + token;
     if (!varBits.containsKey(scoped) && varBits.containsKey(token)) {
