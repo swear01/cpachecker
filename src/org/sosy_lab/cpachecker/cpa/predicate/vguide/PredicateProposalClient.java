@@ -35,7 +35,9 @@ import org.sosy_lab.common.log.LogManager;
  *
  * <p>Configuration via environment: {@code DEEPSEEK_API_KEY}, {@code DEEPSEEK_MODEL},
  * {@code VGUIDE_LLM_THINKING} ({@code disabled}|{@code enabled}, default {@code disabled}),
- * {@code VGUIDE_LLM_REASONING_EFFORT} ({@code high}|{@code max} when thinking is enabled), and the
+ * {@code VGUIDE_LLM_REASONING_EFFORT} ({@code low}|{@code high}|{@code max} when thinking is
+ * enabled, default {@code high}; {@code low} is passed through for gateways that implement it
+ * natively, e.g. the OpenCode gateway — see issue #79), and the
  * mutually exclusive paired-evaluation directories {@code VGUIDE_LLM_RECORD_DIR} and {@code
  * VGUIDE_LLM_REPLAY_DIR}.
  */
@@ -273,7 +275,9 @@ public final class PredicateProposalClient {
   }
 
   /**
-   * DeepSeek V4 maps {@code low}/{@code medium} to {@code high}; {@code xhigh} to {@code max}.
+   * DeepSeek V4 official API maps {@code low}/{@code medium} to {@code high}; the OpenCode
+   * gateway (issue #79) accepts and implements {@code low} natively, so pass it through.
+   * {@code medium} keeps mapping to {@code high} (no silent downgrade).
    */
   private static @Nullable String reasoningEffortFromEnv() {
     String effort = System.getenv("VGUIDE_LLM_REASONING_EFFORT");
@@ -281,7 +285,8 @@ public final class PredicateProposalClient {
       return "high";
     }
     return switch (effort.toLowerCase(Locale.ROOT)) {
-      case "low", "medium", "high" -> "high";
+      case "low" -> "low";
+      case "medium", "high" -> "high";
       case "max", "xhigh" -> "max";
       default -> "high";
     };
