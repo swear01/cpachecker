@@ -116,34 +116,43 @@ fi
 # only when (a) it is old (not a concurrent invocation still writing its pid),
 # (b) no analysis workers remain on this machine, and (c) the reclaim is atomic
 # (mv to a stale name — the loser retries the lock check).
-if ! mkdir "$OUT/.run.lock" 2>/dev/null; then
-  LOCK_OK=0
-  while [[ $LOCK_OK -eq 0 ]]; do
-    LOCK_PID=""
-    [[ -f "$OUT/.run.lock/pid" ]] && LOCK_PID="$(cat "$OUT/.run.lock/pid")"
-    LOCK_AGE="$(python3 -c "import os,sys,time; print(int(time.time()-os.path.getmtime(sys.argv[1])))" "$OUT/.run.lock" 2>/dev/null || echo 0)"
-    if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
-      die "$OUT/.run.lock held by live PID $LOCK_PID"
+HOSTNAME_L="$(hostname)"
+while ! mkdir "$OUT/.run.lock" 2>/dev/null; do
+  LOCK_PID=""
+  [[ -f "$OUT/.run.lock/pid" ]] && LOCK_PID="$(cat "$OUT/.run.lock/pid")"
+  LOCK_OWNER_HOST="${LOCK_PID%%:*}"
+  LOCK_OWNER_PID="${LOCK_PID##*:}"
+  [[ "$LOCK_OWNER_PID" == "$LOCK_PID" ]] && LOCK_OWNER_PID=""  # legacy pid-only format
+  LOCK_AGE="$(python3 -c "import os,sys,time; print(int(time.time()-os.path.getmtime(sys.argv[1])))" "$OUT/.run.lock" 2>/dev/null || echo 0)"
+  if [[ -n "$LOCK_OWNER_PID" && "$LOCK_OWNER_HOST" == "$HOSTNAME_L" ]] && kill -0 "$LOCK_OWNER_PID" 2>/dev/null; then
+    die "$OUT/.run.lock held by live PID $LOCK_OWNER_PID on $LOCK_OWNER_HOST"
+  fi
+  if [[ "$LOCK_AGE" -lt 600 ]]; then
+    # The holder may have released the lock between our mkdir failure and the age
+    # read (getmtime failed => 0): retry the mkdir once before refusing.
+    if mkdir "$OUT/.run.lock" 2>/dev/null; then
+      break
     fi
-    if [[ "$LOCK_AGE" -lt 600 ]]; then
-      die "$OUT/.run.lock exists (age ${LOCK_AGE}s) with no dead-holder evidence yet; retry shortly or remove it manually"
-    fi
-    if pgrep -f "$SV_BENCHMARKS" >/dev/null 2>&1; then
-      die "stale lock for $OUT but analysis workers still run on this machine"
-    fi
-    # atomic reclaim: mv the old lock away, then take the name; the loser of
-    # the mv retries the whole check.
-    if mv "$OUT/.run.lock" "$OUT/.run.lock.stale.$$" 2>/dev/null && mkdir "$OUT/.run.lock" 2>/dev/null; then
-      rm -rf "$OUT/.run.lock.stale.$$"
-      echo "reclaimed stale lock (age ${LOCK_AGE}s)"
-      LOCK_OK=1
-    else
-      rm -rf "$OUT/.run.lock.stale.$$" 2>/dev/null
-      sleep 1  # another invocation won the race; re-check
-    fi
-  done
-fi
-echo "$$" >"$OUT/.run.lock/pid"
+    die "$OUT/.run.lock exists (age ${LOCK_AGE}s) with no dead-holder evidence yet; retry shortly or remove it manually"
+  fi
+  # Workers never carry the out/log path in argv; match the benchmark root as a
+  # fixed string (grep -F, not regex). A worker on another host of the NFS fleet
+  # is not visible here — host-aware reclaim relies on the age guard alone then.
+  if ps -eo args | grep -F "$SV_BENCHMARKS" | grep -v grep >/dev/null 2>&1; then
+    die "stale lock for $OUT but analysis workers still run on this machine"
+  fi
+  # atomic reclaim: mv the old lock away, then take the name; the loser of
+  # the mv retries the whole check.
+  if mv "$OUT/.run.lock" "$OUT/.run.lock.stale.$$" 2>/dev/null && mkdir "$OUT/.run.lock" 2>/dev/null; then
+    rm -rf "$OUT/.run.lock.stale.$$"
+    echo "reclaimed stale lock (age ${LOCK_AGE}s)"
+    break
+  else
+    rm -rf "$OUT/.run.lock.stale.$$" 2>/dev/null
+    sleep 1  # another invocation won the race; re-check
+  fi
+done
+echo "$HOSTNAME_L:$$" >"$OUT/.run.lock/pid"
 trap 'rm -rf "$OUT/.run.lock" 2>/dev/null || true' EXIT
 
 # 2. Run metadata (computed before tasks.tsv so the resume provenance check can
@@ -198,7 +207,7 @@ if [[ -f "$OUT/run_meta.json" ]]; then
   TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
   MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" \
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
-  REPLAY_FP_C="$(if [[ -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then find "$VGUIDE_LLM_REPLAY_DIR" -type f -exec sha256sum {} + 2>/dev/null | sort | sha256sum | cut -d' ' -f1; fi)" \
+  REPLAY_FP_C="$REPLAY_FP" \
   APIURL_C="${VGUIDE_LLM_API_URL:-}" MAXTOK_C="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
   TIMEOUTSEC_C="${VGUIDE_LLM_TIMEOUT_SEC:-}" PRESERVE_C="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
   python3 - "$OUT/run_meta.json" <<'EOF' || die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
@@ -253,7 +262,7 @@ MANIFEST_M="$MANIFEST" MANIFEST_SHA_M="$MANIFEST_SHA" SPEC_SHA_M="$SPEC_SHA" CPA
 TIMELIMIT_M="$TIMELIMIT" GRACE_M="$TIMEOUT_GRACE" PARALLEL_M="$PARALLEL" HEAP_M="$HEAP" \
 SPEC_M="$SPEC" MODEL_M="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_M="$THINKING" EFFORT_M="$EFFORT" \
 RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
-REPLAY_FP_M="$(if [[ -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then find "$VGUIDE_LLM_REPLAY_DIR" -type f -exec sha256sum {} + 2>/dev/null | sort | sha256sum | cut -d' ' -f1; fi)" \
+REPLAY_FP_M="$REPLAY_FP" \
   APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
 TIMEOUTSEC_M="${VGUIDE_LLM_TIMEOUT_SEC:-}" PRESERVE_M="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
 STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" CURRLOAD_M="$CURRENT_LOAD" P_CORES_M="$P_CORE_LIST" \
@@ -305,20 +314,37 @@ run_one() {
   local line="$1"
   local task source expected model family tsha ssha
   IFS=$'\t' read -r task source expected model family tsha ssha <<<"$line"
+  # Fail closed on malformed rows: an empty task would turn the cleanup paths
+  # below into rm -rf of the whole dump/cache roots.
+  [[ -n "$task" ]] || { echo "empty task row; aborting task"; return 1; }
   local task_name="${task//\//_}"
   local log="$OUT/logs/${task_name}.log"
   # Resume support: a per-task record already written means this task finished
   # in a previous invocation — skip it instead of re-running. The record must
-  # parse as JSON: a truncated/corrupt record (killed while appending) is
-  # discarded and the task rerun.
+  # parse as JSON with the expected task identity and a verdict (filenames can
+  # collide after / -> _); truncated/corrupt records are discarded and rerun.
   if [[ -f "$OUT/logs/${task_name}.json" ]]; then
-    # Records use the 'verdict' key (see core_only_records.py / REQUIRED_FIELDS).
-    if python3 -c "import json, sys; d = json.load(open(sys.argv[1])); assert isinstance(d, dict) and 'task' in d and 'verdict' in d" "$OUT/logs/${task_name}.json" 2>/dev/null; then
-      echo "skip $task (record exists)"
-      return 0
+    if TASK_C="$task" python3 -c "import json, os, sys; d = json.load(open(sys.argv[1])); assert isinstance(d, dict) and d.get('task') == os.environ['TASK_C'] and 'verdict' in d" "$OUT/logs/${task_name}.json" 2>/dev/null; then
+      # Record-mode: a completed task must still have its replay/record cache
+      # namespace; a deleted cache means the resume would replay nothing.
+      if [[ "$ARM" == "augmented" && -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
+        SANITIZED="$(printf '%s' "$task" | tr -c 'A-Za-z0-9._-' '_')"
+        if [[ ! -d "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" ]]; then
+          echo "record-mode cache missing for $task; rerunning"
+          rm -f "$OUT/logs/${task_name}.json"
+          rm -rf "$OUT/dumps/${task_name}"
+        else
+          echo "skip $task (record exists)"
+          return 0
+        fi
+      else
+        echo "skip $task (record exists)"
+        return 0
+      fi
+    else
+      echo "discard mismatched/corrupt record for $task; rerunning"
+      rm -f "$OUT/logs/${task_name}.json"
     fi
-    echo "discard corrupt record for $task; rerunning"
-    rm -f "$OUT/logs/${task_name}.json"
   fi
   # A previous attempt may have left a partial dump (no record was written):
   # clear it so LLM rounds / refinements from both attempts do not mix.
