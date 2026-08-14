@@ -111,6 +111,10 @@ if [[ "$DRY" == "1" ]]; then
   exit 0
 fi
 
+# 0. Output-dir lock: refuse overlapping invocations on the same --out.
+mkdir "$OUT/.run.lock" 2>/dev/null || die "$OUT/.run.lock exists — another invocation is using this output dir (or a previous run crashed; remove the lock to force)"
+trap 'rmdir "$OUT/.run.lock" 2>/dev/null || true' EXIT
+
 # 1. Frozen task rows (hash-verified; fails on any mismatch).
 python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --out "$OUT/tasks.tsv"
 
@@ -154,7 +158,7 @@ fi
 # mixed-provenance dataset is invalid. Values are passed via the environment
 # (single-quoted heredoc: no shell interpolation).
 if [[ -f "$OUT/run_meta.json" ]]; then
-  OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open('$OUT/run_meta.json'))))" 2>/dev/null || echo '{}')"
+  OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))" "$OUT/run_meta.json" 2>/dev/null || echo '{}')"
   OLD_STARTED_AT="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('started_at',''))")"
   OLD_LOAD_CHECK="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('load_check',''))")"
   ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" \
@@ -268,8 +272,12 @@ run_one() {
   # A previous attempt may have left a partial dump (no record was written):
   # clear it so LLM rounds / refinements from both attempts do not mix.
   [[ "$ARM" == "augmented" ]] && rm -rf "$OUT/dumps/${task_name}"
-  # Record-mode LLM caches are namespaced per task: clear a partial cache too.
-  [[ -n "${VGUIDE_LLM_RECORD_DIR:-}" ]] && rm -rf "$VGUIDE_LLM_RECORD_DIR/${task}"
+  # Record-mode LLM caches are namespaced per task with the same sanitization as
+  # LlmResponseCache (chars outside [A-Za-z0-9._-] become '_'); clear a partial cache.
+  if [[ -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
+    SANITIZED="$(printf '%s' "$task" | tr -c 'A-Za-z0-9._-' '_')"
+    rm -rf "$VGUIDE_LLM_RECORD_DIR/$SANITIZED"
+  fi
   local cmd=(
     timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
     taskset -c "$P_CORE_LIST"
