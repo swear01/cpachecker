@@ -128,31 +128,45 @@ case "${THINKING_RAW,,}" in
   enabled|true|on|1) THINKING="enabled" ;;
   *) THINKING="disabled" ;;
 esac
+# Effective reasoning effort mirrors PredicateProposalClient.reasoningEffortFromEnv
+# (default -> high; medium -> high; xhigh -> max). When thinking is disabled the
+# client sets effort to null and sends no effort — record that as null too.
 EFFORT_RAW="${VGUIDE_LLM_REASONING_EFFORT:-}"
-case "${EFFORT_RAW,,}" in
-  ""|default) EFFORT="high" ;;
-  low) EFFORT="low" ;;
-  medium|high) EFFORT="high" ;;
-  max|xhigh) EFFORT="max" ;;
-  *) EFFORT="high" ;;
-esac
+if [[ "$THINKING" == "disabled" ]]; then
+  EFFORT="null"
+else
+  case "${EFFORT_RAW,,}" in
+    ""|default) EFFORT="\"high\"" ;;
+    low) EFFORT="\"low\"" ;;
+    medium|high) EFFORT="\"high\"" ;;
+    max|xhigh) EFFORT="\"max\"" ;;
+    *) EFFORT="\"high\"" ;;
+  esac
+fi
 
 # Resume support: an existing run_meta.json must match this invocation's
-# provenance exactly (arm, commit, config, manifest, timelimit, model,
-# thinking); otherwise refuse — a mixed-provenance dataset is invalid.
+# provenance exactly (arm, commit, config, manifest, timelimit, heap,
+# parallel, model, thinking); otherwise refuse — a mixed-provenance dataset
+# is invalid. Values are passed via the environment (single-quoted heredoc:
+# no shell interpolation).
 if [[ -f "$OUT/run_meta.json" ]]; then
-  python3 - "$OUT/run_meta.json" <<EOF
-import json, sys
+  ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" \
+  TIMELIMIT_C="$TIMELIMIT" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
+  MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" \
+  python3 - "$OUT/run_meta.json" <<'EOF'
+import json, os, sys
 old = json.load(open(sys.argv[1]))
 want = {
-    "arm": "$ARM",
-    "commit": "$COMMIT",
-    "config_sha256": "$CONFIG_SHA",
-    "manifest_sha256": "$MANIFEST_SHA",
-    "timelimit_s": $TIMELIMIT,
-    "model": "${DEEPSEEK_MODEL:-deepseek-v4-pro}",
-    "thinking": "$THINKING",
-    "reasoning_effort": "$EFFORT",
+    "arm": os.environ["ARM_C"],
+    "commit": os.environ["COMMIT_C"],
+    "config_sha256": os.environ["CONFIG_SHA_C"],
+    "manifest_sha256": os.environ["MANIFEST_SHA_C"],
+    "timelimit_s": float(os.environ["TIMELIMIT_C"]),
+    "heap": os.environ["HEAP_C"],
+    "parallel": int(os.environ["PARALLEL_C"]),
+    "model": os.environ["MODEL_C"],
+    "thinking": os.environ["THINKING_C"],
+    "reasoning_effort": json.loads(os.environ["EFFORT_C"]),
 }
 mismatch = [k for k, v in want.items() if old.get(k) != v]
 if mismatch:
