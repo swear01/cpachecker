@@ -120,6 +120,51 @@ CONFIG_SHA="$(python3 -c "import sys; sys.path.insert(0, '$SCRIPT_DIR'); import 
 MANIFEST_SHA="$(sha256sum "$MANIFEST" | cut -d' ' -f1)"
 LOAD_CHECK="$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' +' '$2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) b = b " " $2 } END { print (b == "") ? "idle" : "busy:" b }')"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Effective thinking settings mirror PredicateProposalClient's normalization
+# (aliases: true/on/1 -> enabled; default -> high; medium -> high; xhigh -> max).
+THINKING_RAW="${VGUIDE_LLM_THINKING:-disabled}"
+case "${THINKING_RAW,,}" in
+  enabled|true|on|1) THINKING="enabled" ;;
+  *) THINKING="disabled" ;;
+esac
+EFFORT_RAW="${VGUIDE_LLM_REASONING_EFFORT:-}"
+case "${EFFORT_RAW,,}" in
+  ""|default) EFFORT="high" ;;
+  low) EFFORT="low" ;;
+  medium|high) EFFORT="high" ;;
+  max|xhigh) EFFORT="max" ;;
+  *) EFFORT="high" ;;
+esac
+
+# Resume support: an existing run_meta.json must match this invocation's
+# provenance exactly (arm, commit, config, manifest, timelimit, model,
+# thinking); otherwise refuse — a mixed-provenance dataset is invalid.
+if [[ -f "$OUT/run_meta.json" ]]; then
+  python3 - "$OUT/run_meta.json" <<EOF
+import json, sys
+old = json.load(open(sys.argv[1]))
+want = {
+    "arm": "$ARM",
+    "commit": "$COMMIT",
+    "config_sha256": "$CONFIG_SHA",
+    "manifest_sha256": "$MANIFEST_SHA",
+    "timelimit_s": $TIMELIMIT,
+    "model": "${DEEPSEEK_MODEL:-deepseek-v4-pro}",
+    "thinking": "$THINKING",
+    "reasoning_effort": "$EFFORT",
+}
+mismatch = [k for k, v in want.items() if old.get(k) != v]
+if mismatch:
+    print("provenance mismatch: " + ", ".join(mismatch), file=sys.stderr)
+    sys.exit(1)
+EOF
+  if [[ $? -ne 0 ]]; then
+    die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
+  fi
+  echo "resuming: existing run_meta.json matches this invocation"
+fi
+
 cat >"$OUT/run_meta.json" <<EOF
 {
   "arm": "$ARM",
@@ -133,8 +178,8 @@ cat >"$OUT/run_meta.json" <<EOF
   "heap": "$HEAP",
   "spec": "$SPEC",
   "model": "${DEEPSEEK_MODEL:-deepseek-v4-pro}",
-  "thinking": "${VGUIDE_LLM_THINKING:-disabled}",
-  "reasoning_effort": "${VGUIDE_LLM_REASONING_EFFORT:-}",
+  "thinking": "$THINKING",
+  "reasoning_effort": "$EFFORT",
   "started_at": "$STARTED_AT",
   "cpu_isolation": "taskset $P_CORE_LIST (8 physical P-cores, no SMT sibling, no E-core)",
   "load_check": "$LOAD_CHECK"
@@ -151,11 +196,20 @@ run_one() {
   local task_name="${task//\//_}"
   local log="$OUT/logs/${task_name}.log"
   # Resume support: a per-task record already written means this task finished
-  # in a previous invocation — skip it instead of re-running.
+  # in a previous invocation — skip it instead of re-running. The record must
+  # parse as JSON: a truncated/corrupt record (killed while appending) is
+  # discarded and the task rerun.
   if [[ -f "$OUT/logs/${task_name}.json" ]]; then
-    echo "skip $task (record exists)"
-    return 0
+    if python3 -c "import json, sys; json.load(open(sys.argv[1]))" "$OUT/logs/${task_name}.json" 2>/dev/null; then
+      echo "skip $task (record exists)"
+      return 0
+    fi
+    echo "discard corrupt record for $task; rerunning"
+    rm -f "$OUT/logs/${task_name}.json"
   fi
+  # A previous attempt may have left a partial dump (no record was written):
+  # clear it so LLM rounds / refinements from both attempts do not mix.
+  [[ "$ARM" == "augmented" ]] && rm -rf "$OUT/dumps/${task_name}"
   local cmd=(
     timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
     taskset -c "$P_CORE_LIST"
@@ -222,7 +276,6 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   rec="$OUT/logs/${task//\//_}.json"
   [[ -f "$rec" ]] || die "missing record for $task"
   cat "$rec" >>"$OUT/records.jsonl"
-  rm -f "$rec"
 done <"$OUT/tasks.tsv"
 
 N_TASKS="$(wc -l <"$OUT/tasks.tsv" | tr -d ' ')"
