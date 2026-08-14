@@ -112,17 +112,42 @@ if [[ "$DRY" == "1" ]]; then
 fi
 
 # 0. Output-dir lock: refuse overlapping invocations on the same --out.
-mkdir "$OUT/.run.lock" 2>/dev/null || die "$OUT/.run.lock exists — another invocation is using this output dir (or a previous run crashed; remove the lock to force)"
-trap 'rmdir "$OUT/.run.lock" 2>/dev/null || true' EXIT
+# PID-based: a lock whose holder died (SIGKILL/host crash) is reclaimed, but only
+# when no worker processes of that run remain.
+if ! mkdir "$OUT/.run.lock" 2>/dev/null; then
+  if [[ -f "$OUT/.run.lock/pid" ]]; then
+    LOCK_PID="$(cat "$OUT/.run.lock/pid")"
+    if ! kill -0 "$LOCK_PID" 2>/dev/null; then
+      if pgrep -f "$OUT/logs" >/dev/null 2>&1; then
+        die "stale lock for dead PID $LOCK_PID but workers still run for $OUT"
+      fi
+      echo "reclaiming stale lock (dead PID $LOCK_PID)"
+      rm -rf "$OUT/.run.lock"
+      mkdir "$OUT/.run.lock" || die "cannot create $OUT/.run.lock"
+    else
+      die "$OUT/.run.lock held by live PID $LOCK_PID"
+    fi
+  else
+    # lock dir without a pid file: holder was killed between mkdir and pid write.
+    # Reclaim it if no workers of that run remain.
+    if pgrep -f "$OUT/logs" >/dev/null 2>&1; then
+      die "$OUT/.run.lock exists without a pid file but workers still run for $OUT"
+    fi
+    echo "reclaiming lock dir without pid (no workers remain for $OUT)"
+    rm -rf "$OUT/.run.lock"
+    mkdir "$OUT/.run.lock" || die "cannot create $OUT/.run.lock"
+  fi
+fi
+echo "$$" >"$OUT/.run.lock/pid"
+trap 'rm -rf "$OUT/.run.lock" 2>/dev/null || true' EXIT
 
-# 1. Frozen task rows (hash-verified; fails on any mismatch).
-python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --out "$OUT/tasks.tsv"
-
-# 2. Run metadata.
+# 2. Run metadata (computed before tasks.tsv so the resume provenance check can
+# validate the invocation without overwriting an existing tasks.tsv).
 COMMIT="$(git -C "$REPO" rev-parse HEAD)"
 CONFIG_SHA="$(python3 -c "import sys; sys.path.insert(0, '$SCRIPT_DIR'); import core_only_config_diff as d; print(d.config_sha256(__import__('pathlib').Path('$REPO/$CONFIG')))")"
 MANIFEST_SHA="$(sha256sum "$MANIFEST" | cut -d' ' -f1)"
 SPEC_SHA="$(sha256sum "$SPEC" | cut -d' ' -f1)"
+CPA_SH_SHA="$(sha256sum "$CPA_SH" | cut -d' ' -f1)"
 LOAD_CHECK="$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' +' '$2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) b = b " " $2 } END { print (b == "") ? "idle" : "busy:" b }')"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -254,6 +279,10 @@ with open(tmp, "w") as f:
     json.dump(meta, f, indent=2)
 os.replace(tmp, sys.argv[1])
 EOF
+
+# 1. Frozen task rows (hash-verified; fails on any mismatch) — generated after the
+# resume provenance check so a refused resume cannot clobber an existing tasks.tsv.
+python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --out "$OUT/tasks.tsv"
 
 # 3. Run each task once (parallel), then emit one record per task.
 rm -f "$OUT/records.jsonl"
