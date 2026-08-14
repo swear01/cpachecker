@@ -117,6 +117,7 @@ fi
 # (b) no analysis workers remain on this machine, and (c) the reclaim is atomic
 # (mv to a stale name — the loser retries the lock check).
 HOSTNAME_L="$(hostname)"
+LOCK_TRIES=0
 while ! mkdir "$OUT/.run.lock" 2>/dev/null; do
   LOCK_PID=""
   [[ -f "$OUT/.run.lock/pid" ]] && LOCK_PID="$(cat "$OUT/.run.lock/pid")"
@@ -128,12 +129,15 @@ while ! mkdir "$OUT/.run.lock" 2>/dev/null; do
     die "$OUT/.run.lock held by live PID $LOCK_OWNER_PID on $LOCK_OWNER_HOST"
   fi
   if [[ "$LOCK_AGE" -lt 600 ]]; then
-    # The holder may have released the lock between our mkdir failure and the age
-    # read (getmtime failed => 0): retry the mkdir once before refusing.
-    if mkdir "$OUT/.run.lock" 2>/dev/null; then
-      break
+    # Young lock (or the holder released it between our mkdir failure and the age
+    # read): retry with backoff; only refuse after several attempts. This also
+    # tolerates the mkdir->pid window of a concurrent legitimate start.
+    LOCK_TRIES=$((LOCK_TRIES + 1))
+    if [[ $LOCK_TRIES -gt 5 ]]; then
+      die "$OUT/.run.lock exists (age ${LOCK_AGE}s) with no dead-holder evidence yet; retry shortly or remove it manually"
     fi
-    die "$OUT/.run.lock exists (age ${LOCK_AGE}s) with no dead-holder evidence yet; retry shortly or remove it manually"
+    sleep 2
+    continue
   fi
   # Workers never carry the out/log path in argv; match the benchmark root as a
   # fixed string (grep -F, not regex). A worker on another host of the NFS fleet
@@ -204,7 +208,9 @@ if [[ ! -f "$OUT/run_meta.json" ]] && ls "$OUT"/logs/*.json >/dev/null 2>&1; the
 fi
 OLD_LOADS_JSON="[]"
 if [[ -f "$OUT/run_meta.json" ]]; then
-  OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))" "$OUT/run_meta.json" 2>/dev/null || echo '{}')"
+  if ! OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))" "$OUT/run_meta.json" 2>/dev/null)"; then
+    die "$OUT/run_meta.json exists but is not valid JSON (corrupt metadata file); fix or remove it manually"
+  fi
   OLD_LOADS_JSON="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('load_checks', [])))" 2>/dev/null || echo '[]')"
   OLD_STARTED_AT="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('started_at',''))")"
   OLD_LOAD_CHECK="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('load_check',''))")"
@@ -333,7 +339,7 @@ run_one() {
       # Record-mode: a completed task must still have its replay/record cache
       # namespace; a deleted cache means the resume would replay nothing.
       if [[ "$ARM" == "augmented" && -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
-        SANITIZED="$(printf '%s' "$task" | tr -c 'A-Za-z0-9._-' '_')"
+        SANITIZED="$(printf '%s' "$(basename "$OUT")/$task" | tr -c 'A-Za-z0-9._-' '_')"
         # A completed task with zero LLM calls has no cache namespace
         # (LlmResponseCache creates it on the first call) — that is normal.
         if [[ ! -d "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" ]] \
@@ -364,7 +370,7 @@ run_one() {
   # LlmResponseCache (chars outside [A-Za-z0-9._-] become '_'); clear a partial
   # cache. Only for the augmented arm (stock runs never touch LLM state).
   if [[ "$ARM" == "augmented" && -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
-    SANITIZED="$(printf '%s' "$task" | tr -c 'A-Za-z0-9._-' '_')"
+    SANITIZED="$(printf '%s' "$(basename "$OUT")/$task" | tr -c 'A-Za-z0-9._-' '_')"
     rm -rf "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" || return 1
   fi
   local cmd=(
@@ -386,7 +392,7 @@ run_one() {
   set +e
   if [[ "$ARM" == "augmented" ]]; then
     # Per-task dump root: benchmark base names can collide across families.
-    VGUIDE_LLM_CACHE_NAMESPACE="$task" VGUIDE_ANALYSIS_DUMP_DIR="$OUT/dumps/${task_name}" \
+    VGUIDE_LLM_CACHE_NAMESPACE="$(basename "$OUT")/$task" VGUIDE_ANALYSIS_DUMP_DIR="$OUT/dumps/${task_name}" \
       "${cmd[@]}" >"$log" 2>&1
   else
     "${cmd[@]}" >"$log" 2>&1
