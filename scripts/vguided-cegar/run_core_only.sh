@@ -123,19 +123,22 @@ STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Effective thinking settings mirror PredicateProposalClient's normalization
 # (aliases: true/on/1 -> enabled; default -> high; medium -> high; xhigh -> max).
+# Portable lowercase (Bash 3.2/macOS compatible).
+lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 THINKING_RAW="${VGUIDE_LLM_THINKING:-disabled}"
-case "${THINKING_RAW,,}" in
+case "$(lc "$THINKING_RAW")" in
   enabled|true|on|1) THINKING="enabled" ;;
   *) THINKING="disabled" ;;
 esac
 # Effective reasoning effort mirrors PredicateProposalClient.reasoningEffortFromEnv
 # (default -> high; medium -> high; xhigh -> max). When thinking is disabled the
 # client sets effort to null and sends no effort — record that as null too.
+# EFFORT is a JSON-encoded token (null | "high" | "low" | "max").
 EFFORT_RAW="${VGUIDE_LLM_REASONING_EFFORT:-}"
 if [[ "$THINKING" == "disabled" ]]; then
   EFFORT="null"
 else
-  case "${EFFORT_RAW,,}" in
+  case "$(lc "$EFFORT_RAW")" in
     ""|default) EFFORT="\"high\"" ;;
     low) EFFORT="\"low\"" ;;
     medium|high) EFFORT="\"high\"" ;;
@@ -145,15 +148,17 @@ else
 fi
 
 # Resume support: an existing run_meta.json must match this invocation's
-# provenance exactly (arm, commit, config, manifest, timelimit, heap,
-# parallel, model, thinking); otherwise refuse — a mixed-provenance dataset
-# is invalid. Values are passed via the environment (single-quoted heredoc:
-# no shell interpolation).
+# provenance exactly (arm, commit, config, manifest, timelimit, grace, heap,
+# parallel, model, thinking, response-cache mode); otherwise refuse — a
+# mixed-provenance dataset is invalid. Values are passed via the environment
+# (single-quoted heredoc: no shell interpolation).
 if [[ -f "$OUT/run_meta.json" ]]; then
+  OLD_STARTED_AT="$(python3 -c "import json,sys; print(json.load(open('$OUT/run_meta.json')).get('started_at',''))" 2>/dev/null || true)"
   ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" \
   TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
   MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" \
-  python3 - "$OUT/run_meta.json" <<'EOF'
+  RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
+  python3 - "$OUT/run_meta.json" <<'EOF' || die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
 import json, os, sys
 old = json.load(open(sys.argv[1]))
 want = {
@@ -168,19 +173,20 @@ want = {
     "model": os.environ["MODEL_C"],
     "thinking": os.environ["THINKING_C"],
     "reasoning_effort": json.loads(os.environ["EFFORT_C"]),
+    "llm_record_dir": os.environ["RECORD_C"],
+    "llm_replay_dir": os.environ["REPLAY_C"],
 }
-mismatch = [k for k, v in want.items() if old.get(k) != v]
+mismatch = [k for k, v in want.items() if old.get(k, "") != v]
 if mismatch:
     print("provenance mismatch: " + ", ".join(mismatch), file=sys.stderr)
     sys.exit(1)
 EOF
-  if [[ $? -ne 0 ]]; then
-    die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
-  fi
   echo "resuming: existing run_meta.json matches this invocation"
+  [[ -n "$OLD_STARTED_AT" ]] && STARTED_AT="$OLD_STARTED_AT"  # keep the original start time
 fi
 
-cat >"$OUT/run_meta.json" <<EOF
+# Atomic write: never leave run_meta.json truncated (interrupt-safe resume).
+cat >"$OUT/run_meta.json.tmp" <<EOF
 {
   "arm": "$ARM",
   "commit": "$COMMIT",
@@ -195,12 +201,15 @@ cat >"$OUT/run_meta.json" <<EOF
   "spec": "$SPEC",
   "model": "${DEEPSEEK_MODEL:-deepseek-v4-pro}",
   "thinking": "$THINKING",
-  "reasoning_effort": "$EFFORT",
+  "reasoning_effort": $EFFORT,
+  "llm_record_dir": "${VGUIDE_LLM_RECORD_DIR:-}",
+  "llm_replay_dir": "${VGUIDE_LLM_REPLAY_DIR:-}",
   "started_at": "$STARTED_AT",
   "cpu_isolation": "taskset $P_CORE_LIST (8 physical P-cores, no SMT sibling, no E-core)",
   "load_check": "$LOAD_CHECK"
 }
 EOF
+mv "$OUT/run_meta.json.tmp" "$OUT/run_meta.json"
 
 # 3. Run each task once (parallel), then emit one record per task.
 rm -f "$OUT/records.jsonl"
