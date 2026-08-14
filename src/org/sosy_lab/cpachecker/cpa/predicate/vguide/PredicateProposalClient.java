@@ -35,7 +35,9 @@ import org.sosy_lab.common.log.LogManager;
  *
  * <p>Configuration via environment: {@code DEEPSEEK_API_KEY}, {@code DEEPSEEK_MODEL},
  * {@code VGUIDE_LLM_THINKING} ({@code disabled}|{@code enabled}, default {@code disabled}),
- * {@code VGUIDE_LLM_REASONING_EFFORT} ({@code high}|{@code max} when thinking is enabled), and the
+ * {@code VGUIDE_LLM_REASONING_EFFORT} ({@code low}|{@code high}|{@code max} when thinking is
+ * enabled, default {@code high}; {@code low} is passed through for gateways that implement it
+ * natively, e.g. the OpenCode gateway — see issue #79), and the
  * mutually exclusive paired-evaluation directories {@code VGUIDE_LLM_RECORD_DIR} and {@code
  * VGUIDE_LLM_REPLAY_DIR}.
  */
