@@ -114,7 +114,7 @@ SUMMARY_LOCK="$OUT_BASE/.${SET}_summary.lock"
 TMPDIR="$OUT_BASE/.tmp_${SET}_$$"
 mkdir -p "$TMPDIR"
 if [[ ! -f "$SUMMARY" ]]; then
-  echo "task,rel_path,result,refinements,wall_s,log" > "$SUMMARY"
+  echo "task,rel_path,result,refinements,wall_s,log,config" > "$SUMMARY"
 fi
 
 # Append one CSV row (serialized). Prefer flush_summary_rows after parallel batch.
@@ -157,7 +157,7 @@ summary_row_from_log() {
       break
     fi
   done <"$MANIFEST"
-  echo "$task,$rel,$result,$refs,$wall,$log"
+  echo "$task,$rel,$result,$refs,$wall,$log,$CONFIG"
 }
 
 # Merge per-task .row files; missing rows rebuilt from logs (late-finishing parallel jobs).
@@ -286,7 +286,7 @@ run_one() {
   echo "$task,$(basename "$prog"),$result,$refs,$wall,$log"
 }
 
-echo "Set=$SET manifest=$MANIFEST bench=$SV_BENCHMARKS out=$OUT_BASE parallel=$PARALLEL"
+echo "Set=$SET manifest=$MANIFEST bench=$SV_BENCHMARKS out=$OUT_BASE parallel=$PARALLEL config=$CONFIG"
 EXTRA=("$@")
 ORDER_FILE="$TMPDIR/order.txt"
 : >"$ORDER_FILE"
