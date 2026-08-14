@@ -277,6 +277,7 @@ public final class PredicateProposalClient {
   /**
    * DeepSeek V4 official API maps {@code low}/{@code medium} to {@code high}; the OpenCode
    * gateway (issue #79) accepts and implements {@code low} natively, so pass it through.
+   * {@code medium} keeps mapping to {@code high} (no silent downgrade).
    */
   private static @Nullable String reasoningEffortFromEnv() {
     String effort = System.getenv("VGUIDE_LLM_REASONING_EFFORT");
@@ -284,8 +285,8 @@ public final class PredicateProposalClient {
       return "high";
     }
     return switch (effort.toLowerCase(Locale.ROOT)) {
-      case "low", "medium" -> "low";
-      case "high" -> "high";
+      case "low" -> "low";
+      case "medium", "high" -> "high";
       case "max", "xhigh" -> "max";
       default -> "high";
     };
