@@ -133,6 +133,8 @@ cat >"$OUT/run_meta.json" <<EOF
   "heap": "$HEAP",
   "spec": "$SPEC",
   "model": "${DEEPSEEK_MODEL:-deepseek-v4-pro}",
+  "thinking": "${VGUIDE_LLM_THINKING:-disabled}",
+  "reasoning_effort": "${VGUIDE_LLM_REASONING_EFFORT:-}",
   "started_at": "$STARTED_AT",
   "cpu_isolation": "taskset $P_CORE_LIST (8 physical P-cores, no SMT sibling, no E-core)",
   "load_check": "$LOAD_CHECK"
@@ -148,6 +150,12 @@ run_one() {
   IFS=$'\t' read -r task source expected model family tsha ssha <<<"$line"
   local task_name="${task//\//_}"
   local log="$OUT/logs/${task_name}.log"
+  # Resume support: a per-task record already written means this task finished
+  # in a previous invocation — skip it instead of re-running.
+  if [[ -f "$OUT/logs/${task_name}.json" ]]; then
+    echo "skip $task (record exists)"
+    return 0
+  fi
   local cmd=(
     timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
     taskset -c "$P_CORE_LIST"
