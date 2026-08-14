@@ -192,11 +192,16 @@ else
   esac
 fi
 
+REPLAY_FP="$(if [[ -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then find "$VGUIDE_LLM_REPLAY_DIR" -type f -exec sha256sum {} + 2>/dev/null | sort | sha256sum | cut -d' ' -f1; fi)"
+
 # Resume support: an existing run_meta.json must match this invocation's
 # provenance exactly (arm, commit, config, manifest, timelimit, grace, heap,
 # parallel, model, thinking, response-cache mode); otherwise refuse — a
 # mixed-provenance dataset is invalid. Values are passed via the environment
 # (single-quoted heredoc: no shell interpolation).
+if [[ ! -f "$OUT/run_meta.json" ]] && ls "$OUT"/logs/*.json >/dev/null 2>&1; then
+  die "per-task records exist under $OUT/logs but run_meta.json is missing (orphaned records); move them away or restore run_meta.json before resuming"
+fi
 OLD_LOADS_JSON="[]"
 if [[ -f "$OUT/run_meta.json" ]]; then
   OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))" "$OUT/run_meta.json" 2>/dev/null || echo '{}')"
@@ -329,7 +334,10 @@ run_one() {
       # namespace; a deleted cache means the resume would replay nothing.
       if [[ "$ARM" == "augmented" && -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
         SANITIZED="$(printf '%s' "$task" | tr -c 'A-Za-z0-9._-' '_')"
-        if [[ ! -d "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" ]]; then
+        # A completed task with zero LLM calls has no cache namespace
+        # (LlmResponseCache creates it on the first call) — that is normal.
+        if [[ ! -d "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" ]] \
+            && ! python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('llm_calls', 0))" "$OUT/logs/${task_name}.json" 2>/dev/null | grep -q '^0$'; then
           echo "record-mode cache missing for $task; rerunning"
           rm -f "$OUT/logs/${task_name}.json"
           rm -rf "$OUT/dumps/${task_name}"
