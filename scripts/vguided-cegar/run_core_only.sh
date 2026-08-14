@@ -165,6 +165,7 @@ if [[ -f "$OUT/run_meta.json" ]]; then
   TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
   MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" \
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
+  REPLAY_FP_C="$(if [[ -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then find "$VGUIDE_LLM_REPLAY_DIR" -type f -exec sha256sum {} + 2>/dev/null | sort | sha256sum | cut -d' ' -f1; fi)" \
   APIURL_C="${VGUIDE_LLM_API_URL:-}" MAXTOK_C="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
   TIMEOUTSEC_C="${VGUIDE_LLM_TIMEOUT_SEC:-}" PRESERVE_C="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
   python3 - "$OUT/run_meta.json" <<'EOF' || die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
@@ -185,6 +186,7 @@ want = {
     "reasoning_effort": json.loads(os.environ["EFFORT_C"]),
     "llm_record_dir": os.environ["RECORD_C"],
     "llm_replay_dir": os.environ["REPLAY_C"],
+    "llm_replay_fingerprint": os.environ.get("REPLAY_FP_C", ""),
     "llm_api_url": os.environ["APIURL_C"],
     "llm_max_completion_tokens": os.environ["MAXTOK_C"],
     "llm_timeout_sec": os.environ["TIMEOUTSEC_C"],
@@ -210,7 +212,8 @@ MANIFEST_M="$MANIFEST" MANIFEST_SHA_M="$MANIFEST_SHA" SPEC_SHA_M="$SPEC_SHA" \
 TIMELIMIT_M="$TIMELIMIT" GRACE_M="$TIMEOUT_GRACE" PARALLEL_M="$PARALLEL" HEAP_M="$HEAP" \
 SPEC_M="$SPEC" MODEL_M="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_M="$THINKING" EFFORT_M="$EFFORT" \
 RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
-APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
+REPLAY_FP_M="$(if [[ -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then find "$VGUIDE_LLM_REPLAY_DIR" -type f -exec sha256sum {} + 2>/dev/null | sort | sha256sum | cut -d' ' -f1; fi)" \
+  APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
 TIMEOUTSEC_M="${VGUIDE_LLM_TIMEOUT_SEC:-}" PRESERVE_M="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
 STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" P_CORES_M="$P_CORE_LIST" \
 python3 - "$OUT/run_meta.json" <<'EOF'
@@ -233,6 +236,7 @@ meta = {
     "reasoning_effort": json.loads(os.environ["EFFORT_M"]),
     "llm_record_dir": os.environ["RECORD_M"],
     "llm_replay_dir": os.environ["REPLAY_M"],
+    "llm_replay_fingerprint": os.environ.get("REPLAY_FP_M", ""),
     "llm_api_url": os.environ["APIURL_M"],
     "llm_max_completion_tokens": os.environ["MAXTOK_M"],
     "llm_timeout_sec": os.environ["TIMEOUTSEC_M"],
