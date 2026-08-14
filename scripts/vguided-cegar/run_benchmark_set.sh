@@ -30,7 +30,7 @@
 #
 # Output (VGUIDE_OUT_BASE; run.sh default: output/vguide/experiments/<set>_vguide|_stock):
 #   $OUT_BASE/logs/<task>.log
-#   $OUT_BASE/<set>_summary.csv  (task,result,refs,wall_s,log)
+#   $OUT_BASE/<set>_summary.csv  (task,rel_path,result,refinements,wall_s,log,config)
 #
 # See docs/vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md
 
@@ -115,6 +115,9 @@ TMPDIR="$OUT_BASE/.tmp_${SET}_$$"
 mkdir -p "$TMPDIR"
 if [[ ! -f "$SUMMARY" ]]; then
   echo "task,rel_path,result,refinements,wall_s,log,config" > "$SUMMARY"
+elif ! head -1 "$SUMMARY" | grep -q ",config$"; then
+  # pre-existing summary (older schema): extend the header in place
+  sed -i '1s/$/,config/' "$SUMMARY"
 fi
 
 # Append one CSV row (serialized). Prefer flush_summary_rows after parallel batch.
@@ -262,7 +265,7 @@ run_one() {
   )
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[dry-run] ${cmd[*]}"
-    echo "$task,$(basename "$prog"),DRY_RUN,0,0,$log"
+    echo "$task,$(basename "$prog"),DRY_RUN,0,0,$log,$CONFIG"
     return 0
   fi
   VGUIDE_LLM_CACHE_NAMESPACE="$task" "${cmd[@]}" >"$log" 2>&1 || true
@@ -283,7 +286,7 @@ run_one() {
   wall="$(cap_wall "$wall" "$TIMELIMIT")"
   [[ -n "$wall" ]] || wall="0"
   echo "$task → $result refs=$refs wall=${wall}s" >&2
-  echo "$task,$(basename "$prog"),$result,$refs,$wall,$log"
+  echo "$task,$(basename "$prog"),$result,$refs,$wall,$log,$CONFIG"
 }
 
 echo "Set=$SET manifest=$MANIFEST bench=$SV_BENCHMARKS out=$OUT_BASE parallel=$PARALLEL config=$CONFIG"

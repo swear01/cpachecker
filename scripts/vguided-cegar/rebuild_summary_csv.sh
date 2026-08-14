@@ -58,7 +58,7 @@ extract_field() {
 }
 
 tmp="$(mktemp)"
-echo "task,rel_path,result,refinements,wall_s,log" >"$tmp"
+echo "task,rel_path,result,refinements,wall_s,log,config" >"$tmp"
 rows=0
 while IFS= read -r line || [[ -n "$line" ]]; do
   [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -79,7 +79,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   [[ -n "$result" ]] || result="UNKNOWN"
   [[ -n "$refs" ]] || refs="0"
   [[ -n "$wall" ]] || wall="0"
-  echo "$task,$rel,$result,$refs,$wall,$log" >>"$tmp"
+  echo "$task,$rel,$result,$refs,$wall,$log,${VGUIDE_CONFIG:-config/predicateAnalysis-vguide.properties}" >>"$tmp"
   rows=$((rows + 1))
 done <"$MANIFEST"
 

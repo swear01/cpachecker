@@ -6,6 +6,7 @@ mis-parsed TRUE/.../configuration as 'configuration' and UNKNOWN,...,analysis as
 """
 from __future__ import annotations
 
+import os
 import argparse
 import csv
 import re
@@ -101,11 +102,12 @@ def main() -> int:
                 "refinements": str(refs),
                 "wall_s": f"{wall:.3f}".rstrip("0").rstrip("."),
                 "log": str(log),
+                "config": os.environ.get("VGUIDE_CONFIG", "config/predicateAnalysis-vguide.properties"),
                 "note": note,
             }
         )
 
-    fieldnames = ["task", "rel_path", "result", "refinements", "wall_s", "log", "note"]
+    fieldnames = ["task", "rel_path", "result", "refinements", "wall_s", "log", "config", "note"]
     with summary.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
