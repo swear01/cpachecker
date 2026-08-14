@@ -75,8 +75,15 @@ def _parse_inline(path: Path, top_dir: Path, seen: set, out: dict) -> None:
 
 
 def config_sha256(path: Path) -> str:
-    """Hash of the top-level config file (provenance; not the include tree)."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Hash of the fully resolved config (provenance; includes the #include tree).
+
+    Uses the same resolution as diff_configs so a change in any included
+    properties file (e.g. config/vguide.properties) changes the fingerprint.
+    """
+    resolved = resolve_config(path)
+    # repr of sorted items: unambiguous even when a value contains '='
+    canonical = repr(sorted(resolved.items()))
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def diff_configs(stock: Path, augmented: Path):
