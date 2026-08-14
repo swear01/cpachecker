@@ -157,11 +157,13 @@ fi
 # parallel, model, thinking, response-cache mode); otherwise refuse — a
 # mixed-provenance dataset is invalid. Values are passed via the environment
 # (single-quoted heredoc: no shell interpolation).
+OLD_LOADS_JSON="[]"
 if [[ -f "$OUT/run_meta.json" ]]; then
   OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))" "$OUT/run_meta.json" 2>/dev/null || echo '{}')"
+  OLD_LOADS_JSON="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('load_checks', [])))" 2>/dev/null || echo '[]')"
   OLD_STARTED_AT="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('started_at',''))")"
   OLD_LOAD_CHECK="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('load_check',''))")"
-  ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" \
+  ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" CPA_SH_SHA_C="$CPA_SH_SHA" \
   TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
   MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" \
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
@@ -208,14 +210,14 @@ fi
 
 # Atomic, escaping-safe write of run_meta.json (values via env, json.dumps).
 ARM_M="$ARM" COMMIT_M="$COMMIT" CONFIG_M="$CONFIG" CONFIG_SHA_M="$CONFIG_SHA" \
-MANIFEST_M="$MANIFEST" MANIFEST_SHA_M="$MANIFEST_SHA" SPEC_SHA_M="$SPEC_SHA" \
+MANIFEST_M="$MANIFEST" MANIFEST_SHA_M="$MANIFEST_SHA" SPEC_SHA_M="$SPEC_SHA" CPA_SH_SHA_M="$CPA_SH_SHA" \
 TIMELIMIT_M="$TIMELIMIT" GRACE_M="$TIMEOUT_GRACE" PARALLEL_M="$PARALLEL" HEAP_M="$HEAP" \
 SPEC_M="$SPEC" MODEL_M="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_M="$THINKING" EFFORT_M="$EFFORT" \
 RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
 REPLAY_FP_M="$(if [[ -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then find "$VGUIDE_LLM_REPLAY_DIR" -type f -exec sha256sum {} + 2>/dev/null | sort | sha256sum | cut -d' ' -f1; fi)" \
   APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
 TIMEOUTSEC_M="${VGUIDE_LLM_TIMEOUT_SEC:-}" PRESERVE_M="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
-STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" P_CORES_M="$P_CORE_LIST" \
+STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" P_CORES_M="$P_CORE_LIST" \
 python3 - "$OUT/run_meta.json" <<'EOF'
 import json, os, sys
 meta = {
@@ -226,6 +228,7 @@ meta = {
     "manifest": os.environ["MANIFEST_M"],
     "manifest_sha256": os.environ["MANIFEST_SHA_M"],
     "spec_sha256": os.environ["SPEC_SHA_M"],
+    "cpa_sh_sha256": os.environ["CPA_SH_SHA_M"],
     "timelimit_s": int(os.environ["TIMELIMIT_M"]),
     "timeout_grace": int(os.environ["GRACE_M"]),
     "parallel": int(os.environ["PARALLEL_M"]),
@@ -244,6 +247,7 @@ meta = {
     "started_at": os.environ["STARTED_M"],
     "cpu_isolation": "taskset " + os.environ["P_CORES_M"] + " (8 physical P-cores, no SMT sibling, no E-core)",
     "load_check": os.environ["LOAD_M"],
+    "load_checks": json.loads(os.environ["LOADS_M"]) + [os.environ["LOAD_M"]],
 }
 tmp = sys.argv[1] + ".tmp"
 with open(tmp, "w") as f:
@@ -275,12 +279,16 @@ run_one() {
   fi
   # A previous attempt may have left a partial dump (no record was written):
   # clear it so LLM rounds / refinements from both attempts do not mix.
-  [[ "$ARM" == "augmented" ]] && rm -rf "$OUT/dumps/${task_name}"
+  # Cleanup failures abort this task (missing record -> merge fails closed).
+  if [[ "$ARM" == "augmented" ]]; then
+    rm -rf "$OUT/dumps/${task_name}" || return 1
+  fi
   # Record-mode LLM caches are namespaced per task with the same sanitization as
-  # LlmResponseCache (chars outside [A-Za-z0-9._-] become '_'); clear a partial cache.
-  if [[ -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
+  # LlmResponseCache (chars outside [A-Za-z0-9._-] become '_'); clear a partial
+  # cache. Only for the augmented arm (stock runs never touch LLM state).
+  if [[ "$ARM" == "augmented" && -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
     SANITIZED="$(printf '%s' "$task" | tr -c 'A-Za-z0-9._-' '_')"
-    rm -rf "$VGUIDE_LLM_RECORD_DIR/$SANITIZED"
+    rm -rf "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" || return 1
   fi
   local cmd=(
     timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"

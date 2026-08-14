@@ -81,7 +81,8 @@ def config_sha256(path: Path) -> str:
     properties file (e.g. config/vguide.properties) changes the fingerprint.
     """
     resolved = resolve_config(path)
-    canonical = "\n".join(f"{k}={resolved[k]}" for k in sorted(resolved))
+    # repr of sorted items: unambiguous even when a value contains '='
+    canonical = repr(sorted(resolved.items()))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
