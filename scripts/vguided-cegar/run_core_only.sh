@@ -151,7 +151,7 @@ fi
 # no shell interpolation).
 if [[ -f "$OUT/run_meta.json" ]]; then
   ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" \
-  TIMELIMIT_C="$TIMELIMIT" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
+  TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
   MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" \
   python3 - "$OUT/run_meta.json" <<'EOF'
 import json, os, sys
@@ -162,6 +162,7 @@ want = {
     "config_sha256": os.environ["CONFIG_SHA_C"],
     "manifest_sha256": os.environ["MANIFEST_SHA_C"],
     "timelimit_s": float(os.environ["TIMELIMIT_C"]),
+    "timeout_grace": int(os.environ["GRACE_C"]),
     "heap": os.environ["HEAP_C"],
     "parallel": int(os.environ["PARALLEL_C"]),
     "model": os.environ["MODEL_C"],
@@ -188,6 +189,7 @@ cat >"$OUT/run_meta.json" <<EOF
   "manifest": "$MANIFEST",
   "manifest_sha256": "$MANIFEST_SHA",
   "timelimit_s": $TIMELIMIT,
+  "timeout_grace": $TIMEOUT_GRACE,
   "parallel": $PARALLEL,
   "heap": "$HEAP",
   "spec": "$SPEC",
