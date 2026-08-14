@@ -154,7 +154,9 @@ fi
 # mixed-provenance dataset is invalid. Values are passed via the environment
 # (single-quoted heredoc: no shell interpolation).
 if [[ -f "$OUT/run_meta.json" ]]; then
-  OLD_STARTED_AT="$(python3 -c "import json,sys; print(json.load(open('$OUT/run_meta.json')).get('started_at',''))" 2>/dev/null || true)"
+  OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open('$OUT/run_meta.json'))))" 2>/dev/null || echo '{}')"
+  OLD_STARTED_AT="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('started_at',''))")"
+  OLD_LOAD_CHECK="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('load_check',''))")"
   ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" \
   TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
   MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" \
@@ -194,39 +196,52 @@ if differing:
     sys.exit(1)
 EOF
   echo "resuming: existing run_meta.json matches this invocation"
-  [[ -n "$OLD_STARTED_AT" ]] && STARTED_AT="$OLD_STARTED_AT"  # keep the original start time
+  [[ -n "$OLD_STARTED_AT" ]] && STARTED_AT="$OLD_STARTED_AT"    # keep the original start time
+  [[ -n "$OLD_LOAD_CHECK" ]] && LOAD_CHECK="$OLD_LOAD_CHECK"    # keep the original load check
 fi
 
-# Atomic write: never leave run_meta.json truncated (interrupt-safe resume).
-cat >"$OUT/run_meta.json.tmp" <<EOF
-{
-  "arm": "$ARM",
-  "commit": "$COMMIT",
-  "config": "$CONFIG",
-  "config_sha256": "$CONFIG_SHA",
-  "manifest": "$MANIFEST",
-  "manifest_sha256": "$MANIFEST_SHA",
-  "spec_sha256": "$SPEC_SHA",
-  "timelimit_s": $TIMELIMIT,
-  "timeout_grace": $TIMEOUT_GRACE,
-  "parallel": $PARALLEL,
-  "heap": "$HEAP",
-  "spec": "$SPEC",
-  "model": "${DEEPSEEK_MODEL:-deepseek-v4-pro}",
-  "thinking": "$THINKING",
-  "reasoning_effort": $EFFORT,
-  "llm_record_dir": "${VGUIDE_LLM_RECORD_DIR:-}",
-  "llm_replay_dir": "${VGUIDE_LLM_REPLAY_DIR:-}",
-  "llm_api_url": "${VGUIDE_LLM_API_URL:-}",
-  "llm_max_completion_tokens": "${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}",
-  "llm_timeout_sec": "${VGUIDE_LLM_TIMEOUT_SEC:-}",
-  "llm_replay_preserve_latency": "${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}",
-  "started_at": "$STARTED_AT",
-  "cpu_isolation": "taskset $P_CORE_LIST (8 physical P-cores, no SMT sibling, no E-core)",
-  "load_check": "$LOAD_CHECK"
+# Atomic, escaping-safe write of run_meta.json (values via env, json.dumps).
+ARM_M="$ARM" COMMIT_M="$COMMIT" CONFIG_M="$CONFIG" CONFIG_SHA_M="$CONFIG_SHA" \
+MANIFEST_M="$MANIFEST" MANIFEST_SHA_M="$MANIFEST_SHA" SPEC_SHA_M="$SPEC_SHA" \
+TIMELIMIT_M="$TIMELIMIT" GRACE_M="$TIMEOUT_GRACE" PARALLEL_M="$PARALLEL" HEAP_M="$HEAP" \
+SPEC_M="$SPEC" MODEL_M="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_M="$THINKING" EFFORT_M="$EFFORT" \
+RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
+APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
+TIMEOUTSEC_M="${VGUIDE_LLM_TIMEOUT_SEC:-}" PRESERVE_M="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
+STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" P_CORES_M="$P_CORE_LIST" \
+python3 - "$OUT/run_meta.json" <<'EOF'
+import json, os, sys
+meta = {
+    "arm": os.environ["ARM_M"],
+    "commit": os.environ["COMMIT_M"],
+    "config": os.environ["CONFIG_M"],
+    "config_sha256": os.environ["CONFIG_SHA_M"],
+    "manifest": os.environ["MANIFEST_M"],
+    "manifest_sha256": os.environ["MANIFEST_SHA_M"],
+    "spec_sha256": os.environ["SPEC_SHA_M"],
+    "timelimit_s": int(os.environ["TIMELIMIT_M"]),
+    "timeout_grace": int(os.environ["GRACE_M"]),
+    "parallel": int(os.environ["PARALLEL_M"]),
+    "heap": os.environ["HEAP_M"],
+    "spec": os.environ["SPEC_M"],
+    "model": os.environ["MODEL_M"],
+    "thinking": os.environ["THINKING_M"],
+    "reasoning_effort": json.loads(os.environ["EFFORT_M"]),
+    "llm_record_dir": os.environ["RECORD_M"],
+    "llm_replay_dir": os.environ["REPLAY_M"],
+    "llm_api_url": os.environ["APIURL_M"],
+    "llm_max_completion_tokens": os.environ["MAXTOK_M"],
+    "llm_timeout_sec": os.environ["TIMEOUTSEC_M"],
+    "llm_replay_preserve_latency": os.environ["PRESERVE_M"],
+    "started_at": os.environ["STARTED_M"],
+    "cpu_isolation": "taskset " + os.environ["P_CORES_M"] + " (8 physical P-cores, no SMT sibling, no E-core)",
+    "load_check": os.environ["LOAD_M"],
 }
+tmp = sys.argv[1] + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(meta, f, indent=2)
+os.replace(tmp, sys.argv[1])
 EOF
-mv "$OUT/run_meta.json.tmp" "$OUT/run_meta.json"
 
 # 3. Run each task once (parallel), then emit one record per task.
 rm -f "$OUT/records.jsonl"
@@ -242,7 +257,8 @@ run_one() {
   # parse as JSON: a truncated/corrupt record (killed while appending) is
   # discarded and the task rerun.
   if [[ -f "$OUT/logs/${task_name}.json" ]]; then
-    if python3 -c "import json, sys; d = json.load(open(sys.argv[1])); assert isinstance(d, dict) and 'task' in d and 'result' in d" "$OUT/logs/${task_name}.json" 2>/dev/null; then
+    # Records use the 'verdict' key (see core_only_records.py / REQUIRED_FIELDS).
+    if python3 -c "import json, sys; d = json.load(open(sys.argv[1])); assert isinstance(d, dict) and 'task' in d and 'verdict' in d" "$OUT/logs/${task_name}.json" 2>/dev/null; then
       echo "skip $task (record exists)"
       return 0
     fi
@@ -252,6 +268,8 @@ run_one() {
   # A previous attempt may have left a partial dump (no record was written):
   # clear it so LLM rounds / refinements from both attempts do not mix.
   [[ "$ARM" == "augmented" ]] && rm -rf "$OUT/dumps/${task_name}"
+  # Record-mode LLM caches are namespaced per task: clear a partial cache too.
+  [[ -n "${VGUIDE_LLM_RECORD_DIR:-}" ]] && rm -rf "$VGUIDE_LLM_RECORD_DIR/${task}"
   local cmd=(
     timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
     taskset -c "$P_CORE_LIST"
