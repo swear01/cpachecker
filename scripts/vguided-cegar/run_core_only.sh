@@ -112,31 +112,36 @@ if [[ "$DRY" == "1" ]]; then
 fi
 
 # 0. Output-dir lock: refuse overlapping invocations on the same --out.
-# PID-based: a lock whose holder died (SIGKILL/host crash) is reclaimed, but only
-# when no worker processes of that run remain.
+# PID-based with a 10-minute mtime guard: a lock whose holder died is reclaimed
+# only when (a) it is old (not a concurrent invocation still writing its pid),
+# (b) no analysis workers remain on this machine, and (c) the reclaim is atomic
+# (mv to a stale name — the loser retries the lock check).
 if ! mkdir "$OUT/.run.lock" 2>/dev/null; then
-  if [[ -f "$OUT/.run.lock/pid" ]]; then
-    LOCK_PID="$(cat "$OUT/.run.lock/pid")"
-    if ! kill -0 "$LOCK_PID" 2>/dev/null; then
-      if pgrep -f "$OUT/logs" >/dev/null 2>&1; then
-        die "stale lock for dead PID $LOCK_PID but workers still run for $OUT"
-      fi
-      echo "reclaiming stale lock (dead PID $LOCK_PID)"
-      rm -rf "$OUT/.run.lock"
-      mkdir "$OUT/.run.lock" || die "cannot create $OUT/.run.lock"
-    else
+  LOCK_OK=0
+  while [[ $LOCK_OK -eq 0 ]]; do
+    LOCK_PID=""
+    [[ -f "$OUT/.run.lock/pid" ]] && LOCK_PID="$(cat "$OUT/.run.lock/pid")"
+    LOCK_AGE="$(python3 -c "import os,sys,time; print(int(time.time()-os.path.getmtime(sys.argv[1])))" "$OUT/.run.lock" 2>/dev/null || echo 0)"
+    if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
       die "$OUT/.run.lock held by live PID $LOCK_PID"
     fi
-  else
-    # lock dir without a pid file: holder was killed between mkdir and pid write.
-    # Reclaim it if no workers of that run remain.
-    if pgrep -f "$OUT/logs" >/dev/null 2>&1; then
-      die "$OUT/.run.lock exists without a pid file but workers still run for $OUT"
+    if [[ "$LOCK_AGE" -lt 600 ]]; then
+      die "$OUT/.run.lock exists (age ${LOCK_AGE}s) with no dead-holder evidence yet; retry shortly or remove it manually"
     fi
-    echo "reclaiming lock dir without pid (no workers remain for $OUT)"
-    rm -rf "$OUT/.run.lock"
-    mkdir "$OUT/.run.lock" || die "cannot create $OUT/.run.lock"
-  fi
+    if pgrep -f "$SV_BENCHMARKS" >/dev/null 2>&1; then
+      die "stale lock for $OUT but analysis workers still run on this machine"
+    fi
+    # atomic reclaim: mv the old lock away, then take the name; the loser of
+    # the mv retries the whole check.
+    if mv "$OUT/.run.lock" "$OUT/.run.lock.stale.$$" 2>/dev/null && mkdir "$OUT/.run.lock" 2>/dev/null; then
+      rm -rf "$OUT/.run.lock.stale.$$"
+      echo "reclaimed stale lock (age ${LOCK_AGE}s)"
+      LOCK_OK=1
+    else
+      rm -rf "$OUT/.run.lock.stale.$$" 2>/dev/null
+      sleep 1  # another invocation won the race; re-check
+    fi
+  done
 fi
 echo "$$" >"$OUT/.run.lock/pid"
 trap 'rm -rf "$OUT/.run.lock" 2>/dev/null || true' EXIT
@@ -148,7 +153,8 @@ CONFIG_SHA="$(python3 -c "import sys; sys.path.insert(0, '$SCRIPT_DIR'); import 
 MANIFEST_SHA="$(sha256sum "$MANIFEST" | cut -d' ' -f1)"
 SPEC_SHA="$(sha256sum "$SPEC" | cut -d' ' -f1)"
 CPA_SH_SHA="$(sha256sum "$CPA_SH" | cut -d' ' -f1)"
-LOAD_CHECK="$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' +' '$2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) b = b " " $2 } END { print (b == "") ? "idle" : "busy:" b }')"
+LOAD_CHECK_NOW="$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' +' '$2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) b = b " " $2 } END { print (b == "") ? "idle" : "busy:" b }')"
+LOAD_CHECK="$LOAD_CHECK_NOW"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Effective thinking settings mirror PredicateProposalClient's normalization
@@ -204,6 +210,7 @@ want = {
     "config_sha256": os.environ["CONFIG_SHA_C"],
     "manifest_sha256": os.environ["MANIFEST_SHA_C"],
     "spec_sha256": os.environ["SPEC_SHA_C"],
+    "cpa_sh_sha256": os.environ["CPA_SH_SHA_C"],
     "timelimit_s": float(os.environ["TIMELIMIT_C"]),
     "timeout_grace": int(os.environ["GRACE_C"]),
     "heap": os.environ["HEAP_C"],
@@ -230,7 +237,14 @@ if differing:
 EOF
   echo "resuming: existing run_meta.json matches this invocation"
   [[ -n "$OLD_STARTED_AT" ]] && STARTED_AT="$OLD_STARTED_AT"    # keep the original start time
-  [[ -n "$OLD_LOAD_CHECK" ]] && LOAD_CHECK="$OLD_LOAD_CHECK"    # keep the original load check
+  if [[ -n "$OLD_LOAD_CHECK" ]]; then
+    LOAD_CHECK="$OLD_LOAD_CHECK"   # keep the first session's load check
+    CURRENT_LOAD="$LOAD_CHECK_NOW"
+  else
+    CURRENT_LOAD="$LOAD_CHECK"
+  fi
+else
+  CURRENT_LOAD="$LOAD_CHECK"
 fi
 
 # Atomic, escaping-safe write of run_meta.json (values via env, json.dumps).
@@ -242,7 +256,7 @@ RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
 REPLAY_FP_M="$(if [[ -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then find "$VGUIDE_LLM_REPLAY_DIR" -type f -exec sha256sum {} + 2>/dev/null | sort | sha256sum | cut -d' ' -f1; fi)" \
   APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
 TIMEOUTSEC_M="${VGUIDE_LLM_TIMEOUT_SEC:-}" PRESERVE_M="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
-STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" P_CORES_M="$P_CORE_LIST" \
+STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" CURRLOAD_M="$CURRENT_LOAD" P_CORES_M="$P_CORE_LIST" \
 python3 - "$OUT/run_meta.json" <<'EOF'
 import json, os, sys
 meta = {
@@ -272,7 +286,7 @@ meta = {
     "started_at": os.environ["STARTED_M"],
     "cpu_isolation": "taskset " + os.environ["P_CORES_M"] + " (8 physical P-cores, no SMT sibling, no E-core)",
     "load_check": os.environ["LOAD_M"],
-    "load_checks": json.loads(os.environ["LOADS_M"]) + [os.environ["LOAD_M"]],
+    "load_checks": json.loads(os.environ["LOADS_M"]) + [os.environ["CURRLOAD_M"]],
 }
 tmp = sys.argv[1] + ".tmp"
 with open(tmp, "w") as f:
