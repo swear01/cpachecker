@@ -118,6 +118,7 @@ python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMAR
 COMMIT="$(git -C "$REPO" rev-parse HEAD)"
 CONFIG_SHA="$(python3 -c "import sys; sys.path.insert(0, '$SCRIPT_DIR'); import core_only_config_diff as d; print(d.config_sha256(__import__('pathlib').Path('$REPO/$CONFIG')))")"
 MANIFEST_SHA="$(sha256sum "$MANIFEST" | cut -d' ' -f1)"
+SPEC_SHA="$(sha256sum "$SPEC" | cut -d' ' -f1)"
 LOAD_CHECK="$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' +' '$2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) b = b " " $2 } END { print (b == "") ? "idle" : "busy:" b }')"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -154,10 +155,12 @@ fi
 # (single-quoted heredoc: no shell interpolation).
 if [[ -f "$OUT/run_meta.json" ]]; then
   OLD_STARTED_AT="$(python3 -c "import json,sys; print(json.load(open('$OUT/run_meta.json')).get('started_at',''))" 2>/dev/null || true)"
-  ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" \
+  ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" \
   TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
   MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" \
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
+  APIURL_C="${VGUIDE_LLM_API_URL:-}" MAXTOK_C="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
+  TIMEOUTSEC_C="${VGUIDE_LLM_TIMEOUT_SEC:-}" PRESERVE_C="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
   python3 - "$OUT/run_meta.json" <<'EOF' || die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
 import json, os, sys
 old = json.load(open(sys.argv[1]))
@@ -166,6 +169,7 @@ want = {
     "commit": os.environ["COMMIT_C"],
     "config_sha256": os.environ["CONFIG_SHA_C"],
     "manifest_sha256": os.environ["MANIFEST_SHA_C"],
+    "spec_sha256": os.environ["SPEC_SHA_C"],
     "timelimit_s": float(os.environ["TIMELIMIT_C"]),
     "timeout_grace": int(os.environ["GRACE_C"]),
     "heap": os.environ["HEAP_C"],
@@ -175,10 +179,18 @@ want = {
     "reasoning_effort": json.loads(os.environ["EFFORT_C"]),
     "llm_record_dir": os.environ["RECORD_C"],
     "llm_replay_dir": os.environ["REPLAY_C"],
+    "llm_api_url": os.environ["APIURL_C"],
+    "llm_max_completion_tokens": os.environ["MAXTOK_C"],
+    "llm_timeout_sec": os.environ["TIMEOUTSEC_C"],
+    "llm_replay_preserve_latency": os.environ["PRESERVE_C"],
 }
-mismatch = [k for k, v in want.items() if old.get(k, "") != v]
-if mismatch:
-    print("provenance mismatch: " + ", ".join(mismatch), file=sys.stderr)
+missing = [k for k in want if k not in old]
+differing = [k for k in want if k in old and old[k] != want[k]]
+if missing:
+    print("run_meta.json predates the current schema; missing: " + ", ".join(missing), file=sys.stderr)
+    sys.exit(1)
+if differing:
+    print("provenance mismatch: " + ", ".join(differing), file=sys.stderr)
     sys.exit(1)
 EOF
   echo "resuming: existing run_meta.json matches this invocation"
@@ -194,6 +206,7 @@ cat >"$OUT/run_meta.json.tmp" <<EOF
   "config_sha256": "$CONFIG_SHA",
   "manifest": "$MANIFEST",
   "manifest_sha256": "$MANIFEST_SHA",
+  "spec_sha256": "$SPEC_SHA",
   "timelimit_s": $TIMELIMIT,
   "timeout_grace": $TIMEOUT_GRACE,
   "parallel": $PARALLEL,
@@ -204,6 +217,10 @@ cat >"$OUT/run_meta.json.tmp" <<EOF
   "reasoning_effort": $EFFORT,
   "llm_record_dir": "${VGUIDE_LLM_RECORD_DIR:-}",
   "llm_replay_dir": "${VGUIDE_LLM_REPLAY_DIR:-}",
+  "llm_api_url": "${VGUIDE_LLM_API_URL:-}",
+  "llm_max_completion_tokens": "${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}",
+  "llm_timeout_sec": "${VGUIDE_LLM_TIMEOUT_SEC:-}",
+  "llm_replay_preserve_latency": "${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}",
   "started_at": "$STARTED_AT",
   "cpu_isolation": "taskset $P_CORE_LIST (8 physical P-cores, no SMT sibling, no E-core)",
   "load_check": "$LOAD_CHECK"
@@ -225,7 +242,7 @@ run_one() {
   # parse as JSON: a truncated/corrupt record (killed while appending) is
   # discarded and the task rerun.
   if [[ -f "$OUT/logs/${task_name}.json" ]]; then
-    if python3 -c "import json, sys; json.load(open(sys.argv[1]))" "$OUT/logs/${task_name}.json" 2>/dev/null; then
+    if python3 -c "import json, sys; d = json.load(open(sys.argv[1])); assert isinstance(d, dict) and 'task' in d and 'result' in d" "$OUT/logs/${task_name}.json" 2>/dev/null; then
       echo "skip $task (record exists)"
       return 0
     fi
