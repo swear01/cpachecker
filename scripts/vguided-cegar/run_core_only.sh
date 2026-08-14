@@ -162,8 +162,11 @@ while ! mkdir "$OUT/.run.lock" 2>/dev/null; do
 done
 echo "$HOSTNAME_L:$$" >"$OUT/.run.lock/pid"
 # Heartbeat: keep the lock mtime fresh so runs longer than the 600s stale
-# threshold are never reclaimed by another host of the NFS fleet.
-( while :; do sleep 60; touch "$OUT/.run.lock" 2>/dev/null || break; done ) &
+# threshold are never reclaimed by another host of the NFS fleet. The loop
+# stops as soon as the harness PID dies, so a SIGKILLed run cannot keep the
+# lock fresh forever.
+MAINPID=$$
+( while :; do sleep 60; kill -0 "$MAINPID" 2>/dev/null || break; touch "$OUT/.run.lock" 2>/dev/null || break; done ) &
 LOCK_HEARTBEAT=$!
 trap 'kill "$LOCK_HEARTBEAT" 2>/dev/null || true; rm -rf "$OUT/.run.lock" 2>/dev/null || true' EXIT
 
@@ -328,7 +331,13 @@ python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMAR
 
 # 3. Run each task once (parallel), then emit one record per task.
 rm -f "$OUT/records.jsonl"
+# Hash-suffixed task name: '/'-replaced names can collide (a/b vs a_b); the
+# suffix keeps logs/dumps/records unique while staying readable.
+task_name_of() {
+  printf '%s' "${1//\//_}~$(printf '%s' "$1" | sha256sum | cut -c1-6)"
+}
 export -f sha256sum 2>/dev/null || true
+export -f task_name_of
 run_one() {
   local line="$1"
   local task source expected model family tsha ssha
@@ -340,9 +349,7 @@ run_one() {
     echo "unsafe task path '$task'; aborting task"
     return 1
   fi
-  # Hash-suffixed task_name: '/'-replaced names can collide (a/b vs a_b); the
-  # suffix keeps logs/dumps/records unique while staying readable.
-  local task_name="${task//\//_}~$(printf '%s' "$task" | sha256sum | cut -c1-6)"
+  local task_name="$(task_name_of "$task")"
   local log="$OUT/logs/${task_name}.log"
   # Resume support: a per-task record already written means this task finished
   # in a previous invocation — skip it instead of re-running. The record must
@@ -450,7 +457,7 @@ rm -f "$OUT/records.jsonl"
 while IFS= read -r line || [[ -n "$line" ]]; do
   [[ -n "$line" ]] || continue
   task="$(echo "$line" | cut -f1)"
-  rec="$OUT/logs/${task//\//_}.json"
+  rec="$OUT/logs/$(task_name_of "$task").json"
   [[ -f "$rec" ]] || die "missing record for $task"
   cat "$rec" >>"$OUT/records.jsonl"
 done <"$OUT/tasks.tsv"
