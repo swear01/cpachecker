@@ -142,6 +142,10 @@ while ! mkdir "$OUT/.run.lock" 2>/dev/null; do
   # Workers never carry the out/log path in argv; match the benchmark root as a
   # fixed string (grep -F, not regex). A worker on another host of the NFS fleet
   # is not visible here — host-aware reclaim relies on the age guard alone then.
+  # ps failure is treated as "workers present": refuse the reclaim (fail closed).
+  if ! ps -eo args >/dev/null 2>&1; then
+    die "cannot verify worker processes (ps failed); refusing stale-lock reclaim for $OUT"
+  fi
   if ps -eo args | grep -F "$SV_BENCHMARKS" | grep -v grep >/dev/null 2>&1; then
     die "stale lock for $OUT but analysis workers still run on this machine"
   fi
@@ -157,7 +161,11 @@ while ! mkdir "$OUT/.run.lock" 2>/dev/null; do
   fi
 done
 echo "$HOSTNAME_L:$$" >"$OUT/.run.lock/pid"
-trap 'rm -rf "$OUT/.run.lock" 2>/dev/null || true' EXIT
+# Heartbeat: keep the lock mtime fresh so runs longer than the 600s stale
+# threshold are never reclaimed by another host of the NFS fleet.
+( while :; do sleep 60; touch "$OUT/.run.lock" 2>/dev/null || break; done ) &
+LOCK_HEARTBEAT=$!
+trap 'kill "$LOCK_HEARTBEAT" 2>/dev/null || true; rm -rf "$OUT/.run.lock" 2>/dev/null || true' EXIT
 
 # 2. Run metadata (computed before tasks.tsv so the resume provenance check can
 # validate the invocation without overwriting an existing tasks.tsv).
@@ -328,7 +336,13 @@ run_one() {
   # Fail closed on malformed rows: an empty task would turn the cleanup paths
   # below into rm -rf of the whole dump/cache roots.
   [[ -n "$task" ]] || { echo "empty task row; aborting task"; return 1; }
-  local task_name="${task//\//_}"
+  if [[ "$task" =~ (^|/)\.\.?(/|$) ]]; then
+    echo "unsafe task path '$task'; aborting task"
+    return 1
+  fi
+  # Hash-suffixed task_name: '/'-replaced names can collide (a/b vs a_b); the
+  # suffix keeps logs/dumps/records unique while staying readable.
+  local task_name="${task//\//_}~$(printf '%s' "$task" | sha256sum | cut -c1-6)"
   local log="$OUT/logs/${task_name}.log"
   # Resume support: a per-task record already written means this task finished
   # in a previous invocation — skip it instead of re-running. The record must
