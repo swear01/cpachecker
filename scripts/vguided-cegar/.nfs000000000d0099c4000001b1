@@ -182,7 +182,7 @@ LOAD_CHECK="$LOAD_CHECK_NOW"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Effective thinking settings mirror PredicateProposalClient's normalization
-# (aliases: true/on/1 -> enabled; effort default -> high; low/medium/high/max passthrough).
+# (aliases: true/on/1 -> enabled; default -> high; medium -> high; xhigh -> max).
 # Portable lowercase (Bash 3.2/macOS compatible).
 lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 THINKING_RAW="${VGUIDE_LLM_THINKING:-disabled}"
