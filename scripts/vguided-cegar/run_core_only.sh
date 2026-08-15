@@ -201,7 +201,8 @@ else
   case "$(lc "$EFFORT_RAW")" in
     ""|default) EFFORT="\"high\"" ;;
     low) EFFORT="\"low\"" ;;
-    medium|high) EFFORT="\"high\"" ;;
+    medium) EFFORT="\"medium\"" ;;
+    high) EFFORT="\"high\"" ;;
     max|xhigh) EFFORT="\"max\"" ;;
     *) EFFORT="\"high\"" ;;
   esac
