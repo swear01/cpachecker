@@ -285,8 +285,10 @@ run_one() {
   wall="$(cap_wall "$wall" "$TIMELIMIT")"
   [[ -n "$wall" ]] || wall="0"
   echo "$task → $result refs=$refs wall=${wall}s" >&2
-  cfg="$(grep -m1 -oE 'CPAchecker [^ ]+ / [^ ]+' "$log" 2>/dev/null | awk '{print $NF}')"
-  [[ -n "$cfg" ]] || cfg="$CONFIG"
+  local cfg="$(grep -m1 -oE 'CPAchecker [^ ]+ / [^ ]+' "$log" 2>/dev/null | awk '{print $NF}')"
+  # The banner carries the analysis name (e.g. svcomp26-vguide); the fallback
+  # derives the same shape from the config file name.
+  [[ -n "$cfg" ]] || cfg="$(basename "$CONFIG" .properties)"
   echo "$task,$(basename "$prog"),$result,$refs,$wall,$log,$cfg"
 }
 

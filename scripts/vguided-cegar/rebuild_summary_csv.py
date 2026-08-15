@@ -72,7 +72,8 @@ def _config_from_log(log: str) -> str:
         pass
     if m:
         return m.group(1)
-    return os.environ.get("VGUIDE_CONFIG", "config/predicateAnalysis-vguide.properties")
+    cfg = os.environ.get("VGUIDE_CONFIG", "config/predicateAnalysis-vguide.properties")
+    return os.path.basename(cfg).removesuffix(".properties") if cfg.endswith(".properties") else cfg
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
