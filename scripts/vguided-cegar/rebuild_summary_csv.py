@@ -71,6 +71,9 @@ def _config_from_log(log: str) -> str:
         pass
     if m:
         return m.group(1)
+    cfg_env = os.environ.get("VGUIDE_CONFIG")
+    if cfg_env:
+        return os.path.basename(cfg_env).removesuffix(".properties")
     # Bannerless logs cannot be attributed: mark unknown instead of guessing
     # (a wrong config label silently invalidates harvest comparisons, #76).
     return "unknown"
@@ -120,12 +123,12 @@ def main() -> int:
                 "refinements": str(refs),
                 "wall_s": f"{wall:.3f}".rstrip("0").rstrip("."),
                 "log": str(log),
-                "config": _config_from_log(str(log)),
                 "note": note,
+                "config": _config_from_log(str(log)),
             }
         )
 
-    fieldnames = ["task", "rel_path", "result", "refinements", "wall_s", "log", "config", "note"]
+    fieldnames = ["task", "rel_path", "result", "refinements", "wall_s", "log", "note", "config"]
     with summary.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()

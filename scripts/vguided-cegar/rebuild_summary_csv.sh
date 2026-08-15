@@ -79,12 +79,19 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   [[ -n "$result" ]] || result="UNKNOWN"
   [[ -n "$refs" ]] || refs="0"
   [[ -n "$wall" ]] || wall="0"
-  # Reconstruct the config from the log's analysis banner (CPAchecker ... / <analysis>),
-  # falling back to the env/default only when the log predates the banner.
+  # Reconstruct the config from the log's analysis banner (CPAchecker ... / <analysis>).
+  # Bannerless logs fall back to VGUIDE_CONFIG when the operator sets it explicitly;
+  # otherwise mark unknown — never guess the default (a wrong config label silently
+  # invalidates harvest comparisons, #76).
   cfg="$(grep -m1 -oE 'CPAchecker [^ ]+ / [^ ]+' "$log" 2>/dev/null | awk '{print $NF}')"
-  # Bannerless logs cannot be attributed: mark unknown instead of guessing
-  # (a wrong config label silently invalidates harvest comparisons, #76).
-  [[ -n "$cfg" ]] || cfg="unknown"
+  if [[ -z "$cfg" ]]; then
+    if [[ -n "${VGUIDE_CONFIG:-}" ]]; then
+      cfg="$(basename "$VGUIDE_CONFIG" .properties)"
+    else
+      cfg="unknown"
+    fi
+  fi
+  cfg="${cfg//,/}"  # keep the hand-built CSV column-safe
   echo "$task,$rel,$result,$refs,$wall,$log,$cfg" >>"$tmp"
   rows=$((rows + 1))
 done <"$MANIFEST"

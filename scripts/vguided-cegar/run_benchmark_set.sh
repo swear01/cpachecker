@@ -289,6 +289,7 @@ run_one() {
   # The banner carries the analysis name (e.g. svcomp26-vguide); the fallback
   # derives the same shape from the config file name.
   [[ -n "$cfg" ]] || cfg="$(basename "$CONFIG" .properties)"
+  cfg="${cfg//,}"  # keep the hand-built CSV column-safe
   echo "$task,$(basename "$prog"),$result,$refs,$wall,$log,$cfg"
 }
 
