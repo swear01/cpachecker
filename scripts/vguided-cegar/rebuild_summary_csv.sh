@@ -83,7 +83,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   # Bannerless logs fall back to VGUIDE_CONFIG when the operator sets it explicitly;
   # otherwise mark unknown — never guess the default (a wrong config label silently
   # invalidates harvest comparisons, #76).
-  cfg="$(grep -m1 -oE 'CPAchecker [^ ]+ / [^ ]+' "$log" 2>/dev/null | awk '{print $NF}')"
+  cfg="$(grep -m1 -oE 'CPAchecker [^ ]+ / [^ ]+' "$log" 2>/dev/null | awk '{print $NF}' || true)"
   if [[ -z "$cfg" ]]; then
     if [[ -n "${VGUIDE_CONFIG:-}" ]]; then
       cfg="$(basename "$VGUIDE_CONFIG" .properties)"
