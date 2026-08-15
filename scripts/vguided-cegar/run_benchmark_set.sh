@@ -264,7 +264,8 @@ run_one() {
   )
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[dry-run] ${cmd[*]}"
-    echo "$task,$(basename "$prog"),DRY_RUN,0,0,$log,$(basename "$CONFIG" .properties)"
+    cfg_dry="$(basename "$CONFIG" .properties)"
+    echo "$task,$(basename "$prog"),DRY_RUN,0,0,$log,${cfg_dry//,}"
     return 0
   fi
   VGUIDE_LLM_CACHE_NAMESPACE="$task" "${cmd[@]}" >"$log" 2>&1 || true
