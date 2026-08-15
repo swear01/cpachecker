@@ -191,9 +191,10 @@ case "$(lc "$THINKING_RAW")" in
   *) THINKING="disabled" ;;
 esac
 # Effective reasoning effort mirrors PredicateProposalClient.reasoningEffortFromEnv
-# (default -> high; medium -> high; xhigh -> max). When thinking is disabled the
-# client sets effort to null and sends no effort — record that as null too.
-# EFFORT is a JSON-encoded token (null | "high" | "low" | "max").
+# (default -> high; all of low/medium/high/max pass through — the official API
+# supports them natively). When thinking is disabled the client sets effort to
+# null and sends no effort — record that as null too.
+# EFFORT is a JSON-encoded token (null | "low" | "medium" | "high" | "max").
 EFFORT_RAW="${VGUIDE_LLM_REASONING_EFFORT:-}"
 if [[ "$THINKING" == "disabled" ]]; then
   EFFORT="null"
