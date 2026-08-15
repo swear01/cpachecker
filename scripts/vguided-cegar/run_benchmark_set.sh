@@ -115,9 +115,8 @@ TMPDIR="$OUT_BASE/.tmp_${SET}_$$"
 mkdir -p "$TMPDIR"
 if [[ ! -f "$SUMMARY" ]]; then
   echo "task,rel_path,result,refinements,wall_s,log,config" > "$SUMMARY"
-elif ! head -1 "$SUMMARY" | grep -q ",config$"; then
-  # pre-existing summary (older schema): extend the header in place
-  sed -i '1s/$/,config/' "$SUMMARY"
+elif ! head -1 "$SUMMARY" | grep -qE ",config(,|$)"; then
+  die "summary $SUMMARY uses the legacy schema (no config column); rebuild it with rebuild_summary_csv.sh or use a fresh OUT_BASE"
 fi
 
 # Append one CSV row (serialized). Prefer flush_summary_rows after parallel batch.

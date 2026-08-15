@@ -57,6 +57,19 @@ def parse_log(log_path: Path) -> tuple[str, int, float, str]:
     return result, refs, wall, note
 
 
+
+
+def _config_from_log(log: str) -> str:
+    """Reconstruct the config from the log's analysis banner; env/default fallback."""
+    try:
+        head = open(log, errors="ignore").read(4096)
+    except OSError:
+        head = ""
+    m = re.search(r"CPAchecker \S+ / (\S+)", head)
+    if m:
+        return m.group(1)
+    return os.environ.get("VGUIDE_CONFIG", "config/predicateAnalysis-vguide.properties")
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--set", default="full_scalar", help="benchmark set name")
@@ -102,7 +115,7 @@ def main() -> int:
                 "refinements": str(refs),
                 "wall_s": f"{wall:.3f}".rstrip("0").rstrip("."),
                 "log": str(log),
-                "config": os.environ.get("VGUIDE_CONFIG", "config/predicateAnalysis-vguide.properties"),
+                "config": _config_from_log(str(log)),
                 "note": note,
             }
         )
