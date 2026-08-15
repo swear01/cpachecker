@@ -38,6 +38,9 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 CPA_SH="$REPO/scripts/cpa.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib_banner_config.sh
+source "$SCRIPT_DIR/lib_banner_config.sh"
 CONFIG="${VGUIDE_CONFIG:-config/predicateAnalysis-vguide.properties}"
 SVCOMP_MODE="${VGUIDE_SVCOMP:-0}"
 if [[ "$SVCOMP_MODE" == "0" ]] \
@@ -159,7 +162,7 @@ summary_row_from_log() {
       break
     fi
   done <"$MANIFEST"
-  echo "$task,$rel,$result,$refs,$wall,$log,$CONFIG"
+  echo "$(csv_field "$task"),$(csv_field "$rel"),$result,$refs,$wall,$(csv_field "$log"),$(csv_field "$(basename "$CONFIG" .properties)")"
 }
 
 # Merge per-task .row files; missing rows rebuilt from logs (late-finishing parallel jobs).
@@ -265,7 +268,7 @@ run_one() {
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[dry-run] ${cmd[*]}"
     cfg_dry="$(basename "$CONFIG" .properties)"
-    echo "$task,$(basename "$prog"),DRY_RUN,0,0,$log,${cfg_dry//,}"
+    echo "$(csv_field "$task"),$(csv_field "$(basename "$prog")"),DRY_RUN,0,0,$(csv_field "$log"),$(csv_field "$cfg_dry")"
     return 0
   fi
   VGUIDE_LLM_CACHE_NAMESPACE="$task" "${cmd[@]}" >"$log" 2>&1 || true
@@ -286,12 +289,13 @@ run_one() {
   wall="$(cap_wall "$wall" "$TIMELIMIT")"
   [[ -n "$wall" ]] || wall="0"
   echo "$task → $result refs=$refs wall=${wall}s" >&2
-  local cfg="$(grep -m1 -oE 'CPAchecker [^ ]+ / [^ ]+' "$log" 2>/dev/null | awk '{print $NF}' || true)"
+  local cfg="$(banner_config "$log")"
   # The banner carries the analysis name (e.g. svcomp26-vguide); the fallback
-  # derives the same shape from the config file name.
+  # derives the same shape from the config file name. Unlike the rebuild
+  # scripts (which cannot know the config of a bannerless log and write
+  # 'unknown'), the live runner always knows its CONFIG.
   [[ -n "$cfg" ]] || cfg="$(basename "$CONFIG" .properties)"
-  cfg="${cfg//,}"  # keep the hand-built CSV column-safe
-  echo "$task,$(basename "$prog"),$result,$refs,$wall,$log,$cfg"
+  echo "$(csv_field "$task"),$(csv_field "$(basename "$prog")"),$result,$refs,$wall,$(csv_field "$log"),$(csv_field "$cfg")"
 }
 
 echo "Set=$SET manifest=$MANIFEST bench=$SV_BENCHMARKS out=$OUT_BASE parallel=$PARALLEL config=$CONFIG"
