@@ -115,8 +115,8 @@ TMPDIR="$OUT_BASE/.tmp_${SET}_$$"
 mkdir -p "$TMPDIR"
 if [[ ! -f "$SUMMARY" ]]; then
   echo "task,rel_path,result,refinements,wall_s,log,config" > "$SUMMARY"
-elif ! head -1 "$SUMMARY" | grep -qE ",config(,|$)"; then
-  die "summary $SUMMARY uses the legacy schema (no config column); rebuild it with rebuild_summary_csv.sh or use a fresh OUT_BASE"
+elif ! head -1 "$SUMMARY" | grep -qE ",config$"; then
+  die "summary $SUMMARY has a schema incompatible with this script (config must be the last column); rebuild it with rebuild_summary_csv.sh or use a fresh OUT_BASE"
 fi
 
 # Append one CSV row (serialized). Prefer flush_summary_rows after parallel batch.
@@ -285,7 +285,9 @@ run_one() {
   wall="$(cap_wall "$wall" "$TIMELIMIT")"
   [[ -n "$wall" ]] || wall="0"
   echo "$task → $result refs=$refs wall=${wall}s" >&2
-  echo "$task,$(basename "$prog"),$result,$refs,$wall,$log,$CONFIG"
+  cfg="$(grep -m1 -oE 'CPAchecker [^ ]+ / [^ ]+' "$log" 2>/dev/null | awk '{print $NF}')"
+  [[ -n "$cfg" ]] || cfg="$CONFIG"
+  echo "$task,$(basename "$prog"),$result,$refs,$wall,$log,$cfg"
 }
 
 echo "Set=$SET manifest=$MANIFEST bench=$SV_BENCHMARKS out=$OUT_BASE parallel=$PARALLEL config=$CONFIG"

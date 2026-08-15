@@ -61,11 +61,15 @@ def parse_log(log_path: Path) -> tuple[str, int, float, str]:
 
 def _config_from_log(log: str) -> str:
     """Reconstruct the config from the log's analysis banner; env/default fallback."""
+    m = None
     try:
-        head = open(log, errors="ignore").read(4096)
+        with open(log, errors="ignore") as f:
+            for line in f:
+                m = re.search(r"CPAchecker \S+ / (\S+)", line)
+                if m:
+                    break
     except OSError:
-        head = ""
-    m = re.search(r"CPAchecker \S+ / (\S+)", head)
+        pass
     if m:
         return m.group(1)
     return os.environ.get("VGUIDE_CONFIG", "config/predicateAnalysis-vguide.properties")
