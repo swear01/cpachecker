@@ -6,6 +6,7 @@ mis-parsed TRUE/.../configuration as 'configuration' and UNKNOWN,...,analysis as
 """
 from __future__ import annotations
 
+import os
 import argparse
 import csv
 import re
@@ -56,6 +57,28 @@ def parse_log(log_path: Path) -> tuple[str, int, float, str]:
     return result, refs, wall, note
 
 
+
+
+def _config_from_log(log: str) -> str:
+    """Reconstruct the config from the log's analysis banner; env/default fallback."""
+    m = None
+    try:
+        with open(log, errors="ignore") as f:
+            for line in f:
+                m = re.search(r"CPAchecker \S+ / (\S+)", line)
+                if m:
+                    break
+    except OSError:
+        pass
+    if m:
+        return m.group(1)
+    cfg_env = os.environ.get("VGUIDE_CONFIG")
+    if cfg_env:
+        return os.path.basename(cfg_env).removesuffix(".properties")
+    # Bannerless logs cannot be attributed: mark unknown instead of guessing
+    # (a wrong config label silently invalidates harvest comparisons, #76).
+    return "unknown"
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--set", default="full_scalar", help="benchmark set name")
@@ -102,10 +125,11 @@ def main() -> int:
                 "wall_s": f"{wall:.3f}".rstrip("0").rstrip("."),
                 "log": str(log),
                 "note": note,
+                "config": _config_from_log(str(log)),
             }
         )
 
-    fieldnames = ["task", "rel_path", "result", "refinements", "wall_s", "log", "note"]
+    fieldnames = ["task", "rel_path", "result", "refinements", "wall_s", "log", "note", "config"]
     with summary.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()

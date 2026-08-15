@@ -46,6 +46,11 @@ Match existing code style, naming, and patterns.
 No new libraries unless asked. No comments unless asked.
 Keep changes minimal.
 
+### GitHub PR Review
+When the user explicitly requests GitHub PR code review, invoke the
+`github-pr-review-loop` skill. A local agent review is supplementary evidence,
+not a substitute for a GitHub review bot.
+
 ### No-Useless Options
 When changing behavior, change it — do not keep the old behavior as an option.
 Never add flags, parameters, or config options that were not explicitly requested.
@@ -121,9 +126,7 @@ Archive header prepended automatically:
     > Replacement: <replacement-or-none>
     > Status: historical only; do not use as active truth.
 
-Archives live under `archive/` at project root (staging), preserving original path,
-and must be moved out of the repo to `/home/swear01/cpachecker-experiments/records/archive/`
-(see GitHub Issue #55) — the repo archive/ is staging only, never a permanent home:
+Archives live under `archive/` at project root, preserving original path:
 
     docs/api.md  →  archive/docs/api.md
 

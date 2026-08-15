@@ -57,8 +57,11 @@ extract_field() {
   grep "$pat" "$log" 2>/dev/null | head -1 || true
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib_banner_config.sh
+source "$SCRIPT_DIR/lib_banner_config.sh"
 tmp="$(mktemp)"
-echo "task,rel_path,result,refinements,wall_s,log" >"$tmp"
+echo "task,rel_path,result,refinements,wall_s,log,config" >"$tmp"
 rows=0
 while IFS= read -r line || [[ -n "$line" ]]; do
   [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -79,7 +82,19 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   [[ -n "$result" ]] || result="UNKNOWN"
   [[ -n "$refs" ]] || refs="0"
   [[ -n "$wall" ]] || wall="0"
-  echo "$task,$rel,$result,$refs,$wall,$log" >>"$tmp"
+  # Reconstruct the config from the log's analysis banner (CPAchecker ... / <analysis>).
+  # Bannerless logs fall back to VGUIDE_CONFIG when the operator sets it explicitly;
+  # otherwise mark unknown — never guess the default (a wrong config label silently
+  # invalidates harvest comparisons, #76).
+  cfg="$(banner_config "$log")"
+  if [[ -z "$cfg" ]]; then
+    if [[ -n "${VGUIDE_CONFIG:-}" ]]; then
+      cfg="$(basename "$VGUIDE_CONFIG" .properties)"
+    else
+      cfg="unknown"
+    fi
+  fi
+  echo "$(csv_field "$task"),$(csv_field "$rel"),$result,$refs,$wall,$(csv_field "$log"),$(csv_field "$cfg")" >>"$tmp"
   rows=$((rows + 1))
 done <"$MANIFEST"
 
