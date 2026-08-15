@@ -6,7 +6,6 @@ mis-parsed TRUE/.../configuration as 'configuration' and UNKNOWN,...,analysis as
 """
 from __future__ import annotations
 
-import os
 import argparse
 import csv
 import re
