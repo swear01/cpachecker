@@ -72,8 +72,9 @@ def _config_from_log(log: str) -> str:
         pass
     if m:
         return m.group(1)
-    cfg = os.environ.get("VGUIDE_CONFIG", "config/predicateAnalysis-vguide.properties")
-    return os.path.basename(cfg).removesuffix(".properties") if cfg.endswith(".properties") else cfg
+    # Bannerless logs cannot be attributed: mark unknown instead of guessing
+    # (a wrong config label silently invalidates harvest comparisons, #76).
+    return "unknown"
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
