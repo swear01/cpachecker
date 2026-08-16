@@ -179,6 +179,37 @@ public final class PredicateValidationPipeline {
         BooleanFormula headParsed = parsed;
         Set<String> headFreeVars = freeVars;
         String headFormulaText = formulaText;
+        if (!arrayCandidate) {
+          // Non-array candidates resolve to one encoded SSA version during parsing;
+          // instantiate with the head's SSAMap so the variable width/version matches
+          // the source (issue #92: a short variable parsed at 32 bits clashed with
+          // the 16-bit SSA symbol during abstraction construction).
+          SSAMap headSsa = ssaByNode.get(head.node());
+          if (headSsa == null) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_NO_SSA_MAP,
+                    "no SSA map at " + head.label()));
+            continue;
+          }
+          try {
+            headParsed = fmgr.instantiate(headParsed, headSsa);
+          } catch (RuntimeException e) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_PARSE_ERROR,
+                    "SSA instantiate failed at " + head.label() + ": " + e.getMessage()));
+            continue;
+          }
+          headFreeVars = fmgr.extractVariableNames(headParsed);
+          headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
+        }
         if (arrayCandidate) {
           // Translate source-level array reads (c i) to the heap-select encoding, then
           // instantiate with the head's SSAMap (issue #60); per-head because versions differ.
