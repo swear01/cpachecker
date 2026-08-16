@@ -200,7 +200,19 @@ public final class PredicateValidationPipeline {
             }
             headFreeVars = fmgr.extractVariableNames(headParsed);
             headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
+          } else if (!ssaByNode.isEmpty()) {
+            // The trace carries SSA maps but this head has none: an anomaly —
+            // reject rather than silently skipping instantiation (issue #92).
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_NO_SSA_MAP,
+                    "no SSA map at " + head.label()));
+            continue;
           }
+          // else: no SSA maps at all (test harness) — keep the parsed formula.
         }
         if (arrayCandidate) {
           // Translate source-level array reads (c i) to the heap-select encoding, then
