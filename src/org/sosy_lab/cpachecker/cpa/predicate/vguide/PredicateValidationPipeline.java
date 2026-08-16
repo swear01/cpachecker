@@ -185,30 +185,22 @@ public final class PredicateValidationPipeline {
           // the source (issue #92: a short variable parsed at 32 bits clashed with
           // the 16-bit SSA symbol during abstraction construction).
           SSAMap headSsa = ssaByNode.get(head.node());
-          if (headSsa == null) {
-            rejections.add(
-                new CandidateRejection(
-                    candidate.toString(),
-                    head.label(),
-                    candidate.predicate(),
-                    REASON_NO_SSA_MAP,
-                    "no SSA map at " + head.label()));
-            continue;
+          if (headSsa != null) {
+            try {
+              headParsed = fmgr.instantiate(headParsed, headSsa);
+            } catch (RuntimeException e) {
+              rejections.add(
+                  new CandidateRejection(
+                      candidate.toString(),
+                      head.label(),
+                      candidate.predicate(),
+                      REASON_PARSE_ERROR,
+                      "SSA instantiate failed at " + head.label() + ": " + e.getMessage()));
+              continue;
+            }
+            headFreeVars = fmgr.extractVariableNames(headParsed);
+            headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
           }
-          try {
-            headParsed = fmgr.instantiate(headParsed, headSsa);
-          } catch (RuntimeException e) {
-            rejections.add(
-                new CandidateRejection(
-                    candidate.toString(),
-                    head.label(),
-                    candidate.predicate(),
-                    REASON_PARSE_ERROR,
-                    "SSA instantiate failed at " + head.label() + ": " + e.getMessage()));
-            continue;
-          }
-          headFreeVars = fmgr.extractVariableNames(headParsed);
-          headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
         }
         if (arrayCandidate) {
           // Translate source-level array reads (c i) to the heap-select encoding, then
