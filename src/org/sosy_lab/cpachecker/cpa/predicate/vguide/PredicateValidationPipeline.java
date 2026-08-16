@@ -10,6 +10,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -179,6 +180,37 @@ public final class PredicateValidationPipeline {
         BooleanFormula headParsed = parsed;
         Set<String> headFreeVars = freeVars;
         String headFormulaText = formulaText;
+        if (!arrayCandidate) {
+          // Parse against the head's BLOCK variables only (issue #92): resolving a
+          // source name to the block's SSA version reuses the width already declared
+          // by the block formula — a short/char width clash then fails parsing and
+          // rejects the candidate instead of crashing abstraction construction.
+          // (fmgr.instantiate only renames variables; it cannot fix widths.)
+          BooleanFormula block = blockByNode.get(head.node());
+          if (block != null) {
+            // Block variables first: source names resolve to the head's SSA versions
+            // (width already declared by the block formula); trace-only variables
+            // (e.g. overSpecific cases) still resolve via the full encoded vocabulary.
+            Set<String> parseVars =
+                new LinkedHashSet<>(
+                    blockVarsCache.computeIfAbsent(head.node(), node -> fmgr.extractVariableNames(block)));
+            parseVars.addAll(pack.encodedVars());
+            headParsed = VocabularyGuide.parsePredicate(candidate.predicate(), fmgr, parseVars);
+            if (headParsed == null) {
+              rejections.add(
+                  new CandidateRejection(
+                      candidate.toString(),
+                      head.label(),
+                      candidate.predicate(),
+                      REASON_PARSE_ERROR,
+                      "SMT-LIB parse failed against head block variables"));
+              continue;
+            }
+            headFreeVars = fmgr.extractVariableNames(headParsed);
+            headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
+          }
+          // else: no block formula for this head (test harness) — keep parsed.
+        }
         if (arrayCandidate) {
           // Translate source-level array reads (c i) to the heap-select encoding, then
           // instantiate with the head's SSAMap (issue #60); per-head because versions differ.
