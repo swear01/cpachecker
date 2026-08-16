@@ -10,6 +10,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -180,52 +181,33 @@ public final class PredicateValidationPipeline {
         Set<String> headFreeVars = freeVars;
         String headFormulaText = formulaText;
         if (!arrayCandidate) {
-          // Align source variable names to the head's SSA versions BEFORE parsing
-          // (issue #92): a short variable parsed with the default 32-bit width
-          // clashed with the 16-bit SSA symbol during abstraction construction.
-          // With the head's version, the parser reuses the already-declared width
-          // from the block formulas — a width clash rejects the candidate instead
-          // of crashing. (fmgr.instantiate alone cannot fix widths.)
-          SSAMap headSsa = ssaByNode.get(head.node());
-          if (headSsa != null) {
-            String aligned = alignToHeadSsa(candidate.predicate(), headSsa, unversionedEncodedVars);
-            try {
-              headParsed = parseAligned(aligned, fmgr, pack.encodedVars());
-              if (headParsed == null) {
-                rejections.add(
-                    new CandidateRejection(
-                        candidate.toString(),
-                        head.label(),
-                        candidate.predicate(),
-                        REASON_PARSE_ERROR,
-                        "SMT-LIB parse failed (aligned to head SSA)"));
-                continue;
-              }
-            } catch (RuntimeException e) {
+          // Parse against the head's BLOCK variables only (issue #92): resolving a
+          // source name to the block's SSA version reuses the width already declared
+          // by the block formula — a short/char width clash then fails parsing and
+          // rejects the candidate instead of crashing abstraction construction.
+          // (fmgr.instantiate only renames variables; it cannot fix widths.)
+          BooleanFormula block = blockByNode.get(head.node());
+          if (block != null) {
+            // Block variables first: source names resolve to the head's SSA versions
+            // (width already declared by the block formula); trace-only variables
+            // (e.g. overSpecific cases) still resolve via the full encoded vocabulary.
+            Set<String> parseVars = new LinkedHashSet<>(fmgr.extractVariableNames(block));
+            parseVars.addAll(pack.encodedVars());
+            headParsed = VocabularyGuide.parsePredicate(candidate.predicate(), fmgr, parseVars);
+            if (headParsed == null) {
               rejections.add(
                   new CandidateRejection(
                       candidate.toString(),
                       head.label(),
                       candidate.predicate(),
                       REASON_PARSE_ERROR,
-                      "SSA-aligned parse failed at " + head.label() + ": " + e.getMessage()));
+                      "SMT-LIB parse failed against head block variables"));
               continue;
             }
             headFreeVars = fmgr.extractVariableNames(headParsed);
             headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
-          } else if (!ssaByNode.isEmpty()) {
-            // The trace carries SSA maps but this head has none: an anomaly —
-            // reject rather than silently skipping alignment (issue #92).
-            rejections.add(
-                new CandidateRejection(
-                    candidate.toString(),
-                    head.label(),
-                    candidate.predicate(),
-                    REASON_NO_SSA_MAP,
-                    "no SSA map at " + head.label()));
-            continue;
           }
-          // else: no SSA maps at all (test harness) — keep the parsed formula.
+          // else: no block formula for this head (test harness) — keep parsed.
         }
         if (arrayCandidate) {
           // Translate source-level array reads (c i) to the heap-select encoding, then
@@ -382,32 +364,6 @@ public final class PredicateValidationPipeline {
     }
     return new CandidateValidationOutcome(
         new ValidationResult(ImmutableList.copyOf(out)), ImmutableList.copyOf(rejections));
-  }
-
-  /**
-   * Replaces source variable tokens (e.g. {@code i}) in a candidate with the head's SSA
-   * versioned names (e.g. {@code |main::i@5|}) so parsing reuses the width already declared
-   * by the block formulas (issue #92).
-   */
-  private static String alignToHeadSsa(
-      String predicate, SSAMap ssa, Set<String> unversionedEncodedVars) {
-    String result = predicate;
-    for (String bare : unversionedEncodedVars) {
-      String simple = bare.substring(bare.lastIndexOf("::") + 2);
-      if (ssa.containsVariable(bare)) {
-        String versioned = "|" + bare + "@" + ssa.getIndex(bare) + "|";
-        result =
-            result.replaceAll(
-                "\\b" + java.util.regex.Pattern.quote(simple) + "\\b",
-                java.util.regex.Matcher.quoteReplacement(versioned));
-      }
-    }
-    return result;
-  }
-
-  private static BooleanFormula parseAligned(
-      String expr, FormulaManagerView fmgr, Set<String> encodedVariableNames) {
-    return VocabularyGuide.parsePredicate(expr, fmgr, encodedVariableNames);
   }
 
   /** initiation first, then supporting, then the remaining roles in input order (stable). */
