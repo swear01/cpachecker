@@ -191,7 +191,9 @@ public final class PredicateValidationPipeline {
             // Block variables first: source names resolve to the head's SSA versions
             // (width already declared by the block formula); trace-only variables
             // (e.g. overSpecific cases) still resolve via the full encoded vocabulary.
-            Set<String> parseVars = new LinkedHashSet<>(fmgr.extractVariableNames(block));
+            Set<String> parseVars =
+                new LinkedHashSet<>(
+                    blockVarsCache.computeIfAbsent(head.node(), node -> fmgr.extractVariableNames(block)));
             parseVars.addAll(pack.encodedVars());
             headParsed = VocabularyGuide.parsePredicate(candidate.predicate(), fmgr, parseVars);
             if (headParsed == null) {
