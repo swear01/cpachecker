@@ -52,6 +52,7 @@ public final class PredicateProposalClient {
   private final String model;
   private final boolean thinkingEnabled;
   private final @Nullable String reasoningEffort;
+  private final boolean jsonMode;
   private final int maxCompletionTokens;
   private final int timeoutSeconds;
   private final HttpClient http;
@@ -94,6 +95,7 @@ public final class PredicateProposalClient {
     model = configuredModel == null || configuredModel.isBlank() ? DEFAULT_MODEL : configuredModel;
     logger.log(Level.INFO, "VGuide LLM model: ", model);
     thinkingEnabled = thinkingEnabledFromEnv();
+    jsonMode = jsonModeFromEnv();
     reasoningEffort = thinkingEnabled ? reasoningEffortFromEnv() : null;
     logger.log(
         Level.INFO,
@@ -244,7 +246,12 @@ public final class PredicateProposalClient {
     root.put("model", model);
     root.put("temperature", 0);
     root.put("max_completion_tokens", maxCompletionTokens);
-    root.putObject("response_format").put("type", "json_object");
+    // JSON mode is optional: some endpoints (e.g. the custom router's dedicated
+    // command-code route) reject the response_format parameter outright; the
+    // parser extracts JSON from plain text anyway (issue #85).
+    if (jsonMode) {
+      root.putObject("response_format").put("type", "json_object");
+    }
     var messages = root.putArray("messages");
     if (!prompt.system().isEmpty()) {
       messages.addObject().put("role", "system").put("content", prompt.system());
@@ -260,6 +267,11 @@ public final class PredicateProposalClient {
       thinking.put("type", "disabled");
     }
     return JSON.writeValueAsString(root);
+  }
+
+  /** JSON response_format is optional: off for endpoints that reject the parameter. */
+  private static boolean jsonModeFromEnv() {
+    return readBooleanEnv("VGUIDE_LLM_JSON_MODE", true);
   }
 
   private static boolean thinkingEnabledFromEnv() {
