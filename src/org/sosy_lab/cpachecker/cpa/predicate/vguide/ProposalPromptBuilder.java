@@ -25,17 +25,13 @@ public final class ProposalPromptBuilder {
     this.minimalPrompt = minimalPrompt;
   }
 
-  private static boolean isMinimalPrompt() {
+  static boolean isMinimalPrompt() {
     String v = System.getenv("VGUIDE_PROMPT_MINIMAL");
     return v != null && (v.equals("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("on"));
   }
 
   static int rulesCharCount(PredicateBudget budget, boolean minimalPrompt) {
     return buildSystemMessage(budget, minimalPrompt).length();
-  }
-
-  int rulesCharCount(PredicateBudget budget) {
-    return rulesCharCount(budget, minimalPrompt);
   }
 
   public PromptMessages buildPrompt(
@@ -106,8 +102,9 @@ public final class ProposalPromptBuilder {
 
   private static String buildSystemMessage(PredicateBudget budget, boolean minimalPrompt) {
     if (minimalPrompt) {
-      return "You help a CEGAR verifier. Propose SMT-LIB2 predicates (prefix notation, source vars only).\n"
-          + "No select/store, no |main::|, no @suffix, no .def_N, no quantifiers; arrays as a[i].\n"
+      return "You help a CEGAR verifier. Propose SMT-LIB2 predicates (prefix notation, each starts with '(').\n"
+          + "Source vars only. Prefer bv ops: bvsge/bvslt/bvsle/bvsgt/bvadd/bvsub.\n"
+          + "No select/store, no |main::|, no @suffix, no .def_N, no quantifiers, no bvshl/lshr/ashr; arrays as a[i].\n"
           + buildJsonContract(budget);
     }
     return "You help a CEGAR-based predicate abstraction verifier.\n"
