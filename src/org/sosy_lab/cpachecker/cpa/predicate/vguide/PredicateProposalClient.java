@@ -271,8 +271,7 @@ public final class PredicateProposalClient {
 
   /** JSON response_format is optional: off for endpoints that reject the parameter. */
   private static boolean jsonModeFromEnv() {
-    String mode = System.getenv("VGUIDE_LLM_JSON_MODE");
-    return !(mode != null && "off".equalsIgnoreCase(mode.trim()));
+    return readBooleanEnv("VGUIDE_LLM_JSON_MODE", true);
   }
 
   private static boolean thinkingEnabledFromEnv() {

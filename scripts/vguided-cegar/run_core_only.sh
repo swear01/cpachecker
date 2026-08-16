@@ -195,6 +195,7 @@ esac
 # supports them natively). When thinking is disabled the client sets effort to
 # null and sends no effort — record that as null too.
 # EFFORT is a JSON-encoded token (null | "low" | "medium" | "high" | "max").
+JSON_MODE_NORM="$(case "${VGUIDE_LLM_JSON_MODE:-on}" in 1|true|on|yes) echo on;; 0|false|off|no) echo off;; *) echo on;; esac)"
 EFFORT_RAW="${VGUIDE_LLM_REASONING_EFFORT:-}"
 if [[ "$THINKING" == "disabled" ]]; then
   EFFORT="null"
@@ -229,7 +230,7 @@ if [[ -f "$OUT/run_meta.json" ]]; then
   OLD_LOAD_CHECK="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('load_check',''))")"
   ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" CPA_SH_SHA_C="$CPA_SH_SHA" \
   TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
-  MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" \
+  MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" JSONMODE_C="$JSON_MODE_NORM" \
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
   REPLAY_FP_C="$REPLAY_FP" \
   APIURL_C="${VGUIDE_LLM_API_URL:-}" MAXTOK_C="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
@@ -251,6 +252,7 @@ want = {
     "model": os.environ["MODEL_C"],
     "thinking": os.environ["THINKING_C"],
     "reasoning_effort": json.loads(os.environ["EFFORT_C"]),
+    "llm_json_mode": os.environ["JSONMODE_C"],
     "llm_record_dir": os.environ["RECORD_C"],
     "llm_replay_dir": os.environ["REPLAY_C"],
     "llm_replay_fingerprint": os.environ.get("REPLAY_FP_C", ""),
@@ -284,7 +286,7 @@ fi
 ARM_M="$ARM" COMMIT_M="$COMMIT" CONFIG_M="$CONFIG" CONFIG_SHA_M="$CONFIG_SHA" \
 MANIFEST_M="$MANIFEST" MANIFEST_SHA_M="$MANIFEST_SHA" SPEC_SHA_M="$SPEC_SHA" CPA_SH_SHA_M="$CPA_SH_SHA" \
 TIMELIMIT_M="$TIMELIMIT" GRACE_M="$TIMEOUT_GRACE" PARALLEL_M="$PARALLEL" HEAP_M="$HEAP" \
-SPEC_M="$SPEC" MODEL_M="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_M="$THINKING" EFFORT_M="$EFFORT" \
+SPEC_M="$SPEC" MODEL_M="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_M="$THINKING" EFFORT_M="$EFFORT" JSONMODE_M="$JSON_MODE_NORM" \
 RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
 REPLAY_FP_M="$REPLAY_FP" \
   APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
@@ -309,6 +311,7 @@ meta = {
     "model": os.environ["MODEL_M"],
     "thinking": os.environ["THINKING_M"],
     "reasoning_effort": json.loads(os.environ["EFFORT_M"]),
+    "llm_json_mode": os.environ["JSONMODE_M"],
     "llm_record_dir": os.environ["RECORD_M"],
     "llm_replay_dir": os.environ["REPLAY_M"],
     "llm_replay_fingerprint": os.environ.get("REPLAY_FP_M", ""),
