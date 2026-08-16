@@ -30,8 +30,8 @@ public final class ProposalPromptBuilder {
     return v != null && (v.equals("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("on"));
   }
 
-  static int rulesCharCount(PredicateBudget budget) {
-    return buildSystemMessage(budget, isMinimalPrompt()).length();
+  int rulesCharCount(PredicateBudget budget) {
+    return buildSystemMessage(budget, minimalPrompt).length();
   }
 
   public PromptMessages buildPrompt(
