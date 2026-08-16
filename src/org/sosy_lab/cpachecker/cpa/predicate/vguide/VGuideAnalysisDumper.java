@@ -649,7 +649,10 @@ public final class VGuideAnalysisDumper {
     o.put("source", pack.sourceCode().length());
     o.put("contract", VarContractBuilder.formatForPrompt(pack.varContract()).length());
     o.put("loop_heads", formatLoopHeadsChars(pack.loopHeads()));
-    o.put("rules", ProposalPromptBuilder.rulesCharCount(options.getPredicateBudgetForDump(), ProposalPromptBuilder.isMinimalPrompt()));
+    o.put(
+        "rules",
+        ProposalPromptBuilder.rulesCharCount(
+            options.getPredicateBudgetForDump(), ProposalPromptBuilder.isMinimalPrompt()));
     o.put("ce_summary", pack.ceSummary().length());
     o.put("trace", 0);
     return o;

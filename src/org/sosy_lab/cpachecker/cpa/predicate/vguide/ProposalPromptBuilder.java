@@ -7,6 +7,7 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import java.util.List;
+import java.util.Locale;
 
 /** Builds LLM prompts for spurious counterexamples (SAFE and BUG_HUNT profiles). */
 public final class ProposalPromptBuilder {
@@ -27,7 +28,13 @@ public final class ProposalPromptBuilder {
 
   static boolean isMinimalPrompt() {
     String v = System.getenv("VGUIDE_PROMPT_MINIMAL");
-    return v != null && (v.equals("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("on"));
+    if (v == null) {
+      return false;
+    }
+    return switch (v.trim().toLowerCase(Locale.ROOT)) {
+      case "1", "true", "on", "yes", "enabled", "y" -> true;
+      default -> false;
+    };
   }
 
   static int rulesCharCount(PredicateBudget budget, boolean minimalPrompt) {
