@@ -400,7 +400,11 @@ public class VocabularyGuide {
       return bvmgr.makeBitvector(32, new java.math.BigInteger(token));
     }
     String encoded = resolveVariableName(token, encodedVariableNames);
-    int bits = varBits.getOrDefault(unversioned(encoded), 32);
+    // C semantics: short/char promote to int (32-bit) in comparisons and
+    // arithmetic; a 16-bit declaration here would clash with the 32-bit
+    // SSA instantiation of the same variable later (issue #92 crash:
+    // "A symbol with name `SIZE@3' already exists").
+    int bits = Math.max(32, varBits.getOrDefault(unversioned(encoded), 32));
     return bvmgr.makeVariable(bits, encoded);
   }
 

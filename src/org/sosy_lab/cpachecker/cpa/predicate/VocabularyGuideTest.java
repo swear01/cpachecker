@@ -11,6 +11,7 @@ package org.sosy_lab.cpachecker.cpa.predicate;
 import static com.google.common.truth.Truth.assertThat;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.Test;
 import org.sosy_lab.common.log.LogManager;
@@ -136,6 +137,24 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   public void parsesBvudiv() {
     var f = parse("(= (bvudiv x (_ bv2 32)) (_ bv1 32))", mgrv);
     assertThat(f).isNotNull();
+  }
+
+  @Test
+  public void shortVarPromotesTo32BitsInMixedComparison() {
+    // Issue #92: a short variable (varBits 16) in a mixed-width comparison must be
+    // declared 32-bit (C integer promotion) or the later 32-bit SSA instantiation
+    // of the same symbol crashes with "symbol already exists".
+    var encoded = Set.of("main::SIZE@3", "main::SIZE@1");
+    var f =
+        VocabularyGuide.parsePredicate(
+            "(> SIZE (_ bv1 32))", mgrv, encoded, Map.of(), Map.of("main::SIZE", 16));
+    assertThat(f).isNotNull();
+    // the variable is created at 32 bits: parsing the same symbol again (another
+    // candidate) must not crash with a duplicate declaration of a different width
+    var f2 =
+        VocabularyGuide.parsePredicate(
+            "(> SIZE (_ bv1 32))", mgrv, encoded, Map.of(), Map.of("main::SIZE", 16));
+    assertThat(f2).isNotNull();
   }
 
   private static BooleanFormula parse(
