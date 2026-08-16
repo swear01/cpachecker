@@ -180,14 +180,27 @@ public final class PredicateValidationPipeline {
         Set<String> headFreeVars = freeVars;
         String headFormulaText = formulaText;
         if (!arrayCandidate) {
-          // Non-array candidates resolve to one encoded SSA version during parsing;
-          // instantiate with the head's SSAMap so the variable width/version matches
-          // the source (issue #92: a short variable parsed at 32 bits clashed with
-          // the 16-bit SSA symbol during abstraction construction).
+          // Align source variable names to the head's SSA versions BEFORE parsing
+          // (issue #92): a short variable parsed with the default 32-bit width
+          // clashed with the 16-bit SSA symbol during abstraction construction.
+          // With the head's version, the parser reuses the already-declared width
+          // from the block formulas — a width clash rejects the candidate instead
+          // of crashing. (fmgr.instantiate alone cannot fix widths.)
           SSAMap headSsa = ssaByNode.get(head.node());
           if (headSsa != null) {
+            String aligned = alignToHeadSsa(candidate.predicate(), headSsa, unversionedEncodedVars);
             try {
-              headParsed = fmgr.instantiate(headParsed, headSsa);
+              headParsed = parseAligned(aligned, fmgr, pack.encodedVars());
+              if (headParsed == null) {
+                rejections.add(
+                    new CandidateRejection(
+                        candidate.toString(),
+                        head.label(),
+                        candidate.predicate(),
+                        REASON_PARSE_ERROR,
+                        "SMT-LIB parse failed (aligned to head SSA)"));
+                continue;
+              }
             } catch (RuntimeException e) {
               rejections.add(
                   new CandidateRejection(
@@ -195,14 +208,14 @@ public final class PredicateValidationPipeline {
                       head.label(),
                       candidate.predicate(),
                       REASON_PARSE_ERROR,
-                      "SSA instantiate failed at " + head.label() + ": " + e.getMessage()));
+                      "SSA-aligned parse failed at " + head.label() + ": " + e.getMessage()));
               continue;
             }
             headFreeVars = fmgr.extractVariableNames(headParsed);
             headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
           } else if (!ssaByNode.isEmpty()) {
             // The trace carries SSA maps but this head has none: an anomaly —
-            // reject rather than silently skipping instantiation (issue #92).
+            // reject rather than silently skipping alignment (issue #92).
             rejections.add(
                 new CandidateRejection(
                     candidate.toString(),
@@ -369,6 +382,32 @@ public final class PredicateValidationPipeline {
     }
     return new CandidateValidationOutcome(
         new ValidationResult(ImmutableList.copyOf(out)), ImmutableList.copyOf(rejections));
+  }
+
+  /**
+   * Replaces source variable tokens (e.g. {@code i}) in a candidate with the head's SSA
+   * versioned names (e.g. {@code |main::i@5|}) so parsing reuses the width already declared
+   * by the block formulas (issue #92).
+   */
+  private static String alignToHeadSsa(
+      String predicate, SSAMap ssa, Set<String> unversionedEncodedVars) {
+    String result = predicate;
+    for (String bare : unversionedEncodedVars) {
+      String simple = bare.substring(bare.lastIndexOf("::") + 2);
+      if (ssa.containsVariable(bare)) {
+        String versioned = "|" + bare + "@" + ssa.getIndex(bare) + "|";
+        result =
+            result.replaceAll(
+                "\\b" + java.util.regex.Pattern.quote(simple) + "\\b",
+                java.util.regex.Matcher.quoteReplacement(versioned));
+      }
+    }
+    return result;
+  }
+
+  private static BooleanFormula parseAligned(
+      String expr, FormulaManagerView fmgr, Set<String> encodedVariableNames) {
+    return VocabularyGuide.parsePredicate(expr, fmgr, encodedVariableNames);
   }
 
   /** initiation first, then supporting, then the remaining roles in input order (stable). */
