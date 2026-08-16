@@ -72,6 +72,7 @@ public final class VGuideAnalysisDumper {
   private int totalPromptTokens;
   private int totalCompletionTokens;
   private int llmRoundCount;
+  private final boolean minimalPrompt;
   private int llmApiCallCount;
   private int usefulnessGateTriggerCount;
 
@@ -82,9 +83,11 @@ public final class VGuideAnalysisDumper {
       String taskNameBase,
       int bridgeIndex,
       boolean dumpPrompts,
+      boolean minimalPrompt,
       FormulaManagerView fmgr,
       VGuideOptions options) {
     this.logger = logger;
+    this.minimalPrompt = minimalPrompt;
     this.runRoot = runRoot;
     this.taskName = taskName;
     this.taskNameBase = taskNameBase;
@@ -118,7 +121,15 @@ public final class VGuideAnalysisDumper {
         !"0".equals(System.getenv("VGUIDE_ANALYSIS_DUMP_PROMPTS"))
             && !"false".equalsIgnoreCase(System.getenv("VGUIDE_ANALYSIS_DUMP_PROMPTS"));
     return new VGuideAnalysisDumper(
-        logger, Path.of(dir), taskName, taskNameBase, bridgeIndex, dumpPrompts, fmgr, options);
+        logger,
+        Path.of(dir),
+        taskName,
+        taskNameBase,
+        bridgeIndex,
+        dumpPrompts,
+        ProposalPromptBuilder.isMinimalPrompt(),
+        fmgr,
+        options);
   }
 
   public void recordRefinement(
@@ -649,7 +660,10 @@ public final class VGuideAnalysisDumper {
     o.put("source", pack.sourceCode().length());
     o.put("contract", VarContractBuilder.formatForPrompt(pack.varContract()).length());
     o.put("loop_heads", formatLoopHeadsChars(pack.loopHeads()));
-    o.put("rules", ProposalPromptBuilder.rulesCharCount(options.getPredicateBudgetForDump()));
+    o.put(
+        "rules",
+        ProposalPromptBuilder.rulesCharCount(
+            options.getPredicateBudgetForDump(), minimalPrompt));
     o.put("ce_summary", pack.ceSummary().length());
     o.put("trace", 0);
     return o;

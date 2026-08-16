@@ -7,18 +7,42 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import java.util.List;
+import java.util.Locale;
 
 /** Builds LLM prompts for spurious counterexamples (SAFE and BUG_HUNT profiles). */
 public final class ProposalPromptBuilder {
 
   private final LoopHeadIndex loopHeadIndex;
 
+  /**
+   * Minimal prompt style (VGUIDE_PROMPT_MINIMAL=1): concise instructions per DeepSeek best
+   * practices. The minimal branches intentionally paraphrase the full-mode strings (they are
+   * an experiment variant, #89) — keep semantics in sync when editing either.
+   */
+  private final boolean minimalPrompt;
+
   public ProposalPromptBuilder(LoopHeadIndex loopHeadIndex) {
-    this.loopHeadIndex = loopHeadIndex;
+    this(loopHeadIndex, isMinimalPrompt());
   }
 
-  static int rulesCharCount(PredicateBudget budget) {
-    return buildSystemMessage(budget).length();
+  ProposalPromptBuilder(LoopHeadIndex loopHeadIndex, boolean minimalPrompt) {
+    this.loopHeadIndex = loopHeadIndex;
+    this.minimalPrompt = minimalPrompt;
+  }
+
+  static boolean isMinimalPrompt() {
+    String v = System.getenv("VGUIDE_PROMPT_MINIMAL");
+    if (v == null) {
+      return false;
+    }
+    return switch (v.trim().toLowerCase(Locale.ROOT)) {
+      case "1", "true", "on", "yes", "enabled", "y" -> true;
+      default -> false;
+    };
+  }
+
+  static int rulesCharCount(PredicateBudget budget, boolean minimalPrompt) {
+    return buildSystemMessage(budget, minimalPrompt).length();
   }
 
   public PromptMessages buildPrompt(
@@ -48,7 +72,7 @@ public final class ProposalPromptBuilder {
             + buildSourceBlock(pack)
             + buildProfileBlock(pack, profile, refinementIndex)
             + buildDynamicTail(pack, budget, profile, ceHistory, refinementOutcomes, nativePredicateContext);
-    return new PromptMessages(buildSystemMessage(budget), user);
+    return new PromptMessages(buildSystemMessage(budget, minimalPrompt), user);
   }
 
   public PromptMessages buildRepair(
@@ -75,7 +99,7 @@ public final class ProposalPromptBuilder {
             + buildProfileBlock(pack, profile, refinementIndex)
             + buildDynamicTail(pack, budget, profile, ceHistory, refinementOutcomes, nativePredicateContext)
             + buildRepairTail(rejectedPredicates, profile);
-    return new PromptMessages(buildSystemMessage(budget), user);
+    return new PromptMessages(buildSystemMessage(budget, minimalPrompt), user);
   }
 
   /** Legacy string API for tests. */
@@ -87,7 +111,13 @@ public final class ProposalPromptBuilder {
     return buildPrompt(pack, budget, PromptProfile.SAFE, 2).fullText();
   }
 
-  private static String buildSystemMessage(PredicateBudget budget) {
+  private static String buildSystemMessage(PredicateBudget budget, boolean minimalPrompt) {
+    if (minimalPrompt) {
+      return "You help a CEGAR verifier. Propose SMT-LIB2 predicates (prefix notation, each starts with '(').\n"
+          + "Source vars only. Prefer bv ops: bvsge/bvslt/bvsle/bvsgt/bvadd/bvsub.\n"
+          + "No select/store, no |main::|, no @suffix, no .def_N, no quantifiers, no bvshl/lshr/ashr; arrays as a[i].\n"
+          + buildJsonContract(budget);
+    }
     return "You help a CEGAR-based predicate abstraction verifier.\n"
         + "Propose candidate abstraction predicates in SMT-LIB2 prefix notation.\n"
         + syntaxRules()
@@ -151,14 +181,24 @@ public final class ProposalPromptBuilder {
     return "Target assertion: " + assertion + "\n";
   }
 
-  private static String profileRole(PromptProfile profile) {
+  private String profileRole(PromptProfile profile) {
+    if (minimalPrompt) {
+      return profile == PromptProfile.BUG_HUNT
+          ? "Goal: reach or refine toward assertion FAILURE if reachable.\n"
+          : "Goal: split spurious paths; strengthen the abstraction.\n";
+    }
     if (profile == PromptProfile.BUG_HUNT) {
       return "Goal: help the verifier reach or refine toward assertion FAILURE if reachable.\n";
     }
     return "Goal: split spurious counterexample paths and strengthen safe abstraction.\n";
   }
 
-  private static String profileFirstTask(PromptProfile profile) {
+  private String profileFirstTask(PromptProfile profile) {
+    if (minimalPrompt) {
+      return profile == PromptProfile.BUG_HUNT
+          ? "First spurious CE: propose predicates distinguishing states toward assertion FAILURE (not only safe-proofs).\n"
+          : "First spurious CE: propose loop-carried relations, guards, bounds, assertion variables.\n";
+    }
     if (profile == PromptProfile.BUG_HUNT) {
       return """
           This is the FIRST spurious counterexample in this analysis.
@@ -173,7 +213,12 @@ public final class ProposalPromptBuilder {
         """;
   }
 
-  private static String profileLaterTask(PromptProfile profile) {
+  private String profileLaterTask(PromptProfile profile) {
+    if (minimalPrompt) {
+      return profile == PromptProfile.BUG_HUNT
+          ? "More predicates toward failure states in the CE summary (not only safe-proofs).\n"
+          : "More predicates to strengthen the abstraction.\n";
+    }
     if (profile == PromptProfile.BUG_HUNT) {
       return """
           Propose additional predicates toward assertion failure states shown in the CE summary.

@@ -48,7 +48,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
     VGuideOptions options = new VGuideOptions(Configuration.builder().build());
     VGuideAnalysisDumper dumper =
         new VGuideAnalysisDumper(
-            LOGGER, tmp.getRoot().toPath(), "task", "task", 0, false, mgrv, options);
+            LOGGER, tmp.getRoot().toPath(), "task", "task", 0, false, false, mgrv, options);
     CFANode node = newDummyCFANode("f1");
     LoopHeadInfo head = new LoopHeadInfo(node, "ignored", "f1");
     BooleanFormula formula =
@@ -131,7 +131,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
     VGuideOptions options = new VGuideOptions(Configuration.builder().build());
     VGuideAnalysisDumper dumper =
         new VGuideAnalysisDumper(
-            LOGGER, tmp.getRoot().toPath(), "task", "task", 0, false, mgrv, options);
+            LOGGER, tmp.getRoot().toPath(), "task", "task", 0, false, false, mgrv, options);
     CFANode node = newDummyCFANode("f1");
     LoopHeadInfo head = new LoopHeadInfo(node, "ignored", "f1");
     BooleanFormula formula =

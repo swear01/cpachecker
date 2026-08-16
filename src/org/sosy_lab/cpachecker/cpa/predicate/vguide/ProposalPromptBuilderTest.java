@@ -20,7 +20,7 @@ public class ProposalPromptBuilderTest {
   @Test
   public void buildPrompt_includesDynamicBudgetAndCeSummary() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads);
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -46,7 +46,7 @@ public class ProposalPromptBuilderTest {
   @Test
   public void historyBlockInsertedWhenProvided() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads);
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -73,7 +73,7 @@ public class ProposalPromptBuilderTest {
   @Test
   public void nativePredicateContextBlockInsertedWhenProvided() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads);
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -107,7 +107,7 @@ public class ProposalPromptBuilderTest {
   @Test
   public void safeAndBugShareSourcePrefix() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads);
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
     ContextPack pack =
         new ContextPack(
             1,
