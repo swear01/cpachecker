@@ -255,7 +255,6 @@ def test_pair_analysis_counts_official_correctness_and_exclusions(tmp_path):
     conflicts.write_text("b\treason\n")
     output = tmp_path / "result.json"
 
-    assert pair.main.__name__ == "main"
     import subprocess
 
     subprocess.run(

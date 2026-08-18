@@ -66,8 +66,12 @@ def main() -> int:
     for path in args.records:
         rows = load(path)
         missing = [
-            r.get("task", "<non-object>") if isinstance(r, dict) else "<non-object>"
-            for r in rows
+            (
+                r.get("task", f"<missing task at record {index}>")
+                if isinstance(r, dict)
+                else f"<non-object at record {index}>"
+            )
+            for index, r in enumerate(rows, 1)
             if not isinstance(r, dict) or any(f not in r for f in REQUIRED_FIELDS)
         ]
         valid_rows = [r for r in rows if isinstance(r, dict)]
@@ -115,7 +119,7 @@ def main() -> int:
                 all_tasks.setdefault(r["task"], set()).add(r["arm"])
 
     if ok:
-        allowed = " with predeclared official-label conflicts" if official_conflicts else ""
+        allowed = " with predeclared official-label conflicts" if args.official_label_conflicts else ""
         print(f"SMOKE OK: records complete, hash-consistent{allowed}; raw wrong counts remain reported")
     else:
         print("SMOKE FAILED", file=sys.stderr)

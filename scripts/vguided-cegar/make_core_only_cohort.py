@@ -10,20 +10,17 @@ import json
 from pathlib import Path
 
 
-def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def load_exclusions(path: Path) -> list[str]:
+def load_exclusions(path: Path) -> tuple[list[str], str]:
+    raw = path.read_bytes()
     tasks = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in raw.decode("utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         tasks.append(line.split("\t", 1)[0].strip())
     if len(tasks) != len(set(tasks)):
         raise SystemExit(f"duplicate exclusion in {path}")
-    return tasks
+    return tasks, hashlib.sha256(raw).hexdigest()
 
 
 def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = None) -> dict:
@@ -32,7 +29,7 @@ def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = 
     tasks = manifest.get("tasks")
     if not isinstance(tasks, list):
         raise SystemExit("manifest has no tasks list")
-    exclusions = load_exclusions(exclusions_path)
+    exclusions, exclusion_sha256 = load_exclusions(exclusions_path)
     available = {task.get("task") for task in tasks}
     unknown = sorted(set(exclusions) - available)
     if unknown:
@@ -46,7 +43,7 @@ def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = 
         result["tasks"] = result["tasks"][:limit]
     result["task_count"] = len(result["tasks"])
     result["parent_manifest_sha256"] = hashlib.sha256(raw_manifest).hexdigest()
-    result["cohort_exclusion_file_sha256"] = sha256_file(exclusions_path)
+    result["cohort_exclusion_file_sha256"] = exclusion_sha256
     result["excluded_tasks"] = exclusions
     if limit is not None:
         result["cohort_limit"] = limit
