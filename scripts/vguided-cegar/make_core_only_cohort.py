@@ -26,9 +26,16 @@ def load_exclusions(path: Path) -> tuple[list[str], str]:
 def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = None) -> dict:
     raw_manifest = manifest_path.read_bytes()
     manifest = json.loads(raw_manifest)
+    if not isinstance(manifest, dict):
+        raise SystemExit("manifest is not a JSON object")
     tasks = manifest.get("tasks")
     if not isinstance(tasks, list):
         raise SystemExit("manifest has no tasks list")
+    for task in tasks:
+        if not isinstance(task, dict) or not isinstance(task.get("task"), str):
+            raise SystemExit(
+                "manifest task must be an object with a string 'task' key: " + repr(task)
+            )
     exclusions, exclusion_sha256 = load_exclusions(exclusions_path)
     available = {task.get("task") for task in tasks}
     unknown = sorted(set(exclusions) - available)

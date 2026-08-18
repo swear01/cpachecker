@@ -127,6 +127,16 @@ def test_make_cohort_excludes_tasks_and_preserves_order(tmp_path):
     assert result["parent_manifest_sha256"]
 
 
+def test_make_cohort_rejects_malformed_manifest_task(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps({"tasks": [{"source_paths": ["c/f/a.c"]}]}))
+    exclude_path = tmp_path / "exclude.list"
+    exclude_path.write_text("c/f/a.yml\n")
+
+    with pytest.raises(SystemExit, match="string 'task'"):
+        cohort.make_cohort(manifest_path, exclude_path)
+
+
 def test_make_cohort_rejects_unknown_exclusion(tmp_path):
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps({"tasks": [{"task": "c/f/a.yml"}]}))
