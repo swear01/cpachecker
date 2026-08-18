@@ -27,7 +27,8 @@ def load_exclusions(path: Path) -> list[str]:
 
 
 def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = None) -> dict:
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    raw_manifest = manifest_path.read_bytes()
+    manifest = json.loads(raw_manifest)
     tasks = manifest.get("tasks")
     if not isinstance(tasks, list):
         raise SystemExit("manifest has no tasks list")
@@ -44,13 +45,13 @@ def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = 
             raise SystemExit("limit must be positive")
         result["tasks"] = result["tasks"][:limit]
     result["task_count"] = len(result["tasks"])
-    result["parent_manifest_sha256"] = sha256_file(manifest_path)
+    result["parent_manifest_sha256"] = hashlib.sha256(raw_manifest).hexdigest()
     result["cohort_exclusion_file_sha256"] = sha256_file(exclusions_path)
     result["excluded_tasks"] = exclusions
     if limit is not None:
         result["cohort_limit"] = limit
     result["selection_rule"] = (
-        f"{manifest.get('selection_rule', 'frozen manifest')} minus {len(exclusions)} Issue #92 tasks"
+        f"{manifest.get('selection_rule', 'frozen manifest')} minus {len(exclusions)} tasks"
     )
     return result
 

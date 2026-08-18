@@ -61,7 +61,7 @@ def log_diagnostics(row: dict) -> dict:
             "analysis_failure": bool(row.get("analysis_failure_messages")),
             "crash_detail": row.get("crash_detail") or "",
         }
-    path = Path(row.get("log", ""))
+    path = Path(row.get("log") or "")
     if not path.is_file():
         return {"provider_failures": 0, "analysis_failure": False, "crash_detail": ""}
     provider_failures = 0

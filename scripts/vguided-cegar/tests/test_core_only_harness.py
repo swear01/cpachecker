@@ -310,6 +310,13 @@ def test_official_conflicts_require_explicit_allowlist(tmp_path, monkeypatch):
     assert smoke.main() == 0
 
 
+def test_smoke_gate_reports_non_object_records(tmp_path, monkeypatch):
+    records = tmp_path / "records.jsonl"
+    records.write_text("null\n")
+    monkeypatch.setattr(sys, "argv", ["check_core_only_smoke.py", str(records)])
+    assert smoke.main() == 1
+
+
 def test_record_from_run_detects_crash_and_timeout(tmp_path):
     log = tmp_path / "t.log"
     log.write_text("Exception in thread \"main\" java.lang.OutOfMemoryError\n")

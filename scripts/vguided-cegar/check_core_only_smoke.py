@@ -57,28 +57,37 @@ def main() -> int:
                     help="allow only annotated mismatches while still reporting them as wrong")
     args = ap.parse_args()
     official_conflicts = load_task_annotations(args.official_label_conflicts)
-    if args.allow_known_official_conflicts and not official_conflicts:
+    if args.allow_known_official_conflicts and args.official_label_conflicts is None:
         ap.error("--allow-known-official-conflicts requires --official-label-conflicts")
 
     ok = True
     all_tasks = {}
     for path in args.records:
         rows = load(path)
-        missing = [r["task"] for r in rows if any(f not in r for f in REQUIRED_FIELDS)]
-        wrongs = [r["task"] for r in rows if wrong_verdict(r["expected_verdict"], r["verdict"])]
+        missing = [
+            r.get("task", "<non-object>") if isinstance(r, dict) else "<non-object>"
+            for r in rows
+            if not isinstance(r, dict) or any(f not in r for f in REQUIRED_FIELDS)
+        ]
+        valid_rows = [r for r in rows if isinstance(r, dict)]
+        wrongs = [
+            r.get("task", "<missing task>")
+            for r in valid_rows
+            if wrong_verdict(r.get("expected_verdict"), r.get("verdict"))
+        ]
         known_conflicts = [task for task in wrongs if task in official_conflicts]
         unexpected_wrongs = [task for task in wrongs if task not in official_conflicts]
         incomplete = [
-            r["task"]
-            for r in rows
-            if r["failure_category"] not in (
+            r.get("task", "<missing task>")
+            for r in valid_rows
+            if r.get("failure_category") not in (
                 "ok", "timeout", "incomplete", "analysis_failure", "out_of_memory",
                 "crash", "smt_hang", "no_log"
             )
         ]
         print(f"{path}: {len(rows)} records")
-        print(f"  verdicts: {dict(Counter(r['verdict'] for r in rows))}")
-        print(f"  failures: {dict(Counter(r['failure_category'] for r in rows))}")
+        print(f"  verdicts: {dict(Counter(r.get('verdict', '') for r in valid_rows))}")
+        print(f"  failures: {dict(Counter(r.get('failure_category', '') for r in valid_rows))}")
         print(f"  missing fields: {len(missing)}  wrong verdicts: {len(wrongs)}")
         if missing:
             ok = False
@@ -94,11 +103,15 @@ def main() -> int:
                 known_conflicts,
                 file=sys.stderr,
             )
+        if incomplete:
+            ok = False
+            print("  INVALID FAILURE CATEGORIES:", incomplete, file=sys.stderr)
         if args.expect_count is not None and len(rows) != args.expect_count:
             ok = False
             print(f"  EXPECTED {args.expect_count} records, got {len(rows)}", file=sys.stderr)
-        for r in rows:
-            all_tasks.setdefault(r["task"], set()).add(r["arm"])
+        for r in valid_rows:
+            if "task" in r and "arm" in r:
+                all_tasks.setdefault(r["task"], set()).add(r["arm"])
 
     if ok:
         allowed = " with predeclared official-label conflicts" if official_conflicts else ""
