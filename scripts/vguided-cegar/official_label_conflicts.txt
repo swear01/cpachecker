@@ -1,8 +1,6 @@
-# Documented verdict disputes (Issue #54): verdicts contradict the dataset label
-# but are accepted as usable, backed by independent-engine corroboration
-# (k-induction, 2026-08-11: 12 agree / 0 disagree / 15 unknown) and/or
-# semantics analysis. See cpachecker-experiments/docs/vguided-cegar/
-# evaluation/VERDICT_VALIDATION.md. Format: task<TAB>reason.
+# Diagnostic annotations for official-label mismatches (Issue #54).
+# The frozen SV-COMP expected_verdict remains ground truth: these annotations
+# are not exemptions from wrong-verdict gates. Format: task<TAB>reason.
 c/array-fpi/ifcomp.yml	FALSE-on-true: wrap/UB semantics (i*i*i overflow); k-induction also FALSE
 c/array-fpi/ifeqn4.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE
 c/array-fpi/sqm.yml	FALSE-on-true: wrap/UB semantics; k-induction also FALSE

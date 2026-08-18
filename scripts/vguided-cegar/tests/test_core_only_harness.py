@@ -9,8 +9,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import analyze_core_only_pair as pair
+import check_core_only_smoke as smoke
 import core_only_config_diff as diff
 import core_only_records as rec
+import make_core_only_cohort as cohort
 
 
 # ---------------------------------------------------------------- config diff
@@ -102,6 +105,38 @@ def test_tasks_from_manifest_verifies_hashes(tmp_path):
     assert rows[0]["expected_verdict"] == "true"
 
 
+def test_make_cohort_excludes_tasks_and_preserves_order(tmp_path):
+    manifest = {
+        "task_count": 2,
+        "selection_rule": "frozen",
+        "tasks": [
+            {"task": "c/f/a.yml", "source_paths": ["c/f/a.c"]},
+            {"task": "c/f/b.yml", "source_paths": ["c/f/b.c"]},
+        ],
+    }
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+    exclude_path = tmp_path / "exclude.list"
+    exclude_path.write_text("# reason\nc/f/a.yml\tknown crash\n")
+
+    result = cohort.make_cohort(manifest_path, exclude_path)
+
+    assert result["task_count"] == 1
+    assert [task["task"] for task in result["tasks"]] == ["c/f/b.yml"]
+    assert result["excluded_tasks"] == ["c/f/a.yml"]
+    assert result["parent_manifest_sha256"]
+
+
+def test_make_cohort_rejects_unknown_exclusion(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps({"tasks": [{"task": "c/f/a.yml"}]}))
+    exclude_path = tmp_path / "exclude.list"
+    exclude_path.write_text("c/f/missing.yml\n")
+
+    with pytest.raises(SystemExit, match="not in manifest"):
+        cohort.make_cohort(manifest_path, exclude_path)
+
+
 def test_tasks_from_manifest_rejects_hash_mismatch(tmp_path):
     src = tmp_path / "f" / "a.c"
     src.parent.mkdir(parents=True)
@@ -133,6 +168,7 @@ def test_record_from_run_parses_log_and_dump(tmp_path):
         "Total time for CPAchecker:      300.796s\n"
         "Total CPU time for CPAchecker:  300.250s\n"
         "Memory consumption for CPAchecker: 512.0 MB\n"
+        "Refinement failed: Interpolation failed\n"
         "Verification result: UNKNOWN, incomplete analysis.\n"
     )
     dump_root = tmp_path / "dumps"
@@ -161,7 +197,117 @@ def test_record_from_run_parses_log_and_dump(tmp_path):
     assert r["llm_calls"] == 2
     assert r["validated_predicates"] == 2
     assert r["injected_predicates"] == 1
-    assert r["failure_category"] == "timeout"  # wall_s >= timelimit
+    assert r["failure_category"] == "analysis_failure"
+    assert r["analysis_failure_messages"] == ["Refinement failed: Interpolation failed"]
+    assert r["provider_failures"] == 0
+    assert r["llm_response_parse_failures"] == 0
+    assert r["llm_empty_responses"] == 0
+
+
+def test_record_from_run_records_provider_and_symbol_diagnostics(tmp_path):
+    log = tmp_path / "t.log"
+    log.write_text(
+        "VGuide LLM call failed (DeepSeek API 500)\n"
+        "IllegalArgumentException: A symbol with name `SIZE@3' already exists\n"
+    )
+    task_row = {
+        "task": "c/f/a.yml",
+        "source": "f/a.c",
+        "expected_verdict": "true",
+        "data_model": "ILP32",
+        "family": "f",
+        "task_sha256": "x" * 64,
+        "source_sha256": "y" * 64,
+    }
+    r = rec.record_from_run(task_row, log, None, "s", "c", "augmented", 300)
+    assert r["provider_failures"] == 1
+    assert r["crash_detail"] == "symbol_conflict"
+
+
+def test_pair_analysis_counts_official_correctness_and_exclusions(tmp_path):
+    rows = [
+        {
+            "task": "a", "expected_verdict": "true", "verdict": "TRUE",
+            "failure_category": "ok", "wall_s": 2,
+        },
+        {
+            "task": "b", "expected_verdict": "true", "verdict": "FALSE",
+            "failure_category": "ok", "wall_s": 3,
+        },
+        {
+            "task": "c", "expected_verdict": "true", "verdict": "UNKNOWN",
+            "failure_category": "timeout", "wall_s": 300,
+        },
+    ]
+    stock = tmp_path / "stock.jsonl"
+    augmented = tmp_path / "augmented.jsonl"
+    stock.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    augmented.write_text(
+        "\n".join(
+            json.dumps({**row, "verdict": "TRUE" if row["task"] == "c" else row["verdict"]})
+            for row in rows
+        )
+        + "\n"
+    )
+    excluded = tmp_path / "exclude.list"
+    excluded.write_text("b\n")
+    conflicts = tmp_path / "conflicts.list"
+    conflicts.write_text("b\treason\n")
+    output = tmp_path / "result.json"
+
+    assert pair.main.__name__ == "main"
+    import subprocess
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(pair.__file__)),
+            "--stock-records", str(stock),
+            "--augmented-records", str(augmented),
+            "--exclude-tasks", str(excluded),
+            "--official-label-conflicts", str(conflicts),
+            "--out", str(output),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    result = json.loads(output.read_text())
+    assert result["cohort_size"] == 2
+    assert result["stock"]["official_correct"] == 1
+    assert result["augmented"]["official_correct"] == 2
+    assert result["new_officially_correct"] == ["c"]
+    assert result["official_label_conflicts_in_cohort"] == []
+
+
+def test_official_conflicts_require_explicit_allowlist(tmp_path, monkeypatch):
+    records = tmp_path / "records.jsonl"
+    row = {field: "" for field in smoke.REQUIRED_FIELDS}
+    row.update({
+        "task": "c/f/a.yml", "expected_verdict": "true", "verdict": "FALSE",
+        "failure_category": "ok",
+    })
+    records.write_text(json.dumps(row) + "\n")
+    conflicts = tmp_path / "conflicts.list"
+    conflicts.write_text("c/f/a.yml\treason\n")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["check_core_only_smoke.py", str(records), "--official-label-conflicts", str(conflicts)],
+    )
+    assert smoke.main() == 1
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "check_core_only_smoke.py", str(records),
+            "--official-label-conflicts", str(conflicts),
+            "--allow-known-official-conflicts",
+        ],
+    )
+    assert smoke.main() == 0
 
 
 def test_record_from_run_detects_crash_and_timeout(tmp_path):
