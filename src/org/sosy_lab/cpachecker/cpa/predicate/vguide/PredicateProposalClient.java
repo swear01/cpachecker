@@ -41,6 +41,8 @@ import org.sosy_lab.common.log.LogManager;
 public final class PredicateProposalClient {
 
   private static final String DEFAULT_MODEL = "deepseek-v4-pro";
+  private static final int MAX_RETRY_ATTEMPTS = 10;
+  private static final long MAX_RETRY_DELAY_MS = 60_000L;
   private static final ObjectMapper JSON = new ObjectMapper();
 
   private final LogManager logger;
@@ -51,6 +53,8 @@ public final class PredicateProposalClient {
   private final @Nullable String reasoningEffort;
   private final int maxCompletionTokens;
   private final int timeoutSeconds;
+  private final int retryAttempts;
+  private final int retryBackoffMs;
   private final HttpClient http;
   private final @Nullable LlmResponseCache responseCache;
 
@@ -105,6 +109,14 @@ public final class PredicateProposalClient {
       logger.log(Level.INFO, "VGuide LLM response mode: ", responseCache.mode().name());
     }
     timeoutSeconds = readPositiveIntEnv("VGUIDE_LLM_TIMEOUT_SEC", 120);
+    retryAttempts =
+        Math.min(
+            MAX_RETRY_ATTEMPTS,
+            Math.max(0, readPositiveIntEnv("VGUIDE_LLM_RETRY_ATTEMPTS", 2)));
+    retryBackoffMs =
+        Math.min(
+            (int) MAX_RETRY_DELAY_MS,
+            Math.max(0, readPositiveIntEnv("VGUIDE_LLM_RETRY_BACKOFF_MS", 2000)));
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
   }
 
@@ -130,7 +142,7 @@ public final class PredicateProposalClient {
             .timeout(Duration.ofSeconds(timeoutSeconds))
             .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
             .build();
-    HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> resp = sendWithRetries(req);
     if (resp.statusCode() != 200) {
       throw new IOException("DeepSeek API " + resp.statusCode() + ": " + resp.body());
     }
@@ -234,6 +246,41 @@ public final class PredicateProposalClient {
       texts.add(r.content());
     }
     return texts;
+  }
+
+  /**
+   * Sends the request with retries on transient failures (network errors and 5xx /
+   * 429 responses): 2 retries by default, with a capped linear backoff. Non-transient
+   * client errors (4xx other than 429) are not retried.
+   */
+  private HttpResponse<String> sendWithRetries(HttpRequest req)
+      throws IOException, InterruptedException {
+    IOException lastIo = null;
+    HttpResponse<String> resp = null;
+    int attempts = retryAttempts + 1;
+    for (int attempt = 1; attempt <= attempts; attempt++) {
+      resp = null;
+      try {
+        resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() == 429 || resp.statusCode() >= 500) {
+          if (attempt < attempts) {
+            Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
+            continue;
+          }
+          break;
+        }
+        return resp;
+      } catch (IOException e) {
+        lastIo = e;
+        if (attempt < attempts) {
+          Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
+        }
+      }
+    }
+    if (resp != null && (resp.statusCode() == 429 || resp.statusCode() >= 500)) {
+      throw new IOException("DeepSeek API " + resp.statusCode() + ": " + resp.body());
+    }
+    throw Objects.requireNonNull(lastIo);
   }
 
   private String buildRequestBody(PromptMessages prompt) throws IOException {
