@@ -107,8 +107,8 @@ public final class PredicateProposalClient {
       logger.log(Level.INFO, "VGuide LLM response mode: ", responseCache.mode().name());
     }
     timeoutSeconds = readPositiveIntEnv("VGUIDE_LLM_TIMEOUT_SEC", 120);
-    retryAttempts = readPositiveIntEnv("VGUIDE_LLM_RETRY_ATTEMPTS", 2);
-    retryBackoffMs = readPositiveIntEnv("VGUIDE_LLM_RETRY_BACKOFF_MS", 2000);
+    retryAttempts = Math.max(0, readPositiveIntEnv("VGUIDE_LLM_RETRY_ATTEMPTS", 2));
+    retryBackoffMs = Math.max(0, readPositiveIntEnv("VGUIDE_LLM_RETRY_BACKOFF_MS", 2000));
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
   }
 
@@ -251,6 +251,7 @@ public final class PredicateProposalClient {
     HttpResponse<String> resp = null;
     int attempts = retryAttempts + 1;
     for (int attempt = 1; attempt <= attempts; attempt++) {
+      resp = null;
       try {
         resp = http.send(req, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() == 429 || resp.statusCode() >= 500) {
