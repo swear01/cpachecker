@@ -39,7 +39,7 @@ def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = 
         raise SystemExit("excluded tasks are not in manifest: " + ", ".join(unknown))
     excluded = set(exclusions)
     result = copy.deepcopy(manifest)
-    result["tasks"] = [task for task in tasks if task.get("task") not in excluded]
+    result["tasks"] = [task for task in result["tasks"] if task.get("task") not in excluded]
     if limit is not None:
         if limit <= 0:
             raise SystemExit("limit must be positive")

@@ -3,8 +3,9 @@
 
 Checks that a completed smoke run's records are complete, hash-consistent
 and consistent with the frozen official expected verdicts. Exit 0 = pass,
-1 = fail. Diagnostic annotations such as Issue #54 never exempt a wrong
-verdict from this gate.
+1 = fail. Raw wrong counts always remain visible; an explicit
+``--allow-known-official-conflicts`` is only an operational allowlist for a
+predeclared diagnostic cohort and never changes ground truth.
 
 Usage: check_core_only_smoke.py <records.jsonl...> [--expect-count N]
        [--official-label-conflicts FILE --allow-known-official-conflicts]

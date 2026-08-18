@@ -138,7 +138,11 @@ def record_from_run(
                         analysis_failures.append(line.strip())
                 if "NoClassDefFoundError" in line or "ClassNotFoundException" in line:
                     crash_detail = "classpath"
-                elif "symbol with name" in line and "already exists" in line:
+                elif (
+                    crash_detail != "classpath"
+                    and "symbol with name" in line
+                    and "already exists" in line
+                ):
                     crash_detail = "symbol_conflict"
                 if "OutOfMemoryError" in line or "Out of memory" in line:
                     has_oom = True

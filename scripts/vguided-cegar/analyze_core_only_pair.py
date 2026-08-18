@@ -67,8 +67,7 @@ def log_diagnostics(row: dict) -> dict:
     provider_failures = 0
     analysis_failure = False
     has_classpath = False
-    has_symbol = False
-    has_exists = False
+    has_symbol_conflict = False
     with open(path, encoding="utf-8", errors="replace") as stream:
         for line in stream:
             provider_failures += line.count("VGuide LLM call failed")
@@ -76,13 +75,11 @@ def log_diagnostics(row: dict) -> dict:
                 analysis_failure = True
             if "NoClassDefFoundError" in line or "ClassNotFoundException" in line:
                 has_classpath = True
-            if "symbol with name" in line:
-                has_symbol = True
-            if "already exists" in line:
-                has_exists = True
+            if "symbol with name" in line and "already exists" in line:
+                has_symbol_conflict = True
     if has_classpath:
         detail = "classpath"
-    elif has_symbol and has_exists:
+    elif has_symbol_conflict:
         detail = "symbol_conflict"
     else:
         detail = ""
@@ -97,6 +94,7 @@ def arm_summary(rows: dict[str, dict], tasks: set[str], timelimit: float) -> dic
     cohort = [rows[task] for task in tasks]
     diagnostics = [log_diagnostics(row) for row in cohort]
     wrong = [row for row in cohort if decisive(row) and not official_correct(row)]
+    denominator = len(cohort) or 1
     return {
         "records": len(cohort),
         "decisive": sum(decisive(row) for row in cohort),
@@ -109,8 +107,8 @@ def arm_summary(rows: dict[str, dict], tasks: set[str], timelimit: float) -> dic
         "symbol_conflict_records": sum(item["crash_detail"] == "symbol_conflict" for item in diagnostics),
         "llm_response_parse_failures": sum(row.get("llm_response_parse_failures") or 0 for row in cohort),
         "llm_empty_responses": sum(row.get("llm_empty_responses") or 0 for row in cohort),
-        "par2_decisive_avg_s": sum(par2(row, timelimit) for row in cohort) / len(cohort),
-        "par2_official_correct_avg_s": sum(par2(row, timelimit, True) for row in cohort) / len(cohort),
+        "par2_decisive_avg_s": sum(par2(row, timelimit) for row in cohort) / denominator,
+        "par2_official_correct_avg_s": sum(par2(row, timelimit, True) for row in cohort) / denominator,
     }
 
 
