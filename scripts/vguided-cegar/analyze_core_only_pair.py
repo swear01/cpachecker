@@ -93,7 +93,13 @@ def log_diagnostics(row: dict) -> dict:
 def arm_summary(rows: dict[str, dict], tasks: set[str], timelimit: float) -> dict:
     cohort = [rows[task] for task in tasks]
     diagnostics = [log_diagnostics(row) for row in cohort]
-    wrong = [row for row in cohort if decisive(row) and not official_correct(row)]
+    wrong = [
+        row
+        for row in cohort
+        if decisive(row)
+        and row.get("expected_verdict") is not None
+        and not official_correct(row)
+    ]
     denominator = len(cohort) or 1
     return {
         "records": len(cohort),
