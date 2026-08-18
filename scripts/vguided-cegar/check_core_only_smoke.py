@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Smoke gate for the core-only evaluation (Issue #2, plan §4).
 
-Checks that a completed smoke run's records are complete, hash-consistent
-and consistent with the frozen official expected verdicts. Exit 0 = pass,
+Checks that a completed smoke run's records are complete and
+consistent with the frozen official expected verdicts. Exit 0 = pass,
 1 = fail. Raw wrong counts always remain visible; an explicit
 ``--allow-known-official-conflicts`` is only an operational allowlist for a
 predeclared diagnostic cohort and never changes ground truth.
@@ -38,7 +38,7 @@ def wrong_verdict(expected, verdict):
 def load_task_annotations(path):
     if not path:
         return set()
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8-sig") as f:
         return {line.split("\t", 1)[0].strip() for line in f if line.strip() and not line.lstrip().startswith("#")}
 
 
@@ -65,7 +65,6 @@ def main() -> int:
         ap.error("--allow-known-official-conflicts requires --official-label-conflicts")
 
     ok = True
-    all_tasks = {}
     for path in args.records:
         rows = load(path)
         missing = [
@@ -117,13 +116,9 @@ def main() -> int:
         if args.expect_count is not None and len(rows) != args.expect_count:
             ok = False
             print(f"  EXPECTED {args.expect_count} records, got {len(rows)}", file=sys.stderr)
-        for r in valid_rows:
-            if "task" in r and "arm" in r:
-                all_tasks.setdefault(r["task"], set()).add(r["arm"])
-
     if ok:
         allowed = " with predeclared official-label conflicts" if args.official_label_conflicts else ""
-        print(f"SMOKE OK: records complete, hash-consistent{allowed}; raw wrong counts remain reported")
+        print(f"SMOKE OK: records complete{allowed}; raw wrong counts remain reported")
     else:
         print("SMOKE FAILED", file=sys.stderr)
     return 0 if ok else 1

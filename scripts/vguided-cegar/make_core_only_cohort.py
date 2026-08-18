@@ -13,7 +13,7 @@ from pathlib import Path
 def load_exclusions(path: Path) -> tuple[list[str], str]:
     raw = path.read_bytes()
     tasks = []
-    for line in raw.decode("utf-8").splitlines():
+    for line in raw.decode("utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue

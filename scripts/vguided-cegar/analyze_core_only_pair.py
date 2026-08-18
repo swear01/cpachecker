@@ -31,7 +31,7 @@ def load_records(path: Path) -> dict[str, dict]:
 def load_task_list(path: Path) -> set[str]:
     return {
         line.split("\t", 1)[0].strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
+        for line in path.read_text(encoding="utf-8-sig").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     }
 
@@ -60,10 +60,20 @@ def log_diagnostics(row: dict) -> dict:
             "provider_failures": row.get("provider_failures") or 0,
             "analysis_failure": bool(row.get("analysis_failure_messages")),
             "crash_detail": row.get("crash_detail") or "",
+            "llm_response_parse_failures": row.get("llm_response_parse_failures") or 0,
+            "llm_empty_responses": row.get("llm_empty_responses") or 0,
+            "diagnostics_complete": True,
         }
     path = Path(row.get("log") or "")
     if not path.is_file():
-        return {"provider_failures": 0, "analysis_failure": False, "crash_detail": ""}
+        return {
+            "provider_failures": 0,
+            "analysis_failure": False,
+            "crash_detail": "",
+            "llm_response_parse_failures": None,
+            "llm_empty_responses": None,
+            "diagnostics_complete": False,
+        }
     provider_failures = 0
     analysis_failure = False
     has_classpath = False
@@ -87,6 +97,9 @@ def log_diagnostics(row: dict) -> dict:
         "provider_failures": provider_failures,
         "analysis_failure": analysis_failure,
         "crash_detail": detail,
+        "llm_response_parse_failures": None,
+        "llm_empty_responses": None,
+        "diagnostics_complete": False,
     }
 
 
@@ -111,8 +124,16 @@ def arm_summary(rows: dict[str, dict], tasks: set[str], timelimit: float) -> dic
         "provider_failures": sum(item["provider_failures"] for item in diagnostics),
         "analysis_failure_records": sum(item["analysis_failure"] for item in diagnostics),
         "symbol_conflict_records": sum(item["crash_detail"] == "symbol_conflict" for item in diagnostics),
-        "llm_response_parse_failures": sum(row.get("llm_response_parse_failures") or 0 for row in cohort),
-        "llm_empty_responses": sum(row.get("llm_empty_responses") or 0 for row in cohort),
+        "llm_response_parse_failures": (
+            sum(item["llm_response_parse_failures"] for item in diagnostics)
+            if all(item["diagnostics_complete"] for item in diagnostics)
+            else None
+        ),
+        "llm_empty_responses": (
+            sum(item["llm_empty_responses"] for item in diagnostics)
+            if all(item["diagnostics_complete"] for item in diagnostics)
+            else None
+        ),
         "par2_decisive_avg_s": sum(par2(row, timelimit) for row in cohort) / denominator,
         "par2_official_correct_avg_s": sum(par2(row, timelimit, True) for row in cohort) / denominator,
     }
