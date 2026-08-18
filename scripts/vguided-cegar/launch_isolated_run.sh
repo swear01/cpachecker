@@ -7,7 +7,7 @@
 #       --timelimit S --out <dir> [extra run_core_only args...]
 #
 # Env: SV_BENCHMARKS, DEEPSEEK_API_KEY, VGUIDE_LLM_API_URL, DEEPSEEK_MODEL,
-#      VGUIDE_LLM_THINKING, VGUIDE_LLM_REASONING_EFFORT, VGUIDE_LLM_JSON_MODE...
+#      VGUIDE_LLM_THINKING, VGUIDE_LLM_REASONING_EFFORT...
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

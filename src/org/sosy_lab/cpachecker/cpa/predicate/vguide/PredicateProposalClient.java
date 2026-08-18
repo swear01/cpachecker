@@ -30,16 +30,13 @@ import org.sosy_lab.cpachecker.cpa.predicate.LlmApiUrl;
 import org.sosy_lab.common.log.LogManager;
 
 /**
- * DeepSeek chat API client for predicate proposals. Replaces Python bootstrap/b5 scripts and legacy
- * {@link org.sosy_lab.cpachecker.cpa.predicate.LLMConnector} HTTP calls.
+ * DeepSeek chat API client for predicate proposals.
  *
  * <p>Configuration via environment: {@code DEEPSEEK_API_KEY}, {@code DEEPSEEK_MODEL},
  * {@code VGUIDE_LLM_THINKING} ({@code disabled}|{@code enabled}, default {@code disabled}),
- * {@code VGUIDE_LLM_REASONING_EFFORT} ({@code low}|{@code high}|{@code max} when thinking is
- * enabled, default {@code high}; {@code low} is passed through for gateways that implement it
- * natively, e.g. the OpenCode gateway — see issue #79), and the
- * mutually exclusive paired-evaluation directories {@code VGUIDE_LLM_RECORD_DIR} and {@code
- * VGUIDE_LLM_REPLAY_DIR}.
+ * {@code VGUIDE_LLM_REASONING_EFFORT} ({@code low}|{@code medium}|{@code high}|{@code max} when
+ * thinking is enabled, default {@code high}), and the mutually exclusive paired-evaluation
+ * directories {@code VGUIDE_LLM_RECORD_DIR} and {@code VGUIDE_LLM_REPLAY_DIR}.
  */
 public final class PredicateProposalClient {
 
@@ -52,7 +49,6 @@ public final class PredicateProposalClient {
   private final String model;
   private final boolean thinkingEnabled;
   private final @Nullable String reasoningEffort;
-  private final boolean jsonMode;
   private final int maxCompletionTokens;
   private final int timeoutSeconds;
   private final HttpClient http;
@@ -95,7 +91,6 @@ public final class PredicateProposalClient {
     model = configuredModel == null || configuredModel.isBlank() ? DEFAULT_MODEL : configuredModel;
     logger.log(Level.INFO, "VGuide LLM model: ", model);
     thinkingEnabled = thinkingEnabledFromEnv();
-    jsonMode = jsonModeFromEnv();
     reasoningEffort = thinkingEnabled ? reasoningEffortFromEnv() : null;
     logger.log(
         Level.INFO,
@@ -246,12 +241,7 @@ public final class PredicateProposalClient {
     root.put("model", model);
     root.put("temperature", 0);
     root.put("max_completion_tokens", maxCompletionTokens);
-    // JSON mode is optional: some endpoints (e.g. the custom router's dedicated
-    // command-code route) reject the response_format parameter outright; the
-    // parser extracts JSON from plain text anyway (issue #85).
-    if (jsonMode) {
-      root.putObject("response_format").put("type", "json_object");
-    }
+    root.putObject("response_format").put("type", "json_object");
     var messages = root.putArray("messages");
     if (!prompt.system().isEmpty()) {
       messages.addObject().put("role", "system").put("content", prompt.system());
@@ -267,11 +257,6 @@ public final class PredicateProposalClient {
       thinking.put("type", "disabled");
     }
     return JSON.writeValueAsString(root);
-  }
-
-  /** JSON response_format is optional: off for endpoints that reject the parameter. */
-  private static boolean jsonModeFromEnv() {
-    return readBooleanEnv("VGUIDE_LLM_JSON_MODE", true);
   }
 
   private static boolean thinkingEnabledFromEnv() {

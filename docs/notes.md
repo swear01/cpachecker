@@ -61,6 +61,7 @@
   - **Must run one experiment group at a time** — running two groups simultaneously makes results inaccurate (too many JVMs competing). See `RUN_EXPERIMENTS.md` for the sequential launch block.
 
 - **Unified VGuide (single Java path):** Previous B2/B4/B5 sidecar design was replaced. Only one implementation path now. See `architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`.
+- **Unified DeepSeek transport contract:** `PredicateProposalClient` always sends the official DeepSeek Chat Completions JSON, including `response_format: {"type":"json_object"}`. Endpoint compatibility belongs in the router; there is no client-side endpoint-schema switch. `VGUIDE_LLM_JSON_MODE` and the unused legacy OpenRouter `LLMConnector` were removed. New core-only metadata records `llm_api_format=deepseek-chat-completions-v1`; this intentionally rejects resume of pre-contract runs.
 - **Class-A first:** Any new property category should attempt config-only generalization (Class-A) before touching Java. v1.6 overflow proved this works for predicate-CEGAR-based branches.
 - **No `grep` into `cpachecker-experiments/records/archive/`.** Use `rg` (respects `.gitignore`, which excludes `cpachecker-experiments/records/archive/`) or always pass `--exclude-dir=archive`.
 - **DeepSeek V4 (non-thinking) as primary model.** Thinking mode not used in production path; see `llm/LLM_API.md` for rationale.
