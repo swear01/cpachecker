@@ -181,6 +181,8 @@ def record_from_run(
         if llm_file.is_file():
             with open(llm_file, encoding="utf-8", errors="replace") as f:
                 for line in f:
+                    if not line.strip():
+                        continue
                     llm_calls += 1
                     try:
                         call = json.loads(line)

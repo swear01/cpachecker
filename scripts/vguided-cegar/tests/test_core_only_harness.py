@@ -184,7 +184,7 @@ def test_record_from_run_parses_log_and_dump(tmp_path):
     dump_root = tmp_path / "dumps"
     dump = dump_root / "tasks" / "a"
     dump.mkdir(parents=True)
-    (dump / "llm_rounds.jsonl").write_text("{}\nnull\n[]\n")
+    (dump / "llm_rounds.jsonl").write_text("{}\n\nnull\n[]\n")
     (dump / "refinements.jsonl").write_text(
         json.dumps({"validated_predicates": [1, 2], "precision_injected": [1]}) + "\n"
     )
