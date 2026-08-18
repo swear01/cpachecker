@@ -227,7 +227,7 @@ def test_record_from_run_records_provider_and_symbol_diagnostics(tmp_path):
 def test_pair_analysis_counts_official_correctness_and_exclusions(tmp_path):
     rows = [
         {
-            "task": "a", "expected_verdict": "true", "verdict": "TRUE",
+            "task": "a", "expected_verdict": True, "verdict": "TRUE",
             "failure_category": "ok", "wall_s": 2,
         },
         {

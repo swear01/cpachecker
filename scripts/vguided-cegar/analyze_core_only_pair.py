@@ -42,7 +42,7 @@ def decisive(row: dict) -> bool:
 
 def official_correct(row: dict) -> bool:
     verdict = row.get("verdict")
-    expected = row.get("expected_verdict")
+    expected = str(row.get("expected_verdict")).lower()
     return (expected == "true" and verdict == "TRUE") or (
         expected == "false" and verdict == "FALSE"
     )
@@ -116,7 +116,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stock-records", required=True, type=Path)
     parser.add_argument("--augmented-records", required=True, type=Path)
-    parser.add_argument("--exclude-tasks", type=Path)
+    parser.add_argument(
+        "--exclude-tasks", type=Path,
+        help="tasks excluded from the full paired cohort; absent tasks fail closed",
+    )
     parser.add_argument("--official-label-conflicts", type=Path)
     parser.add_argument("--timelimit", type=float, default=300.0)
     parser.add_argument("--out", required=True, type=Path)

@@ -56,7 +56,10 @@ def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, type=Path)
-    parser.add_argument("--exclude", required=True, type=Path)
+    parser.add_argument(
+        "--exclude", required=True, type=Path,
+        help="complete exclusion list; unknown tasks fail closed",
+    )
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
