@@ -183,13 +183,13 @@ def record_from_run(
                 for line in f:
                     if not line.strip():
                         continue
-                    llm_calls += 1
                     try:
                         call = json.loads(line)
                     except json.JSONDecodeError:
                         continue
                     if not isinstance(call, dict):
                         continue
+                    llm_calls += 1
                     if call.get("response_parse_ok") is False:
                         llm_response_parse_failures += 1
                     if call.get("response_raw") == "":

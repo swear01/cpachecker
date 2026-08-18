@@ -74,7 +74,11 @@ def main() -> int:
                 else f"<non-object at record {index}>"
             )
             for index, r in enumerate(rows, 1)
-            if not isinstance(r, dict) or any(f not in r for f in REQUIRED_FIELDS)
+            if (
+                not isinstance(r, dict)
+                or any(f not in r for f in REQUIRED_FIELDS)
+                or (isinstance(r, dict) and r.get("expected_verdict") is None)
+            )
         ]
         valid_rows = [r for r in rows if isinstance(r, dict)]
         wrongs = [

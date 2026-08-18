@@ -184,7 +184,9 @@ def test_record_from_run_parses_log_and_dump(tmp_path):
     dump_root = tmp_path / "dumps"
     dump = dump_root / "tasks" / "a"
     dump.mkdir(parents=True)
-    (dump / "llm_rounds.jsonl").write_text("{}\n\nnull\n[]\n")
+    (dump / "llm_rounds.jsonl").write_text(
+        "{}\n\nnull\n[]\n{\"response_parse_ok\": false, \"response_raw\": \"\"}\n"
+    )
     (dump / "refinements.jsonl").write_text(
         json.dumps({"validated_predicates": [1, 2], "precision_injected": [1]}) + "\n"
     )
@@ -204,14 +206,14 @@ def test_record_from_run_parses_log_and_dump(tmp_path):
     assert r["cpu_s"] == 300.25
     assert r["memory_mb"] == "512.0"
     assert r["verdict"] == "UNKNOWN"
-    assert r["llm_calls"] == 3
+    assert r["llm_calls"] == 2
     assert r["validated_predicates"] == 2
     assert r["injected_predicates"] == 1
     assert r["failure_category"] == "analysis_failure"
     assert r["analysis_failure_messages"] == ["Refinement failed: Interpolation failed"]
     assert r["provider_failures"] == 0
-    assert r["llm_response_parse_failures"] == 0
-    assert r["llm_empty_responses"] == 0
+    assert r["llm_response_parse_failures"] == 1
+    assert r["llm_empty_responses"] == 1
 
 
 def test_record_from_run_records_provider_and_symbol_diagnostics(tmp_path):
