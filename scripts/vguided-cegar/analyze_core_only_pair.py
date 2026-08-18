@@ -10,7 +10,18 @@ from pathlib import Path
 
 
 def load_records(path: Path) -> dict[str, dict]:
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = []
+    with open(path, encoding="utf-8", errors="replace") as stream:
+        for line_number, line in enumerate(stream, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as error:
+                raise SystemExit(f"invalid JSON in {path}:{line_number}: {error}") from error
+            if not isinstance(row, dict) or not isinstance(row.get("task"), str):
+                raise SystemExit(f"record is not an object with a task in {path}:{line_number}")
+            rows.append(row)
     result = {row["task"]: row for row in rows}
     if len(result) != len(rows):
         raise SystemExit(f"duplicate task records in {path}")
@@ -39,29 +50,45 @@ def official_correct(row: dict) -> bool:
 
 def par2(row: dict, timelimit: float, correct_only: bool = False) -> float:
     solved = official_correct(row) if correct_only else decisive(row)
-    return float(row.get("wall_s", timelimit)) if solved else 2 * timelimit
+    wall = row.get("wall_s")
+    return float(wall) if solved and wall is not None else 2 * timelimit
 
 
 def log_diagnostics(row: dict) -> dict:
     if all(key in row for key in ("provider_failures", "analysis_failure_messages", "crash_detail")):
         return {
-            "provider_failures": row.get("provider_failures", 0),
+            "provider_failures": row.get("provider_failures") or 0,
             "analysis_failure": bool(row.get("analysis_failure_messages")),
-            "crash_detail": row.get("crash_detail", ""),
+            "crash_detail": row.get("crash_detail") or "",
         }
     path = Path(row.get("log", ""))
     if not path.is_file():
         return {"provider_failures": 0, "analysis_failure": False, "crash_detail": ""}
-    text = path.read_text(encoding="utf-8", errors="replace")
-    if "NoClassDefFoundError" in text or "ClassNotFoundException" in text:
+    provider_failures = 0
+    analysis_failure = False
+    has_classpath = False
+    has_symbol = False
+    has_exists = False
+    with open(path, encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            provider_failures += line.count("VGuide LLM call failed")
+            if "Refinement failed:" in line:
+                analysis_failure = True
+            if "NoClassDefFoundError" in line or "ClassNotFoundException" in line:
+                has_classpath = True
+            if "symbol with name" in line:
+                has_symbol = True
+            if "already exists" in line:
+                has_exists = True
+    if has_classpath:
         detail = "classpath"
-    elif "symbol with name" in text and "already exists" in text:
+    elif has_symbol and has_exists:
         detail = "symbol_conflict"
     else:
         detail = ""
     return {
-        "provider_failures": text.count("VGuide LLM call failed"),
-        "analysis_failure": "Refinement failed:" in text,
+        "provider_failures": provider_failures,
+        "analysis_failure": analysis_failure,
         "crash_detail": detail,
     }
 
@@ -80,8 +107,8 @@ def arm_summary(rows: dict[str, dict], tasks: set[str], timelimit: float) -> dic
         "provider_failures": sum(item["provider_failures"] for item in diagnostics),
         "analysis_failure_records": sum(item["analysis_failure"] for item in diagnostics),
         "symbol_conflict_records": sum(item["crash_detail"] == "symbol_conflict" for item in diagnostics),
-        "llm_response_parse_failures": sum(row.get("llm_response_parse_failures", 0) for row in cohort),
-        "llm_empty_responses": sum(row.get("llm_empty_responses", 0) for row in cohort),
+        "llm_response_parse_failures": sum(row.get("llm_response_parse_failures") or 0 for row in cohort),
+        "llm_empty_responses": sum(row.get("llm_empty_responses") or 0 for row in cohort),
         "par2_decisive_avg_s": sum(par2(row, timelimit) for row in cohort) / len(cohort),
         "par2_official_correct_avg_s": sum(par2(row, timelimit, True) for row in cohort) / len(cohort),
     }

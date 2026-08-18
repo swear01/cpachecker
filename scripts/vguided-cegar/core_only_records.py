@@ -182,6 +182,8 @@ def record_from_run(
                         call = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+                    if not isinstance(call, dict):
+                        continue
                     if call.get("response_parse_ok") is False:
                         llm_response_parse_failures += 1
                     if call.get("response_raw") == "":

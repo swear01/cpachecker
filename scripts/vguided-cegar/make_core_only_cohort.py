@@ -20,7 +20,7 @@ def load_exclusions(path: Path) -> list[str]:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        tasks.append(line.split("\t", 1)[0])
+        tasks.append(line.split("\t", 1)[0].strip())
     if len(tasks) != len(set(tasks)):
         raise SystemExit(f"duplicate exclusion in {path}")
     return tasks

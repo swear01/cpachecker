@@ -117,7 +117,7 @@ def test_make_cohort_excludes_tasks_and_preserves_order(tmp_path):
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest))
     exclude_path = tmp_path / "exclude.list"
-    exclude_path.write_text("# reason\nc/f/a.yml\tknown crash\n")
+    exclude_path.write_text("  # reason\n c/f/a.yml \tknown crash\n")
 
     result = cohort.make_cohort(manifest_path, exclude_path)
 
@@ -174,7 +174,7 @@ def test_record_from_run_parses_log_and_dump(tmp_path):
     dump_root = tmp_path / "dumps"
     dump = dump_root / "tasks" / "a"
     dump.mkdir(parents=True)
-    (dump / "llm_rounds.jsonl").write_text("{}\n{}\n")
+    (dump / "llm_rounds.jsonl").write_text("{}\nnull\n[]\n")
     (dump / "refinements.jsonl").write_text(
         json.dumps({"validated_predicates": [1, 2], "precision_injected": [1]}) + "\n"
     )
@@ -194,7 +194,7 @@ def test_record_from_run_parses_log_and_dump(tmp_path):
     assert r["cpu_s"] == 300.25
     assert r["memory_mb"] == "512.0"
     assert r["verdict"] == "UNKNOWN"
-    assert r["llm_calls"] == 2
+    assert r["llm_calls"] == 3
     assert r["validated_predicates"] == 2
     assert r["injected_predicates"] == 1
     assert r["failure_category"] == "analysis_failure"

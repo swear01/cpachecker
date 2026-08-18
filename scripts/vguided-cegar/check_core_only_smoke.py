@@ -35,7 +35,7 @@ def load_task_annotations(path):
     if not path:
         return set()
     with open(path, encoding="utf-8") as f:
-        return {line.split("\t", 1)[0].strip() for line in f if line.strip() and not line.startswith("#")}
+        return {line.split("\t", 1)[0].strip() for line in f if line.strip() and not line.lstrip().startswith("#")}
 
 
 def load(path):
