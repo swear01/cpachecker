@@ -41,6 +41,8 @@ import org.sosy_lab.common.log.LogManager;
 public final class PredicateProposalClient {
 
   private static final String DEFAULT_MODEL = "deepseek-v4-pro";
+  private static final int MAX_RETRY_ATTEMPTS = 10;
+  private static final long MAX_RETRY_DELAY_MS = 60_000L;
   private static final ObjectMapper JSON = new ObjectMapper();
 
   private final LogManager logger;
@@ -107,8 +109,14 @@ public final class PredicateProposalClient {
       logger.log(Level.INFO, "VGuide LLM response mode: ", responseCache.mode().name());
     }
     timeoutSeconds = readPositiveIntEnv("VGUIDE_LLM_TIMEOUT_SEC", 120);
-    retryAttempts = Math.max(0, readPositiveIntEnv("VGUIDE_LLM_RETRY_ATTEMPTS", 2));
-    retryBackoffMs = Math.max(0, readPositiveIntEnv("VGUIDE_LLM_RETRY_BACKOFF_MS", 2000));
+    retryAttempts =
+        Math.min(
+            MAX_RETRY_ATTEMPTS,
+            Math.max(0, readPositiveIntEnv("VGUIDE_LLM_RETRY_ATTEMPTS", 2)));
+    retryBackoffMs =
+        Math.min(
+            (int) MAX_RETRY_DELAY_MS,
+            Math.max(0, readPositiveIntEnv("VGUIDE_LLM_RETRY_BACKOFF_MS", 2000)));
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
   }
 
@@ -242,8 +250,8 @@ public final class PredicateProposalClient {
 
   /**
    * Sends the request with retries on transient failures (network errors and 5xx /
-   * 429 responses): 2 retries with short backoff, per the DeepSeek best-practices
-   * retry pattern. Non-transient client errors (4xx other than 429) are not retried.
+   * 429 responses): 2 retries by default, with a capped linear backoff. Non-transient
+   * client errors (4xx other than 429) are not retried.
    */
   private HttpResponse<String> sendWithRetries(HttpRequest req)
       throws IOException, InterruptedException {
@@ -256,7 +264,7 @@ public final class PredicateProposalClient {
         resp = http.send(req, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() == 429 || resp.statusCode() >= 500) {
           if (attempt < attempts) {
-            Thread.sleep(retryBackoffMs * (long) attempt);
+            Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
             continue;
           }
           break;
@@ -265,7 +273,7 @@ public final class PredicateProposalClient {
       } catch (IOException e) {
         lastIo = e;
         if (attempt < attempts) {
-          Thread.sleep(retryBackoffMs * (long) attempt);
+          Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
         }
       }
     }
