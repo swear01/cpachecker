@@ -36,6 +36,9 @@ def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = 
             raise SystemExit(
                 "manifest task must be an object with a string 'task' key: " + repr(task)
             )
+    task_ids = [task["task"] for task in tasks]
+    if len(task_ids) != len(set(task_ids)):
+        raise SystemExit("manifest contains duplicate task IDs")
     exclusions, exclusion_sha256 = load_exclusions(exclusions_path)
     available = {task.get("task") for task in tasks}
     unknown = sorted(set(exclusions) - available)

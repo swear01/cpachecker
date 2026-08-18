@@ -127,6 +127,16 @@ def test_make_cohort_excludes_tasks_and_preserves_order(tmp_path):
     assert result["parent_manifest_sha256"]
 
 
+def test_make_cohort_rejects_duplicate_manifest_task(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps({"tasks": [{"task": "c/f/a.yml"}, {"task": "c/f/a.yml"}]}))
+    exclude_path = tmp_path / "exclude.list"
+    exclude_path.write_text("c/f/a.yml\n")
+
+    with pytest.raises(SystemExit, match="duplicate task IDs"):
+        cohort.make_cohort(manifest_path, exclude_path)
+
+
 def test_make_cohort_rejects_malformed_manifest_task(tmp_path):
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps({"tasks": [{"source_paths": ["c/f/a.c"]}]}))
@@ -324,6 +334,15 @@ def test_official_conflicts_require_explicit_allowlist(tmp_path, monkeypatch):
 def test_smoke_gate_reports_non_object_records(tmp_path, monkeypatch):
     records = tmp_path / "records.jsonl"
     records.write_text("null\n")
+    monkeypatch.setattr(sys, "argv", ["check_core_only_smoke.py", str(records)])
+    assert smoke.main() == 1
+
+
+def test_smoke_gate_rejects_null_verdict(tmp_path, monkeypatch):
+    records = tmp_path / "records.jsonl"
+    row = {field: "" for field in smoke.REQUIRED_FIELDS}
+    row.update({"task": "c/f/a.yml", "expected_verdict": "true", "verdict": None, "failure_category": "ok"})
+    records.write_text(json.dumps(row) + "\n")
     monkeypatch.setattr(sys, "argv", ["check_core_only_smoke.py", str(records)])
     assert smoke.main() == 1
 

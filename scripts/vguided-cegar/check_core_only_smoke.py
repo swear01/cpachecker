@@ -69,7 +69,7 @@ def main() -> int:
         rows = load(path)
         missing = [
             (
-                r.get("task", f"<missing task at record {index}>")
+                r.get("task") or f"<missing task at record {index}>"
                 if isinstance(r, dict)
                 else f"<non-object at record {index}>"
             )
@@ -78,18 +78,19 @@ def main() -> int:
                 not isinstance(r, dict)
                 or any(f not in r for f in REQUIRED_FIELDS)
                 or (isinstance(r, dict) and r.get("expected_verdict") is None)
+                or (isinstance(r, dict) and r.get("verdict") is None)
             )
         ]
         valid_rows = [r for r in rows if isinstance(r, dict)]
         wrongs = [
-            r.get("task", "<missing task>")
+            r.get("task") or "<missing task>"
             for r in valid_rows
             if wrong_verdict(r.get("expected_verdict"), r.get("verdict"))
         ]
         known_conflicts = [task for task in wrongs if task in official_conflicts]
         unexpected_wrongs = [task for task in wrongs if task not in official_conflicts]
         incomplete = [
-            r.get("task", "<missing task>")
+            r.get("task") or "<missing task>"
             for r in valid_rows
             if r.get("failure_category") not in (
                 "ok", "timeout", "incomplete", "analysis_failure", "out_of_memory",
