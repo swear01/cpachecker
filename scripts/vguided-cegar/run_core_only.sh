@@ -3,7 +3,8 @@
 #
 # Usage:
 #   export SV_BENCHMARKS=~/sv-benchmarks/c   # required
-#   export DEEPSEEK_API_KEY=...              # required for --arm augmented (or use replay)
+#   export DEEPSEEK_API_KEY=...              # DeepSeek augmented arm (or use replay)
+#   export VGUIDE_LLM_PROVIDER=meta MODEL_API_KEY=...  # Muse Spark 1.2 arm
 #   ./run_core_only.sh --arm stock --manifest /path/candidate-manifest.json \
 #       --out output/vguide/core_only/stock_core
 #   ./run_core_only.sh --arm augmented --manifest /path/candidate-manifest.json \
@@ -87,10 +88,21 @@ check_p_cores_idle() {
 check_p_cores_idle
 
 mkdir -p "$OUT/logs"
+LLM_PROVIDER="$(printf '%s' "${VGUIDE_LLM_PROVIDER:-deepseek}" | tr '[:upper:]' '[:lower:]')"
+[[ "$LLM_PROVIDER" == "deepseek" || "$LLM_PROVIDER" == "meta" ]] \
+  || die "VGUIDE_LLM_PROVIDER must be deepseek or meta, got: ${VGUIDE_LLM_PROVIDER:-}"
+LLM_KEY="${DEEPSEEK_API_KEY:-}"
+LLM_MODEL="${VGUIDE_LLM_MODEL:-${DEEPSEEK_MODEL:-deepseek-v4-pro}}"
+LLM_API_FORMAT="deepseek-chat-completions-v1"
+if [[ "$LLM_PROVIDER" == "meta" ]]; then
+  LLM_KEY="${MODEL_API_KEY:-}"
+  LLM_MODEL="${VGUIDE_LLM_MODEL:-muse-spark-1.2}"
+  LLM_API_FORMAT="meta-chat-completions-json-schema-v1"
+fi
 if [[ "$ARM" == "augmented" ]]; then
   mkdir -p "$OUT/dumps"
-  [[ -n "${DEEPSEEK_API_KEY:-}" || -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]] \
-    || die "augmented arm requires DEEPSEEK_API_KEY (or VGUIDE_LLM_REPLAY_DIR)"
+  [[ -n "$LLM_KEY" || -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]] \
+    || die "augmented arm requires $(if [[ "$LLM_PROVIDER" == meta ]]; then echo MODEL_API_KEY; else echo DEEPSEEK_API_KEY; fi) (or VGUIDE_LLM_REPLAY_DIR)"
 fi
 
 if [[ "$ARM" == "stock" ]]; then
@@ -190,13 +202,18 @@ case "$(lc "$THINKING_RAW")" in
   enabled|true|on|1) THINKING="enabled" ;;
   *) THINKING="disabled" ;;
 esac
+if [[ "$LLM_PROVIDER" == "meta" ]]; then
+  THINKING="required"
+fi
 # Effective reasoning effort mirrors PredicateProposalClient.reasoningEffortFromEnv
 # (default -> high; all of low/medium/high/max pass through — the official API
 # supports them natively). When thinking is disabled the client sets effort to
 # null and sends no effort — record that as null too.
 # EFFORT is a JSON-encoded token (null | "low" | "medium" | "high" | "max").
 EFFORT_RAW="${VGUIDE_LLM_REASONING_EFFORT:-}"
-if [[ "$THINKING" == "disabled" ]]; then
+if [[ "$LLM_PROVIDER" == "meta" ]]; then
+  EFFORT="\"minimal\""
+elif [[ "$THINKING" == "disabled" ]]; then
   EFFORT="null"
 else
   case "$(lc "$EFFORT_RAW")" in
@@ -229,7 +246,7 @@ if [[ -f "$OUT/run_meta.json" ]]; then
   OLD_LOAD_CHECK="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('load_check',''))")"
   ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" CPA_SH_SHA_C="$CPA_SH_SHA" \
   TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
-  MODEL_C="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_C="$THINKING" EFFORT_C="$EFFORT" \
+  PROVIDER_C="$LLM_PROVIDER" MODEL_C="$LLM_MODEL" THINKING_C="$THINKING" EFFORT_C="$EFFORT" FORMAT_C="$LLM_API_FORMAT" \
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
   REPLAY_FP_C="$REPLAY_FP" \
   APIURL_C="${VGUIDE_LLM_API_URL:-}" MAXTOK_C="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
@@ -248,10 +265,11 @@ want = {
     "timeout_grace": int(os.environ["GRACE_C"]),
     "heap": os.environ["HEAP_C"],
     "parallel": int(os.environ["PARALLEL_C"]),
+    "llm_provider": os.environ["PROVIDER_C"],
     "model": os.environ["MODEL_C"],
     "thinking": os.environ["THINKING_C"],
     "reasoning_effort": json.loads(os.environ["EFFORT_C"]),
-    "llm_api_format": "deepseek-chat-completions-v1",
+    "llm_api_format": os.environ["FORMAT_C"],
     "llm_record_dir": os.environ["RECORD_C"],
     "llm_replay_dir": os.environ["REPLAY_C"],
     "llm_replay_fingerprint": os.environ.get("REPLAY_FP_C", ""),
@@ -285,7 +303,7 @@ fi
 ARM_M="$ARM" COMMIT_M="$COMMIT" CONFIG_M="$CONFIG" CONFIG_SHA_M="$CONFIG_SHA" \
 MANIFEST_M="$MANIFEST" MANIFEST_SHA_M="$MANIFEST_SHA" SPEC_SHA_M="$SPEC_SHA" CPA_SH_SHA_M="$CPA_SH_SHA" \
 TIMELIMIT_M="$TIMELIMIT" GRACE_M="$TIMEOUT_GRACE" PARALLEL_M="$PARALLEL" HEAP_M="$HEAP" \
-SPEC_M="$SPEC" MODEL_M="${DEEPSEEK_MODEL:-deepseek-v4-pro}" THINKING_M="$THINKING" EFFORT_M="$EFFORT" \
+SPEC_M="$SPEC" PROVIDER_M="$LLM_PROVIDER" MODEL_M="$LLM_MODEL" THINKING_M="$THINKING" EFFORT_M="$EFFORT" FORMAT_M="$LLM_API_FORMAT" \
 RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
 REPLAY_FP_M="$REPLAY_FP" \
   APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
@@ -307,10 +325,11 @@ meta = {
     "parallel": int(os.environ["PARALLEL_M"]),
     "heap": os.environ["HEAP_M"],
     "spec": os.environ["SPEC_M"],
+    "llm_provider": os.environ["PROVIDER_M"],
     "model": os.environ["MODEL_M"],
     "thinking": os.environ["THINKING_M"],
     "reasoning_effort": json.loads(os.environ["EFFORT_M"]),
-    "llm_api_format": "deepseek-chat-completions-v1",
+    "llm_api_format": os.environ["FORMAT_M"],
     "llm_record_dir": os.environ["RECORD_M"],
     "llm_replay_dir": os.environ["REPLAY_M"],
     "llm_replay_fingerprint": os.environ.get("REPLAY_FP_M", ""),

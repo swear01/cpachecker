@@ -26,21 +26,24 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.sosy_lab.cpachecker.cpa.predicate.LlmApiUrl;
 import org.sosy_lab.common.log.LogManager;
+import org.sosy_lab.cpachecker.cpa.predicate.LlmApiUrl;
 
 /**
- * DeepSeek chat API client for predicate proposals.
+ * Chat-completions API client for predicate proposals.
  *
- * <p>Configuration via environment: {@code DEEPSEEK_API_KEY}, {@code DEEPSEEK_MODEL},
- * {@code VGUIDE_LLM_THINKING} ({@code disabled}|{@code enabled}, default {@code disabled}),
- * {@code VGUIDE_LLM_REASONING_EFFORT} ({@code low}|{@code medium}|{@code high}|{@code max} when
- * thinking is enabled, default {@code high}), and the mutually exclusive paired-evaluation
- * directories {@code VGUIDE_LLM_RECORD_DIR} and {@code VGUIDE_LLM_REPLAY_DIR}.
+ * <p>Configuration via environment: {@code VGUIDE_LLM_PROVIDER} ({@code deepseek}|{@code meta}),
+ * {@code DEEPSEEK_API_KEY} or {@code MODEL_API_KEY}, {@code VGUIDE_LLM_MODEL}, {@code
+ * VGUIDE_LLM_THINKING} ({@code disabled}|{@code enabled}, default {@code disabled}), {@code
+ * VGUIDE_LLM_REASONING_EFFORT} ({@code low}|{@code medium}|{@code high}|{@code max} when thinking
+ * is enabled, default {@code high}), and the mutually exclusive paired-evaluation directories
+ * {@code VGUIDE_LLM_RECORD_DIR} and {@code VGUIDE_LLM_REPLAY_DIR}.
  */
 public final class PredicateProposalClient {
 
   private static final String DEFAULT_MODEL = "deepseek-v4-pro";
+  private static final String META_MODEL = "muse-spark-1.2";
+  private static final String META_API_URL = "https://api.meta.ai/v1/chat/completions";
   private static final int MAX_RETRY_ATTEMPTS = 10;
   private static final long MAX_RETRY_DELAY_MS = 60_000L;
   private static final ObjectMapper JSON = new ObjectMapper();
@@ -48,6 +51,7 @@ public final class PredicateProposalClient {
   private final LogManager logger;
   private final URI apiUrl;
   private final String apiKey;
+  private final String provider;
   private final String model;
   private final boolean thinkingEnabled;
   private final @Nullable String reasoningEffort;
@@ -66,7 +70,7 @@ public final class PredicateProposalClient {
   /** Returns a client when live API access or response replay is configured. */
   public static @Nullable PredicateProposalClient createOptional(
       LogManager pLogger, int pMaxCompletionTokens) {
-    String key = System.getenv("DEEPSEEK_API_KEY");
+    String key = apiKeyFromEnvironment(providerFromEnvironment());
     String replayDir = System.getenv("VGUIDE_LLM_REPLAY_DIR");
     if ((key == null || key.isBlank()) && (replayDir == null || replayDir.isBlank())) {
       return null;
@@ -81,26 +85,39 @@ public final class PredicateProposalClient {
   public PredicateProposalClient(LogManager pLogger, int pMaxCompletionTokens) {
     logger = pLogger;
     responseCache = responseCacheFromEnvironment();
+    provider = providerFromEnvironment();
+    String configuredApiUrl = System.getenv("VGUIDE_LLM_API_URL");
     apiUrl =
         responseCache != null && responseCache.mode() == LlmResponseCache.Mode.REPLAY
             ? URI.create(LlmApiUrl.DEFAULT_API_URL)
-            : LlmApiUrl.validate(System.getenv("VGUIDE_LLM_API_URL"));
-    String configuredApiKey = System.getenv("DEEPSEEK_API_KEY");
+            : LlmApiUrl.validate(
+                configuredApiUrl == null || configuredApiUrl.isBlank()
+                    ? defaultApiUrl(provider)
+                    : configuredApiUrl);
+    String configuredApiKey = apiKeyFromEnvironment(provider);
     apiKey = configuredApiKey == null ? "" : configuredApiKey;
     if (apiKey.isBlank()
         && (responseCache == null || responseCache.mode() != LlmResponseCache.Mode.REPLAY)) {
-      throw new IllegalStateException("DEEPSEEK_API_KEY is required for VGuide LLM client");
+      throw new IllegalStateException(apiKeyName(provider) + " is required for VGuide LLM client");
     }
-    String configuredModel = System.getenv("DEEPSEEK_MODEL");
-    model = configuredModel == null || configuredModel.isBlank() ? DEFAULT_MODEL : configuredModel;
+    String configuredModel = System.getenv("VGUIDE_LLM_MODEL");
+    if ((configuredModel == null || configuredModel.isBlank()) && provider.equals("deepseek")) {
+      configuredModel = System.getenv("DEEPSEEK_MODEL");
+    }
+    model =
+        configuredModel == null || configuredModel.isBlank()
+            ? defaultModel(provider)
+            : configuredModel;
+    logger.log(Level.INFO, "VGuide LLM provider: ", provider);
     logger.log(Level.INFO, "VGuide LLM model: ", model);
-    thinkingEnabled = thinkingEnabledFromEnv();
-    reasoningEffort = thinkingEnabled ? reasoningEffortFromEnv() : null;
+    thinkingEnabled = provider.equals("deepseek") && thinkingEnabledFromEnv();
+    reasoningEffort =
+        provider.equals("meta") ? "minimal" : thinkingEnabled ? reasoningEffortFromEnv() : null;
     logger.log(
         Level.INFO,
         "VGuide LLM thinking: ",
-        thinkingEnabled ? "enabled" : "disabled");
-    if (thinkingEnabled && reasoningEffort != null) {
+        provider.equals("meta") ? "required" : thinkingEnabled ? "enabled" : "disabled");
+    if (reasoningEffort != null) {
       logger.log(Level.INFO, "VGuide LLM reasoning_effort: ", reasoningEffort);
     }
     maxCompletionTokens = Math.max(256, pMaxCompletionTokens);
@@ -144,7 +161,7 @@ public final class PredicateProposalClient {
             .build();
     HttpResponse<String> resp = sendWithRetries(req);
     if (resp.statusCode() != 200) {
-      throw new IOException("DeepSeek API " + resp.statusCode() + ": " + resp.body());
+      throw new IOException(provider + " API " + resp.statusCode() + ": " + resp.body());
     }
     JsonNode root = JSON.readTree(resp.body());
     JsonNode content = root.at("/choices/0/message/content");
@@ -278,32 +295,111 @@ public final class PredicateProposalClient {
       }
     }
     if (resp != null && (resp.statusCode() == 429 || resp.statusCode() >= 500)) {
-      throw new IOException("DeepSeek API " + resp.statusCode() + ": " + resp.body());
+      throw new IOException(provider + " API " + resp.statusCode() + ": " + resp.body());
     }
     throw Objects.requireNonNull(lastIo);
   }
 
   private String buildRequestBody(PromptMessages prompt) throws IOException {
+    return buildRequestBody(
+        prompt, provider, model, maxCompletionTokens, thinkingEnabled, reasoningEffort);
+  }
+
+  static String buildRequestBody(
+      PromptMessages prompt,
+      String provider,
+      String model,
+      int maxCompletionTokens,
+      boolean thinkingEnabled,
+      @Nullable String reasoningEffort)
+      throws IOException {
     var root = JSON.createObjectNode();
     root.put("model", model);
     root.put("temperature", 0);
     root.put("max_completion_tokens", maxCompletionTokens);
-    root.putObject("response_format").put("type", "json_object");
+    if (provider.equals("meta")) {
+      addMetaResponseFormat(root);
+      root.put("reasoning_effort", "minimal");
+    } else {
+      root.putObject("response_format").put("type", "json_object");
+    }
     var messages = root.putArray("messages");
     if (!prompt.system().isEmpty()) {
       messages.addObject().put("role", "system").put("content", prompt.system());
     }
     messages.addObject().put("role", "user").put("content", prompt.user());
-    var thinking = root.putObject("thinking");
-    if (thinkingEnabled) {
-      thinking.put("type", "enabled");
-      if (reasoningEffort != null) {
-        root.put("reasoning_effort", reasoningEffort);
+    if (provider.equals("deepseek")) {
+      var thinking = root.putObject("thinking");
+      if (thinkingEnabled) {
+        thinking.put("type", "enabled");
+        if (reasoningEffort != null) {
+          root.put("reasoning_effort", reasoningEffort);
+        }
+      } else {
+        thinking.put("type", "disabled");
       }
-    } else {
-      thinking.put("type", "disabled");
     }
     return JSON.writeValueAsString(root);
+  }
+
+  private static void addMetaResponseFormat(com.fasterxml.jackson.databind.node.ObjectNode root) {
+    var format = root.putObject("response_format");
+    format.put("type", "json_schema");
+    var jsonSchema = format.putObject("json_schema");
+    jsonSchema.put("name", "loop_head_candidates");
+    var schema = jsonSchema.putObject("schema");
+    schema.put("type", "object");
+    var properties = schema.putObject("properties");
+    properties.putObject("schema_version").put("const", LoopHeadCandidateParser.SCHEMA_VERSION);
+    var candidates = properties.putObject("candidates");
+    candidates.put("type", "array");
+    var item = candidates.putObject("items");
+    item.put("type", "object");
+    var itemProperties = item.putObject("properties");
+    itemProperties.putObject("loop_head").put("type", "string");
+    var loopHeads = itemProperties.putObject("loop_heads");
+    loopHeads.put("type", "array");
+    loopHeads.putObject("items").put("type", "string");
+    itemProperties.putObject("predicate").put("type", "string");
+    var role = itemProperties.putObject("role");
+    role.put("type", "string");
+    role.putArray("enum").add("initiation").add("supporting").add("relational").add("bound");
+    item.putArray("required").add("predicate");
+    var alternatives = item.putArray("anyOf");
+    alternatives.addObject().putArray("required").add("loop_head");
+    alternatives.addObject().putArray("required").add("loop_heads");
+    item.put("additionalProperties", false);
+    schema.putArray("required").add("schema_version").add("candidates");
+    schema.put("additionalProperties", false);
+  }
+
+  private static String providerFromEnvironment() {
+    String configured = System.getenv("VGUIDE_LLM_PROVIDER");
+    String value =
+        configured == null || configured.isBlank()
+            ? "deepseek"
+            : configured.strip().toLowerCase(Locale.ROOT);
+    if (!value.equals("deepseek") && !value.equals("meta")) {
+      throw new IllegalStateException(
+          "VGUIDE_LLM_PROVIDER must be deepseek or meta, got: " + configured);
+    }
+    return value;
+  }
+
+  private static @Nullable String apiKeyFromEnvironment(String provider) {
+    return System.getenv(apiKeyName(provider));
+  }
+
+  private static String apiKeyName(String provider) {
+    return provider.equals("meta") ? "MODEL_API_KEY" : "DEEPSEEK_API_KEY";
+  }
+
+  private static String defaultModel(String provider) {
+    return provider.equals("meta") ? META_MODEL : DEFAULT_MODEL;
+  }
+
+  private static String defaultApiUrl(String provider) {
+    return provider.equals("meta") ? META_API_URL : LlmApiUrl.DEFAULT_API_URL;
   }
 
   private static boolean thinkingEnabledFromEnv() {
