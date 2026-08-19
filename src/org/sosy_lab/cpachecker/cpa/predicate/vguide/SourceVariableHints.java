@@ -20,15 +20,22 @@ public final class SourceVariableHints {
   private static final Pattern INT_DECL = Pattern.compile("\\bint\\s+([^;]+);");
   private static final Pattern DECLARATOR_NAME =
       Pattern.compile("\\s*([A-Za-z_]\\w*)\\s*(?:=.*)?");
+  private static final Pattern ARRAY_NAME =
+      Pattern.compile(".*?([A-Za-z_]\\w*)\\s*\\[");
 
   private SourceVariableHints() {}
 
   public static ImmutableList<String> scalarNames(String source) {
     Set<String> scalars = new LinkedHashSet<>();
+    Set<String> arrays = new LinkedHashSet<>();
     Matcher declaration = INT_DECL.matcher(sourceForScanning(source));
     while (declaration.find()) {
       for (String declarator : splitDeclarators(declaration.group(1))) {
         if (isArrayDeclarator(declarator)) {
+          Matcher array = ARRAY_NAME.matcher(declarator);
+          if (array.find()) {
+            arrays.add(array.group(1));
+          }
           continue;
         }
         Matcher name = DECLARATOR_NAME.matcher(declarator);
@@ -37,6 +44,7 @@ public final class SourceVariableHints {
         }
       }
     }
+    scalars.removeAll(arrays);
     return ImmutableList.copyOf(scalars);
   }
 

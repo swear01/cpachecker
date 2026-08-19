@@ -47,7 +47,7 @@ public class SourceVariableHintsTest {
         // int commentOnly;
         const char *text = "int literalOnly;";
         struct{ int field; };
-        int *pointer, **pointerPointer, i = 0, j;
+        int *pointer, **pointerPointer, i = foo("a,b", '('), j;
         """;
 
     assertThat(SourceVariableHints.scalarNames(src)).containsExactly("i", "j").inOrder();
@@ -60,6 +60,13 @@ public class SourceVariableHintsTest {
 
     assertThat(SourceVariableHints.scalarNames(src)).containsExactly("value", "count").inOrder();
     assertThat(SourceVariableHints.hasArrayDecl(src)).isTrue();
+  }
+
+  @Test
+  public void arrayNamesAreNeverAllowedAsScalars() {
+    String src = "int A[10]; { int A; }";
+
+    assertThat(SourceVariableHints.scalarNames(src)).doesNotContain("A");
   }
 
   @Test
