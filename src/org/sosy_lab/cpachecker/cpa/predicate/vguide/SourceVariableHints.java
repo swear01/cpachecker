@@ -19,18 +19,16 @@ public final class SourceVariableHints {
 
   private static final Pattern INT_DECL = Pattern.compile("\\bint\\s+([^;]+);");
   private static final Pattern DECLARATOR_NAME =
-      Pattern.compile("\\s*\\*?\\s*([A-Za-z_]\\w*)\\s*(?:=.*)?");
-  private static final Pattern ARRAY_DECL =
-      Pattern.compile("\\bint\\s+([A-Za-z_]\\w*)\\s*\\[");
+      Pattern.compile("\\s*([A-Za-z_]\\w*)\\s*(?:=.*)?");
 
   private SourceVariableHints() {}
 
   public static ImmutableList<String> scalarNames(String source) {
     Set<String> scalars = new LinkedHashSet<>();
-    Matcher declaration = INT_DECL.matcher(source);
+    Matcher declaration = INT_DECL.matcher(sourceForScanning(source));
     while (declaration.find()) {
       for (String declarator : splitDeclarators(declaration.group(1))) {
-        if (declarator.contains("[")) {
+        if (isArrayDeclarator(declarator)) {
           continue;
         }
         Matcher name = DECLARATOR_NAME.matcher(declarator);
@@ -43,16 +41,24 @@ public final class SourceVariableHints {
   }
 
   public static boolean hasArrayDecl(String source) {
-    return ARRAY_DECL.matcher(source).find();
+    Matcher declaration = INT_DECL.matcher(sourceForScanning(source));
+    while (declaration.find()) {
+      for (String declarator : splitDeclarators(declaration.group(1))) {
+        if (isArrayDeclarator(declarator)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /** Count scalar int declarations (supports comma-separated names per line). */
   public static int scalarDeclCount(String source) {
     int count = 0;
-    Matcher declaration = INT_DECL.matcher(source);
+    Matcher declaration = INT_DECL.matcher(sourceForScanning(source));
     while (declaration.find()) {
       for (String declarator : splitDeclarators(declaration.group(1))) {
-        if (declarator.contains("[")) {
+        if (isArrayDeclarator(declarator)) {
           continue;
         }
         Matcher name = DECLARATOR_NAME.matcher(declarator);
@@ -87,6 +93,122 @@ public final class SourceVariableHints {
       sb.append("Contract keys must match allowed scalars above.\n");
     }
     return sb.toString();
+  }
+
+  private static boolean isArrayDeclarator(String declarator) {
+    int initializer = declarator.indexOf('=');
+    String declaratorHead = initializer >= 0 ? declarator.substring(0, initializer) : declarator;
+    return declaratorHead.contains("[");
+  }
+
+  private static String sourceForScanning(String source) {
+    return maskStructBodies(maskCommentsAndLiterals(source));
+  }
+
+  private static String maskCommentsAndLiterals(String source) {
+    StringBuilder masked = new StringBuilder(source);
+    for (int i = 0; i < source.length(); ) {
+      char current = source.charAt(i);
+      if (current == '/' && i + 1 < source.length() && source.charAt(i + 1) == '/') {
+        mask(masked, i++);
+        mask(masked, i++);
+        while (i < source.length() && !isLineBreak(source.charAt(i))) {
+          mask(masked, i++);
+        }
+      } else if (current == '/' && i + 1 < source.length() && source.charAt(i + 1) == '*') {
+        mask(masked, i++);
+        mask(masked, i++);
+        while (i < source.length()) {
+          if (source.charAt(i) == '*' && i + 1 < source.length() && source.charAt(i + 1) == '/') {
+            mask(masked, i++);
+            mask(masked, i++);
+            break;
+          }
+          mask(masked, i++);
+        }
+      } else if (current == '"' || current == '\'') {
+        char quote = current;
+        mask(masked, i++);
+        boolean escaped = false;
+        while (i < source.length()) {
+          char character = source.charAt(i);
+          mask(masked, i++);
+          if (escaped) {
+            escaped = false;
+          } else if (character == '\\') {
+            escaped = true;
+          } else if (character == quote) {
+            break;
+          }
+        }
+      } else {
+        i++;
+      }
+    }
+    return masked.toString();
+  }
+
+  private static String maskStructBodies(String source) {
+    StringBuilder masked = new StringBuilder(source);
+    int structDepth = 0;
+    boolean structPending = false;
+    int i = 0;
+    while (i < source.length()) {
+      char current = source.charAt(i);
+      if (structDepth > 0) {
+        if (current == '{') {
+          structDepth++;
+        } else if (current == '}') {
+          structDepth--;
+        } else {
+          mask(masked, i);
+        }
+        i++;
+        continue;
+      }
+      String keyword = null;
+      if (isWordAt(source, i, "struct")) {
+        keyword = "struct";
+      } else if (isWordAt(source, i, "union")) {
+        keyword = "union";
+      }
+      if (keyword != null) {
+        structPending = true;
+        i += keyword.length();
+      } else {
+        if (structPending && current == '{') {
+          structDepth = 1;
+          structPending = false;
+        } else if (structPending && current == ';') {
+          structPending = false;
+        }
+        i++;
+      }
+    }
+    return masked.toString();
+  }
+
+  private static boolean isWordAt(String source, int offset, String word) {
+    if (!source.startsWith(word, offset)) {
+      return false;
+    }
+    return (offset == 0 || !isIdentifierPart(source.charAt(offset - 1)))
+        && (offset + word.length() == source.length()
+            || !isIdentifierPart(source.charAt(offset + word.length())));
+  }
+
+  private static boolean isIdentifierPart(char character) {
+    return Character.isLetterOrDigit(character) || character == '_';
+  }
+
+  private static boolean isLineBreak(char character) {
+    return character == '\n' || character == '\r';
+  }
+
+  private static void mask(StringBuilder source, int index) {
+    if (!isLineBreak(source.charAt(index))) {
+      source.setCharAt(index, ' ');
+    }
   }
 
   private static List<String> splitDeclarators(String declaration) {

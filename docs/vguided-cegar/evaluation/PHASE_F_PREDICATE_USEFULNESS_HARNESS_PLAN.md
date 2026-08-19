@@ -35,6 +35,9 @@ triage, not proof of current behavior.
   forbidden in LLM output;
 - scalar declarations, arrays, contract keys, and loop-head names are rendered
   without contradictory instructions;
+- source hints currently cover simple `int` object declarators only: array
+  declarators, pointers, function declarations, struct/union fields, comments,
+  and string/character literals are excluded deterministically;
 - final-prompt tests, not only helper-method tests.
 
 ### F2 — structured context contract

@@ -41,6 +41,28 @@ public class SourceVariableHintsTest {
   }
 
   @Test
+  public void scalarNamesIgnoreCommentsLiteralsStructFieldsAndPointers() {
+    String src =
+        """
+        // int commentOnly;
+        const char *text = "int literalOnly;";
+        struct{ int field; };
+        int *pointer, **pointerPointer, i = 0, j;
+        """;
+
+    assertThat(SourceVariableHints.scalarNames(src)).containsExactly("i", "j").inOrder();
+    assertThat(SourceVariableHints.scalarDeclCount(src)).isEqualTo(2);
+  }
+
+  @Test
+  public void arrayDetectionHandlesMixedDeclarationsAndIndexedInitializers() {
+    String src = "int value = A[0], A[16], count;";
+
+    assertThat(SourceVariableHints.scalarNames(src)).containsExactly("value", "count").inOrder();
+    assertThat(SourceVariableHints.hasArrayDecl(src)).isTrue();
+  }
+
+  @Test
   public void arrayPromptUsesCanonicalSourceSyntax() {
     String hints = SourceVariableHints.formatForPrompt("int A[1024]; int i;", java.util.Map.of());
     assertThat(hints).contains("array element reads are allowed");
