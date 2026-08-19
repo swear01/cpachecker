@@ -44,6 +44,32 @@ public class ProposalPromptBuilderTest {
   }
 
   @Test
+  public void arrayPromptUsesCanonicalSourceSyntax() {
+    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "int A[1024]; int i;\nwhile (i < 1024) { if (A[i] == 0) break; i++; }\n",
+            "i < 1024",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "(no CE relations extracted)\n",
+            "");
+
+    PromptMessages prompt =
+        builder.buildPrompt(pack, new PredicateBudget(4, 8), PromptProfile.SAFE, 1);
+
+    assertThat(prompt.user())
+        .contains("array element reads are allowed only in source-level C syntax");
+    assertThat(prompt.user()).contains("A[i]");
+    assertThat(prompt.user()).doesNotContain("do NOT use array identifiers");
+  }
+
+  @Test
   public void historyBlockInsertedWhenProvided() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
     ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);

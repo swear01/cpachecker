@@ -2,7 +2,7 @@
 
 | Path | Purpose |
 |------|---------|
-| `src/org/sosy_lab/cpachecker/cpa/predicate/vguide/` | **VGuide Java implementation** — LLM bridge, per-loop-head candidate contract (loop-head-candidate-v1), validator + scope check, precision injector, usefulness gate, fail-closed paired-response cache, schema-5 analysis dump |
+| `src/org/sosy_lab/cpachecker/cpa/predicate/vguide/` | **VGuide Java implementation** — LLM bridge, per-loop-head candidate contract (loop-head-candidate-v1), validator + scope check, precision injector, usefulness gate, fail-closed paired-response cache, schema-9 analysis dump |
 | `config/vguide.properties` | Runtime defaults: LLM scheduling; **L3 off** (not used after ablation) |
 | `config/predicateAnalysis-vguide.properties` | PredicateCPA + VGuide entry config |
 | `config/vguide-experiment-usefulness-gate-{off,on}.properties` | Frozen paired experiment configs; general default remains off |
@@ -19,7 +19,7 @@
 | `docs/cpachecker-experiments/docs/vguided-cegar/RUN_EXPERIMENTS.md` | How to run experiments end-to-end |
 | `docs/cpachecker-experiments/docs/vguided-cegar/architecture/` | Current design specs |
 | `docs/cpachecker-experiments/docs/vguided-cegar/llm/` | LLM scheduling, ensemble, budget, API docs |
-| `docs/vguided-cegar/evaluation/` | Benchmark definitions, frozen replay |
+| `docs/vguided-cegar/evaluation/` | Benchmark definitions, frozen replay, and the Phase F predicate-usefulness/context-budget plan |
 | `docs/vguided-cegar/evaluation/nla_oracle_smoke_candidates.json` | 12-task reference polynomial candidates + frozen source/YAML hashes |
 | `docs/vguided-cegar/evaluation/predicate_usefulness_gate_frozen_20260711.json` | Frozen commits, config/manifest hashes, gate constants, model/solver, and primary resource protocol |
 | `docs/vguided-cegar/evaluation/HARD_CASE_DATASET_V2_FINAL.md` | Final Issue #16 dataset identity, counts, release verification, and downstream-use boundary |
