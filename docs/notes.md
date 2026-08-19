@@ -15,15 +15,17 @@
 - **`DEEPSEEK_API_KEY` is required for live/record mode.** A paired replay may omit it only when `VGUIDE_LLM_REPLAY_DIR` is set. Record/replay are mutually exclusive and a replay miss terminates the run instead of falling back to the live API or stock behavior.
 - **`cpachecker-experiments/runs/legacy_output_2026/vguide/` is gitignored.** Experiment results live locally only. Do not commit them.
 - **Raw output lifecycle (both git-ignored).** Active raw → `cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/` (run.sh writes here automatically). Retired raw → `mv` it to `cpachecker-experiments/records/archive/raw-legacy/` to keep it; do NOT delete raw just to free git (it's already ignored), and never put raw in tracked dirs.
-- **Native-solver test exclusions (issue #30, since 2026-08-11).** `SolverViewBasedTest0`
-  assumes-away Z3, Z3_WITH_INTERPOLATION, CVC4, CVC5, BITWUZLA (besides BOOLECTOR/YICES2),
+- **Native-solver test exclusions (issues #30/#111, since 2026-08-11).** `SolverViewBasedTest0`
+  assumes-away OpenSMT, Z3, Z3_WITH_INTERPOLATION, CVC4, CVC5, BITWUZLA (besides BOOLECTOR/YICES2),
   **gated on the env var `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1`** (value must be "1" or
   "true"): other machines keep full solver coverage. On this machine the bundled native libs
   crash/cannot load (Z3 4.15.4 needs glibc 2.38; Z3 4.5.0 legacy segfaults; bitwuzla/cvc5 JNI
-  crash in the shared JVM) — run `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1 ant tests` here. Full
-  suite baseline with the gate: 0 crashed classes, vguide tests green; the remaining
-  per-solver test failures (symbol handling / BigInteger) are upstream solver-behavior issues,
-  not environment crashes.
+  crash in the shared JVM), and loading OpenSMT before MathSAT contaminates MathSAT's native
+  symbol state in parameterized tests (issue #111) — run `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1
+  ant unit-tests` here. The JUnit unit-test baseline with the gate has 0 crashed classes and no
+  known solver-test failures; the separate configuration-check target can still report unrelated
+  missing-input/native-library environment failures. Machines without the gate retain full solver
+  coverage.
 - **Formal-run CPU isolation is mandatory (Baseline-Protocol, since 2026-08-11).**
   Any timing-sensitive experiment (baselines, core-only 224, future ablation runs) must pin
   CPA invocations with `taskset -c 0,2,4,6,8,10,12,14` (8 physical P-cores, no SMT sibling,

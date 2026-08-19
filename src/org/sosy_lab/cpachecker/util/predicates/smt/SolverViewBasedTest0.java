@@ -31,7 +31,8 @@ public class SolverViewBasedTest0 extends SolverBasedTest0 {
   protected IntegerFormulaManagerView imgrv;
 
   /**
-   * Machine-gated exclusion for native solvers broken in this environment (issue #30).
+   * Machine-gated exclusion for native solvers broken or incompatible in this environment (issues
+   * #30 and #111).
    * Other machines keep full solver coverage unless they opt in via
    * {@code VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1}.
    */
@@ -43,7 +44,7 @@ public class SolverViewBasedTest0 extends SolverBasedTest0 {
   private void assumeNotBrokenNative(Solvers solver, String reason) {
     if (skipBrokenNativeSolvers()) {
       assume()
-          .withMessage("Solver %s disabled: %s (issue #30)", solver, reason)
+          .withMessage("Solver %s disabled: %s (issues #30/#111)", solver, reason)
           .that(solverToUse())
           .isNotEqualTo(solver);
     }
@@ -91,6 +92,9 @@ public class SolverViewBasedTest0 extends SolverBasedTest0 {
       case OPENSMT -> {
         newConfig.setOption("cpa.predicate.encodeBitvectorAs", "INTEGER");
         newConfig.setOption("cpa.predicate.encodeFloatAs", "INTEGER");
+        assumeNotBrokenNative(
+            Solvers.OPENSMT,
+            "running OpenSMT before MathSAT contaminates native state in shared-JVM tests");
       }
       case YICES2 ->
           assume()
