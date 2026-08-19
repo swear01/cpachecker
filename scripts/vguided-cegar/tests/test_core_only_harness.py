@@ -272,6 +272,11 @@ def test_wrong_verdict_normalizes_canonical_values():
     assert smoke.wrong_verdict("false", "true") is True
 
 
+def test_par2_uses_penalty_for_malformed_wall_time():
+    row = {"expected_verdict": "true", "verdict": "TRUE", "wall_s": "not-a-number"}
+    assert pair.par2(row, 300) == 600
+
+
 def test_pair_analysis_counts_official_correctness_and_exclusions(tmp_path):
     rows = [
         {

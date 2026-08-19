@@ -51,7 +51,10 @@ def official_correct(row: dict) -> bool:
 def par2(row: dict, timelimit: float, correct_only: bool = False) -> float:
     solved = official_correct(row) if correct_only else decisive(row)
     wall = row.get("wall_s")
-    return float(wall) if solved and wall is not None else 2 * timelimit
+    try:
+        return float(wall) if solved and wall is not None else 2 * timelimit
+    except (ValueError, TypeError):
+        return 2 * timelimit
 
 
 def log_diagnostics(row: dict) -> dict:
