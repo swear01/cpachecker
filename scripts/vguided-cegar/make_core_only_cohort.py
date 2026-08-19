@@ -25,7 +25,7 @@ def load_exclusions(path: Path) -> tuple[list[str], str]:
 
 def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = None) -> dict:
     raw_manifest = manifest_path.read_bytes()
-    manifest = json.loads(raw_manifest)
+    manifest = json.loads(raw_manifest.decode("utf-8-sig"))
     if not isinstance(manifest, dict):
         raise SystemExit("manifest is not a JSON object")
     tasks = manifest.get("tasks")
@@ -59,6 +59,7 @@ def make_cohort(manifest_path: Path, exclusions_path: Path, limit: int | None = 
         result["cohort_limit"] = limit
     result["selection_rule"] = (
         f"{manifest.get('selection_rule', 'frozen manifest')} minus {len(exclusions)} tasks"
+        + (f", limited to {limit}" if limit is not None else "")
     )
     return result
 

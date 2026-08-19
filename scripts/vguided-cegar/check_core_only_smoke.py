@@ -27,7 +27,8 @@ REQUIRED_FIELDS = [
 def wrong_verdict(expected, verdict):
     if expected is None:
         return False
-    expected = str(expected).lower()
+    expected = str(expected).strip().lower()
+    verdict = str(verdict or "").strip().upper()
     if verdict == "TRUE":
         return expected != "true"
     if verdict == "FALSE":

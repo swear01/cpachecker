@@ -11,7 +11,7 @@ from pathlib import Path
 
 def load_records(path: Path) -> dict[str, dict]:
     rows = []
-    with open(path, encoding="utf-8", errors="replace") as stream:
+    with open(path, encoding="utf-8-sig", errors="replace") as stream:
         for line_number, line in enumerate(stream, 1):
             if not line.strip():
                 continue

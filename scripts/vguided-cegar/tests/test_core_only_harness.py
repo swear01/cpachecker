@@ -127,6 +127,26 @@ def test_make_cohort_excludes_tasks_and_preserves_order(tmp_path):
     assert result["parent_manifest_sha256"]
 
 
+def test_make_cohort_accepts_bom_and_records_limit(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_bytes(
+        b"\xef\xbb\xbf" + json.dumps(
+            {
+                "selection_rule": "frozen",
+                "tasks": [{"task": "c/f/a.yml"}, {"task": "c/f/b.yml"}],
+            }
+        ).encode()
+    )
+    exclude_path = tmp_path / "exclude.list"
+    exclude_path.write_bytes(b"\xef\xbb\xbfc/f/a.yml\n")
+
+    result = cohort.make_cohort(manifest_path, exclude_path, limit=1)
+
+    assert result["task_count"] == 1
+    assert result["cohort_limit"] == 1
+    assert result["selection_rule"] == "frozen minus 1 tasks, limited to 1"
+
+
 def test_make_cohort_rejects_duplicate_manifest_task(tmp_path):
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps({"tasks": [{"task": "c/f/a.yml"}, {"task": "c/f/a.yml"}]}))
@@ -244,6 +264,12 @@ def test_record_from_run_records_provider_and_symbol_diagnostics(tmp_path):
     r = rec.record_from_run(task_row, log, None, "s", "c", "augmented", 300)
     assert r["provider_failures"] == 1
     assert r["crash_detail"] == "symbol_conflict"
+
+
+def test_wrong_verdict_normalizes_canonical_values():
+    assert smoke.wrong_verdict(" true ", " true ") is False
+    assert smoke.wrong_verdict(True, True) is False
+    assert smoke.wrong_verdict("false", "true") is True
 
 
 def test_pair_analysis_counts_official_correctness_and_exclusions(tmp_path):
