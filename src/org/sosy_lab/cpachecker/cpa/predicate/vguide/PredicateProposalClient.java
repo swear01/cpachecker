@@ -281,8 +281,17 @@ public final class PredicateProposalClient {
         continue;
       }
       if (resp.statusCode() == 429 || resp.statusCode() >= 500) {
-        String error = new String(resp.body().readAllBytes(), StandardCharsets.UTF_8);
-        resp.body().close();
+        String error;
+        try (InputStream errorBody = resp.body()) {
+          error = new String(errorBody.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+          lastIo = e;
+          if (attempt < attempts) {
+            Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
+            continue;
+          }
+          throw e;
+        }
         if (attempt < attempts) {
           Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
           continue;
@@ -290,9 +299,10 @@ public final class PredicateProposalClient {
         throw new IOException(provider + " API " + resp.statusCode() + ": " + error);
       }
       if (resp.statusCode() != 200) {
-        String error = new String(resp.body().readAllBytes(), StandardCharsets.UTF_8);
-        resp.body().close();
-        throw new IOException(provider + " API " + resp.statusCode() + ": " + error);
+        try (InputStream errorBody = resp.body()) {
+          String error = new String(errorBody.readAllBytes(), StandardCharsets.UTF_8);
+          throw new IOException(provider + " API " + resp.statusCode() + ": " + error);
+        }
       }
       return resp.body();
     }
@@ -310,7 +320,7 @@ public final class PredicateProposalClient {
           continue;
         }
         if (!line.startsWith("data:")) {
-          throw new IOException("Malformed SSE line in LLM response");
+          continue;
         }
         String data = line.substring("data:".length()).stripLeading();
         if (data.equals("[DONE]")) {

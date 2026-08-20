@@ -60,7 +60,8 @@ public class PredicateProposalClientTest {
   @Test
   public void streamingResponseAssemblesReasoningContentAndUsage() throws Exception {
     String response =
-        "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think \"}}]}\n\n"
+        "event: message\nid: 1\n"
+            + "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think \"}}]}\n\n"
             + "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"more\","
             + "\"content\":\"{\\\"candidates\\\":\"}}]}\n\n"
             + "data: {\"choices\":[{\"delta\":{\"content\":\"[]}\"}}],"
