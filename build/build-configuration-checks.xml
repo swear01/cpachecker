@@ -26,6 +26,9 @@ SPDX-License-Identifier: Apache-2.0
 
     <target name="configuration-checks" depends="build, load-junit, init-configuration-checks" description="Run configuration checks">
         <junit fork="true" printSummary="true" showOutput="false" failureproperty="configuration-checks.failed" timeout="1000000">
+            <!-- JavaBDD sizes its initial table from Runtime.maxMemory(). Keep the forked
+                 checker below the integer-overflow threshold on large-memory hosts. -->
+            <jvmarg value="-Xmx4g" />
             <sysproperty key="java.awt.headless" value="true" />
             <assertions><enable/></assertions>
             <formatter type="xml"/>
