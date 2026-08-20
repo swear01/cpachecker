@@ -100,4 +100,18 @@ public class PredicateProposalClientTest {
 
     assertThat(failure).hasMessageThat().contains("context limit");
   }
+
+  @Test
+  public void streamingResponseReportsStringProviderError() throws Exception {
+    String response = "data: {\"error\":\"unauthorized\"}\n\n";
+
+    IOException failure =
+        assertThrows(
+            IOException.class,
+            () ->
+                PredicateProposalClient.parseStreamingResponse(
+                    new ByteArrayInputStream(response.getBytes(StandardCharsets.UTF_8))));
+
+    assertThat(failure).hasMessageThat().contains("unauthorized");
+  }
 }

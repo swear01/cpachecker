@@ -332,9 +332,11 @@ public final class PredicateProposalClient {
           break;
         }
         JsonNode chunk = JSON.readTree(data);
-        if (chunk.path("error").isObject()) {
+        if (chunk.has("error")) {
+          JsonNode error = chunk.path("error");
           throw new IOException(
-              "LLM streaming error: " + chunk.path("error").path("message").asText());
+              "LLM streaming error: "
+                  + (error.isObject() ? error.path("message").asText() : error.asText()));
         }
         JsonNode delta = chunk.at("/choices/0/delta");
         if (delta.path("content").isTextual()) {
