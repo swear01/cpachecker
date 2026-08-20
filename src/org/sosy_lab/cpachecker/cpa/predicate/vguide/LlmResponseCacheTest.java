@@ -38,12 +38,17 @@ public class LlmResponseCacheTest {
     LlmProposalResult replayedSecond = replay.replay(replay.nextRequest(request));
 
     assertThat(replayedFirst.content()).isEqualTo("first");
+    assertThat(replayedFirst.reasoningContent()).isEqualTo("reasoning first");
     assertThat(replayedSecond.content()).isEqualTo("second");
     assertThat(replayedFirst.latencyMs()).isEqualTo(17);
     assertThat(replayedFirst.responseSource()).isEqualTo("replay");
     assertThat(replayedFirst.requestHash()).isEqualTo(first.requestHash());
     assertThat(
-            root.resolve("task_a").resolve(first.requestHash()).resolve("000001.json").toFile().exists())
+            root.resolve("task_a")
+                .resolve(first.requestHash())
+                .resolve("000001.json")
+                .toFile()
+                .exists())
         .isTrue();
   }
 
@@ -53,8 +58,7 @@ public class LlmResponseCacheTest {
     LlmResponseCache replay = LlmResponseCache.forReplay(root, "task", false);
 
     IOException failure =
-        assertThrows(
-            IOException.class, () -> replay.replay(replay.nextRequest("missing request")));
+        assertThrows(IOException.class, () -> replay.replay(replay.nextRequest("missing request")));
 
     assertThat(failure).hasMessageThat().contains("Missing recorded LLM response");
   }
@@ -79,6 +83,12 @@ public class LlmResponseCacheTest {
 
   private static LlmProposalResult result(String content, long latencyMs) {
     return new LlmProposalResult(
-        content, JSON.createObjectNode().put("prompt_tokens", 4), latencyMs, 100, "", "live");
+        content,
+        "reasoning " + content,
+        JSON.createObjectNode().put("prompt_tokens", 4),
+        latencyMs,
+        100,
+        "",
+        "live");
   }
 }

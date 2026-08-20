@@ -62,7 +62,7 @@ public class PredicateProposalClientTest {
     String response =
         "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think \"}}]}\n\n"
             + "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"more\","
-            + "\"content\":\"{\\\"candidates\\\":\"}}}]}\n\n"
+            + "\"content\":\"{\\\"candidates\\\":\"}}]}\n\n"
             + "data: {\"choices\":[{\"delta\":{\"content\":\"[]}\"}}],"
             + "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":20}}\n\n"
             + "data: [DONE]\n\n";
