@@ -4,6 +4,7 @@
 # Usage:
 #   export SV_BENCHMARKS=~/sv-benchmarks/c   # required
 #   export DEEPSEEK_API_KEY=...              # required for --arm augmented (or use replay)
+#   export VGUIDE_LLM_MAX_COMPLETION_TOKENS=16384  # augmented default
 #   ./run_core_only.sh --arm stock --manifest /path/candidate-manifest.json \
 #       --out output/vguide/core_only/stock_core
 #   ./run_core_only.sh --arm augmented --manifest /path/candidate-manifest.json \
@@ -99,6 +100,8 @@ if [[ "$ARM" == "stock" ]]; then
 else
   CONFIG="config/predicateAnalysis-vguide.properties"
   USE_VGUIDE="true"
+  VGUIDE_LLM_MAX_COMPLETION_TOKENS="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-16384}"
+  export VGUIDE_LLM_MAX_COMPLETION_TOKENS
 fi
 SPEC="$REPO/config/specification/sv-comp-reachability.spc"
 TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-10}"
@@ -408,8 +411,11 @@ run_one() {
     --spec "$SPEC"
     --stats
     --no-output-files
-    "$SV_BENCHMARKS/$source"
   )
+  if [[ "$ARM" == "augmented" ]]; then
+    cmd+=(--option "vguide.llmMaxCompletionTokens=$VGUIDE_LLM_MAX_COMPLETION_TOKENS")
+  fi
+  cmd+=("$SV_BENCHMARKS/$source")
   if [[ "$DRY" == "1" ]]; then
     echo "${cmd[*]}"
     return 0
@@ -449,7 +455,7 @@ run_one() {
     --out "$OUT/logs/${task_name}.json"
 }
 export -f run_one
-export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMELIMIT TIMEOUT_GRACE HEAP COMMIT CONFIG_SHA P_CORE_LIST
+export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMELIMIT TIMEOUT_GRACE HEAP COMMIT CONFIG_SHA P_CORE_LIST VGUIDE_LLM_MAX_COMPLETION_TOKENS
 
 # 4. Run each task (no header row in tasks.tsv), merge per-task records in order,
 #    then verify completeness.
