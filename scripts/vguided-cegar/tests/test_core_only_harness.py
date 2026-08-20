@@ -2,6 +2,7 @@
 """Tests for the core-only evaluation harness (Issue #2)."""
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -11,6 +12,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import core_only_config_diff as diff
 import core_only_records as rec
+
+
+def test_formal_runner_propagates_16384_completion_budget_to_workers():
+    runner = (Path(__file__).resolve().parents[1] / "run_core_only.sh").read_text()
+    assert 'VGUIDE_LLM_MAX_COMPLETION_TOKENS="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-16384}"' in runner
+    worker_exports = re.search(r"export OUT .*", runner).group(0)
+    assert "VGUIDE_LLM_MAX_COMPLETION_TOKENS" in worker_exports
+    assert 'vguide.llmMaxCompletionTokens=$VGUIDE_LLM_MAX_COMPLETION_TOKENS' in runner
 
 
 # ---------------------------------------------------------------- config diff
