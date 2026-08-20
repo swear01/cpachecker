@@ -37,6 +37,24 @@
 | `lib/` | Third-party JARs |
 | `~/sv-benchmarks/c` | SV-COMP benchmark tree (external; not in repo) |
 
+## Standalone VGuide LLM call
+
+After `ant build`, prompt experiments can invoke the production Java client without starting a
+CPAchecker verification:
+
+```bash
+java -cp 'classes:lib/*:lib/java/runtime/*' \
+  org.sosy_lab.cpachecker.cpa.predicate.vguide.PredicateProposalCli \
+  --system-file /path/to/system.txt \
+  --user-file /path/to/user.txt
+```
+
+The command uses the same `VGUIDE_LLM_*`, provider credential, model, record/replay, retry, and
+timeout environment as CPAchecker. Standard output is one JSON object containing `content`,
+`usage`, `latency_ms`, `start_epoch_ms`, `request_hash`, and `response_source`. Invalid arguments,
+missing files, configuration failures, HTTP failures, and malformed provider responses terminate
+nonzero; there is no fallback transport.
+
 ## Module Boundaries
 
 - VGuide code (`src/.../vguide/`) is the only place LLM integration lives. Do not add LLM calls elsewhere.
