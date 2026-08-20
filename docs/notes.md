@@ -24,9 +24,17 @@
   crash in the shared JVM), and loading OpenSMT before MathSAT contaminates MathSAT's native
   symbol state in parameterized tests (issue #111) — run `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1
   ant unit-tests` here. The JUnit unit-test baseline with the gate has 0 crashed classes and no
-  known solver-test failures; the separate configuration-check target can still report unrelated
-  missing-input/native-library environment failures. Machines without the gate retain full solver
-  coverage.
+  known solver-test failures. Machines without the gate retain full solver coverage.
+- **Configuration-check baseline requires separate classification (issue #116, since 2026-08-20).**
+  Run the local gate as `JAVA_TOOL_OPTIONS=-Xmx4g ant configuration-checks`: without the heap cap,
+  JavaBDD derives an oversized table/cache and produces 9 `NegativeArraySizeException` errors in
+  the forked JUnit process. With the cap, the remaining 10 failures are VGuide config semantics,
+  not missing input files: `vguide.properties` is an include fragment, while VGuide experiment and
+  portfolio configs rely on the launcher to add `cpa.predicate.refinement.useVocabularyGuide=true`
+  and may select a non-predicate path for the empty smoke program. Clean `origin/main` and
+  `aca7930764` reproduce the same 10; the pre-experiment VGuide commit `141939b173` already had
+  the two fragment failures. Do not globally suppress `vguide.*` unused options or silently enable
+  the hook; classify fragments/research configs explicitly in the configuration-check harness.
 - **Formal-run CPU isolation is mandatory (Baseline-Protocol, since 2026-08-11).**
   Any timing-sensitive experiment (baselines, core-only 224, future ablation runs) must pin
   CPA invocations with `taskset -c 0,2,4,6,8,10,12,14` (8 physical P-cores, no SMT sibling,
