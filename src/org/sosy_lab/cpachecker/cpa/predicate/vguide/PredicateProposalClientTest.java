@@ -7,6 +7,7 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -60,13 +61,13 @@ public class PredicateProposalClientTest {
   @Test
   public void streamingResponseAssemblesReasoningContentAndUsage() throws Exception {
     String response =
-        "event: message\nid: 1\n"
+        "event: message\nid: 1\ndata:   \n"
             + "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think \"}}]}\n\n"
             + "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"more\","
             + "\"content\":\"{\\\"candidates\\\":\"}}]}\n\n"
             + "data: {\"choices\":[{\"delta\":{\"content\":\"[]}\"}}],"
             + "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":20}}\n\n"
-            + "data: [DONE]\n\n";
+            + "data: [DONE]   \n\n";
 
     LlmProposalResult result =
         PredicateProposalClient.parseStreamingResponse(
@@ -84,5 +85,19 @@ public class PredicateProposalClientTest {
 
     PredicateProposalClient.parseStreamingResponse(
         new ByteArrayInputStream(response.getBytes(StandardCharsets.UTF_8)));
+  }
+
+  @Test
+  public void streamingResponseReportsProviderError() throws Exception {
+    String response = "data: {\"error\":{\"message\":\"context limit\"}}\n\n";
+
+    IOException failure =
+        assertThrows(
+            IOException.class,
+            () ->
+                PredicateProposalClient.parseStreamingResponse(
+                    new ByteArrayInputStream(response.getBytes(StandardCharsets.UTF_8))));
+
+    assertThat(failure).hasMessageThat().contains("context limit");
   }
 }

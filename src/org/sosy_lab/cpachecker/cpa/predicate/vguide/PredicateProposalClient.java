@@ -322,12 +322,19 @@ public final class PredicateProposalClient {
         if (!line.startsWith("data:")) {
           continue;
         }
-        String data = line.substring("data:".length()).stripLeading();
+        String data = line.substring("data:".length()).strip();
+        if (data.isEmpty()) {
+          continue;
+        }
         if (data.equals("[DONE]")) {
           done = true;
           break;
         }
         JsonNode chunk = JSON.readTree(data);
+        if (chunk.path("error").isObject()) {
+          throw new IOException(
+              "LLM streaming error: " + chunk.path("error").path("message").asText());
+        }
         JsonNode delta = chunk.at("/choices/0/delta");
         if (delta.path("content").isTextual()) {
           content.append(delta.path("content").asText());
