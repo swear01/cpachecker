@@ -50,4 +50,13 @@ public class VGuideOptionsTest {
     assertThat(defaults.isPredicateUsefulnessGateEnabled()).isFalse();
     assertThat(enabled.isPredicateUsefulnessGateEnabled()).isTrue();
   }
+
+  @Test
+  public void defaultPredicateBudgetUsesEstablishedRange() throws InvalidConfigurationException {
+    PredicateBudget budget =
+        new VGuideOptions(Configuration.defaultConfiguration()).getPredicateBudget();
+
+    assertThat(budget.minPerCall()).isEqualTo(8);
+    assertThat(budget.maxPerCall()).isEqualTo(12);
+  }
 }

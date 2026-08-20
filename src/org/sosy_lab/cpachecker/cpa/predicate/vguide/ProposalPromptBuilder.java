@@ -259,26 +259,34 @@ public final class ProposalPromptBuilder {
     if (profile == PromptProfile.BUG_HUNT) {
       return """
         PREDICATE BUDGET (single API response — array order = priority, best first):
-        - Return between %d and %d predicates (aim for at least %d strong, mutually non-redundant candidates).
+        - Return between %d and %d predicates.
+        - A predicate does not need to be an invariant or hold at every loop-head visit.
+          Initiation-only, exit-only, threshold, violation-state, and path-splitting predicates are useful.
+        - Prefer broad coverage and informed guesses when uncertain; downstream validation and CEGAR determine usefulness.
+        - Use the available budget unless further candidates would be near-duplicates or unrelated.
         - Prefer DISTINCT roles, e.g.:
           (1) assertion-failure or violation-state discriminator
           (2) loop-carried relation or guard-tight bound on the spurious path
           (3) optional spurious-path splitter (not proving assertion always true)
-        - Do NOT pad to %d with obvious bounds or predicates that only imply the assertion holds.
+        - Do not return near-duplicates or predicates unrelated to the program.
         """
-          .formatted(min, max, min, max);
+          .formatted(min, max);
     }
     return """
       PREDICATE BUDGET (single API response — array order = priority, best first):
-      - Return between %d and %d predicates (aim for at least %d strong, mutually non-redundant candidates).
+      - Return between %d and %d predicates.
+      - A predicate does not need to be an invariant or hold at every loop-head visit.
+        Initiation-only, exit-only, threshold, violation-state, and path-splitting predicates are useful.
+      - Prefer broad coverage and informed guesses when uncertain; downstream validation and CEGAR determine usefulness.
+      - Use the available budget unless further candidates would be near-duplicates or unrelated.
       - Prefer DISTINCT roles (one per line of thought), e.g.:
         (1) loop-carried relation or guard-tight bound (non-trivial)
         (2) cross-variable relation tied to the assertion or spurious path
         (3) optional strengthener supporting the assertion or cross-loop coupling
-      - Do NOT pad to %d with obvious bounds (e.g. i>=0 in for(i=0;...)) or near-duplicate inequalities.
+      - Do not return near-duplicates or predicates unrelated to the program.
       - Cover assertion support and cross-loop relations when multiple loops exist.
       """
-        .formatted(min, max, min, max);
+        .formatted(min, max);
   }
 
   private static String profileExamples(String source, String assertion, PromptProfile profile) {

@@ -6003,11 +6003,11 @@ vguide.maxLlmRoundsPerProcess = 0
 
 # Hard upper bound per LLM response: prompt asks for at most this many;
 # extras truncated after parse (array order = priority).
-vguide.maxPredicatesPerCall = 6
+vguide.maxPredicatesPerCall = 12
 
 # Soft lower bound in LLM prompt: aim for at least this many predicates per
 # response (not enforced after parse).
-vguide.minPredicatesPerCall = 3
+vguide.minPredicatesPerCall = 8
 
 # Expose the current native CEGAR predicate precision (globals,
 # loop-head-owning functions, loop-head locals) to the LLM as read-only
