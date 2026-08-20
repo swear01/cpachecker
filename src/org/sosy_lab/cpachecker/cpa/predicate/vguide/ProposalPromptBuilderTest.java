@@ -44,6 +44,32 @@ public class ProposalPromptBuilderTest {
   }
 
   @Test
+  public void buildPrompt_encouragesBroadNonInvariantPredicates() {
+    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "int i;\nwhile(i<10){i++;}\n",
+            "i == 10",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "L@N1: (bvslt i (_ bv10 32))\n",
+            "");
+
+    PromptMessages safe =
+        builder.buildPrompt(pack, new PredicateBudget(8, 12), PromptProfile.SAFE, 1);
+
+    assertThat(safe.user()).contains("does not need to be an invariant");
+    assertThat(safe.user()).contains("Prefer broad coverage and informed guesses");
+    assertThat(safe.user()).contains("Use the available budget");
+    assertThat(safe.user()).contains("Initiation-only, exit-only, threshold");
+  }
+
+  @Test
   public void arrayPromptUsesCanonicalSourceSyntax() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
     ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);

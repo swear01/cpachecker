@@ -65,7 +65,7 @@ public class VGuideOptions {
           "Soft lower bound in LLM prompt: aim for at least this many predicates per response"
               + " (not enforced after parse).")
   @IntegerOption(min = 1)
-  private int minPredicatesPerCall = 3;
+  private int minPredicatesPerCall = 8;
 
   @Option(
       secure = true,
@@ -73,7 +73,7 @@ public class VGuideOptions {
           "Hard upper bound per LLM response: prompt asks for at most this many; extras truncated"
               + " after parse (array order = priority).")
   @IntegerOption(min = 1)
-  private int maxPredicatesPerCall = 6;
+  private int maxPredicatesPerCall = 12;
 
   @Option(
       secure = true,
