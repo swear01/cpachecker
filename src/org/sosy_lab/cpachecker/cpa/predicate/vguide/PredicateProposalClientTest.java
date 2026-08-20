@@ -10,6 +10,9 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import org.junit.Test;
 
 public class PredicateProposalClientTest {
@@ -50,5 +53,35 @@ public class PredicateProposalClientTest {
     assertThat(request.path("response_format").path("type").asText()).isEqualTo("json_object");
     assertThat(request.path("thinking").path("type").asText()).isEqualTo("disabled");
     assertThat(request.has("reasoning_effort")).isFalse();
+    assertThat(request.path("stream").asBoolean()).isTrue();
+    assertThat(request.path("stream_options").path("include_usage").asBoolean()).isTrue();
+  }
+
+  @Test
+  public void streamingResponseAssemblesReasoningContentAndUsage() throws Exception {
+    String response =
+        "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think \"}}]}\n\n"
+            + "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"more\","
+            + "\"content\":\"{\\\"candidates\\\":\"}}}]}\n\n"
+            + "data: {\"choices\":[{\"delta\":{\"content\":\"[]}\"}}],"
+            + "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":20}}\n\n"
+            + "data: [DONE]\n\n";
+
+    LlmProposalResult result =
+        PredicateProposalClient.parseStreamingResponse(
+            new ByteArrayInputStream(response.getBytes(StandardCharsets.UTF_8)));
+
+    assertThat(result.content()).isEqualTo("{\"candidates\":[]}");
+    assertThat(result.reasoningContent()).isEqualTo("think more");
+    assertThat(result.usage().path("prompt_tokens").asInt()).isEqualTo(10);
+    assertThat(result.usage().path("completion_tokens").asInt()).isEqualTo(20);
+  }
+
+  @Test(expected = IOException.class)
+  public void streamingResponseWithoutDoneFailsClosed() throws Exception {
+    String response = "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n";
+
+    PredicateProposalClient.parseStreamingResponse(
+        new ByteArrayInputStream(response.getBytes(StandardCharsets.UTF_8)));
   }
 }
