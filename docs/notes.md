@@ -25,16 +25,15 @@
   symbol state in parameterized tests (issue #111) — run `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1
   ant unit-tests` here. The JUnit unit-test baseline with the gate has 0 crashed classes and no
   known solver-test failures. Machines without the gate retain full solver coverage.
-- **Configuration-check baseline requires separate classification (issue #116, since 2026-08-20).**
-  Run the local gate as `JAVA_TOOL_OPTIONS=-Xmx4g ant configuration-checks`: without the heap cap,
-  JavaBDD derives an oversized table/cache and produces 9 `NegativeArraySizeException` errors in
-  the forked JUnit process. With the cap, the remaining 10 failures are VGuide config semantics,
-  not missing input files: `vguide.properties` is an include fragment, while VGuide experiment and
-  portfolio configs rely on the launcher to add `cpa.predicate.refinement.useVocabularyGuide=true`
-  and may select a non-predicate path for the empty smoke program. Clean `origin/main` and
-  `aca7930764` reproduce the same 10; the pre-experiment VGuide commit `141939b173` already had
-  the two fragment failures. Do not globally suppress `vguide.*` unused options or silently enable
-  the hook; classify fragments/research configs explicitly in the configuration-check harness.
+- **Configuration-check baseline is explicitly classified (issue #116).** The forked checker now
+  pins its JVM to `-Xmx4g`, preventing JavaBDD's `Runtime.maxMemory()`-based table sizing from
+  overflowing on large-memory hosts; bare `ant configuration-checks` no longer needs an environment
+  heap override. The VGuide fragment and named research/portfolio configs that require
+  launcher-supplied `cpa.predicate.refinement.useVocabularyGuide=true`, an external provider, or
+  a non-empty benchmark are checked by parsing and default-specification validation only. Other
+  VGuide components and non-VGuide configs remain runnable checks; VGuide component checks need
+  the normal provider or replay environment. The checker does not globally
+  suppress `vguide.*` or silently add the VGuide hook.
 - **Formal-run CPU isolation is mandatory (Baseline-Protocol, since 2026-08-11).**
   Any timing-sensitive experiment (baselines, core-only 224, future ablation runs) must pin
   CPA invocations with `taskset -c 0,2,4,6,8,10,12,14` (8 physical P-cores, no SMT sibling,
