@@ -54,6 +54,23 @@ public class PredicateProposalCliTest {
   }
 
   @Test
+  public void loadMessagesRejectsUnknownOption() throws Exception {
+    Path systemFile = temp.newFile("system.txt").toPath();
+    Path userFile = temp.newFile("user.txt").toPath();
+
+    IllegalArgumentException error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                PredicateProposalCli.loadMessages(
+                    new String[] {
+                      "--system-file", systemFile.toString(), "--prompt-file", userFile.toString()
+                    }));
+
+    assertThat(error).hasMessageThat().contains("--prompt-file");
+  }
+
+  @Test
   public void formatResultProducesMachineReadableJson() throws Exception {
     LlmProposalResult result =
         new LlmProposalResult(
@@ -72,5 +89,15 @@ public class PredicateProposalCliTest {
     assertThat(output.path("start_epoch_ms").asLong()).isEqualTo(5678);
     assertThat(output.path("request_hash").asText()).isEqualTo("abc123");
     assertThat(output.path("response_source").asText()).isEqualTo("live");
+  }
+
+  @Test
+  public void formatResultWritesNullWhenUsageIsUnavailable() throws Exception {
+    LlmProposalResult result = new LlmProposalResult("{}", null, 1, 2, "hash", "replay");
+
+    var output = JSON.readTree(PredicateProposalCli.formatResult(result));
+
+    assertThat(output.has("usage")).isTrue();
+    assertThat(output.path("usage").isNull()).isTrue();
   }
 }
