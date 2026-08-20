@@ -15,6 +15,13 @@ import org.sosy_lab.common.configuration.InvalidConfigurationException;
 public class VGuideOptionsTest {
 
   @Test
+  public void defaultsToSafeOnly() throws InvalidConfigurationException {
+    VGuideOptions opts = new VGuideOptions(Configuration.defaultConfiguration());
+
+    assertThat(opts.isDualPromptMode()).isFalse();
+  }
+
+  @Test
   public void dualModeUsesSamplesOnFirstRefinement() throws InvalidConfigurationException {
     VGuideOptions opts =
         new VGuideOptions(

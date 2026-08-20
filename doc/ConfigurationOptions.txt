@@ -5946,7 +5946,7 @@ vguide.ceHistoryMode = OFF
 
 # Run SAFE and BUG_HUNT prompt profiles each LLM round (2×K HTTP when
 # K=llmSamplesPerCall).
-vguide.dualPromptMode = true
+vguide.dualPromptMode = false
 
 # Enable unified VGuide bridge when useVocabularyGuide=true
 vguide.enable = true
