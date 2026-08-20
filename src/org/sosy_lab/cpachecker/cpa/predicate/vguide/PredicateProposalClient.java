@@ -290,7 +290,8 @@ public final class PredicateProposalClient {
             Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
             continue;
           }
-          throw e;
+          throw new IOException(
+              provider + " API " + resp.statusCode() + " but failed to read error body", e);
         }
         if (attempt < attempts) {
           Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
