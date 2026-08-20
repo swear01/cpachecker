@@ -57,7 +57,7 @@ public class VGuideOptions {
       secure = true,
       description =
           "Run SAFE and BUG_HUNT prompt profiles each LLM round (2×K HTTP when K=llmSamplesPerCall).")
-  private boolean dualPromptMode = true;
+  private boolean dualPromptMode = false;
 
   @Option(
       secure = true,
