@@ -75,6 +75,7 @@ public class PredicateProposalCliTest {
     LlmProposalResult result =
         new LlmProposalResult(
             "{\"candidates\":[]}",
+            "checked the loop",
             JSON.readTree("{\"prompt_tokens\":12,\"completion_tokens\":7}"),
             1234,
             5678,
@@ -84,6 +85,7 @@ public class PredicateProposalCliTest {
     var output = JSON.readTree(PredicateProposalCli.formatResult(result));
 
     assertThat(output.path("content").asText()).isEqualTo("{\"candidates\":[]}");
+    assertThat(output.path("reasoning_content").asText()).isEqualTo("checked the loop");
     assertThat(output.path("usage").path("prompt_tokens").asInt()).isEqualTo(12);
     assertThat(output.path("latency_ms").asLong()).isEqualTo(1234);
     assertThat(output.path("start_epoch_ms").asLong()).isEqualTo(5678);
@@ -93,7 +95,7 @@ public class PredicateProposalCliTest {
 
   @Test
   public void formatResultWritesNullWhenUsageIsUnavailable() throws Exception {
-    LlmProposalResult result = new LlmProposalResult("{}", null, 1, 2, "hash", "replay");
+    LlmProposalResult result = new LlmProposalResult("{}", "", null, 1, 2, "hash", "replay");
 
     var output = JSON.readTree(PredicateProposalCli.formatResult(result));
 

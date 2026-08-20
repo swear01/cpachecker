@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.JsonNode;
  */
 public record LlmProposalResult(
     String content,
+    String reasoningContent,
     JsonNode usage,
     long latencyMs,
     long startEpochMs,

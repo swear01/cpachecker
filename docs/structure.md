@@ -49,11 +49,12 @@ java -cp 'classes:lib/*:lib/java/runtime/*' \
   --user-file /path/to/user.txt
 ```
 
-The command uses the same `VGUIDE_LLM_*`, provider credential, model, record/replay, retry, and
-timeout environment as CPAchecker. Standard output is one JSON object containing `content`,
-`usage`, `latency_ms`, `start_epoch_ms`, `request_hash`, and `response_source`. Invalid arguments,
-missing files, configuration failures, HTTP failures, and malformed provider responses terminate
-nonzero; there is no fallback transport.
+The command uses the same `VGUIDE_LLM_*`, provider credential, model, record/replay, and retry
+environment as CPAchecker. The Java client requests SSE streaming and has a 30-second connection
+timeout but no total inference deadline. Standard output is one JSON object containing `content`,
+`reasoning_content`, `usage`, `latency_ms`, `start_epoch_ms`, `request_hash`, and
+`response_source`. Invalid arguments, missing files, configuration failures, HTTP failures, and
+malformed or incomplete provider streams terminate nonzero; there is no fallback transport.
 
 ## Module Boundaries
 

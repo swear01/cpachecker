@@ -253,7 +253,7 @@ if [[ -f "$OUT/run_meta.json" ]]; then
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
   REPLAY_FP_C="$REPLAY_FP" \
   APIURL_C="${VGUIDE_LLM_API_URL:-}" MAXTOK_C="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
-  TIMEOUTSEC_C="${VGUIDE_LLM_TIMEOUT_SEC:-}" PRESERVE_C="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
+  PRESERVE_C="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
   python3 - "$OUT/run_meta.json" <<'EOF' || die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
 import json, os, sys
 old = json.load(open(sys.argv[1]))
@@ -278,7 +278,6 @@ want = {
     "llm_replay_fingerprint": os.environ.get("REPLAY_FP_C", ""),
     "llm_api_url": os.environ["APIURL_C"],
     "llm_max_completion_tokens": os.environ["MAXTOK_C"],
-    "llm_timeout_sec": os.environ["TIMEOUTSEC_C"],
     "llm_replay_preserve_latency": os.environ["PRESERVE_C"],
 }
 missing = [k for k in want if k not in old]
@@ -310,7 +309,7 @@ SPEC_M="$SPEC" PROVIDER_M="$LLM_PROVIDER" MODEL_M="$LLM_MODEL" THINKING_M="$THIN
 RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
 REPLAY_FP_M="$REPLAY_FP" \
   APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
-TIMEOUTSEC_M="${VGUIDE_LLM_TIMEOUT_SEC:-}" PRESERVE_M="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
+PRESERVE_M="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
 STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" CURRLOAD_M="$CURRENT_LOAD" P_CORES_M="$P_CORE_LIST" \
 python3 - "$OUT/run_meta.json" <<'EOF'
 import json, os, sys
@@ -338,7 +337,6 @@ meta = {
     "llm_replay_fingerprint": os.environ.get("REPLAY_FP_M", ""),
     "llm_api_url": os.environ["APIURL_M"],
     "llm_max_completion_tokens": os.environ["MAXTOK_M"],
-    "llm_timeout_sec": os.environ["TIMEOUTSEC_M"],
     "llm_replay_preserve_latency": os.environ["PRESERVE_M"],
     "started_at": os.environ["STARTED_M"],
     "cpu_isolation": "taskset " + os.environ["P_CORES_M"] + " (8 physical P-cores, no SMT sibling, no E-core)",

@@ -76,6 +76,7 @@ final class LlmResponseCache {
     row.put("request_hash", request.requestHash());
     row.put("ordinal", request.ordinal());
     row.put("content", result.content());
+    row.put("reasoning_content", result.reasoningContent());
     if (result.usage() == null) {
       row.putNull("usage");
     } else {
@@ -124,8 +125,10 @@ final class LlmResponseCache {
       Thread.sleep(latencyMs);
     }
     JsonNode usage = row.path("usage");
+    JsonNode reasoning = row.path("reasoning_content");
     return new LlmProposalResult(
         content.asText(),
+        reasoning.isTextual() ? reasoning.asText() : "",
         usage.isNull() || usage.isMissingNode() ? null : usage,
         latencyMs,
         startEpochMs,

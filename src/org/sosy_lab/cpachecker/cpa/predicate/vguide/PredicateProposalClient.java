@@ -8,7 +8,10 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -56,7 +59,6 @@ public final class PredicateProposalClient {
   private final boolean thinkingEnabled;
   private final @Nullable String reasoningEffort;
   private final int maxCompletionTokens;
-  private final int timeoutSeconds;
   private final int retryAttempts;
   private final int retryBackoffMs;
   private final HttpClient http;
@@ -125,7 +127,6 @@ public final class PredicateProposalClient {
     if (responseCache != null) {
       logger.log(Level.INFO, "VGuide LLM response mode: ", responseCache.mode().name());
     }
-    timeoutSeconds = readPositiveIntEnv("VGUIDE_LLM_TIMEOUT_SEC", 120);
     retryAttempts =
         Math.min(
             MAX_RETRY_ATTEMPTS,
@@ -156,22 +157,16 @@ public final class PredicateProposalClient {
             .uri(apiUrl)
             .header("Authorization", "Bearer " + apiKey)
             .header("Content-Type", "application/json")
-            .timeout(Duration.ofSeconds(timeoutSeconds))
             .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
             .build();
-    HttpResponse<String> resp = sendWithRetries(req);
-    if (resp.statusCode() != 200) {
-      throw new IOException(provider + " API " + resp.statusCode() + ": " + resp.body());
+    LlmProposalResult streamed;
+    try (InputStream bodyStream = sendWithRetries(req)) {
+      streamed = parseStreamingResponse(bodyStream);
     }
-    JsonNode root = JSON.readTree(resp.body());
-    JsonNode content = root.at("/choices/0/message/content");
-    if (!content.isTextual()) {
-      throw new IOException("No text content in LLM response");
-    }
-    JsonNode usage = root.path("usage");
+    JsonNode usage = streamed.usage();
     long latency = System.currentTimeMillis() - t0;
-    logger.log(Level.FINE, "VGuide LLM response length: ", content.asText().length());
-    if (usage.isObject() && usage.has("prompt_tokens")) {
+    logger.log(Level.FINE, "VGuide LLM response length: ", streamed.content().length());
+    if (usage != null && usage.isObject() && usage.has("prompt_tokens")) {
       logger.log(
           Level.FINE,
           "VGuide LLM usage prompt_tokens=",
@@ -181,8 +176,9 @@ public final class PredicateProposalClient {
     }
     LlmProposalResult result =
         new LlmProposalResult(
-            content.asText(),
-            usage.isMissingNode() ? null : usage,
+            streamed.content(),
+            streamed.reasoningContent(),
+            usage,
             latency,
             t0,
             cachedRequest == null ? requestHash(body) : cachedRequest.requestHash(),
@@ -270,34 +266,97 @@ public final class PredicateProposalClient {
    * 429 responses): 2 retries by default, with a capped linear backoff. Non-transient
    * client errors (4xx other than 429) are not retried.
    */
-  private HttpResponse<String> sendWithRetries(HttpRequest req)
-      throws IOException, InterruptedException {
+  private InputStream sendWithRetries(HttpRequest req) throws IOException, InterruptedException {
     IOException lastIo = null;
-    HttpResponse<String> resp = null;
     int attempts = retryAttempts + 1;
     for (int attempt = 1; attempt <= attempts; attempt++) {
-      resp = null;
+      HttpResponse<InputStream> resp;
       try {
-        resp = http.send(req, HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() == 429 || resp.statusCode() >= 500) {
-          if (attempt < attempts) {
-            Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
-            continue;
-          }
-          break;
-        }
-        return resp;
+        resp = http.send(req, HttpResponse.BodyHandlers.ofInputStream());
       } catch (IOException e) {
         lastIo = e;
         if (attempt < attempts) {
           Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
         }
+        continue;
       }
-    }
-    if (resp != null && (resp.statusCode() == 429 || resp.statusCode() >= 500)) {
-      throw new IOException(provider + " API " + resp.statusCode() + ": " + resp.body());
+      if (resp.statusCode() == 429 || resp.statusCode() >= 500) {
+        String error;
+        try (InputStream errorBody = resp.body()) {
+          error = new String(errorBody.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+          lastIo = e;
+          if (attempt < attempts) {
+            Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
+            continue;
+          }
+          throw new IOException(
+              provider + " API " + resp.statusCode() + " but failed to read error body", e);
+        }
+        if (attempt < attempts) {
+          Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
+          continue;
+        }
+        throw new IOException(provider + " API " + resp.statusCode() + ": " + error);
+      }
+      if (resp.statusCode() != 200) {
+        try (InputStream errorBody = resp.body()) {
+          String error = new String(errorBody.readAllBytes(), StandardCharsets.UTF_8);
+          throw new IOException(provider + " API " + resp.statusCode() + ": " + error);
+        }
+      }
+      return resp.body();
     }
     throw Objects.requireNonNull(lastIo);
+  }
+
+  static LlmProposalResult parseStreamingResponse(InputStream input) throws IOException {
+    StringBuilder content = new StringBuilder();
+    StringBuilder reasoning = new StringBuilder();
+    JsonNode usage = null;
+    boolean done = false;
+    try (var reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+      for (String line; (line = reader.readLine()) != null; ) {
+        if (line.isBlank() || line.startsWith(":")) {
+          continue;
+        }
+        if (!line.startsWith("data:")) {
+          continue;
+        }
+        String data = line.substring("data:".length()).strip();
+        if (data.isEmpty()) {
+          continue;
+        }
+        if (data.equals("[DONE]")) {
+          done = true;
+          break;
+        }
+        JsonNode chunk = JSON.readTree(data);
+        if (chunk.has("error")) {
+          JsonNode error = chunk.path("error");
+          throw new IOException(
+              "LLM streaming error: "
+                  + (error.isObject() ? error.path("message").asText() : error.asText()));
+        }
+        JsonNode delta = chunk.at("/choices/0/delta");
+        if (delta.path("content").isTextual()) {
+          content.append(delta.path("content").asText());
+        }
+        if (delta.path("reasoning_content").isTextual()) {
+          reasoning.append(delta.path("reasoning_content").asText());
+        }
+        if (chunk.path("usage").isObject()) {
+          usage = chunk.path("usage");
+        }
+      }
+    }
+    if (!done) {
+      throw new IOException("LLM SSE response ended before [DONE]");
+    }
+    if (content.isEmpty()) {
+      throw new IOException("No text content in LLM response");
+    }
+    return new LlmProposalResult(content.toString(), reasoning.toString(), usage, 0, 0, "", "");
   }
 
   private String buildRequestBody(PromptMessages prompt) throws IOException {
@@ -317,6 +376,8 @@ public final class PredicateProposalClient {
     root.put("model", model);
     root.put("temperature", 0);
     root.put("max_completion_tokens", maxCompletionTokens);
+    root.put("stream", true);
+    root.putObject("stream_options").put("include_usage", true);
     if (provider.equals("meta")) {
       addMetaResponseFormat(root);
       root.put("reasoning_effort", "minimal");

@@ -63,6 +63,7 @@ public final class PredicateProposalCli {
   static String formatResult(LlmProposalResult result) throws IOException {
     var output = JSON.createObjectNode();
     output.put("content", result.content());
+    output.put("reasoning_content", result.reasoningContent());
     output.set("usage", result.hasUsage() ? result.usage() : JSON.nullNode());
     output.put("latency_ms", result.latencyMs());
     output.put("start_epoch_ms", result.startEpochMs());
