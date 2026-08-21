@@ -22,13 +22,13 @@ public class PredicateProposalClientTest {
   private static final PromptMessages PROMPT = new PromptMessages("system", "user");
 
   @Test
-  public void metaRequestUsesSchemaAndMinimalReasoning() throws Exception {
+  public void metaRequestUsesSchemaAndMinimalReasoningWhenDisabled() throws Exception {
     JsonNode request =
         JSON.readTree(
             PredicateProposalClient.buildRequestBody(
-                PROMPT, "meta", "muse-spark-1.2", 1024, false, null));
+                PROMPT, "meta", "muse-spark-1.2-contributor", 1024, false, null));
 
-    assertThat(request.path("model").asText()).isEqualTo("muse-spark-1.2");
+    assertThat(request.path("model").asText()).isEqualTo("muse-spark-1.2-contributor");
     assertThat(request.path("reasoning_effort").asText()).isEqualTo("minimal");
     assertThat(request.has("thinking")).isFalse();
     JsonNode format = request.path("response_format");
@@ -42,6 +42,17 @@ public class PredicateProposalClientTest {
     assertThat(alternatives.size()).isEqualTo(2);
     assertThat(alternatives.get(0).path("required").get(0).asText()).isEqualTo("loop_head");
     assertThat(alternatives.get(1).path("required").get(0).asText()).isEqualTo("loop_heads");
+  }
+
+  @Test
+  public void metaRequestUsesConfiguredReasoningEffortWhenEnabled() throws Exception {
+    JsonNode request =
+        JSON.readTree(
+            PredicateProposalClient.buildRequestBody(
+                PROMPT, "meta", "muse-spark-1.2-contributor", 1024, true, "high"));
+
+    assertThat(request.path("reasoning_effort").asText()).isEqualTo("high");
+    assertThat(request.has("thinking")).isFalse();
   }
 
   @Test

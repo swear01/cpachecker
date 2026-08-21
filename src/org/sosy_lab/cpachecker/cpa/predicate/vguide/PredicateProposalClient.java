@@ -39,13 +39,14 @@ import org.sosy_lab.cpachecker.cpa.predicate.LlmApiUrl;
  * {@code DEEPSEEK_API_KEY} or {@code MODEL_API_KEY}, {@code VGUIDE_LLM_MODEL}, {@code
  * VGUIDE_LLM_THINKING} ({@code disabled}|{@code enabled}, default {@code disabled}), {@code
  * VGUIDE_LLM_REASONING_EFFORT} ({@code low}|{@code medium}|{@code high}|{@code max} when thinking
- * is enabled, default {@code high}), and the mutually exclusive paired-evaluation directories
- * {@code VGUIDE_LLM_RECORD_DIR} and {@code VGUIDE_LLM_REPLAY_DIR}.
+ * is enabled, default {@code high}; for Meta, disabled maps to the API's {@code minimal} effort),
+ * and the mutually exclusive paired-evaluation directories {@code VGUIDE_LLM_RECORD_DIR} and
+ * {@code VGUIDE_LLM_REPLAY_DIR}.
  */
 public final class PredicateProposalClient {
 
   private static final String DEFAULT_MODEL = "deepseek-v4-pro";
-  private static final String META_MODEL = "muse-spark-1.2";
+  private static final String META_MODEL = "muse-spark-1.2-contributor";
   private static final String META_API_URL = "https://api.meta.ai/v1/chat/completions";
   private static final int MAX_RETRY_ATTEMPTS = 10;
   private static final long MAX_RETRY_DELAY_MS = 60_000L;
@@ -112,13 +113,17 @@ public final class PredicateProposalClient {
             : configuredModel;
     logger.log(Level.INFO, "VGuide LLM provider: ", provider);
     logger.log(Level.INFO, "VGuide LLM model: ", model);
-    thinkingEnabled = provider.equals("deepseek") && thinkingEnabledFromEnv();
+    thinkingEnabled = thinkingEnabledFromEnv();
     reasoningEffort =
-        provider.equals("meta") ? "minimal" : thinkingEnabled ? reasoningEffortFromEnv() : null;
+        provider.equals("meta")
+            ? thinkingEnabled ? reasoningEffortFromEnv() : "minimal"
+            : thinkingEnabled ? reasoningEffortFromEnv() : null;
     logger.log(
         Level.INFO,
         "VGuide LLM thinking: ",
-        provider.equals("meta") ? "required" : thinkingEnabled ? "enabled" : "disabled");
+        provider.equals("meta")
+            ? "reasoning_effort=" + reasoningEffort
+            : thinkingEnabled ? "enabled" : "disabled");
     if (reasoningEffort != null) {
       logger.log(Level.INFO, "VGuide LLM reasoning_effort: ", reasoningEffort);
     }
@@ -380,7 +385,7 @@ public final class PredicateProposalClient {
     root.putObject("stream_options").put("include_usage", true);
     if (provider.equals("meta")) {
       addMetaResponseFormat(root);
-      root.put("reasoning_effort", "minimal");
+      root.put("reasoning_effort", reasoningEffort == null ? "minimal" : reasoningEffort);
     } else {
       root.putObject("response_format").put("type", "json_object");
     }
