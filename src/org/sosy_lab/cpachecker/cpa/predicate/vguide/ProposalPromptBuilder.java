@@ -16,8 +16,8 @@ public final class ProposalPromptBuilder {
 
   /**
    * Minimal prompt style (VGUIDE_PROMPT_MINIMAL=1): concise instructions per DeepSeek best
-   * practices. The minimal branches intentionally paraphrase the full-mode strings (they are an
-   * experiment variant, #89) — keep semantics in sync when editing either.
+   * practices. The minimal branches intentionally paraphrase the full-mode strings (they are
+   * an experiment variant, #89) — keep semantics in sync when editing either.
    */
   private final boolean minimalPrompt;
 
@@ -113,11 +113,9 @@ public final class ProposalPromptBuilder {
 
   private static String buildSystemMessage(PredicateBudget budget, boolean minimalPrompt) {
     if (minimalPrompt) {
-      return "You help a CEGAR verifier. Propose SMT-LIB2 predicates (prefix notation, each starts"
-                 + " with '(').\n"
-                 + "Source vars only. Prefer bv ops: bvsge/bvslt/bvsle/bvsgt/bvadd/bvsub.\n"
-                 + "No select/store, no |main::|, no @suffix, no .def_N, no quantifiers, no"
-                 + " bvshl/lshr/ashr; arrays as a[i].\n"
+      return "You help a CEGAR verifier. Propose SMT-LIB2 predicates (prefix notation, each starts with '(').\n"
+          + "Source vars only. Prefer bv ops: bvsge/bvslt/bvsle/bvsgt/bvadd/bvsub.\n"
+          + "No select/store, no |main::|, no @suffix, no .def_N, no quantifiers, no bvshl/lshr/ashr; arrays as a[i].\n"
           + buildJsonContract(budget);
     }
     return "You help a CEGAR-based predicate abstraction verifier.\n"
@@ -140,13 +138,13 @@ public final class ProposalPromptBuilder {
   private String buildProfileBlock(ContextPack pack, PromptProfile profile, int refinementIndex) {
     String assertionLine = formatAssertionLine(pack.assertion(), profile);
     String role = profileRole(profile);
-    String task = refinementIndex == 1 ? profileFirstTask(profile) : profileLaterTask(profile);
+    String task =
+        refinementIndex == 1 ? profileFirstTask(profile) : profileLaterTask(profile);
     return assertionLine + "\n" + role + "\n" + task;
   }
 
   private static String buildDynamicTail(
-      ContextPack pack,
-      String ceHistory,
+      ContextPack pack, String ceHistory,
       String refinementOutcomes,
       String nativePredicateContext) {
     String historyBlock =
@@ -194,23 +192,21 @@ public final class ProposalPromptBuilder {
   private String profileFirstTask(PromptProfile profile) {
     if (minimalPrompt) {
       return profile == PromptProfile.BUG_HUNT
-          ? "First spurious CE: propose predicates distinguishing states toward assertion FAILURE"
-                + " (not only safe-proofs).\n"
-          : "First spurious CE: propose loop-carried relations, guards, bounds, assertion"
-                + " variables.\n";
+          ? "First spurious CE: propose predicates distinguishing states toward assertion FAILURE (not only safe-proofs).\n"
+          : "First spurious CE: propose loop-carried relations, guards, bounds, assertion variables.\n";
     }
     if (profile == PromptProfile.BUG_HUNT) {
       return """
-      This is the FIRST spurious counterexample in this analysis.
-      Propose predicates that distinguish states that can lead to assertion failure.
-      Do NOT only propose predicates that imply the assertion always holds.
-      """;
+          This is the FIRST spurious counterexample in this analysis.
+          Propose predicates that distinguish states that can lead to assertion failure.
+          Do NOT only propose predicates that imply the assertion always holds.
+          """;
     }
     return """
-    This is the FIRST spurious counterexample in this analysis.
-    Propose abstraction predicates that help split similar spurious paths.
-    Focus on loop-carried relations, guards, bounds, and assertion variables.
-    """;
+        This is the FIRST spurious counterexample in this analysis.
+        Propose abstraction predicates that help split similar spurious paths.
+        Focus on loop-carried relations, guards, bounds, and assertion variables.
+        """;
   }
 
   private String profileLaterTask(PromptProfile profile) {
@@ -221,9 +217,9 @@ public final class ProposalPromptBuilder {
     }
     if (profile == PromptProfile.BUG_HUNT) {
       return """
-      Propose additional predicates toward assertion failure states shown in the CE summary.
-      Do NOT only strengthen predicates that imply the assertion always holds.
-      """;
+          Propose additional predicates toward assertion failure states shown in the CE summary.
+          Do NOT only strengthen predicates that imply the assertion always holds.
+          """;
     }
     return "Propose additional predicates to strengthen abstraction.\n";
   }
@@ -231,49 +227,48 @@ public final class ProposalPromptBuilder {
   private static String buildRepairTail(List<String> rejectedPredicates, PromptProfile profile) {
     String hint =
         profile == PromptProfile.BUG_HUNT
-            ? "Rejected predicates may have been too aligned with proving safe; try failing-state"
-                  + " predicates from the CE summary.\n"
+            ? "Rejected predicates may have been too aligned with proving safe; try failing-state predicates from the CE summary.\n"
             : "";
     return "\nYour previous reply included REJECTED predicates: "
         + rejectedPredicates
         + "\n"
         + hint
-        + "Regenerate JSON only. Keep array reads in the a[i] C-syntax form; do not write"
-        + " select/store or SSA names.\n";
+        + "Regenerate JSON only. Keep array reads in the a[i] C-syntax form; do not write select/store or SSA names.\n";
   }
 
   private static String syntaxRules() {
     return """
-    RULES (violations are discarded automatically):
-    - Use ONLY source variable names from the contract / allowed list.
-    - SMT-LIB2 prefix notation; each predicate must start with '('.
-    - Prefer bitvector ops for 32-bit ints: bvsge, bvslt, bvsle, bvsgt, bvadd, bvsub, = .
-    - Do NOT use: |main::...|, @suffix, .def_N, select, store, quantifiers, bvshl/lshr/ashr.
-    - Arrays: write element reads in C syntax a[i] (a = array name from the contract,
-      i = index expression over source variables, e.g. b[4*j+1]); the system translates
-      them. NEVER write select/store or @versioned names yourself.
-    """;
+      RULES (violations are discarded automatically):
+      - Use ONLY source variable names from the contract / allowed list.
+      - SMT-LIB2 prefix notation; each predicate must start with '('.
+      - Prefer bitvector ops for 32-bit ints: bvsge, bvslt, bvsle, bvsgt, bvadd, bvsub, = .
+      - Do NOT use: |main::...|, @suffix, .def_N, select, store, quantifiers, bvshl/lshr/ashr.
+      - Arrays: write element reads in C syntax a[i] (a = array name from the contract,
+        i = index expression over source variables, e.g. b[4*j+1]); the system translates
+        them. NEVER write select/store or @versioned names yourself.
+      """;
   }
 
   private static String buildJsonContract(PredicateBudget budget) {
     return """
 
-    Output ONLY valid JSON (no markdown, no commentary):
-    {"schema_version":"loop-head-candidate-v1","candidates":[]}
-    - Every candidate MUST name a loop head from the LOOP HEADS list (\"N*\" label).
-    - Use \"loop_heads\":[...] only when the predicate is meaningful at every named head.
-    - Candidates without a loop head are discarded; Java never broadcasts predicates.
-    - role (optional): initiation, supporting, relational, or bound.
-    CANDIDATE POLICY (array order = priority, best first):
-    - Return at most %d candidates; an empty candidates array is valid. Stop when no new grounded split remains.
-    - Add a candidate only if source, transition, assertion, or counterexample evidence supports it and it
-      separates a relevant state pair not already separated by an earlier candidate at that head.
-    - Logically equivalent predicates and logical negations are the same split, including algebraic rewrites, swapped operands, and shifted integer bounds. Keep only the better-ranked representative.
-    - Do not enumerate syntax, constants, roles, or loop heads. Name multiple heads only when evidence
-      supports the predicate independently at every named head.
-    - A split may be initiation-only, exit-only, threshold, violation-state, or path-specific; it need not
-      hold at every loop-head visit.
-    """
+        Output ONLY valid JSON (no markdown, no commentary):
+        {"schema_version":"loop-head-candidate-v1","candidates":[]}
+        - Every candidate MUST name a loop head from the LOOP HEADS list (\"N*\" label).
+        - Use \"loop_heads\":[...] only when the predicate is meaningful at every named head.
+        - Candidates without a loop head are discarded; Java never broadcasts predicates.
+        - role (optional): initiation, supporting, relational, or bound.
+        CANDIDATE POLICY (array order = priority, best first):
+        - Return at most %d candidates; an empty candidates array is valid. Stop when no new grounded split remains.
+        - Add a candidate only if source, transition, assertion, or counterexample evidence supports it and it
+          separates a relevant state pair not already separated by an earlier candidate at that head.
+        - Logically equivalent predicates and logical negations are the same split, including algebraic rewrites, swapped operands, and shifted integer bounds. Keep only the better-ranked representative.
+        - Do not enumerate syntax, constants, roles, or loop heads. Name multiple heads only when evidence
+          supports the predicate independently at every named head.
+        - A split may be initiation-only, exit-only, threshold, violation-state, or path-specific; it need not
+          hold at every loop-head visit.
+        """
         .formatted(budget.maxPerCall());
   }
+
 }

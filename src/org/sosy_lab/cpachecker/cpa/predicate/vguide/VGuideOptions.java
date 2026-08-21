@@ -18,7 +18,9 @@ import org.sosy_lab.common.configuration.Options;
 @Options(prefix = "vguide")
 public class VGuideOptions {
 
-  @Option(secure = true, description = "Enable unified VGuide bridge when useVocabularyGuide=true")
+  @Option(
+      secure = true,
+      description = "Enable unified VGuide bridge when useVocabularyGuide=true")
   private boolean enable = true;
 
   @Option(
@@ -54,8 +56,7 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
-          "Run SAFE and BUG_HUNT prompt profiles each LLM round (2×K HTTP when"
-              + " K=llmSamplesPerCall).")
+          "Run SAFE and BUG_HUNT prompt profiles each LLM round (2×K HTTP when K=llmSamplesPerCall).")
   private boolean dualPromptMode = false;
 
   @Option(
@@ -191,8 +192,7 @@ public class VGuideOptions {
 
   @Option(
       secure = true,
-      description =
-          "Max completion tokens per DeepSeek chat completion (raise for max budget ≥12).")
+      description = "Max completion tokens per DeepSeek chat completion (raise for max budget ≥12).")
   @IntegerOption(min = 256)
   private int llmMaxCompletionTokens = 1024;
 

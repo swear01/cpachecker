@@ -39,8 +39,7 @@ public class ProposalPromptBuilderTest {
     assertThat(safe.system()).contains("Stop when no new grounded split remains");
     assertThat(safe.system()).contains("separates a relevant state pair not already separated");
     assertThat(safe.system()).contains("Logically equivalent predicates and logical negations");
-    assertThat(safe.system())
-        .contains("algebraic rewrites, swapped operands, and shifted integer bounds");
+    assertThat(safe.system()).contains("algebraic rewrites, swapped operands, and shifted integer bounds");
     assertThat(safe.fullText()).doesNotContain("Return between");
     assertThat(safe.fullText()).doesNotContain("Between 8 and 16 items");
     assertThat(safe.user()).doesNotContain("PREDICATE BUDGET");
@@ -157,8 +156,7 @@ public class ProposalPromptBuilderTest {
     assertThat(without.user()).doesNotContain("PRIOR CE HISTORY");
 
     PromptMessages with =
-        builder.buildPrompt(
-            pack, budget, PromptProfile.SAFE, 1, "[refinement 1] loop visits: N1 x2\n");
+        builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1, "[refinement 1] loop visits: N1 x2\n");
     assertThat(with.user()).contains("PRIOR CE HISTORY (bounded, read-only)");
     assertThat(with.user()).contains("loop visits: N1 x2");
   }
@@ -186,7 +184,13 @@ public class ProposalPromptBuilderTest {
 
     PromptMessages with =
         builder.buildPrompt(
-            pack, budget, PromptProfile.SAFE, 1, "", "", "[local N1 | native] (bvslt i n)\n");
+            pack,
+            budget,
+            PromptProfile.SAFE,
+            1,
+            "",
+            "",
+            "[local N1 | native] (bvslt i n)\n");
     assertThat(with.user()).contains("NATIVE CEGAR PRECISION (read-only)");
     assertThat(with.user()).contains("[local N1 | native] (bvslt i n)");
   }
