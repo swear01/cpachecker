@@ -39,7 +39,8 @@ public class ProposalPromptBuilderTest {
     assertThat(safe.system()).contains("Stop when no new grounded split remains");
     assertThat(safe.system()).contains("separates a relevant state pair not already separated");
     assertThat(safe.system()).contains("Logically equivalent predicates and logical negations");
-    assertThat(safe.system()).contains("algebraic rewrites, swapped operands, and shifted integer bounds");
+    assertThat(safe.system())
+        .contains("algebraic rewrites, swapped operands, and shifted integer bounds");
     assertThat(safe.fullText()).doesNotContain("Return between");
     assertThat(safe.fullText()).doesNotContain("Between 8 and 16 items");
     assertThat(safe.user()).doesNotContain("PREDICATE BUDGET");
@@ -75,6 +76,37 @@ public class ProposalPromptBuilderTest {
     assertThat(safe.user()).doesNotContain("(= k i)");
     assertThat(safe.fullText()).doesNotContain("Prefer broad coverage and informed guesses");
     assertThat(safe.fullText()).doesNotContain("Use the available budget");
+  }
+
+  @Test
+  public void minimalRepairPromptUsesSameCandidatePolicy() {
+    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, true);
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "int i,n;\nwhile(i<n){i++;}\n",
+            "i >= n",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "L@N1: (bvslt i n)\n",
+            "");
+
+    PromptMessages repair =
+        builder.buildRepair(
+            pack,
+            ImmutableList.of("(bvslt i n)"),
+            new PredicateBudget(8, 12),
+            PromptProfile.SAFE,
+            2);
+
+    assertThat(repair.system()).contains("Return at most 12 candidates");
+    assertThat(repair.system()).contains("logical negations are the same split");
+    assertThat(repair.fullText()).doesNotContain("Between 8 and 12");
+    assertThat(repair.user()).doesNotContain("PREDICATE BUDGET");
   }
 
   @Test
@@ -125,7 +157,8 @@ public class ProposalPromptBuilderTest {
     assertThat(without.user()).doesNotContain("PRIOR CE HISTORY");
 
     PromptMessages with =
-        builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1, "[refinement 1] loop visits: N1 x2\n");
+        builder.buildPrompt(
+            pack, budget, PromptProfile.SAFE, 1, "[refinement 1] loop visits: N1 x2\n");
     assertThat(with.user()).contains("PRIOR CE HISTORY (bounded, read-only)");
     assertThat(with.user()).contains("loop visits: N1 x2");
   }
@@ -153,13 +186,7 @@ public class ProposalPromptBuilderTest {
 
     PromptMessages with =
         builder.buildPrompt(
-            pack,
-            budget,
-            PromptProfile.SAFE,
-            1,
-            "",
-            "",
-            "[local N1 | native] (bvslt i n)\n");
+            pack, budget, PromptProfile.SAFE, 1, "", "", "[local N1 | native] (bvslt i n)\n");
     assertThat(with.user()).contains("NATIVE CEGAR PRECISION (read-only)");
     assertThat(with.user()).contains("[local N1 | native] (bvslt i n)");
   }
