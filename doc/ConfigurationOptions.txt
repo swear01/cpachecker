@@ -6005,8 +6005,8 @@ vguide.maxLlmRoundsPerProcess = 0
 # extras truncated after parse (array order = priority).
 vguide.maxPredicatesPerCall = 12
 
-# Soft lower bound in LLM prompt: aim for at least this many predicates per
-# response (not enforced after parse).
+# Legacy lower-bound metadata for fixed/adaptive budget records. The
+# production prompt has no minimum candidate count.
 vguide.minPredicatesPerCall = 8
 
 # Expose the current native CEGAR predicate precision (globals,

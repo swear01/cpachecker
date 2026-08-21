@@ -62,8 +62,8 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
-          "Soft lower bound in LLM prompt: aim for at least this many predicates per response"
-              + " (not enforced after parse).")
+          "Legacy lower-bound metadata for fixed/adaptive budget records. The production prompt"
+              + " has no minimum candidate count.")
   @IntegerOption(min = 1)
   private int minPredicatesPerCall = 8;
 

@@ -18,7 +18,7 @@ import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 public class ProposalPromptBuilderTest {
 
   @Test
-  public void buildPrompt_includesDynamicBudgetAndCeSummary() {
+  public void buildPrompt_usesSingleMaxOnlyMarginalSplitContract() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
     ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
     ContextPack pack =
@@ -35,7 +35,14 @@ public class ProposalPromptBuilderTest {
             "");
     PredicateBudget budget = new PredicateBudget(8, 16);
     PromptMessages safe = builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
-    assertThat(safe.user()).contains("Return between 8 and 16 predicates");
+    assertThat(safe.system()).contains("Return at most 16 candidates");
+    assertThat(safe.system()).contains("Stop when no new grounded split remains");
+    assertThat(safe.system()).contains("separates a relevant state pair not already separated");
+    assertThat(safe.system()).contains("Logically equivalent predicates and logical negations");
+    assertThat(safe.system()).contains("algebraic rewrites, swapped operands, and shifted integer bounds");
+    assertThat(safe.fullText()).doesNotContain("Return between");
+    assertThat(safe.fullText()).doesNotContain("Between 8 and 16 items");
+    assertThat(safe.user()).doesNotContain("PREDICATE BUDGET");
     assertThat(safe.user()).contains("STRUCTURED SPURIOUS COUNTEREXAMPLE");
     assertThat(safe.user()).contains("L@N1:");
     assertThat(safe.system()).contains("\"candidates\"");
@@ -44,29 +51,61 @@ public class ProposalPromptBuilderTest {
   }
 
   @Test
-  public void buildPrompt_encouragesBroadNonInvariantPredicates() {
+  public void buildPrompt_doesNotAnchorTaskSpecificFormulaExamples() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
     ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
     ContextPack pack =
         new ContextPack(
             1,
-            "int i;\nwhile(i<10){i++;}\n",
-            "i == 10",
+            "int i, j, k, n;\nwhile(i<n){i++; k++;}\n",
+            "k > 0",
             ImmutableList.of(),
             ImmutableMap.of(),
             ImmutableSet.of(),
             new BlockFormulas(ImmutableList.of()),
             ImmutableList.of(),
-            "L@N1: (bvslt i (_ bv10 32))\n",
+            "L@N1: source-level loop state\n",
             "");
 
     PromptMessages safe =
         builder.buildPrompt(pack, new PredicateBudget(8, 12), PromptProfile.SAFE, 1);
 
-    assertThat(safe.user()).contains("does not need to be an invariant");
-    assertThat(safe.user()).contains("Prefer broad coverage and informed guesses");
-    assertThat(safe.user()).contains("Use the available budget");
-    assertThat(safe.user()).contains("Initiation-only, exit-only, threshold");
+    assertThat(safe.fullText()).doesNotContain("Examples (");
+    assertThat(safe.user()).doesNotContain("(bvsge i (_ bv0 32))");
+    assertThat(safe.user()).doesNotContain("(= k i)");
+    assertThat(safe.fullText()).doesNotContain("Prefer broad coverage and informed guesses");
+    assertThat(safe.fullText()).doesNotContain("Use the available budget");
+  }
+
+  @Test
+  public void minimalRepairPromptUsesSameCandidatePolicy() {
+    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, true);
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "int i,n;\nwhile(i<n){i++;}\n",
+            "i >= n",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "L@N1: (bvslt i n)\n",
+            "");
+
+    PromptMessages repair =
+        builder.buildRepair(
+            pack,
+            ImmutableList.of("(bvslt i n)"),
+            new PredicateBudget(8, 12),
+            PromptProfile.SAFE,
+            2);
+
+    assertThat(repair.system()).contains("Return at most 12 candidates");
+    assertThat(repair.system()).contains("logical negations are the same split");
+    assertThat(repair.fullText()).doesNotContain("Between 8 and 12");
+    assertThat(repair.user()).doesNotContain("PREDICATE BUDGET");
   }
 
   @Test

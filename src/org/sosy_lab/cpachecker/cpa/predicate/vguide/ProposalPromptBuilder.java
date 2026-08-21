@@ -71,7 +71,7 @@ public final class ProposalPromptBuilder {
         buildSharedUserPrefix(pack)
             + buildSourceBlock(pack)
             + buildProfileBlock(pack, profile, refinementIndex)
-            + buildDynamicTail(pack, budget, profile, ceHistory, refinementOutcomes, nativePredicateContext);
+            + buildDynamicTail(pack, ceHistory, refinementOutcomes, nativePredicateContext);
     return new PromptMessages(buildSystemMessage(budget, minimalPrompt), user);
   }
 
@@ -97,7 +97,7 @@ public final class ProposalPromptBuilder {
         buildSharedUserPrefix(pack)
             + buildSourceBlock(pack)
             + buildProfileBlock(pack, profile, refinementIndex)
-            + buildDynamicTail(pack, budget, profile, ceHistory, refinementOutcomes, nativePredicateContext)
+            + buildDynamicTail(pack, ceHistory, refinementOutcomes, nativePredicateContext)
             + buildRepairTail(rejectedPredicates, profile);
     return new PromptMessages(buildSystemMessage(budget, minimalPrompt), user);
   }
@@ -140,14 +140,11 @@ public final class ProposalPromptBuilder {
     String role = profileRole(profile);
     String task =
         refinementIndex == 1 ? profileFirstTask(profile) : profileLaterTask(profile);
-    return assertionLine + "\n" + role + "\n" + task + profileExamples(pack.sourceCode(), pack.assertion(), profile);
+    return assertionLine + "\n" + role + "\n" + task;
   }
 
   private static String buildDynamicTail(
-      ContextPack pack,
-      PredicateBudget budget,
-      PromptProfile profile,
-      String ceHistory,
+      ContextPack pack, String ceHistory,
       String refinementOutcomes,
       String nativePredicateContext) {
     String historyBlock =
@@ -167,8 +164,7 @@ public final class ProposalPromptBuilder {
         + "\n"
         + historyBlock
         + outcomeBlock
-        + nativeBlock
-        + predicateBudgetBlock(budget, profile);
+        + nativeBlock;
   }
 
   private static String formatAssertionLine(String assertion, PromptProfile profile) {
@@ -253,131 +249,26 @@ public final class ProposalPromptBuilder {
       """;
   }
 
-  private static String predicateBudgetBlock(PredicateBudget budget, PromptProfile profile) {
-    int min = budget.minPerCall();
-    int max = budget.maxPerCall();
-    if (profile == PromptProfile.BUG_HUNT) {
-      return """
-        PREDICATE BUDGET (single API response — array order = priority, best first):
-        - Return between %d and %d predicates.
-        - A predicate does not need to be an invariant or hold at every loop-head visit.
-          Initiation-only, exit-only, threshold, violation-state, and path-splitting predicates are useful.
-        - Prefer broad coverage and informed guesses when uncertain; downstream validation and CEGAR determine usefulness.
-        - Use the available budget unless further candidates would be near-duplicates or unrelated.
-        - Prefer DISTINCT roles, e.g.:
-          (1) assertion-failure or violation-state discriminator
-          (2) loop-carried relation or guard-tight bound on the spurious path
-          (3) optional spurious-path splitter (not proving assertion always true)
-        - Do not return near-duplicates or predicates unrelated to the program.
-        """
-          .formatted(min, max);
-    }
-    return """
-      PREDICATE BUDGET (single API response — array order = priority, best first):
-      - Return between %d and %d predicates.
-      - A predicate does not need to be an invariant or hold at every loop-head visit.
-        Initiation-only, exit-only, threshold, violation-state, and path-splitting predicates are useful.
-      - Prefer broad coverage and informed guesses when uncertain; downstream validation and CEGAR determine usefulness.
-      - Use the available budget unless further candidates would be near-duplicates or unrelated.
-      - Prefer DISTINCT roles (one per line of thought), e.g.:
-        (1) loop-carried relation or guard-tight bound (non-trivial)
-        (2) cross-variable relation tied to the assertion or spurious path
-        (3) optional strengthener supporting the assertion or cross-loop coupling
-      - Do not return near-duplicates or predicates unrelated to the program.
-      - Cover assertion support and cross-loop relations when multiple loops exist.
-      """
-        .formatted(min, max);
-  }
-
-  private static String profileExamples(String source, String assertion, PromptProfile profile) {
-    if (profile == PromptProfile.BUG_HUNT) {
-      if (assertion.contains("x") && source.contains("x = 0")) {
-        return """
-
-            Examples (violation / assert-failure states):
-              (= x (_ bv0 32))
-              (not (= x (_ bv1 32)))
-              (= y (_ bv1024 32))
-            """;
-      }
-      if (assertion.contains("bvand") || assertion.contains("bvurem")) {
-        return """
-
-            Examples (parity violation states):
-              (= (bvand x (_ bv1 32)) (_ bv0 32))
-              (not (= (bvurem x (_ bv2 32)) (_ bv0 32)))
-            """;
-      }
-      return """
-
-          Examples (assertion-failure oriented):
-            (not (= x (_ bv1 32)))
-            (= x (_ bv0 32))
-          """;
-    }
-    return taskExamplesSafe(source, assertion);
-  }
-
-  private static String taskExamplesSafe(String source, String assertion) {
-    if (source.contains("int k") && source.contains("int i") && source.contains("int n")) {
-      return """
-
-          Examples (scalar loop / counter — match your assertion):
-            (bvsge i (_ bv0 32))
-            (bvsge k (_ bv0 32))
-            (bvslt i n)
-            (= k i)
-            (bvsle i n)
-          """;
-    }
-    if (SourceVariableHints.hasArrayDecl(source)) {
-      return """
-
-          Examples (array search loop — index scalars ONLY):
-            (bvsge i (_ bv0 32))
-            (bvsle i (_ bv1024 32))
-            (bvslt i (_ bv1024 32))
-          Array reads use C syntax a[i] — e.g. (= a[i] (bvadd (bvmul i (_ bv2 32)) (_ bv1 32)));
-          the system translates them. Never write select/store or @versioned names.
-          """;
-    }
-    if (assertion.contains("i") && assertion.contains("j")) {
-      return """
-
-          Examples (multi-index / string style):
-            (bvsge i (_ bv0 32))
-            (bvsge j (_ bv0 32))
-            (bvslt i (_ bv100 32))
-          """;
-    }
-    if (assertion.contains("bvand") || assertion.contains("bvurem")) {
-      return """
-
-          Examples (parity / modular):
-            (= (bvand x (_ bv1 32)) (_ bv1 32))
-            (not (= (bvurem x (_ bv2 32)) (_ bv0 32)))
-            (bvsgt x (_ bv0 32))
-          """;
-    }
-    return "";
-  }
-
   private static String buildJsonContract(PredicateBudget budget) {
     return """
 
         Output ONLY valid JSON (no markdown, no commentary):
-        {"schema_version":"loop-head-candidate-v1","candidates":[
-          {"loop_head":"N12","predicate":"(bvslt i n)","role":"relational"},
-          {"loop_heads":["N12","N15"],"predicate":"(= i k)","role":"bound"}
-        ]}
+        {"schema_version":"loop-head-candidate-v1","candidates":[]}
         - Every candidate MUST name a loop head from the LOOP HEADS list (\"N*\" label).
         - Use \"loop_heads\":[...] only when the predicate is meaningful at every named head.
         - Candidates without a loop head are discarded; Java never broadcasts predicates.
         - role (optional): initiation, supporting, relational, or bound.
-        - Examples below are formulas only; wrap each with a loop_head from the LOOP HEADS list.
-        - Between %d and %d items.
+        CANDIDATE POLICY (array order = priority, best first):
+        - Return at most %d candidates; an empty candidates array is valid. Stop when no new grounded split remains.
+        - Add a candidate only if source, transition, assertion, or counterexample evidence supports it and it
+          separates a relevant state pair not already separated by an earlier candidate at that head.
+        - Logically equivalent predicates and logical negations are the same split, including algebraic rewrites, swapped operands, and shifted integer bounds. Keep only the better-ranked representative.
+        - Do not enumerate syntax, constants, roles, or loop heads. Name multiple heads only when evidence
+          supports the predicate independently at every named head.
+        - A split may be initiation-only, exit-only, threshold, violation-state, or path-specific; it need not
+          hold at every loop-head visit.
         """
-        .formatted(budget.minPerCall(), budget.maxPerCall());
+        .formatted(budget.maxPerCall());
   }
 
 }
