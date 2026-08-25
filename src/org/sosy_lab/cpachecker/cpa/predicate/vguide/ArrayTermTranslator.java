@@ -626,8 +626,12 @@ final class ArrayTermTranslator {
 
   boolean isEncodingVariable(String variableName) {
     String unversioned = unversion(variableName);
-    return templates.values().stream()
-        .anyMatch(t -> t.heapVar().equals(unversioned) || t.addrVar().equals(unversioned));
+    for (AccessTemplate t : templates.values()) {
+      if (t.heapVar().equals(unversioned) || t.addrVar().equals(unversioned)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ---------------------------------------------------------------------------------------------
