@@ -51,7 +51,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "9";
+  public static final String SCHEMA_VERSION = "10";
   private static final ObjectMapper JSON = new ObjectMapper();
   static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -142,7 +142,7 @@ public final class VGuideAnalysisDumper {
       List<ARGState> abstractionStatesTrace,
       BlockFormulas formulas,
       CounterexampleTraceInfo counterexample,
-      @Nullable ARGReachedSet reachedBefore,
+      @Nullable ObjectNode precisionBefore,
       @Nullable ARGReachedSet reachedAfter,
       @Nullable List<DumpValidatedPredicate> validatedPredicates,
       @Nullable List<DumpValidatedPredicate> injectedPredicates,
@@ -178,8 +178,10 @@ public final class VGuideAnalysisDumper {
     row.set("var_contract", varContractJson(pack.varContract()));
     row.set("loop_heads", loopHeadsJson(pack.loopHeads()));
     row.set("abstraction_states", abstractionStatesJson(abstractionStatesTrace));
-    row.set("precision_local_before", precisionLocalJson(reachedBefore));
-    row.set("precision_global_before", precisionGlobalJson(reachedBefore));
+    ObjectNode precisionBeforeSnapshot =
+        precisionBefore == null ? precisionSnapshot(null) : precisionBefore;
+    row.set("precision_local_before", precisionBeforeSnapshot.path("local"));
+    row.set("precision_global_before", precisionBeforeSnapshot.path("global"));
     if (llmCalled) {
       if (llmRoundIndex != null) {
         row.put("llm_round_index", llmRoundIndex);
@@ -511,7 +513,7 @@ public final class VGuideAnalysisDumper {
     return arr;
   }
 
-  private ObjectNode precisionSnapshot(@Nullable ARGReachedSet reached) {
+  ObjectNode precisionSnapshot(@Nullable ARGReachedSet reached) {
     ObjectNode snap = JSON.createObjectNode();
     snap.set("local", precisionLocalJson(reached));
     snap.set("global", precisionGlobalJson(reached));

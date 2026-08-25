@@ -45,6 +45,10 @@ The Dataset v2 release's 448 validation rows are historical dataset-construction
 - Frozen resource limits (to confirm before section 4): parallelism 8,
   timelimit 300s, heap 6000M, model deepseek-v4-pro (from development
   evidence; prompt/context version = schema-9 dump + `loop-head-candidate-v1`).
+  Schema 9 and earlier serialized `precision_local_before` and
+  `precision_global_before` from an in-place-mutated reached set; those fields
+  are invalid for native-overlap attribution. Corrected runs require schema 10
+  or later ([#140](https://github.com/swear01/cpachecker/issues/140)).
 
 ### 2. Build and validate the augmentation on development data
 
@@ -99,7 +103,7 @@ Smoke set: 12 tasks (12 families, 2 expected-false) from the frozen manifest (`/
 
 Harvest / gates (for the agent continuing this run):
 
-- Per-arm products under `output/vguide/core_only/<arm>_core/` (or `smoke_<arm>/`): `records.jsonl` (one record per task: task/property/source hashes, commit, config/solver hashes, wall/CPU/memory, verdict, refinements, LLM calls, validated/injected predicates, failure category), `run_meta.json` (arm/commit/config+manifest hashes/limits/model), `logs/<task>.log`, and `dumps/` for the augmented arm (VGuide analysis dump, schema-9).
+- Per-arm products under `output/vguide/core_only/<arm>_core/` (or `smoke_<arm>/`): `records.jsonl` (one record per task: task/property/source hashes, commit, config/solver hashes, wall/CPU/memory, verdict, refinements, LLM calls, validated/injected predicates, failure category), `run_meta.json` (arm/commit/config+manifest hashes/limits/model), `logs/<task>.log`, and `dumps/` for the augmented arm (historical schema-9 VGuide dump; use schema 10 or later for corrected before/after precision attribution).
 - Smoke gate: `python3 scripts/vguided-cegar/check_core_only_smoke.py output/vguide/core_only/smoke_stock/records.jsonl output/vguide/core_only/smoke_augmented/records.jsonl --expect-count 12` — complete records + 0 wrong verdicts; only then the driver proceeds to the held-out stage.
 - Held-out gate: same checker with `--expect-count 224` on `stock_core` / `augmented_core`.
 - Paired analysis (§6): join both arms' `records.jsonl` on `task`; per-task new/lost/disagreement/wrong; LLM metrics from the augmented dumps (`dumps/<task>/tasks/<stem>/llm_rounds.jsonl`, `refinements.jsonl` — validated/injected/rejections/ce_history/native_predicate_context).

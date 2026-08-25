@@ -8,6 +8,7 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Predicates;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
@@ -99,7 +100,7 @@ public final class VGuideRefinementBridge {
   List<ARGState> trace;
   BlockFormulas formulas;
   CounterexampleTraceInfo counterexample;
-  ARGReachedSet reachedBefore;
+  @Nullable ObjectNode dumpPrecisionBefore;
   List<VGuideAnalysisDumper.DumpValidatedPredicate> validated = List.of();
   List<CandidateRejection> rejections = List.of();
   CeHistoryStore.@Nullable Snapshot ceHistorySnapshot;
@@ -369,12 +370,14 @@ public final class VGuideRefinementBridge {
             + (abstractionStatesTrace == null ? 0 : abstractionStatesTrace.size()));
     PendingRefinementDump dump = new PendingRefinementDump();
     dump.precisionBeforeSnapshot = canonicalPrecisionSet(reachedBefore);
+    if (analysisDumper != null) {
+      dump.dumpPrecisionBefore = analysisDumper.precisionSnapshot(reachedBefore);
+    }
     dump.refinementIndex = refinementIndex;
     dump.pack = pack;
     dump.trace = abstractionStatesTrace;
     dump.formulas = formulas;
     dump.counterexample = counterexample;
-    dump.reachedBefore = reachedBefore;
     dump.llmCalled = false;
     pendingDump = dump;
 
@@ -687,7 +690,7 @@ public final class VGuideRefinementBridge {
             pendingDump.trace,
             pendingDump.formulas,
             pendingDump.counterexample,
-            pendingDump.reachedBefore,
+            pendingDump.dumpPrecisionBefore,
             reached,
             pendingDump.llmCalled ? injected : null,
             pendingDump.llmCalled ? injected : null,
