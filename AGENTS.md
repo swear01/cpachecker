@@ -4,9 +4,10 @@
   全部在 `/home/swear01/cpachecker-experiments/`（README 是總索引；
   遷移清單：GitHub Issue #55）。
 - **研究設計與 decisions**：GitHub Wiki（source of truth）。
-- **正式 run 的 CPU isolation 是強制要求**：taskset `0,2,4,6,8,10,12,14`
-  （8 P-cores、無 SMT/E-core）、run 前 load check、三機 pool
-  （valkyrie/athena/cthulhu）擇 `idle_ready`；完整 protocol：
+- **只有正式 timing/performance/PAR-2 run 強制 CPU isolation**：taskset
+  `0,2,4,6,8,10,12,14`、run 前 load check、三機 pool 擇 `idle_ready`。
+  Capability/mechanism run 可在記錄 host/load/provenance 後執行；其結果只支援
+  verdict/refinement 主張，不支援精確 timing。完整 protocol：
   `/home/swear01/cpachecker-experiments/docs/vguided-cegar/EXPERIMENT_PROTOCOL.md`
   或新 branch `research/vguide-upstream-reimpl` 的 `docs/EXPERIMENT_PROTOCOL.md`。
 - repo 的 `docs/vguided-cegar/` 只保留被 scripts/config 引用的資料

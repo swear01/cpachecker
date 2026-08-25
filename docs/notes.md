@@ -19,15 +19,29 @@
 - **`DEEPSEEK_API_KEY` is required for live/record mode.** A paired replay may omit it only when `VGUIDE_LLM_REPLAY_DIR` is set. Record/replay are mutually exclusive and a replay miss terminates the run instead of falling back to the live API or stock behavior.
 - **`cpachecker-experiments/runs/legacy_output_2026/vguide/` is gitignored.** Experiment results live locally only. Do not commit them.
 - **Raw output lifecycle (both git-ignored).** Active raw → `cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/` (run.sh writes here automatically). Retired raw → `mv` it to `cpachecker-experiments/records/archive/raw-legacy/` to keep it; do NOT delete raw just to free git (it's already ignored), and never put raw in tracked dirs.
-- **Native-solver test exclusions (issues #30/#111, since 2026-08-11).** `SolverViewBasedTest0`
-  assumes-away OpenSMT, Z3, Z3_WITH_INTERPOLATION, CVC4, CVC5, BITWUZLA (besides BOOLECTOR/YICES2),
-  **gated on the env var `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1`** (value must be "1" or
-  "true"): other machines keep full solver coverage. On this machine the bundled native libs
-  crash/cannot load (Z3 4.15.4 needs glibc 2.38; Z3 4.5.0 legacy segfaults; bitwuzla/cvc5 JNI
-  crash in the shared JVM), and loading OpenSMT before MathSAT contaminates MathSAT's native
-  symbol state in parameterized tests (issue #111) — run `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1
-  ant unit-tests` here. The JUnit unit-test baseline with the gate has 0 crashed classes and no
-  known solver-test failures. Machines without the gate retain full solver coverage.
+- **Native-solver test exclusions (issues #30/#111, since 2026-08-11).** Before any repo-wide
+  JUnit run on this fleet, use `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1 ant unit-tests`; do not run
+  bare `ant unit-tests` or `ant standard-checks` and interpret the resulting native crashes as
+  change regressions. The gate assumes-away OpenSMT, Z3, Z3_WITH_INTERPOLATION, CVC4, CVC5 and
+  BITWUZLA (besides BOOLECTOR/YICES2) because of documented bundled-native/shared-JVM failures
+  in #30/#111. On Ubuntu 26.04/glibc 2.43 the gated suite creates no JVM crash; machines without
+  the gate retain full solver coverage.
+- **Scoped verification baseline (2026-08-25, `origin/main@c5ab0c62ad`).** A repo-wide failure
+  that is already present on the canonical base does not block a research-scoped change when the
+  exact baseline is recorded and the diff adds no finding; any new failing class, native crash,
+  forbidden-API location or larger count blocks publication. Current gated JUnit baseline: four
+  failing ILP32/MPOR classes, all caused by missing 32-bit headers after the Ubuntu upgrade removed
+  `gcc-multilib`/`libc6-dev-i386`. Current `ant forbiddenapis` baseline: 78 findings across existing
+  VGuide production/test classes (not third-party JARs); Issue #140 adds zero forbidden calls.
+  Re-establish the baseline against the current canonical base instead of carrying these counts
+  forward after code or environment changes.
+- **Bundled native libraries are not self-contained system images.** Ivy downloads JavaSMT's
+  platform-specific JARs and `.so` files into gitignored `lib/java/runtime/`; those native objects
+  still dynamically link the host's glibc/libstdc++. Do not commit native binaries or OS headers.
+  The repository already declares `gcc-multilib` in `build/gitlab-ci.Dockerfile.jdk-*`; on Ubuntu
+  26.04 that package restores `libc6-dev-i386` and the complete ILP32 test toolchain. The current
+  224-task core-only cohort is unaffected (71 preprocessed `.i`; 153 `.c`, none with `#include`),
+  but the full ILP32 unit-test suite requires the package.
 - **Configuration-check baseline is explicitly classified (issue #116).** The forked checker now
   pins its JVM to `-Xmx4g`, preventing JavaBDD's `Runtime.maxMemory()`-based table sizing from
   overflowing on large-memory hosts; bare `ant configuration-checks` no longer needs an environment
@@ -37,16 +51,18 @@
   VGuide components and non-VGuide configs remain runnable checks; VGuide component checks need
   the normal provider or replay environment. The checker does not globally
   suppress `vguide.*` or silently add the VGuide hook.
-- **Formal-run CPU isolation is mandatory (Baseline-Protocol, since 2026-08-11).**
-  Any timing-sensitive experiment (baselines, core-only 224, future ablation runs) must pin
+- **Evidence-tiered CPU isolation (Baseline-Protocol, updated 2026-08-25).**
+  Formal timing/performance/PAR-2 experiments must pin
   CPA invocations with `taskset -c 0,2,4,6,8,10,12,14` (8 physical P-cores, no SMT sibling,
   no E-core), refuse to start when the P-core pool is busy (mpstat ≥50% or concurrent local
   processes), record `cpu_isolation`/`load_check` in run_meta.json, and pick the machine via
   the fleet availability monitor (valkyrie/athena/cthulhu, idle_ready; 13900K/14900K P-cores
-  are comparable and mixable). `run_core_only.sh` implements this. Contaminated runs are
-  invalid for timing claims. Full text: `docs/EXPERIMENT_PROTOCOL.md` (branch
+  are comparable and mixable). Capability and predicate-mechanism runs may proceed without an
+  idle-ready host when they record host/load/provenance; they support correct verdict/refinement
+  claims only, and near-timeout or asymmetric-load outcomes require replication. `run_core_only.sh`
+  remains the strict timing runner. Full text: `docs/EXPERIMENT_PROTOCOL.md` (branch
   `research/vguide-upstream-reimpl`). The 2026-08-11 stock+augmented 224 runs predate this
-  and are a rough usefulness check only.
+  and support verdict-only usefulness observations, not timing claims.
 - **LLM soundness constraint.** VGuide must only propose candidates (Tier S) or control resources/routing (Tier R). Never let LLM output be used as a direct verdict or unverified assumption (Tier X = forbidden).
 - **Loop-head candidate contract (Issue #4, since 2026-08-10).** The LLM output contract is `loop-head-candidate-v1`: every candidate must name its loop head(s). Legacy `{"predicates":[...]}` responses are rejected per item as `missing_loop_head` — do NOT re-introduce implicit broadcast. Free variables must be visible at the named head (encoded vocabulary + function scope). `over_specific`/`group_conflict` are advisory diagnostics; `group_conflict` is computed only when `vguide.enableL3Entailment=true`. Dump schema is 5 (`candidate_rejections`).
 - **Termination branch is Class-B.** The `termination.config` path uses `TerminationToReachCPA`, not PredicateCPA. VGuide cannot fire there without a new Java ranking-function hook. Do not attempt Class-A config tricks for termination.
