@@ -37,7 +37,12 @@ public class ProposalPromptBuilderTest {
     PromptMessages safe = builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
     assertThat(safe.system()).contains("Return at most 16 candidates");
     assertThat(safe.system()).contains("Stop when no new grounded split remains");
-    assertThat(safe.system()).contains("separates a relevant state pair not already separated");
+    assertThat(safe.system())
+        .contains("separates proof-relevant concrete or spurious abstract states at that head");
+    assertThat(safe.system())
+        .contains(
+            "for nested loops, consider inherited outer-guard facts over variables unchanged there");
+    assertThat(safe.system()).doesNotContain("separates a relevant state pair");
     assertThat(safe.system()).contains("Logically equivalent predicates and logical negations");
     assertThat(safe.system()).contains("algebraic rewrites, swapped operands, and shifted integer bounds");
     assertThat(safe.fullText()).doesNotContain("Return between");
