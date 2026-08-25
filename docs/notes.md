@@ -9,7 +9,7 @@
 - **764 全量 run 必須用 `run.sh --mode svcomp26-vguide`（或明確設 `VGUIDE_CONFIG`/`VGUIDE_SVCOMP`/`VGUIDE_SPEC`）— since 2026-08-14.** `run_benchmark_set.sh` 的 config 預設是 `predicateAnalysis-vguide`；直接跑它會與既有 764 數據（`svcomp26-vguide`）不可比。2026-08-14 的 Flash run 就是這樣作廢的（漏 `VGUIDE_CONFIG` → 613 vs 242 LLM 觸發、全部收割結論作廢，見 #76）。完整 launch 環境對照：`cpachecker-experiments/docs/LAUNCH_RECIPES.md`（sibling）。收割前驗證：summary CSV 的 `config` 欄位（2026-08-14 起記錄）或任一 task log 開頭的 `CPAchecker ... / <config>` 字串。
 
 - **Source slicing for huge programs (issue #74, since 2026-08-14).** `ContextPackBuilder` slices sources >100K chars (`SourceSlicer.SLICE_THRESHOLD`) to the loop-head lines + CE-path statement lines + assertion line (margin ±2) before they enter the LLM prompt; small sources pass through untouched. Applies to both `build()` and `buildSourceOnly()`. The assertion line detection matches `__VERIFIER_assert` or `reach_error();` (eca family uses `reach_error()`). The slice keeps constant-array *declarations* but drops their values (neural-net weights etc.) — the SMT validator uses the real program constants, and loop invariants are structural, so values are not needed for LLM proposals. **Known limitation:** line numbers are per-file; slicing assumes a single source file (all 224 core-only tasks are single-file; multi-file programs >100K chars would misalign ranges).
-- **Phase F prompt contract (issues #104–#109).** Source-level array reads use `a[i]` and are translated by `ArrayTermTranslator`; prompts must not simultaneously ban and request that syntax. Scalar declaration hints must cover simple comma-separated declarations. The full context-budget/usefulness design is tracked in `docs/vguided-cegar/evaluation/PHASE_F_PREDICATE_USEFULNESS_HARNESS_PLAN.md` and must stay separate from formal #100/#102 claims.
+- **Phase F prompt contract (issues #104–#109, #143).** Source-level array reads use `a[i]` and are translated by `ArrayTermTranslator`; prompts must not simultaneously ban and request that syntax. For translated array candidates only, scope validation admits the heap/address symbols extracted from the trace template because those names are created by the bridge rather than supplied by the model; arbitrary internal symbols remain subject to the normal scope contract. Scalar declaration hints must cover simple comma-separated declarations. The full context-budget/usefulness design is tracked in `docs/vguided-cegar/evaluation/PHASE_F_PREDICATE_USEFULNESS_HARNESS_PLAN.md` and must stay separate from formal #100/#102 claims.
 - **VGuide predicates are state partitions, not required invariants (issue #119, updated by #132 on 2026-08-21).** Production prompts impose only the configured maximum (12 by default), allow an empty response, and stop when no new evidence-grounded state split remains. Initiation-only, exit-only, threshold, violation-state, and path-specific splits remain valid; judge them by downstream CEGAR usefulness, not by whether each formula holds at every loop-head visit. The configured minimum remains legacy run metadata and is not prompt guidance.
 - **VGuide defaults to one SAFE profile per LLM round (issue #122, since 2026-08-20).** Historical BUG_HUNT results showed no new correct FALSE outcomes, so `dualPromptMode=false` and the SAFE response owns the full maximum candidate cap. BUG_HUNT remains explicit long-term research only (#121), not part of formal default runs.
 - **Predicate candidate diversity means distinct semantic state splits (issue #132, since 2026-08-21).** Exact complements, logical equivalents, algebraic rewrites, swapped operands, and shifted integer-bound encodings count as one split at a loop head; keep only the best-ranked representative. The candidate-count instruction belongs only in the system message. Do not duplicate a minimum or target count in the task/user message: it pressures models to pad responses and can silently invalidate prompt ablations.
@@ -26,20 +26,23 @@
   BITWUZLA (besides BOOLECTOR/YICES2) because of documented bundled-native/shared-JVM failures
   in #30/#111. On Ubuntu 26.04/glibc 2.43 the gated suite creates no JVM crash; machines without
   the gate retain full solver coverage.
-- **Scoped verification baseline (2026-08-25, `origin/main@c5ab0c62ad`).** A repo-wide failure
+- **Scoped verification baseline (2026-08-25, `origin/main@0ddfec079f`).** A repo-wide failure
   that is already present on the canonical base does not block a research-scoped change when the
   exact baseline is recorded and the diff adds no finding; any new failing class, native crash,
-  forbidden-API location or larger count blocks publication. Current gated JUnit baseline: four
-  failing ILP32/MPOR classes, all caused by missing 32-bit headers after the Ubuntu upgrade removed
-  `gcc-multilib`/`libc6-dev-i386`. Current `ant forbiddenapis` baseline: 78 findings across existing
-  VGuide production/test classes (not third-party JARs); Issue #140 adds zero forbidden calls.
+  forbidden-API location or larger count blocks publication. After restoring `gcc-multilib` and
+  `libc6-dev-i386`, `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1 ant unit-tests` passes 3919 tests with
+  1192 skips. Current `ant forbiddenapis` baseline: 78 findings across existing VGuide
+  production/test classes (not third-party JARs). `ant configuration-checks` deterministically
+  crashes in the first `policy-bam` run at `Z3 solverCheck` through the host
+  `libstdc++.so.6.0.35`; it has no broken-solver exclusion and does not execute the VGuide path.
   Re-establish the baseline against the current canonical base instead of carrying these counts
   forward after code or environment changes.
 - **Bundled native libraries are not self-contained system images.** Ivy downloads JavaSMT's
   platform-specific JARs and `.so` files into gitignored `lib/java/runtime/`; those native objects
   still dynamically link the host's glibc/libstdc++. Do not commit native binaries or OS headers.
   The repository already declares `gcc-multilib` in `build/gitlab-ci.Dockerfile.jdk-*`; on Ubuntu
-  26.04 that package restores `libc6-dev-i386` and the complete ILP32 test toolchain. The current
+  26.04 that package restores `libc6-dev-i386` and the complete ILP32 test toolchain. It is installed
+  on the current fleet. The current
   224-task core-only cohort is unaffected (71 preprocessed `.i`; 153 `.c`, none with `#include`),
   but the full ILP32 unit-test suite requires the package.
 - **Configuration-check baseline is explicitly classified (issue #116).** The forked checker now

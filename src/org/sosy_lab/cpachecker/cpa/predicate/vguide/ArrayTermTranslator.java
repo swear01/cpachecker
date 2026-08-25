@@ -624,6 +624,12 @@ final class ArrayTermTranslator {
     return types;
   }
 
+  boolean isEncodingVariable(String variableName) {
+    String unversioned = unversion(variableName);
+    return templates.values().stream()
+        .anyMatch(t -> t.heapVar().equals(unversioned) || t.addrVar().equals(unversioned));
+  }
+
   // ---------------------------------------------------------------------------------------------
   // helpers
   // ---------------------------------------------------------------------------------------------

@@ -257,7 +257,8 @@ public final class PredicateValidationPipeline {
           // names from the SSAMap would not match the encoded vocabulary exactly.
           List<String> preOutOfScope = new ArrayList<>();
           for (String v : fmgr.extractVariableNames(headParsed)) {
-            if (!isVisibleAt(v, head, pack.encodedVars(), unversionedEncodedVars)) {
+            if (!arrayTranslator.isEncodingVariable(v)
+                && !isVisibleAt(v, head, pack.encodedVars(), unversionedEncodedVars)) {
               preOutOfScope.add(v);
             }
           }
@@ -305,7 +306,8 @@ public final class PredicateValidationPipeline {
         lastFormulaText = headFormulaText;
         List<String> outOfScope = new ArrayList<>();
         for (String v : headFreeVars) {
-          if (!isVisibleAt(v, head, pack.encodedVars(), unversionedEncodedVars)) {
+          if (!(arrayCandidate && arrayTranslator.isEncodingVariable(v))
+              && !isVisibleAt(v, head, pack.encodedVars(), unversionedEncodedVars)) {
             outOfScope.add(v);
           }
         }
