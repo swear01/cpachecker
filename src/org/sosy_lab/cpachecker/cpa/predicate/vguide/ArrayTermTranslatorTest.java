@@ -73,6 +73,25 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
   }
 
   @Test
+  public void recognizesTraceDerivedArrayEncodingVariables() {
+    String dump =
+        "(declare-fun |__ADDRESS_OF_main::a@| () (_ BitVec 32))"
+            + " (declare-fun |main::i@4| () (_ BitVec 32))"
+            + " (declare-fun *int@1 () (Array (_ BitVec 32) (_ BitVec 32)))"
+            + " (= (select *int@1 (bvadd |__ADDRESS_OF_main::a@|"
+            + " (bvshl |main::i@4| (_ bv2 32)))) (_ bv0 32))";
+    Map<String, AccessTemplate> found = collect(dump);
+    ArrayTermTranslator translator =
+        new ArrayTermTranslator(com.google.common.collect.ImmutableMap.copyOf(found));
+
+    assertThat(translator.isEncodingVariable("__ADDRESS_OF_main::a")).isTrue();
+    assertThat(translator.isEncodingVariable("|__ADDRESS_OF_main::a@7|")).isTrue();
+    assertThat(translator.isEncodingVariable("*int@1")).isTrue();
+    assertThat(translator.isEncodingVariable("__ADDRESS_OF_main::other")).isFalse();
+    assertThat(translator.isEncodingVariable("main::i@4")).isFalse();
+  }
+
+  @Test
   public void ignoresNonArraySelects() {
     Map<String, AccessTemplate> found =
         collect("(= (select *long_long_int@1 .def_999) (_ bv0 32))");
