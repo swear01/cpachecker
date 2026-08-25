@@ -24,7 +24,7 @@ import org.sosy_lab.java_smt.api.SolverException;
 public class PredicateScorerTest extends SolverViewBasedTest0 {
 
   private PredicateScorer create() {
-    return new PredicateScorer(solver, mgrv, LogManager.createTestLogManager());
+    return new PredicateScorer(solver, LogManager.createTestLogManager());
   }
 
   private static BooleanFormula parse(String expr, FormulaManagerView fmgr) {

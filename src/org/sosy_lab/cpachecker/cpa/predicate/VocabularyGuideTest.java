@@ -109,11 +109,9 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
     vg.addPredicate("loop L1", "(>= i n)");
     vg.addPredicate("loop L2", "(> j 10)");
 
-    FormulaManagerView fmgr = mgrv;
-
-    assertThat(vg.hasVariableOverlap(parse("(>= i 0)", fmgr))).isTrue();
-    assertThat(vg.hasVariableOverlap(parse("(< k 5)", fmgr))).isFalse();
-    assertThat(vg.hasVariableOverlap(parse("(> i j)", fmgr))).isTrue();
+    assertThat(vg.hasVariableOverlap(parse("(>= i 0)", mgrv))).isTrue();
+    assertThat(vg.hasVariableOverlap(parse("(< k 5)", mgrv))).isFalse();
+    assertThat(vg.hasVariableOverlap(parse("(> i j)", mgrv))).isTrue();
     assertThat(vg.getVariableNames()).containsExactly("i", "j", "n");
   }
 

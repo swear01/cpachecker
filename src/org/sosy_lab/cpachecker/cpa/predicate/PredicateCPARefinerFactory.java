@@ -230,8 +230,6 @@ public final class PredicateCPARefinerFactory {
               prefixSelector,
               invariantsManager,
               pRefinementStrategy,
-              null,
-              null,
               bridge);
     } else {
       primaryInterpolationManager =
@@ -258,8 +256,6 @@ public final class PredicateCPARefinerFactory {
               prefixSelector,
               invariantsManager,
               pRefinementStrategy,
-              null,
-              null,
               null);
     }
 

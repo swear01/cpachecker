@@ -26,10 +26,11 @@
   BITWUZLA (besides BOOLECTOR/YICES2) because of documented bundled-native/shared-JVM failures
   in #30/#111. On Ubuntu 26.04/glibc 2.43 the gated suite creates no JVM crash; machines without
   the gate retain full solver coverage.
-- **The fork's `ant all-checks` gate is incomplete until issue #154 is fixed.** Commit `141939b173`
-  deleted `.settings/org.eclipse.jdt.core.prefs`, but `build-project-ecj` still requires that tracked
-  compiler configuration and fails before ECJ runs. Do not restore it in unrelated feature PRs or
-  silently skip ECJ; run the documented component gates and report this baseline limitation.
+- **The canonical full verification command is `ant all-checks` (issue #154).** It includes the
+  strict ECJ build and expensive tests; `.settings/org.eclipse.jdt.core.prefs` is a tracked Ant
+  build input, not optional IDE state. Keep the fleet-specific native-solver exclusion above as a
+  separate `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1 ant unit-tests` component command rather than
+  weakening or replacing the full gate.
 - **Scoped verification baseline (2026-08-25, `origin/main@0ddfec079f`).** A repo-wide failure
   that is already present on the canonical base does not block a research-scoped change when the
   exact baseline is recorded and the diff adds no finding; any new failing class, native crash,
