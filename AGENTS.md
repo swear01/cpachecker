@@ -19,7 +19,7 @@
 ## Core Rules
 
 ### Stay On Task
-Execute ONLY what was requested. If unclear, STOP and ASK. Do NOT assume.
+Execute ONLY what was requested. Clarify only when necessary.
 One task at a time. After completing the task, STOP.
 
 ### Search First, Never Guess
