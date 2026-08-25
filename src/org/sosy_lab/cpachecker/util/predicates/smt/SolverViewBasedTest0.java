@@ -41,12 +41,12 @@ public class SolverViewBasedTest0 extends SolverBasedTest0 {
     return "1".equals(value) || "true".equalsIgnoreCase(value);
   }
 
-  private void assumeNotBrokenNative(Solvers solver, String reason) {
+  private void assumeNotBrokenNative(Solvers pSolver, String reason) {
     if (skipBrokenNativeSolvers()) {
       assume()
-          .withMessage("Solver %s disabled: %s (issues #30/#111)", solver, reason)
+          .withMessage("Solver %s disabled: %s (issues #30/#111)", pSolver, reason)
           .that(solverToUse())
-          .isNotEqualTo(solver);
+          .isNotEqualTo(pSolver);
     }
   }
 

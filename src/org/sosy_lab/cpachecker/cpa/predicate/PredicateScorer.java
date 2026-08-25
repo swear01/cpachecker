@@ -40,7 +40,7 @@ public class PredicateScorer {
   private final Solver solver;
   private final LogManager logger;
 
-  public PredicateScorer(Solver pSolver, FormulaManagerView pFmgr, LogManager pLogger) {
+  public PredicateScorer(Solver pSolver, LogManager pLogger) {
     solver = pSolver;
     logger = pLogger;
   }

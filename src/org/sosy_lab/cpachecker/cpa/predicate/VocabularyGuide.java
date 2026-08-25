@@ -28,7 +28,6 @@ import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
 import org.sosy_lab.java_smt.api.BooleanFormula;
 import org.sosy_lab.java_smt.api.ArrayFormula;
 import org.sosy_lab.java_smt.api.BitvectorFormula;
-import org.sosy_lab.java_smt.api.Formula;
 import org.sosy_lab.java_smt.api.FormulaType;
 
 /**
@@ -245,7 +244,7 @@ public class VocabularyGuide {
     return parsePredicate(expr, fmgr, encodedVariableNames, Map.of());
   }
 
-  /** Variant with array-typed heap variables (see {@link ArrayTermTranslator}). */
+  /** Variant with array-typed heap variables (see {@code ArrayTermTranslator}). */
   public static @Nullable BooleanFormula parsePredicate(
       String expr,
       FormulaManagerView fmgr,
@@ -254,7 +253,7 @@ public class VocabularyGuide {
     return parsePredicate(expr, fmgr, encodedVariableNames, arrayTypes, Map.of());
   }
 
-  /** Variant with array types and per-variable bitwidths (see {@link ArrayTermTranslator}). */
+  /** Variant with array types and per-variable bitwidths (see {@code ArrayTermTranslator}). */
   public static @Nullable BooleanFormula parsePredicate(
       String expr,
       FormulaManagerView fmgr,

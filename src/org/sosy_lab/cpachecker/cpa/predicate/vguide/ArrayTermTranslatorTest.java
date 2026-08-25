@@ -240,12 +240,12 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
     org.sosy_lab.common.configuration.ConfigurationBuilder cb =
         org.sosy_lab.common.configuration.Configuration.builder();
     cb.setOption("solver.solver", "CVC4");
-    org.sosy_lab.cpachecker.util.predicates.smt.Solver solver =
+    org.sosy_lab.cpachecker.util.predicates.smt.Solver cvc4Solver =
         org.sosy_lab.cpachecker.util.predicates.smt.Solver.create(
             cb.build(),
             org.sosy_lab.common.log.LogManager.createNullLogManager(),
             org.sosy_lab.common.ShutdownNotifier.createDummy());
-    FormulaManagerView cvc4 = solver.getFormulaManager();
+    FormulaManagerView cvc4 = cvc4Solver.getFormulaManager();
     var parsed =
         VocabularyGuide.parsePredicate(
             translated, cvc4, Set.of(), translator.arrayTypes(), translator.varBits());

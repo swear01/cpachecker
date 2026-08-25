@@ -387,11 +387,7 @@ final class ArrayTermTranslator {
         .append("))))");
   }
 
-  private record IndexExpr(String smt, int width, int varWidth) {
-    IndexExpr(String smt, int width) {
-      this(smt, width, width);
-    }
-  }
+  private record IndexExpr(String smt, int width, int varWidth) {}
 
   /**
    * Parses a C index expression ({@code i}, {@code 0}, {@code 4*j+1}, ...) into SMT
@@ -825,11 +821,6 @@ final class ArrayTermTranslator {
     }
 
     private static final int MAX_PARSE_DEPTH = 512;
-
-    static Node parse(String text) {
-      List<Node> all = parseAll(text);
-      return all.isEmpty() ? null : all.get(0);
-    }
 
     /** Parses all top-level s-expressions (declares + body) of a dumped formula. */
     static List<Node> parseAll(String text) {

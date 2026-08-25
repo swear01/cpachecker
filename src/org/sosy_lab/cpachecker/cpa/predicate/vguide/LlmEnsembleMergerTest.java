@@ -9,7 +9,6 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.common.collect.ImmutableList;
-import java.util.List;
 import org.junit.Test;
 
 public class LlmEnsembleMergerTest {
