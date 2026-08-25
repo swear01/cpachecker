@@ -7,24 +7,34 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.sosy_lab.cpachecker.cfa.model.CFANode.newDummyCFANode;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSetMultimap;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
+import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
+import org.sosy_lab.cpachecker.core.interfaces.Precision;
+import org.sosy_lab.cpachecker.core.reachedset.UnmodifiableReachedSet;
+import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision;
 import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
+import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
 import org.sosy_lab.cpachecker.util.predicates.smt.SolverViewBasedTest0;
 import org.sosy_lab.java_smt.api.BooleanFormula;
@@ -108,7 +118,8 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         false,
         null);
 
-    Path rowFile = tmp.getRoot().toPath().resolve("tasks").resolve("task").resolve("refinements.jsonl");
+    Path rowFile =
+        tmp.getRoot().toPath().resolve("tasks").resolve("task").resolve("refinements.jsonl");
     JsonNode row = JSON.readTree(Files.readString(rowFile).strip());
     JsonNode validated = row.path("validated_predicates").get(0);
     assertThat(validated.path("role").asText()).isEqualTo("bound");
@@ -121,9 +132,8 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
     assertThat(rejected.path("detail").asText()).contains("N1");
     assertThat(rejected.path("predicate").asText()).isEqualTo("(bvslt w n)");
 
-    JsonNode manifest =
-        JSON.readTree(tmp.getRoot().toPath().resolve("run_manifest.json").toFile());
-    assertThat(manifest.path("schema_version").asText()).isEqualTo("9");
+    JsonNode manifest = JSON.readTree(tmp.getRoot().toPath().resolve("run_manifest.json").toFile());
+    assertThat(manifest.path("schema_version").asText()).isEqualTo("10");
   }
 
   @Test
@@ -194,5 +204,77 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
     assertThat(row.path("ce_history").get(0).path("refinement_index").asInt()).isEqualTo(1);
     assertThat(row.path("ce_history").get(0).path("repeat_count").asInt()).isEqualTo(2);
     assertThat(row.path("ce_history_omitted").asInt()).isEqualTo(0);
+  }
+
+  @Test
+  public void precisionBeforeSurvivesReachedSetMutation() throws Exception {
+    VGuideOptions options = new VGuideOptions(Configuration.builder().build());
+    VGuideAnalysisDumper dumper =
+        new VGuideAnalysisDumper(
+            LOGGER, tmp.getRoot().toPath(), "task", "task", 0, false, false, mgrv, options);
+    BooleanFormula formula =
+        VocabularyGuide.parsePredicate("(bvsge x (_ bv0 32))", mgrv, ImmutableSet.of());
+    AbstractionPredicate predicate = mock(AbstractionPredicate.class);
+    when(predicate.getSymbolicAtom()).thenReturn(formula);
+    CFANode node = newDummyCFANode("f1");
+    PredicatePrecision afterPrecision =
+        new PredicatePrecision(
+            ImmutableSetMultimap.of(),
+            ImmutableSetMultimap.of(node, predicate),
+            ImmutableSetMultimap.of(),
+            ImmutableSet.of());
+    AtomicReference<Precision> currentPrecision = new AtomicReference<>(PredicatePrecision.empty());
+    AbstractState state = mock(AbstractState.class);
+    UnmodifiableReachedSet reachedView = mock(UnmodifiableReachedSet.class);
+    when(reachedView.getFirstState()).thenReturn(state);
+    when(reachedView.getPrecision(state)).thenAnswer(unused -> currentPrecision.get());
+    ARGReachedSet reached = mock(ARGReachedSet.class);
+    when(reached.asReachedSet()).thenReturn(reachedView);
+
+    ObjectNode precisionBefore = dumper.precisionSnapshot(reached);
+    currentPrecision.set(afterPrecision);
+    BlockFormulas formulas = new BlockFormulas(ImmutableList.of(formula));
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "",
+            "",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            formulas,
+            ImmutableList.of(),
+            "",
+            "");
+
+    dumper.recordRefinement(
+        1,
+        false,
+        "schedule",
+        null,
+        null,
+        pack,
+        ImmutableList.of(),
+        formulas,
+        CounterexampleTraceInfo.infeasible(ImmutableList.of(formula)),
+        precisionBefore,
+        reached,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        -1,
+        -1,
+        false,
+        null);
+
+    Path rowFile =
+        tmp.getRoot().toPath().resolve("tasks").resolve("task").resolve("refinements.jsonl");
+    JsonNode row = JSON.readTree(Files.readString(rowFile).strip());
+    assertThat(row.path("precision_local_before").size()).isEqualTo(0);
+    assertThat(row.path("precision_local_after").path("N" + node.getNodeNumber()).size())
+        .isEqualTo(1);
   }
 }
