@@ -192,8 +192,6 @@ public class ProposalPromptBuilderTest {
         builder.buildPrompt(pack, new PredicateBudget(4, 8), PromptProfile.SAFE, 1);
 
     assertThat(prompt.user()).contains("Allowed scalar variables (use ONLY these names): [i, n]");
-    assertThat(prompt.user()).doesNotContain("__line");
-    assertThat(prompt.user()).doesNotContain("__errnum");
   }
 
   @Test

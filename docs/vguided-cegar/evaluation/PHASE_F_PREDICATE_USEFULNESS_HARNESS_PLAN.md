@@ -35,9 +35,14 @@ triage, not proof of current behavior.
   forbidden in LLM output;
 - scalar declarations, arrays, contract keys, and loop-head names are rendered
   without contradictory instructions;
+- runtime CEGAR prompts use the SSA-derived contract as the sole variable
+  authority; source declaration scanning is only the source-only fallback;
+- SSA contract extraction accepts both quoted and unquoted formula-manager
+  names and removes scope/version syntax before presenting source names;
 - source hints currently cover simple `int` object declarators only: array
   declarators, pointers, function declarations, struct/union fields, comments,
-  and string/character literals are excluded deterministically;
+  and string/character literals are excluded deterministically; the first
+  declaration in a function body is covered;
 - final-prompt tests, not only helper-method tests.
 
 ### F2 — structured context contract
