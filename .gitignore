@@ -135,3 +135,6 @@ slides/**/*.vrb
 /vguide-artifact.zip
 vguide-artifact-v2.zip
 vguide-artifact-v2.zip.sha256
+
+# NFS temporary files are never source artifacts.
+.nfs*

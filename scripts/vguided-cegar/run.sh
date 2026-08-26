@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VGuide experiment runner (single entry point; see docs/vguided-cegar/RUN_EXPERIMENTS.md).
+# VGuide experiment runner; formal protocol is in /home/swear01/cpachecker-experiments/.
 #
 # Usage:
 #   ./run.sh bench-setup              # default: recommended (ReachSafety + P1)
@@ -12,16 +12,15 @@
 #   ./run.sh cpa --set full_scalar --mode svcomp27-stock  # -> .../full_scalar_svcomp27_stock
 #   ./run.sh cpa --set full_scalar --parallel 16 --timelimit 300
 #   ./run.sh cpa --set full_scalar --ablation l3 --parallel 8 --timelimit 300
-#   ./run.sh llm-quality [--tasks up,down,array_3-1]
 #   ./run.sh verify-pack --task array_3-1   # CPA + artifacts (real ContextPack)
 #   ./run.sh nla-oracle validate
 #   ./run.sh nla-oracle run --arm both --timelimit 60
 #   ./run.sh help
 #
-# Environment (see RUN_EXPERIMENTS.md):
+# Environment:
 #   JAVA              — Java 21+ required for CPA
-#   DEEPSEEK_API_KEY  — required for vguide / llm-quality / verify-pack
-#   DEEPSEEK_MODEL    — optional override (default deepseek-v4-pro)
+#   MODEL_API_KEY     — required for vguide / verify-pack
+#   VGUIDE_LLM_MODEL — optional override (default muse-spark-1.2-contributor)
 #   VGUIDE_LLM_RECORD_DIR / VGUIDE_LLM_REPLAY_DIR — mutually exclusive paired-response modes
 #   SV_BENCHMARKS     — default $HOME/sv-benchmarks/c
 
@@ -60,14 +59,21 @@ require_api() {
   if [[ -n "${VGUIDE_LLM_RECORD_DIR:-}" && -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then
     die "VGUIDE_LLM_RECORD_DIR and VGUIDE_LLM_REPLAY_DIR are mutually exclusive"
   fi
-  [[ -n "${DEEPSEEK_API_KEY:-}" || -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]] \
-    || die "DEEPSEEK_API_KEY required unless VGUIDE_LLM_REPLAY_DIR is set"
+  local provider
+  provider="$(printf '%s' "${VGUIDE_LLM_PROVIDER:-meta}" | tr '[:upper:]' '[:lower:]')"
+  case "$provider" in
+    meta) [[ -n "${MODEL_API_KEY:-}" || -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]] \
+      || die "MODEL_API_KEY required unless VGUIDE_LLM_REPLAY_DIR is set" ;;
+    deepseek) [[ -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]] \
+      || die "DeepSeek live requests are disabled; set VGUIDE_LLM_REPLAY_DIR for historical replay" ;;
+    *) die "VGUIDE_LLM_PROVIDER must be meta or deepseek, got: ${VGUIDE_LLM_PROVIDER:-}" ;;
+  esac
 }
 
 cmd_help() {
   sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'
   echo ""
-  echo "Docs: $REPO/docs/vguided-cegar/RUN_EXPERIMENTS.md"
+  echo "Protocol: /home/swear01/cpachecker-experiments/docs/vguided-cegar/EXPERIMENT_PROTOCOL.md"
 }
 
 cmd_bench_setup() {
@@ -260,25 +266,6 @@ cmd_cpa() {
     "$SCRIPT_DIR/run_benchmark_set.sh" "$set" "${extra[@]}"
 }
 
-cmd_llm_quality() {
-  local tasks="" runs="" parallel=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --tasks) tasks="$2"; shift 2 ;;
-      --runs) runs="$2"; shift 2 ;;
-      --parallel) parallel="$2"; shift 2 ;;
-      *) die "unknown llm-quality arg: $1" ;;
-    esac
-  done
-  require_api
-  local env_extra=()
-  [[ -n "$tasks" ]] && env_extra+=(VGUIDE_LLM_QUALITY_TASKS="$tasks")
-  [[ -n "$runs" ]] && env_extra+=(VGUIDE_LLM_QUALITY_RUNS="$runs")
-  [[ -n "$parallel" ]] && env_extra+=(VGUIDE_LLM_QUALITY_PARALLEL="$parallel" PARALLEL="$parallel")
-  env "${env_extra[@]}" VGUIDE_BENCH_ROOT="$SV_BENCHMARKS" \
-    python3 "$SCRIPT_DIR/test_llm_proposal_quality.py"
-}
-
 cmd_verify_pack() {
   local task="array_3-1" timelimit=120
   while [[ $# -gt 0 ]]; do
@@ -333,7 +320,6 @@ main() {
     bench-reclassify) cmd_bench_reclassify ;;
     bench-regen) cmd_bench_regen ;;
     cpa) cmd_cpa "$@" ;;
-    llm-quality) cmd_llm_quality "$@" ;;
     verify-pack) cmd_verify_pack "$@" ;;
     nla-oracle) cmd_nla_oracle "$@" ;;
     *) die "unknown command: $cmd (try: ./run.sh help)" ;;

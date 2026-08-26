@@ -14,16 +14,11 @@
 
 ## VGuide 研究文件
 
-VGuide 現行文件：[`vguided-cegar/`](cpachecker-experiments/docs/vguided-cegar/README.md)。
+研究設計的 source of truth 是 [GitHub Wiki](https://github.com/swear01/cpachecker/wiki)。
+實驗 protocol、報告、log 與 artifact 在本機
+`/home/swear01/cpachecker-experiments/`；本 repo 的 `docs/vguided-cegar/` 只保留
+scripts/config 直接引用的 benchmark、predicate 與 evaluation 資料。
 
-| 要做的事 | 入口 |
-|---------|------|
-| 現行研究主線 | [`cpachecker-experiments/docs/vguided-cegar/VGUIDE_NLA_PLAN.md`](cpachecker-experiments/docs/vguided-cegar/VGUIDE_NLA_PLAN.md) |
-| 跑實驗 | [`cpachecker-experiments/docs/vguided-cegar/RUN_EXPERIMENTS.md`](cpachecker-experiments/docs/vguided-cegar/RUN_EXPERIMENTS.md) |
-| 架構 | [`cpachecker-experiments/docs/vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`](cpachecker-experiments/docs/vguided-cegar/architecture/UNIFIED_VGUIDE_ARCHITECTURE.md) |
-| Benchmark | [`vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md`](vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md) |
-| 進度報告 | [`cpachecker-experiments/docs/vguided-cegar/reports/README.md`](cpachecker-experiments/docs/vguided-cegar/reports/README.md) |
-
-歷史報告、case study、舊統計：本機 **`cpachecker-experiments/records/archive/vguided-docs/`**（見 `cpachecker-experiments/records/archive/vguided-docs/README.md`）。
+Benchmark 入口：[`vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md`](vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md)。
 
 CPAchecker 官方文件：[`doc/`](../doc/)。

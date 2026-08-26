@@ -46,8 +46,8 @@ import org.sosy_lab.java_smt.api.SolverException;
  * LLM for candidate ranking functions (with optional supporting invariants), verifies each with
  * {@link RankingFunctionVerifier}, and returns the first verified one as a {@link RankingRelation}.
  *
- * <p>Enabled by environment {@code VGUIDE_TERMINATION_RANKING=on} (and requires {@code
- * DEEPSEEK_API_KEY}); otherwise {@link #isEnabled()} is false and {@link #tryProve} is never called.
+ * <p>Enabled by environment {@code VGUIDE_TERMINATION_RANKING=on} (and requires the configured
+ * provider API key); otherwise {@link #isEnabled()} is false and {@link #tryProve} is never called.
  * The LLM is consulted at most {@code VGUIDE_TERMINATION_RANKING_MAX_PER_LOOP} times per loop and
  * {@code VGUIDE_TERMINATION_RANKING_MAX_TOTAL} times per run.
  */

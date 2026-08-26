@@ -15,9 +15,9 @@ public final class ProposalPromptBuilder {
   private final LoopHeadIndex loopHeadIndex;
 
   /**
-   * Minimal prompt style (VGUIDE_PROMPT_MINIMAL=1): concise instructions per DeepSeek best
-   * practices. The minimal branches intentionally paraphrase the full-mode strings (they are
-   * an experiment variant, #89) — keep semantics in sync when editing either.
+   * Minimal prompt style (VGUIDE_PROMPT_MINIMAL=1). The minimal branches intentionally paraphrase
+   * the full-mode strings (they are an experiment variant, #89) — keep semantics in sync when
+   * editing either.
    */
   private final boolean minimalPrompt;
 

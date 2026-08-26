@@ -9,26 +9,18 @@
 | `config/svcomp26-vguide.properties` | Competition config: routes reachability + overflow through VGuide |
 | `config/vguide-experiment-source-prior-{loops,overflow}.properties` | 消融實驗：source-prior mode，base config（predicateAnalysis-vguide 底） |
 | `config/vguide-experiment-source-prior-svcomp26-{loops,overflow}.properties` | 消融實驗：source-prior mode，svcomp26 portfolio 底 |
-| `scripts/cpachecker-experiments/docs/vguided-cegar/run.sh` | **Single entry point** for all experiments and bench setup |
-| `scripts/cpachecker-experiments/docs/vguided-cegar/oracle_capacity_harness.py` | VGuide-NLA TDD harness：catalog/hash validation、ordinary/KI-PDR/direct-PDR consumers、root/vocabulary modes、comparison/provenance |
-| `scripts/cpachecker-experiments/docs/vguided-cegar/analyze_predicate_usefulness_gate.py` | Replays the frozen first-call gate over recorded stock/VGuide summaries and logs |
-| `scripts/cpachecker-experiments/docs/vguided-cegar/verify_llm_response_pair.py` | Fails unless replay call hashes are an exact per-task prefix of the recorded live arm |
-| `scripts/cpachecker-experiments/docs/vguided-cegar/post_batch_analysis.sh` | PAR-2 / cactus analysis after batch runs |
-| `docs/vguided-cegar/` | All active research documentation |
-| `docs/cpachecker-experiments/docs/vguided-cegar/VGUIDE_NLA_PLAN.md` | **Current main plan** — two execution batches; sole breakpoint before changing BMC core |
-| `docs/cpachecker-experiments/docs/vguided-cegar/RUN_EXPERIMENTS.md` | How to run experiments end-to-end |
-| `docs/cpachecker-experiments/docs/vguided-cegar/architecture/` | Current design specs |
-| `docs/cpachecker-experiments/docs/vguided-cegar/llm/` | LLM scheduling, ensemble, budget, API docs |
+| `scripts/vguided-cegar/run.sh` | Local VGuide/benchmark entry point; formal runs additionally follow the external protocol |
+| `/home/swear01/cpachecker-experiments/` | Experiment protocol, task harnesses, raw evidence and reports |
+| [GitHub Wiki](https://github.com/swear01/cpachecker/wiki) | Current research design and decisions |
+| `docs/vguided-cegar/` | Script/config dependencies only: benchmark sets, predicate sets and evaluation data |
 | `docs/vguided-cegar/evaluation/` | Benchmark definitions, frozen replay, and the Phase F predicate-usefulness/context-budget plan |
 | `docs/vguided-cegar/evaluation/nla_oracle_smoke_candidates.json` | 12-task reference polynomial candidates + frozen source/YAML hashes |
 | `docs/vguided-cegar/evaluation/predicate_usefulness_gate_frozen_20260711.json` | Frozen commits, config/manifest hashes, gate constants, model/solver, and primary resource protocol |
 | `docs/vguided-cegar/evaluation/HARD_CASE_DATASET_V2_FINAL.md` | Final Issue #16 dataset identity, counts, release verification, and downstream-use boundary |
 | `docs/vguided-cegar/benchmark_sets/` | `.list` manifests read by `run.sh` |
 | `docs/vguided-cegar/predicate_sets/` | Frozen predicates for NO_SPURIOUS replay |
-| `docs/cpachecker-experiments/docs/vguided-cegar/reports/` | Experiment result records (not design specs) |
-| `cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/` | **Active raw output** — batch run products, written by `run.sh` (gitignored) |
-| `cpachecker-experiments/records/archive/raw-legacy/` | **Retired raw output** parking — `mv` old raw here instead of deleting (gitignored) |
-| `cpachecker-experiments/records/archive/` | **Obsolete** historical material — never treat as current truth |
+| `/home/swear01/cpachecker-experiments/runs/` | Active raw experiment output |
+| `/home/swear01/cpachecker-experiments/records/archive/` | Historical material; never current truth |
 | `report/` | **LNCS report** (FM 期末,**草稿、尚未投稿**,持續修訂——已納入 v1.7.x schedule 結果;Zenodo artifact DOI `10.5281/zenodo.20745141`) — `main.tex` (llncs.cls), `references.bib`；build artifacts + PDF gitignored |
 | `slides/vguide-presentation/` | **Beamer deck** (dark metropolis) — `main.tex`, `metadata.tex` (數字), `slides/NN_*.tex` (一 frame 一檔), `figures/`; `build.sh [light]` |
 | `test/` | CPAchecker upstream test suite |
@@ -62,16 +54,14 @@ malformed or incomplete provider streams terminate nonzero; there is no fallback
 - `PredicateUsefulnessGate` is a deterministic Tier-R filter between validation and precision injection; it never changes standard interpolation or verdict semantics.
 - `LlmResponseCache` is evaluation-only infrastructure: record and replay modes are mutually exclusive, keyed by exact request hash plus per-task ordinal, and replay never falls back to a live call.
 - `scripts/vguided-cegar/` is the only scripts directory for VGuide experiments. Legacy scripts are in `cpachecker-experiments/records/archive/`.
-- `docs/vguided-cegar/` is the single source of truth for active research docs. `cpachecker-experiments/records/archive/` is not authoritative.
-- `cpachecker-experiments/runs/legacy_output_2026/vguide/` is runtime output only — never commit it.
-- **Raw output lifecycle:** active raw → `cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/` (run.sh writes here); retired raw → `mv` to `cpachecker-experiments/records/archive/raw-legacy/` (keep, don't delete). Both git-ignored.
-- When searching for current design, exclude: `cpachecker-experiments/records/archive/`, `reports/`, `predicate_sets/`, `output/`, `build/`, `classes/`.
+- GitHub Wiki is the design source of truth; `/home/swear01/cpachecker-experiments/` owns protocol and evidence.
+- When searching for current design, exclude historical records, `predicate_sets/`, `output/`, `build/`, and `classes/`.
 
 ## Grep / Find Exclude Flags
 
 ```bash
 # General code/architecture search:
-rg ...  # rg respects .gitignore which already excludes cpachecker-experiments/records/archive/ (/archive is in .gitignore)
+rg ...
 
 # If using grep:
 grep -r ... --exclude-dir=archive --exclude-dir=predicate_sets --exclude-dir=output --exclude-dir=build --exclude-dir=classes

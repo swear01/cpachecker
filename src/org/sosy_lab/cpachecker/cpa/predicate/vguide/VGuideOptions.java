@@ -192,7 +192,7 @@ public class VGuideOptions {
 
   @Option(
       secure = true,
-      description = "Max completion tokens per DeepSeek chat completion (raise for max budget ≥12).")
+      description = "Max completion tokens per LLM chat completion (raise for max budget ≥12).")
   @IntegerOption(min = 256)
   private int llmMaxCompletionTokens = 1024;
 

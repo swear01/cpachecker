@@ -13,7 +13,8 @@
 | **F-Frozen** | 2 + Legacy 20 | Exception／frozen；**不**計 LLM 主路徑成功率 |
 
 Manifest：`docs/vguided-cegar/benchmark_sets/*.list`（`run.sh bench-regen` 重生）  
-執行：**`scripts/vguided-cegar/run.sh`**。首次請 `bench-setup` 再 **`bench-reclassify`**（見 [RUN_EXPERIMENTS.md](../RUN_EXPERIMENTS.md)）。
+執行：**`scripts/vguided-cegar/run.sh`**。首次請 `bench-setup` 再 **`bench-reclassify`**；
+正式 protocol 位於 `/home/swear01/cpachecker-experiments/docs/vguided-cegar/EXPERIMENT_PROTOCOL.md`。
 
 ---
 
@@ -110,22 +111,17 @@ Manifest：`docs/vguided-cegar/benchmark_sets/*.list`（`run.sh bench-regen` 重
 
 ---
 
-## LLM 排程（依延遲設計，非 every_n=5）
+## LLM 排程
 
-**實測：** LLM p50 ~**1s**、p99 ~**1.5s**；`array_3-1` refinement ~**0.21s/次**（60s 內 4 ref）。
-
-→ 快題必以 **`min_interval` 為主**；`every_n` 應 **很大**（否則數秒內連打 API）。
-
-詳細公式與預設：**[LLM_CALL_SCHEDULING.md](../llm/LLM_CALL_SCHEDULING.md)**  
-`config/vguide.properties` 預設排程：
+Active truth 只在 `config/vguide.properties`。目前預設在第一個 spurious refinement 呼叫一次
+SAFE profile；舊的延遲推導與 `every_n_and_interval` 數值不得當成現行設定。
 
 | 參數 | 值 |
 |------|-----|
-| `llmCallSchedule` | `every_n_and_interval` |
-| `llmEveryNSpuriousRefinements` | **72** |
-| `llmMinIntervalSec` | **15** |
+| `llmCallSchedule` | `first_spurious` |
 | `maxLlmRoundsPerAnalysis` | **5**（每 **輪** spurious 計 1，非每 HTTP） |
-| `llmSamplesPerCall` | **1**（v1.4 計劃：dual 時 = **每軌** K，SAFE×K + BUG×K / 輪，見 [LLM_ENSEMBLE.md](../llm/LLM_ENSEMBLE.md)） |
+| `dualPromptMode` | `false` |
+| `llmSamplesPerCall` | **1** |
 | `llmSampleParallelism` | **4** |
 
 單題覆寫範例仍可用 CLI `--option vguide.*=...`。
@@ -134,20 +130,10 @@ Manifest：`docs/vguided-cegar/benchmark_sets/*.list`（`run.sh bench-regen` 重
 
 ## 離線抽樣 vs CPA 內 LLM
 
-**為何會不一致？** 離線腳本沒有真實 `ContextPack`／SSA 合約／spurious 當下狀態，prompt 與時機都不同。  
-說明全文：**[archive/docs/vguided-cegar/llm/OFFLINE_SAMPLING.md](archive/docs/vguided-cegar/llm/OFFLINE_SAMPLING.md)**
+**為何會不一致？** 離線腳本沒有真實 `ContextPack`／SSA 合約／spurious 當下狀態，prompt 與時機都不同。
 
-離線（cheap regression）：
-
-```bash
-export DEEPSEEK_API_KEY=...
-export VGUIDE_BENCH_ROOT="$SV_BENCHMARKS"
-export VGUIDE_LLM_QUALITY_TASKS=up,down,array_3-1,string_concat-noarr
-# 預設 VGUIDE_LLM_QUALITY_PARALLEL=16（題目 + 各 run 平行）
-python3 scripts/vguided-cegar/test_llm_proposal_quality.py
-```
-
-CPA 單題驗收：`./scripts/vguided-cegar/run.sh verify-pack --task array_3-1`（見 [RUN_EXPERIMENTS.md](../RUN_EXPERIMENTS.md) §5）。
+舊的 Python/DeepSeek 離線抽樣不是 production-equivalent，已移除。CPA 單題驗收只走
+production Java transport：`./scripts/vguided-cegar/run.sh verify-pack --task array_3-1`。
 
 ---
 
@@ -155,7 +141,7 @@ CPA 單題驗收：`./scripts/vguided-cegar/run.sh verify-pack --task array_3-1`
 
 ```bash
 export JAVA=/path/to/jdk-21/bin/java
-export DEEPSEEK_API_KEY=...
+export MODEL_API_KEY=...
 export SV_BENCHMARKS=$HOME/sv-benchmarks/c
 
 scripts/cpa.sh \
@@ -184,12 +170,4 @@ scripts/cpa.sh \
 
 輸出目錄慣例與 `full_scalar` 相同：`<set>_vguide` / `<set>_stock`，內含 `logs/` 與 `<set>_summary.csv`。
 
-詳見 [RUN_EXPERIMENTS.md](../RUN_EXPERIMENTS.md)。
-
----
-
-## 相關文件
-
-- [LLM_CALL_SCHEDULING.md](../llm/LLM_CALL_SCHEDULING.md) — 排程推導
-- [archive/docs/vguided-cegar/llm/OFFLINE_SAMPLING.md](archive/docs/vguided-cegar/llm/OFFLINE_SAMPLING.md) — 離線 vs CPA
-- [FROZEN_PREDICATES.md](FROZEN_PREDICATES.md) — NO_SPURIOUS Exception
+正式 run 詳見 `/home/swear01/cpachecker-experiments/docs/vguided-cegar/EXPERIMENT_PROTOCOL.md`。

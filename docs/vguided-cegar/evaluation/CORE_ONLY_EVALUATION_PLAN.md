@@ -43,7 +43,7 @@ The Dataset v2 release's 448 validation rows are historical dataset-construction
   revision (153/224 hashes match). The pinned revision must be obtained
   (fleet checkout or fresh clone) before the smoke/holdout runs.
 - Frozen resource limits (to confirm before section 4): parallelism 8,
-  timelimit 300s, heap 6000M, model deepseek-v4-pro (from development
+  timelimit 300s, heap 6000M, model muse-spark-1.2-contributor with minimal reasoning
   evidence; prompt/context version = schema-9 dump + `loop-head-candidate-v1`).
   Schema 9 and earlier serialized `precision_local_before` and
   `precision_global_before` from an in-place-mutated reached set; those fields
@@ -94,13 +94,15 @@ All formal runs MUST follow the previous agents' protocol (Baseline-Protocol,
 
 Run both arms on the frozen development smoke set once. Require complete records, matching task order, valid provenance, valid paired-comparison output, and zero wrong verdict before proceeding. This smoke may reveal infrastructure defects, but it may not change frozen method choices without returning to the freeze-review step.
 
-Execution (background driver):
+Execution must be launched from a claimed HAPI worktree with a session-attached job. The exact
+task-specific command, machine claim, commit and artifact path belong in the tracking issue before
+launch; detached repository-local `nohup` drivers are not valid experiment launchers.
 
 ```bash
 export SV_BENCHMARKS=/var/tmp/swear01-cpachecker-paper/sv-benchmarks/c   # pinned 9cf9198
-export DEEPSEEK_API_KEY=...
-nohup ./scripts/vguided-cegar/run_core_only_background.sh > /tmp/core-only-driver.out 2>&1 &
-tail -f output/vguide/core_only/driver.log
+export MODEL_API_KEY=...
+hapi job run "$HAPI_SESSION_ID" core-only-stock --label "core-only stock" -- \
+  bash ./scripts/vguided-cegar/run_core_only.sh --arm stock --manifest "$MANIFEST" --out "$STOCK_OUT"
 ```
 
 Smoke set: 12 tasks (12 families, 2 expected-false) from the frozen manifest (`/tmp/smoke-manifest.json`, subset of `cap16-run/candidate-manifest.json`).
@@ -111,7 +113,7 @@ Harvest / gates (for the agent continuing this run):
 - Smoke gate: `python3 scripts/vguided-cegar/check_core_only_smoke.py output/vguide/core_only/smoke_stock/records.jsonl output/vguide/core_only/smoke_augmented/records.jsonl --expect-count 12` — complete records + 0 wrong verdicts; only then the driver proceeds to the held-out stage.
 - Held-out gate: same checker with `--expect-count 224` on `stock_core` / `augmented_core`.
 - Paired analysis (§6): join both arms' `records.jsonl` on `task`; per-task new/lost/disagreement/wrong; LLM metrics from the augmented dumps (`dumps/<task>/tasks/<stem>/llm_rounds.jsonl`, `refinements.jsonl` — validated/injected/rejections/ce_history/native_predicate_context).
-- Fixed parameters: parallelism 8, timelimit 300 s, heap 6000M, model deepseek-v4-pro; ablation options all OFF (`vguide.ceHistoryMode=OFF`, `nativePredicateContext=false`, `refinementOutcomeContext=false`, `replaceLlmPredicates=false`).
+- Fixed parameters: parallelism 8, timelimit 300 s, heap 6000M, model `muse-spark-1.2-contributor`, reasoning effort `minimal`, max completion tokens 1024; ablation options all OFF (`vguide.ceHistoryMode=OFF`, `nativePredicateContext=false`, `refinementOutcomeContext=false`, `replaceLlmPredicates=false`).
 - 0 wrong is a hard gate; interrupted/invalid runs are recorded as infrastructure failures, never silently retried. Whole-run recovery = restart the harness with the same `--out` dir (resume skips completed tasks; provenance is validated against `run_meta.json`).
 
 ### 5. Held-out core-only evaluation

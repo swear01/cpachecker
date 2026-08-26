@@ -2,7 +2,7 @@
 # Run Unified VGuide CPA on a named benchmark set.
 #
 # Usage:
-#   export DEEPSEEK_API_KEY=...  # or VGUIDE_LLM_PROVIDER=meta MODEL_API_KEY=...
+#   export MODEL_API_KEY=...
 #   export SV_BENCHMARKS=/path/to/sv-benchmarks/c   # default: LOCAL_DEVELOPMENT_ENV
 #   ./run_benchmark_set.sh <set> [extra cpa.sh args...]
 #
@@ -105,17 +105,15 @@ MANIFEST="$SET_DIR/${SET}.list"
 if [[ -n "${VGUIDE_LLM_RECORD_DIR:-}" && -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then
   die "VGUIDE_LLM_RECORD_DIR and VGUIDE_LLM_REPLAY_DIR are mutually exclusive"
 fi
-LLM_PROVIDER="$(printf '%s' "${VGUIDE_LLM_PROVIDER:-deepseek}" | tr '[:upper:]' '[:lower:]')"
+LLM_PROVIDER="$(printf '%s' "${VGUIDE_LLM_PROVIDER:-meta}" | tr '[:upper:]' '[:lower:]')"
 [[ "$LLM_PROVIDER" == "deepseek" || "$LLM_PROVIDER" == "meta" ]] \
   || die "VGUIDE_LLM_PROVIDER must be deepseek or meta, got: ${VGUIDE_LLM_PROVIDER:-}"
-LLM_KEY="${DEEPSEEK_API_KEY:-}"
-LLM_KEY_NAME="DEEPSEEK_API_KEY"
-if [[ "$LLM_PROVIDER" == "meta" ]]; then
-  LLM_KEY="${MODEL_API_KEY:-}"
-  LLM_KEY_NAME="MODEL_API_KEY"
+LLM_KEY="${MODEL_API_KEY:-}"
+if [[ "$LLM_PROVIDER" == "deepseek" && -z "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then
+  die "DeepSeek live requests are disabled; set VGUIDE_LLM_REPLAY_DIR for historical replay"
 fi
 if [[ "$USE_VGUIDE" == "true" && -z "$LLM_KEY" && -z "${VGUIDE_LLM_REPLAY_DIR:-}" ]]; then
-  die "$LLM_KEY_NAME required unless VGUIDE_LLM_REPLAY_DIR is set"
+  die "MODEL_API_KEY required unless VGUIDE_LLM_REPLAY_DIR is set"
 fi
 
 mkdir -p "$OUT_BASE/logs"

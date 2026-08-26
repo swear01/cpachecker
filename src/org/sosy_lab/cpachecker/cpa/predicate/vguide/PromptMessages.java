@@ -6,7 +6,7 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
-/** System + user messages for one DeepSeek chat completion. */
+/** System + user messages for one LLM chat completion. */
 public record PromptMessages(String system, String user) {
 
   public int charCount() {

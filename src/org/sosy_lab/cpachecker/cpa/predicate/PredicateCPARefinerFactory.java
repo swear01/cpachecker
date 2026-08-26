@@ -186,7 +186,8 @@ public final class PredicateCPARefinerFactory {
           PredicateProposalClient.createOptional(logger, vguideOptions.getLlmMaxCompletionTokens());
       if (llmClient == null) {
         throw new InvalidConfigurationException(
-            "useVocabularyGuide=true requires DEEPSEEK_API_KEY to be set in the environment");
+            "useVocabularyGuide=true requires the configured provider API key or"
+                + " VGUIDE_LLM_REPLAY_DIR");
       }
 
       logger.log(Level.INFO, "Unified VGuide CEGAR enabled (first-spurious LLM path)");

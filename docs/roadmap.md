@@ -1,15 +1,12 @@
 # Roadmap
 
-See `docs/cpachecker-experiments/docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for the full long-horizon map.
+Current research design lives in the [GitHub Wiki](https://github.com/swear01/cpachecker/wiki).
 
 ## Active
 
-- **Epic #11 Phase 1（hard-case 研究線）**：#3 structured CE ✅（PR #20）、**#4 per-loop-head
-  invariant candidates ✅（PR #21/#22/#23）**、**#5 bounded CE history ✅（PR，
-  `vguide.ceHistoryMode`）**、**#6 native predicate context ✅（PR，
-  `vguide.nativePredicateContext`）**；下一步 #7/#8（refinement outcomes、
-  LLM-predicate lifecycle），之後才進 #2 core-only 評估（448 runs）。契約見
-  `cpachecker-experiments/docs/vguided-cegar/LOOP_HEAD_INVARIANT_PLAN.md`、`cpachecker-experiments/docs/vguided-cegar/CE_HISTORY_PLAN.md`。
+- **Issue #153 later-round lemma completion**：#5/#7 context 與 native precision 已存在；
+  下一步是 frozen consumer gate、Meta production generation、natural replay 與 replicated
+  UNKNOWN→TRUE acceptance。
 - **Predicate usefulness gating**：final PDR/KI-PDR oracle matrix已all zero而STOP。Fixed first-call signature已fresh回收7/7 losses、保留2/2 wins、0 wrong；exact-response paired smoke為0/7→7/7且hash-prefix一致。下一步只做threshold-frozen prospective full764與真正held-out，不再調rule。
 
 ## Backlog
@@ -27,8 +24,8 @@ See `docs/cpachecker-experiments/docs/vguided-cegar/LLM_RESEARCH_ROADMAP.md` for
 1. ~~Fresh與paired loss7 runtime確認multiplicative short-peel gate。~~ **DONE**
 2. ~~以record/replay做frozen-rule prospective full764~~ — **STOPPED（2026-08-10）**；764 線
    不再執行。
-3. **#2 core-only 448-run（224 tasks）**：harness 已就緒（PR #29）→ 取得 pinned
-   sv-benchmarks checkout → §4 development smoke → §5 held-out 兩 arm 各一次。
+3. **#153 later-round lemma completion**：consumer gate → generation/validation/trajectory/
+   verdict/cost 分段 harvest；未達 acceptance 不 rollout、不 close。
 4. 其餘 branch/hook 全部 defer。
 
 ## Recently Done

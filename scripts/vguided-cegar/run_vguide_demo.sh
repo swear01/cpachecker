@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unified VGuide demo: first-spurious LLM, no startup V_0. Requires DEEPSEEK_API_KEY.
+# Unified VGuide demo: first-spurious LLM, no startup V_0. Requires MODEL_API_KEY.
 set -euo pipefail
 SCRIPT="$(readlink -f "$0")"
 ROOT="$(readlink -f "$(dirname "$SCRIPT")/../..")"

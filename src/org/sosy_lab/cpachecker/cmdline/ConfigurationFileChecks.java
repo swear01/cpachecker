@@ -228,19 +228,6 @@ public class ConfigurationFileChecks {
   private static final Path CONFIG_DIR = Path.of("config");
   private static final Path SPEC_DIR = CONFIG_DIR.resolve(SPECIFICATION_OPTION);
   private static final Path OUTPUT_DIR = Path.of("output");
-  private static final ImmutableSet<Path> NON_STANDALONE_VGUIDE_CONFIGS =
-      ImmutableSet.of(
-          CONFIG_DIR.resolve("vguide.properties"),
-          CONFIG_DIR.resolve("predicateAnalysis-vguide.properties"),
-          CONFIG_DIR.resolve("svcomp27-vguide.properties"),
-          CONFIG_DIR.resolve("vguide-experiment-dual-prompt-v1.properties"),
-          CONFIG_DIR.resolve("vguide-experiment-freq10-n24.properties"),
-          CONFIG_DIR.resolve("vguide-experiment-freq20-n12.properties"),
-          CONFIG_DIR.resolve("vguide-experiment-source-prior-svcomp26-loops.properties"),
-          CONFIG_DIR.resolve("vguide-experiment-usefulness-gate-off.properties"),
-          CONFIG_DIR.resolve("vguide-experiment-usefulness-gate-on.properties"),
-          CONFIG_DIR.resolve("unmaintained/svcomp26-vguide.properties"));
-
   @Parameters(name = "{0}")
   public static Object[] getConfigFiles() throws IOException {
     Stream<URL> configResources =
@@ -365,8 +352,12 @@ public class ConfigurationFileChecks {
     return basePath.getName(0).equals(Path.of("unmaintained"));
   }
 
-  private boolean isNonStandaloneVGuideConfig() {
-    return configFile instanceof Path path && NON_STANDALONE_VGUIDE_CONFIGS.contains(path);
+  @SuppressWarnings("deprecation")
+  private boolean isNonStandaloneVGuideConfig(Configuration config) {
+    return configFile instanceof Path path
+        && (path.getFileName().toString().contains("vguide")
+            || config.hasProperty("vguide.enable")
+            || isOptionEnabled(config, "cpa.predicate.refinement.useVocabularyGuide"));
   }
 
   @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
@@ -505,11 +496,12 @@ public class ConfigurationFileChecks {
   @SuppressWarnings("deprecation")
   @Test
   public void instantiate_and_run() throws IOException, InvalidConfigurationException {
+    Configuration config = createConfigurationForTestInstantiation();
     assume()
         .withMessage(
             "This VGuide fragment or research configuration requires launcher-supplied options"
                 + " or an external provider; validate it by parsing and specification checks only")
-        .that(isNonStandaloneVGuideConfig())
+        .that(isNonStandaloneVGuideConfig(config))
         .isFalse();
 
     // exclude files not meant to be instantiated
@@ -527,7 +519,6 @@ public class ConfigurationFileChecks {
     }
 
     final OptionsWithSpecialHandlingInTest options = new OptionsWithSpecialHandlingInTest();
-    Configuration config = createConfigurationForTestInstantiation();
     config.inject(options);
     if (options.cpuTimeRequired.compareTo(TimeSpan.empty()) >= 0) {
       ConfigurationBuilder configBuilder = Configuration.builder().copyFrom(config);
