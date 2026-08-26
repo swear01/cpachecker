@@ -36,10 +36,14 @@ Install CPAchecker -- Binary ZIP Archive
 ----------------------------------------
 
 1. Install a Java Runtime Environment which is at least Java 21 compatible.
-   One Linux we recommend to install a package from your distribution
-   (Ubuntu: `sudo apt install openjdk-21-jre`),
-   on other platforms you can for example get one from
+   On Linux we recommend a package from your distribution
+   (Ubuntu: `sudo apt install openjdk-21-jre`). This avoids a known native-library
+   crash in affected non-distribution JDK 21.0.10 builds
+   ([JDK-8379560](https://bugs.openjdk.org/browse/JDK-8379560)). On other platforms
+   you can for example get Java from
    [Adoptium](https://adoptium.net/temurin/releases/?version=21).
+   On 64bit Ubuntu, the CPAchecker launcher automatically prefers
+   `/usr/lib/jvm/java-21-openjdk-amd64/bin/java`.
    If you have multiple JVMs installed, consider making this the default JVM,
    otherwise you will need to specify the JVM when running CPAchecker.
    (Ubuntu: `sudo update-alternatives --config java`)
@@ -69,9 +73,12 @@ Install CPAchecker -- Source
 ----------------------------
 
 1. Install a Java SDK which is Java 21 compatible (later versions are also fine).  
-   Most people use OpenJDK, e.g., from their distribution
-   (Ubuntu: `sudo apt-get install openjdk-21-jdk`)
-   or from [Adoptium](https://adoptium.net/temurin/releases/?version=21).
+   On Linux use OpenJDK from your distribution
+   (Ubuntu: `sudo apt-get install openjdk-21-jdk`) to avoid the native-library
+   incompatibility described in
+   [JDK-8379560](https://bugs.openjdk.org/browse/JDK-8379560).
+   On other platforms you can use a distribution such as
+   [Adoptium](https://adoptium.net/temurin/releases/?version=21).
    If you have multiple JDKs installed, make sure that the commands `java`
    and `javac` call the respective Java 21 binaries (or a later version),
    so put them in your PATH or change the system-wide default JDK.
@@ -101,6 +108,12 @@ Install CPAchecker -- Source
 6. Run `ant` in CPAchecker directory to build CPAchecker.  
    When building CPAchecker for the first time, this will automatically
    download all needed libraries.
+   On 64bit Ubuntu, select the distribution-provided OpenJDK 21 explicitly:
+   ```
+   export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+   export PATH="$JAVA_HOME/bin:$PATH"
+   ant
+   ```
    If you experience problems, please check the following items:
    - If you have incompatible versions of some libraries installed on your system,
      the build might fail with NoSuchMethodErrors or similar exceptions.
