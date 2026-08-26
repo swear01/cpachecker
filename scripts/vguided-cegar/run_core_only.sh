@@ -3,9 +3,7 @@
 #
 # Usage:
 #   export SV_BENCHMARKS=~/sv-benchmarks/c   # required
-#   export DEEPSEEK_API_KEY=...              # DeepSeek augmented arm (or use replay)
-#   export VGUIDE_LLM_PROVIDER=meta MODEL_API_KEY=...  # Muse Spark 1.2 arm
-#   export VGUIDE_LLM_MAX_COMPLETION_TOKENS=16384  # augmented default
+#   export MODEL_API_KEY=...                 # Meta augmented arm (or use replay)
 #   ./run_core_only.sh --arm stock --manifest /path/candidate-manifest.json \
 #       --out output/vguide/core_only/stock_core
 #   ./run_core_only.sh --arm augmented --manifest /path/candidate-manifest.json \
@@ -45,7 +43,7 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 # Formal-run CPU isolation (Baseline-Protocol): the 8 physical P-cores of the
 # 13900K/14900K pool, without SMT siblings and without E-cores.
 P_CORE_LIST="0,2,4,6,8,10,12,14"
-P_CORE_RANGE="0-15"
+P_CORE_RANGE="$P_CORE_LIST"
 
 
 ARM="" MANIFEST="" OUT="" PARALLEL="8" TIMELIMIT="300" HEAP="6000M" DRY=0
@@ -68,42 +66,88 @@ done
 [[ "$TIMELIMIT" =~ ^[1-9][0-9]*$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
 [[ -d "$SV_BENCHMARKS" ]] || die "SV_BENCHMARKS not found: $SV_BENCHMARKS (export SV_BENCHMARKS=~/sv-benchmarks/c)"
 
-# Refuse to start a formal run when foreign processes occupy the P-core pool
-# (Baseline-Protocol: load monitoring; foreign_p_core_contention is a failure).
-# Note: mpstat lines start with a timestamp (23:21:15); the CPU id is field $2
-# with -F' +' — match $2 as a pure integer to skip header/avg lines.
+# Refuse when any selected P-core has median busy >= 50% across five one-second samples.
+# Process snapshots are diagnostics only; cumulative %CPU and last-PSR placement never veto.
 check_p_cores_idle() {
-  local busy
-  busy=$(LC_ALL=C mpstat -P "$P_CORE_RANGE" 1 1 2>/dev/null | awk -F' +' '
-    $2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) print $2 }')
+  local load_window incomplete busy
+  load_window="$(LC_ALL=C mpstat -P "$P_CORE_RANGE" 1 5 2>/dev/null)" \
+    || die "mpstat failed during the five-sample P-core load check"
+  incomplete="$(printf '%s\n' "$load_window" | awk -F' +' -v order="$P_CORE_LIST" '
+    BEGIN { core_count = split(order, cores, ",") }
+    $1 != "Average:" && $2 ~ /^[0-9]+$/ { count[$2]++ }
+    END { for (i in cores) if (count[cores[i]] != 5) print cores[i] }
+  ')"
+  [[ -z "$incomplete" ]] \
+    || die "incomplete five-sample P-core load check for cores: $incomplete"
+  busy="$(printf '%s\n' "$load_window" | awk -F' +' -v order="$P_CORE_LIST" '
+    BEGIN { core_count = split(order, cores, ",") }
+    $1 != "Average:" && $2 ~ /^[0-9]+$/ {
+      cpu = $2
+      count[cpu]++
+      value[cpu SUBSEP count[cpu]] = 100 - $NF
+    }
+    END {
+      for (k = 1; k <= core_count; k++) {
+        cpu = cores[k]
+        for (i = 2; i <= count[cpu]; i++) {
+          current = value[cpu SUBSEP i]
+          j = i - 1
+          while (j >= 1 && value[cpu SUBSEP j] > current) {
+            value[cpu SUBSEP (j + 1)] = value[cpu SUBSEP j]
+            j--
+          }
+          value[cpu SUBSEP (j + 1)] = current
+        }
+        if (value[cpu SUBSEP 3] >= 50) print cpu
+      }
+    }
+  ')"
   if [[ -n "$busy" ]]; then
-    die "P-core contention: busy cores: $busy (formal runs require an idle P-core pool; use the fleet availability monitor to pick a free machine)"
+    die "P-core contention: median busy >= 50% on cores: $busy"
   fi
-  ps -eo user,pgid,psr,pcpu,comm --no-headers | awk -v list="$P_CORE_LIST" -v u="$USER" -v g="$(ps -o pgid= -p $$ | tr -d ' ')" '
-    BEGIN { n = split(list, a, ","); for (i in a) allowed[a[i]] = 1 }
-    $1 == u && $2 != g && $3 in allowed && ($4 + 0) > 25 { bad[$3] = 1 }
-    END { for (c in bad) print c }' | while read -r c; do
-      die "P-core $c has concurrent local processes; formal runs require an idle P-core pool"
-  done
+  LOAD_CHECK_NOW="$(printf '%s\n' "$load_window" | awk -F' +' -v order="$P_CORE_LIST" '
+    BEGIN { core_count = split(order, cores, ",") }
+    $1 != "Average:" && $2 ~ /^[0-9]+$/ {
+      cpu = $2
+      count[cpu]++
+      value[cpu SUBSEP count[cpu]] = 100 - $NF
+    }
+    END {
+      printf "median_busy_lt_50;samples_busy_pct="
+      for (k = 1; k <= core_count; k++) {
+        cpu = cores[k]
+        if (k > 1) printf "|"
+        printf "%s:", cpu
+        for (i = 1; i <= count[cpu]; i++) {
+          if (i > 1) printf ","
+          printf "%.2f", value[cpu SUBSEP i]
+        }
+      }
+      print ""
+    }
+  ')"
 }
+LOAD_CHECK_NOW=""
 check_p_cores_idle
 
 mkdir -p "$OUT/logs"
-LLM_PROVIDER="$(printf '%s' "${VGUIDE_LLM_PROVIDER:-deepseek}" | tr '[:upper:]' '[:lower:]')"
+LLM_PROVIDER="$(printf '%s' "${VGUIDE_LLM_PROVIDER:-meta}" | tr '[:upper:]' '[:lower:]')"
 [[ "$LLM_PROVIDER" == "deepseek" || "$LLM_PROVIDER" == "meta" ]] \
   || die "VGUIDE_LLM_PROVIDER must be deepseek or meta, got: ${VGUIDE_LLM_PROVIDER:-}"
-LLM_KEY="${DEEPSEEK_API_KEY:-}"
-LLM_MODEL="${VGUIDE_LLM_MODEL:-${DEEPSEEK_MODEL:-deepseek-v4-pro}}"
-LLM_API_FORMAT="deepseek-chat-completions-v1"
-if [[ "$LLM_PROVIDER" == "meta" ]]; then
-  LLM_KEY="${MODEL_API_KEY:-}"
-  LLM_MODEL="${VGUIDE_LLM_MODEL:-muse-spark-1.2}"
-  LLM_API_FORMAT="meta-chat-completions-json-schema-v1"
+LLM_KEY="${MODEL_API_KEY:-}"
+LLM_MODEL="${VGUIDE_LLM_MODEL:-muse-spark-1.2-contributor}"
+LLM_API_FORMAT="meta-chat-completions-json-schema-v1"
+LLM_MAX_COMPLETION_TOKENS="1024"
+if [[ "$LLM_PROVIDER" == "deepseek" ]]; then
+  LLM_MODEL="${VGUIDE_LLM_MODEL:-deepseek-v4-pro}"
+  LLM_API_FORMAT="deepseek-chat-completions-v1"
+  [[ -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]] \
+    || die "DeepSeek live requests are disabled; set VGUIDE_LLM_REPLAY_DIR for historical replay"
 fi
 if [[ "$ARM" == "augmented" ]]; then
   mkdir -p "$OUT/dumps"
   [[ -n "$LLM_KEY" || -n "${VGUIDE_LLM_REPLAY_DIR:-}" ]] \
-    || die "augmented arm requires $(if [[ "$LLM_PROVIDER" == meta ]]; then echo MODEL_API_KEY; else echo DEEPSEEK_API_KEY; fi) (or VGUIDE_LLM_REPLAY_DIR)"
+    || die "augmented arm requires MODEL_API_KEY (or VGUIDE_LLM_REPLAY_DIR)"
 fi
 
 if [[ "$ARM" == "stock" ]]; then
@@ -112,8 +156,6 @@ if [[ "$ARM" == "stock" ]]; then
 else
   CONFIG="config/predicateAnalysis-vguide.properties"
   USE_VGUIDE="true"
-  VGUIDE_LLM_MAX_COMPLETION_TOKENS="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-16384}"
-  export VGUIDE_LLM_MAX_COMPLETION_TOKENS
 fi
 SPEC="$REPO/config/specification/sv-comp-reachability.spc"
 TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-10}"
@@ -192,7 +234,6 @@ CONFIG_SHA="$(python3 -c "import sys; sys.path.insert(0, '$SCRIPT_DIR'); import 
 MANIFEST_SHA="$(sha256sum "$MANIFEST" | cut -d' ' -f1)"
 SPEC_SHA="$(sha256sum "$SPEC" | cut -d' ' -f1)"
 CPA_SH_SHA="$(sha256sum "$CPA_SH" | cut -d' ' -f1)"
-LOAD_CHECK_NOW="$(LC_ALL=C mpstat -P 0-15 1 1 2>/dev/null | awk -F' +' '$2 ~ /^[0-9]+$/ { if (100 - $NF >= 50) b = b " " $2 } END { print (b == "") ? "idle" : "busy:" b }')"
 LOAD_CHECK="$LOAD_CHECK_NOW"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -205,16 +246,13 @@ case "$(lc "$THINKING_RAW")" in
   enabled|true|on|1) THINKING="enabled" ;;
   *) THINKING="disabled" ;;
 esac
-if [[ "$LLM_PROVIDER" == "meta" ]]; then
-  THINKING="required"
-fi
 # Effective reasoning effort mirrors PredicateProposalClient.reasoningEffortFromEnv
 # (default -> high; all of low/medium/high/max pass through — the official API
-# supports them natively). When thinking is disabled the client sets effort to
-# null and sends no effort — record that as null too.
+# supports them natively). Meta maps disabled thinking to minimal effort;
+# DeepSeek sends no reasoning effort when thinking is disabled.
 # EFFORT is a JSON-encoded token (null | "low" | "medium" | "high" | "max").
 EFFORT_RAW="${VGUIDE_LLM_REASONING_EFFORT:-}"
-if [[ "$LLM_PROVIDER" == "meta" ]]; then
+if [[ "$LLM_PROVIDER" == "meta" && "$THINKING" == "disabled" ]]; then
   EFFORT="\"minimal\""
 elif [[ "$THINKING" == "disabled" ]]; then
   EFFORT="null"
@@ -252,7 +290,7 @@ if [[ -f "$OUT/run_meta.json" ]]; then
   PROVIDER_C="$LLM_PROVIDER" MODEL_C="$LLM_MODEL" THINKING_C="$THINKING" EFFORT_C="$EFFORT" FORMAT_C="$LLM_API_FORMAT" \
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
   REPLAY_FP_C="$REPLAY_FP" \
-  APIURL_C="${VGUIDE_LLM_API_URL:-}" MAXTOK_C="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
+  APIURL_C="${VGUIDE_LLM_API_URL:-}" MAXTOK_C="$LLM_MAX_COMPLETION_TOKENS" \
   PRESERVE_C="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
   python3 - "$OUT/run_meta.json" <<'EOF' || die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
 import json, os, sys
@@ -308,7 +346,7 @@ TIMELIMIT_M="$TIMELIMIT" GRACE_M="$TIMEOUT_GRACE" PARALLEL_M="$PARALLEL" HEAP_M=
 SPEC_M="$SPEC" PROVIDER_M="$LLM_PROVIDER" MODEL_M="$LLM_MODEL" THINKING_M="$THINKING" EFFORT_M="$EFFORT" FORMAT_M="$LLM_API_FORMAT" \
 RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
 REPLAY_FP_M="$REPLAY_FP" \
-  APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="${VGUIDE_LLM_MAX_COMPLETION_TOKENS:-}" \
+  APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="$LLM_MAX_COMPLETION_TOKENS" \
 PRESERVE_M="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
 STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" CURRLOAD_M="$CURRENT_LOAD" P_CORES_M="$P_CORE_LIST" \
 python3 - "$OUT/run_meta.json" <<'EOF'
@@ -430,7 +468,7 @@ run_one() {
     --no-output-files
   )
   if [[ "$ARM" == "augmented" ]]; then
-    cmd+=(--option "vguide.llmMaxCompletionTokens=$VGUIDE_LLM_MAX_COMPLETION_TOKENS")
+    cmd+=(--option "vguide.llmMaxCompletionTokens=$LLM_MAX_COMPLETION_TOKENS")
   fi
   cmd+=("$SV_BENCHMARKS/$source")
   if [[ "$DRY" == "1" ]]; then
@@ -472,7 +510,7 @@ run_one() {
     --out "$OUT/logs/${task_name}.json"
 }
 export -f run_one
-export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMELIMIT TIMEOUT_GRACE HEAP COMMIT CONFIG_SHA P_CORE_LIST VGUIDE_LLM_MAX_COMPLETION_TOKENS
+export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMELIMIT TIMEOUT_GRACE HEAP COMMIT CONFIG_SHA P_CORE_LIST LLM_MAX_COMPLETION_TOKENS
 
 # 4. Run each task (no header row in tasks.tsv), merge per-task records in order,
 #    then verify completeness.

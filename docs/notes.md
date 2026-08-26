@@ -4,7 +4,7 @@
 
 ## Gotchas
 
-- **正式 run 一律用 `launch_isolated_run.sh`（獨立 git worktree，since 2026-08-16，#93）。** NFS 共享 repo 的 classes/ 在執行中 rebuild 會讓 JVM `NoClassDefFoundError: ...$1`（匿名 class 不一致）crash 整個 run（2026-08-16 兩次：212/224、174/224 crash 作廢）；改被執行中的 script 也會 bash `unexpected EOF`（arm-2/stock 各中招）。worktree 執行後主 repo 可隨時開發。勿再直接在主 repo 跑正式 run。
+- **正式 run 一律用 claimed HAPI worktree 與 session-attached job（since 2026-08-26，#153）。** NFS 共享 repo 的 classes/ 在執行中 rebuild 會讓 JVM `NoClassDefFoundError: ...$1`（匿名 class 不一致）crash 整個 run（2026-08-16 兩次：212/224、174/224 crash 作廢）；改被執行中的 script 也會 bash `unexpected EOF`。勿再從主 repo 或 detached `nohup` driver 跑正式實驗。
 - **每個實驗必須先建立 GitHub tracking issue（流程 #97）。** Issue 是跨 agent/session 的生命週期介面：launch 前記 hypothesis、arms、commit/config/manifest/spec hashes、provider/route、資源協議、exact command、output path 與 acceptance criteria；launch 時記 machine/worktree/start/run id；執行中記 provider/infrastructure failures 與 reruns；harvest 時回貼完整 records、verdict/wrong/dispute/failure/PAR-2、validity decision、artifact paths/hashes。Issue 不能取代 `run_meta.json`、`records.jsonl` 與 raw logs。
 - **764 全量 run 必須用 `run.sh --mode svcomp26-vguide`（或明確設 `VGUIDE_CONFIG`/`VGUIDE_SVCOMP`/`VGUIDE_SPEC`）— since 2026-08-14.** `run_benchmark_set.sh` 的 config 預設是 `predicateAnalysis-vguide`；直接跑它會與既有 764 數據（`svcomp26-vguide`）不可比。2026-08-14 的 Flash run 就是這樣作廢的（漏 `VGUIDE_CONFIG` → 613 vs 242 LLM 觸發、全部收割結論作廢，見 #76）。完整 launch 環境對照：`cpachecker-experiments/docs/LAUNCH_RECIPES.md`（sibling）。收割前驗證：summary CSV 的 `config` 欄位（2026-08-14 起記錄）或任一 task log 開頭的 `CPAchecker ... / <config>` 字串。
 
@@ -14,9 +14,9 @@
 - **VGuide defaults to one SAFE profile per LLM round (issue #122, since 2026-08-20).** Historical BUG_HUNT results showed no new correct FALSE outcomes, so `dualPromptMode=false` and the SAFE response owns the full maximum candidate cap. BUG_HUNT remains explicit long-term research only (#121), not part of formal default runs.
 - **Predicate candidate diversity means distinct semantic state splits (issue #132, since 2026-08-21).** Exact complements, logical equivalents, algebraic rewrites, swapped operands, and shifted integer-bound encodings count as one split at a loop head; keep only the best-ranked representative. The candidate-count instruction belongs only in the system message. Do not duplicate a minimum or target count in the task/user message: it pressures models to pad responses and can silently invalidate prompt ablations.
 
-- **`cpachecker-experiments/records/archive/` is NOT authoritative.** If a grep result points into `cpachecker-experiments/records/archive/`, discard it and look in `docs/vguided-cegar/` instead. If no current equivalent exists, surface the gap to the user.
+- **`cpachecker-experiments/records/archive/` is NOT authoritative.** If a search result points there, discard it and use the GitHub Wiki for design or the active experiment protocol for execution. If no current equivalent exists, surface the gap to the user.
 - **`~/sv-benchmarks/c` is external.** It must exist locally before running experiments; it is not in the repo. Export `SV_BENCHMARKS=~/sv-benchmarks/c` before any `run.sh` call.
-- **`DEEPSEEK_API_KEY` is required for live/record mode.** A paired replay may omit it only when `VGUIDE_LLM_REPLAY_DIR` is set. Record/replay are mutually exclusive and a replay miss terminates the run instead of falling back to the live API or stock behavior.
+- **`MODEL_API_KEY` is required for the active Meta live/record mode.** A paired replay may omit the provider key only when `VGUIDE_LLM_REPLAY_DIR` is set. Record/replay are mutually exclusive and a replay miss terminates the run instead of falling back to the live API or stock behavior.
 - **`cpachecker-experiments/runs/legacy_output_2026/vguide/` is gitignored.** Experiment results live locally only. Do not commit them.
 - **Raw output lifecycle (both git-ignored).** Active raw → `cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/` (run.sh writes here automatically). Retired raw → `mv` it to `cpachecker-experiments/records/archive/raw-legacy/` to keep it; do NOT delete raw just to free git (it's already ignored), and never put raw in tracked dirs.
 - **Native-solver test exclusions (issues #30/#111, since 2026-08-11).** On a host/JDK that still
@@ -39,17 +39,11 @@
   `env JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH ant all-checks`.
   This JDK selection does not remove the separate unit-test exclusions for other bundled-native and
   shared-JVM failures documented above.
-- **Scoped verification baseline (2026-08-25, `origin/main@0ddfec079f`).** A repo-wide failure
-  that is already present on the canonical base does not block a research-scoped change when the
-  exact baseline is recorded and the diff adds no finding; any new failing class, native crash,
-  forbidden-API location or larger count blocks publication. After restoring `gcc-multilib` and
-  `libc6-dev-i386`, `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1 ant unit-tests` passes 3919 tests with
-  1192 skips. Current `ant forbiddenapis` baseline: 78 findings across existing VGuide
-  production/test classes (not third-party JARs). `ant configuration-checks` deterministically
-  crashes in the first `policy-bam` run at `Z3 solverCheck` through the host
-  `libstdc++.so.6.0.35`; it has no broken-solver exclusion and does not execute the VGuide path.
-  Re-establish the baseline against the current canonical base instead of carrying these counts
-  forward after code or environment changes.
+- **Scoped verification baselines are commit- and environment-specific.** A failure already present
+  on the canonical base does not block a research-scoped change when the exact baseline is recorded
+  and the diff adds no finding; any new failing class, native crash, forbidden-API location or
+  larger count blocks publication. Re-establish the baseline against current `origin/main` with the
+  required packaged JDK instead of carrying old counts or Temurin JNI crashes forward.
 - **Bundled native libraries are not self-contained system images.** Ivy downloads JavaSMT's
   platform-specific JARs and `.so` files into gitignored `lib/java/runtime/`; those native objects
   still dynamically link the host's glibc/libstdc++. Do not commit native binaries or OS headers.
@@ -61,12 +55,12 @@
 - **Configuration-check baseline is explicitly classified (issue #116).** The forked checker now
   pins its JVM to `-Xmx4g`, preventing JavaBDD's `Runtime.maxMemory()`-based table sizing from
   overflowing on large-memory hosts; bare `ant configuration-checks` no longer needs an environment
-  heap override. The VGuide fragment and named research/portfolio configs that require
-  launcher-supplied `cpa.predicate.refinement.useVocabularyGuide=true`, an external provider, or
-  a non-empty benchmark are checked by parsing and default-specification validation only. Other
-  VGuide components and non-VGuide configs remain runnable checks; VGuide component checks need
-  the normal provider or replay environment. The checker does not globally
-  suppress `vguide.*` or silently add the VGuide hook.
+  heap override. Every `*vguide*` portfolio or config that defines `vguide.enable` or enables
+  `cpa.predicate.refinement.useVocabularyGuide` requires launcher-supplied options, an external
+  provider, or a non-empty benchmark, so configuration checks validate it by parsing and
+  default-specification checks only. Non-VGuide configs remain runnable checks; the checker never
+  reads a provider key, sends an LLM request, globally suppresses `vguide.*`, or silently adds the
+  VGuide hook.
 - **Evidence-tiered CPU isolation (Baseline-Protocol, updated 2026-08-26).**
   Formal timing/performance/PAR-2 experiments must pin
   CPA invocations with `taskset -c 0,2,4,6,8,10,12,14` (8 physical P-cores, no SMT sibling,
@@ -108,16 +102,16 @@
 - **Source-prior ablation:** `vguide.sourcePriorMode=true` fires LLM at analysis start (before any CEGAR round) with source-code-only context (no CE trace). Predicates injected into `PredicateCPA.getInitialPrecision()` via `registerPreCegarBridge()`, so they are active from round 0. Risk: LLM call on all tasks including fast ones (PAR-2 overhead). Ablation question: does CE context help, or is source code enough?
   - base config: `--mode source-prior-loops` / `source-prior-overflow` (8 parallel OK)
   - svcomp26 portfolio: `--mode source-prior-svcomp26-loops` / `source-prior-svcomp26-overflow` (2 parallel MAX — heavier)
-  - **Must run one experiment group at a time** — running two groups simultaneously makes results inaccurate (too many JVMs competing). See `RUN_EXPERIMENTS.md` for the sequential launch block.
+  - **Must run one experiment group at a time** — running two groups simultaneously makes results inaccurate (too many JVMs competing). Follow the active experiment protocol and tracking issue.
 
 - **Unified VGuide (single Java path):** Previous B2/B4/B5 sidecar design was replaced. Only one implementation path now. See `architecture/UNIFIED_VGUIDE_ARCHITECTURE.md`.
-- **Explicit LLM transport contracts:** `VGUIDE_LLM_PROVIDER=deepseek` (default) sends DeepSeek Chat Completions with `response_format: {"type":"json_object"}` and uses `DEEPSEEK_API_KEY`. `VGUIDE_LLM_PROVIDER=meta` sends Meta Chat Completions for `muse-spark-1.2-contributor` with the full `loop-head-candidate-v1` JSON schema, no DeepSeek `thinking` field, and uses `MODEL_API_KEY`; `VGUIDE_LLM_THINKING=disabled` selects Meta's minimum `reasoning_effort=minimal`, while enabled selects `VGUIDE_LLM_REASONING_EFFORT`. Core-only metadata records the provider and provider-specific API format, so incompatible runs cannot resume into the same output directory.
+- **Explicit LLM transport contracts:** active runs default to `VGUIDE_LLM_PROVIDER=meta`, `muse-spark-1.2-contributor`, the full `loop-head-candidate-v1` JSON schema, `MODEL_API_KEY`, and `reasoning_effort=minimal`. `VGUIDE_LLM_THINKING=enabled` selects `VGUIDE_LLM_REASONING_EFFORT`. DeepSeek transport remains only for exact historical replay and must be selected explicitly. Core-only metadata records the provider and provider-specific API format, so incompatible runs cannot resume into the same output directory.
 - **LLM experiments must reuse the production Java transport path.** Prompt probes and A/B experiments must call `PredicateProposalClient` directly (a thin Java CLI/JShell entry is sufficient) or run CPAchecker replay. Do not create Python/curl HTTP clients: they change headers and transport behavior, bypass Java request construction/retry/cache semantics, and are not production-equivalent. Issue #124's Python `urllib` probe was invalid; `api.commandcode.ai` Cloudflare rejected its default User-Agent with HTTP 403, while the same Java client and route succeeded.
 - **Transient LLM failures:** `PredicateProposalClient` retries network/429/5xx failures twice by default, with nonnegative values capped at 10 attempts and 60 seconds per backoff delay; other 4xx responses fail immediately.
 - **LLM responses are streamed (issue #128, since 2026-08-20).** The production Java client uses OpenAI-compatible SSE, separately accumulates `reasoning_content` and final `content`, and records final usage. Its 30-second timeout covers connection establishment only; inference has no application-level total deadline. Once a 200 stream begins, malformed or interrupted output fails closed without retrying the partial generation.
 - **Class-A first:** Any new property category should attempt config-only generalization (Class-A) before touching Java. v1.6 overflow proved this works for predicate-CEGAR-based branches.
 - **No `grep` into `cpachecker-experiments/records/archive/`.** Use `rg` (respects `.gitignore`, which excludes `cpachecker-experiments/records/archive/`) or always pass `--exclude-dir=archive`.
-- **DeepSeek V4 (non-thinking) as primary model.** Thinking mode not used in production path; see `llm/LLM_API.md` for rationale.
+- **Meta Muse Spark 1.2 Contributor with minimal reasoning is the active model.** Reasoning cannot be disabled on Meta; `minimal` is the lowest supported effort. Contributor permits Meta to train on prompts and completions, so only approved experiment inputs may be sent.
 - **L3 not used (noL3).** Validation is L1+L2 only (`vguide.enableL3Entailment=false`). A 2026-06-07 `full_scalar` ablation showed L3-on worse overall (fewer solves, higher PAR-2); all mainline evals since then keep L3 off.
 - **Overflow prompt is neutral.** The reachability prompt actively discourages the bound predicates that overflow needs. A dedicated overflow-aware prompt is the main lever for v1.6.1 improvement (P1), not config tweaks.
 - **Fleet machines: never trust incremental `ant build` after syncing code.** NFS

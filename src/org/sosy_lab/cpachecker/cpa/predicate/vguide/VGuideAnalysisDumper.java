@@ -355,7 +355,7 @@ public final class VGuideAnalysisDumper {
       manifest.put("started_at", Instant.now().toString());
       manifest.put("run_id", runRoot.getFileName().toString());
       manifest.put("benchmark_set", System.getenv().getOrDefault("VGUIDE_ANALYSIS_BENCHMARK_SET", ""));
-      manifest.put("model", System.getenv().getOrDefault("DEEPSEEK_MODEL", "deepseek-v4-pro"));
+      manifest.put("model", PredicateProposalClient.modelFromEnvironment());
       manifest.put("llm_thinking", llmThinkingModeForManifest());
       manifest.put("llm_response_mode", llmResponseModeForManifest());
       manifest.put(

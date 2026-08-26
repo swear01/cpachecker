@@ -5976,8 +5976,7 @@ vguide.llmCallSchedule = "first_spurious"
 # (N>=1)
 vguide.llmEveryNSpuriousRefinements = 5
 
-# Max completion tokens per DeepSeek chat completion (raise for max budget
-# ≥12).
+# Max completion tokens per LLM chat completion (raise for max budget ≥12).
 vguide.llmMaxCompletionTokens = 1024
 
 # For min_interval / every_n_and_interval: minimum seconds between LLM calls

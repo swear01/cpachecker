@@ -2,9 +2,10 @@
 
 ## In Progress
 
-- **Epic #11 Phase 1（hard-case 研究線，見 roadmap/README）**：#3–#8 全部 ✅（PR #20–#28）。
-  **現行 task = #2 core-only 448-run 評估（224 tasks）**：runner/config-diff/records harness 已
-  完成（PR #29），待 pinned sv-benchmarks checkout + development smoke。
+- **Issue #153 later-round lemma completion**：先以 deterministic consumer gate 凍結
+  complete predicate group 可用、strict subset 不可用，再比較相同總 call/token budget 的
+  later-round completion 與 second one-shot。Active transport 為 Meta Muse Spark 1.2 Contributor、
+  minimal reasoning、1024 completion tokens；未 replicated UNKNOWN→TRUE 不 rollout。
 - **764 線（svcomp27-vguide full set）— STOPPED（2026-08-10）**：不再執行 prospective full764 /
   usefulness-gate full-set 評估；ReachSafety v1.7.x 成果（482→504, +22/0 wrong）維持為歷史
   紀錄，但該線不繼續投入。usefulness gate 本身仍是 engineering baseline（frozen rule），

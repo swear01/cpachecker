@@ -15,11 +15,29 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import org.junit.Test;
+import org.sosy_lab.cpachecker.cpa.predicate.LlmApiUrl;
 
 public class PredicateProposalClientTest {
 
   private static final ObjectMapper JSON = new ObjectMapper();
   private static final PromptMessages PROMPT = new PromptMessages("system", "user");
+
+  @Test
+  public void defaultsToMetaContributor() {
+    assertThat(PredicateProposalClient.provider(null)).isEqualTo("meta");
+    assertThat(PredicateProposalClient.model("meta", null))
+        .isEqualTo("muse-spark-1.2-contributor");
+    assertThat(LlmApiUrl.DEFAULT_API_URL)
+        .isEqualTo("https://api.meta.ai/v1/chat/completions");
+  }
+
+  @Test
+  public void deepSeekIsReplayOnly() {
+    assertThrows(
+        IllegalStateException.class,
+        () -> PredicateProposalClient.validateProviderMode("deepseek", false));
+    PredicateProposalClient.validateProviderMode("deepseek", true);
+  }
 
   @Test
   public void metaRequestUsesSchemaAndMinimalReasoningWhenDisabled() throws Exception {

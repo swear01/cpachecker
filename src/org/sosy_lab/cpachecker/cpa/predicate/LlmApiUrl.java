@@ -13,12 +13,12 @@ import java.net.URI;
 /** Shared validation for the LLM API endpoint (issue #64). */
 public final class LlmApiUrl {
 
-  public static final String DEFAULT_API_URL = "https://api.deepseek.com/chat/completions";
+  public static final String DEFAULT_API_URL = "https://api.meta.ai/v1/chat/completions";
 
   private LlmApiUrl() {}
 
   /**
-   * Returns the configured endpoint from {@code VGUIDE_LLM_API_URL} (default DeepSeek),
+   * Returns the configured endpoint from {@code VGUIDE_LLM_API_URL} (default Meta),
    * fail-fast on malformed values (trimmed, absolute, http/https, valid host).
    */
   public static URI validate(String configured) {

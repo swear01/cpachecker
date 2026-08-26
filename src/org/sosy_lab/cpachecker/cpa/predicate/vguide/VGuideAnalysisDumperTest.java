@@ -134,6 +134,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
 
     JsonNode manifest = JSON.readTree(tmp.getRoot().toPath().resolve("run_manifest.json").toFile());
     assertThat(manifest.path("schema_version").asText()).isEqualTo("10");
+    assertThat(manifest.path("model").asText()).isEqualTo("muse-spark-1.2-contributor");
   }
 
   @Test

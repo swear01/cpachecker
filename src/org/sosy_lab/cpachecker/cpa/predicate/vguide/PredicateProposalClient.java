@@ -35,19 +35,20 @@ import org.sosy_lab.cpachecker.cpa.predicate.LlmApiUrl;
 /**
  * Chat-completions API client for predicate proposals.
  *
- * <p>Configuration via environment: {@code VGUIDE_LLM_PROVIDER} ({@code deepseek}|{@code meta}),
- * {@code DEEPSEEK_API_KEY} or {@code MODEL_API_KEY}, {@code VGUIDE_LLM_MODEL}, {@code
- * VGUIDE_LLM_THINKING} ({@code disabled}|{@code enabled}, default {@code disabled}), {@code
- * VGUIDE_LLM_REASONING_EFFORT} ({@code low}|{@code medium}|{@code high}|{@code max} when thinking
- * is enabled, default {@code high}; for Meta, disabled maps to the API's {@code minimal} effort),
- * and the mutually exclusive paired-evaluation directories {@code VGUIDE_LLM_RECORD_DIR} and
- * {@code VGUIDE_LLM_REPLAY_DIR}.
+ * <p>Configuration via environment: {@code VGUIDE_LLM_PROVIDER} ({@code meta}|{@code deepseek}),
+ * {@code MODEL_API_KEY}, {@code VGUIDE_LLM_MODEL}, {@code VGUIDE_LLM_THINKING} ({@code disabled}|
+ * {@code enabled}, default {@code disabled}), {@code VGUIDE_LLM_REASONING_EFFORT} ({@code low}|
+ * {@code medium}|{@code high}|{@code max} when thinking is enabled, default {@code high}; for
+ * Meta, disabled maps to the API's {@code minimal} effort), and the mutually exclusive
+ * paired-evaluation directories {@code VGUIDE_LLM_RECORD_DIR} and {@code VGUIDE_LLM_REPLAY_DIR}.
+ * DeepSeek is accepted only for exact historical response replay.
  */
 public final class PredicateProposalClient {
 
-  private static final String DEFAULT_MODEL = "deepseek-v4-pro";
-  private static final String META_MODEL = "muse-spark-1.2-contributor";
-  private static final String META_API_URL = "https://api.meta.ai/v1/chat/completions";
+  private static final String DEFAULT_PROVIDER = "meta";
+  private static final String DEFAULT_MODEL = "muse-spark-1.2-contributor";
+  private static final String DEEPSEEK_MODEL = "deepseek-v4-pro";
+  private static final int DEFAULT_MAX_COMPLETION_TOKENS = 1024;
   private static final int MAX_RETRY_ATTEMPTS = 10;
   private static final long MAX_RETRY_DELAY_MS = 60_000L;
   private static final ObjectMapper JSON = new ObjectMapper();
@@ -67,50 +68,47 @@ public final class PredicateProposalClient {
 
   /** Returns a client when live API access or response replay is configured. */
   public static @Nullable PredicateProposalClient createOptional(LogManager pLogger) {
-    return createOptional(pLogger, readPositiveIntEnv("VGUIDE_LLM_MAX_COMPLETION_TOKENS", 1024));
+    return createOptional(pLogger, DEFAULT_MAX_COMPLETION_TOKENS);
   }
 
   /** Returns a client when live API access or response replay is configured. */
   public static @Nullable PredicateProposalClient createOptional(
       LogManager pLogger, int pMaxCompletionTokens) {
-    String key = apiKeyFromEnvironment(providerFromEnvironment());
+    String provider = providerFromEnvironment();
     String replayDir = System.getenv("VGUIDE_LLM_REPLAY_DIR");
-    if ((key == null || key.isBlank()) && (replayDir == null || replayDir.isBlank())) {
+    boolean replay = replayDir != null && !replayDir.isBlank();
+    validateProviderMode(provider, replay);
+    String key = apiKeyFromEnvironment();
+    if ((key == null || key.isBlank()) && !replay) {
       return null;
     }
     return new PredicateProposalClient(pLogger, pMaxCompletionTokens);
   }
 
   public PredicateProposalClient(LogManager pLogger) {
-    this(pLogger, readPositiveIntEnv("VGUIDE_LLM_MAX_COMPLETION_TOKENS", 1024));
+    this(pLogger, DEFAULT_MAX_COMPLETION_TOKENS);
   }
 
   public PredicateProposalClient(LogManager pLogger, int pMaxCompletionTokens) {
     logger = pLogger;
     responseCache = responseCacheFromEnvironment();
     provider = providerFromEnvironment();
+    boolean replay = responseCache != null && responseCache.mode() == LlmResponseCache.Mode.REPLAY;
+    validateProviderMode(provider, replay);
     String configuredApiUrl = System.getenv("VGUIDE_LLM_API_URL");
     apiUrl =
-        responseCache != null && responseCache.mode() == LlmResponseCache.Mode.REPLAY
+        replay
             ? URI.create(LlmApiUrl.DEFAULT_API_URL)
             : LlmApiUrl.validate(
                 configuredApiUrl == null || configuredApiUrl.isBlank()
-                    ? defaultApiUrl(provider)
+                    ? LlmApiUrl.DEFAULT_API_URL
                     : configuredApiUrl);
-    String configuredApiKey = apiKeyFromEnvironment(provider);
+    String configuredApiKey = apiKeyFromEnvironment();
     apiKey = configuredApiKey == null ? "" : configuredApiKey;
-    if (apiKey.isBlank()
-        && (responseCache == null || responseCache.mode() != LlmResponseCache.Mode.REPLAY)) {
-      throw new IllegalStateException(apiKeyName(provider) + " is required for VGuide LLM client");
+    if (apiKey.isBlank() && !replay) {
+      throw new IllegalStateException("MODEL_API_KEY is required for VGuide LLM client");
     }
-    String configuredModel = System.getenv("VGUIDE_LLM_MODEL");
-    if ((configuredModel == null || configuredModel.isBlank()) && provider.equals("deepseek")) {
-      configuredModel = System.getenv("DEEPSEEK_MODEL");
-    }
-    model =
-        configuredModel == null || configuredModel.isBlank()
-            ? defaultModel(provider)
-            : configuredModel;
+    model = model(provider, System.getenv("VGUIDE_LLM_MODEL"));
     logger.log(Level.INFO, "VGuide LLM provider: ", provider);
     logger.log(Level.INFO, "VGuide LLM model: ", model);
     thinkingEnabled = thinkingEnabledFromEnv();
@@ -439,11 +437,10 @@ public final class PredicateProposalClient {
     schema.put("additionalProperties", false);
   }
 
-  private static String providerFromEnvironment() {
-    String configured = System.getenv("VGUIDE_LLM_PROVIDER");
+  static String provider(@Nullable String configured) {
     String value =
         configured == null || configured.isBlank()
-            ? "deepseek"
+            ? DEFAULT_PROVIDER
             : configured.strip().toLowerCase(Locale.ROOT);
     if (!value.equals("deepseek") && !value.equals("meta")) {
       throw new IllegalStateException(
@@ -452,20 +449,31 @@ public final class PredicateProposalClient {
     return value;
   }
 
-  private static @Nullable String apiKeyFromEnvironment(String provider) {
-    return System.getenv(apiKeyName(provider));
+  static String model(String provider, @Nullable String configured) {
+    return configured == null || configured.isBlank() ? defaultModel(provider) : configured;
   }
 
-  private static String apiKeyName(String provider) {
-    return provider.equals("meta") ? "MODEL_API_KEY" : "DEEPSEEK_API_KEY";
+  static String modelFromEnvironment() {
+    return model(providerFromEnvironment(), System.getenv("VGUIDE_LLM_MODEL"));
+  }
+
+  static void validateProviderMode(String provider, boolean replay) {
+    if (provider.equals("deepseek") && !replay) {
+      throw new IllegalStateException(
+          "DeepSeek live requests are disabled; set VGUIDE_LLM_REPLAY_DIR for historical replay");
+    }
+  }
+
+  private static String providerFromEnvironment() {
+    return provider(System.getenv("VGUIDE_LLM_PROVIDER"));
+  }
+
+  private static @Nullable String apiKeyFromEnvironment() {
+    return System.getenv("MODEL_API_KEY");
   }
 
   private static String defaultModel(String provider) {
-    return provider.equals("meta") ? META_MODEL : DEFAULT_MODEL;
-  }
-
-  private static String defaultApiUrl(String provider) {
-    return provider.equals("meta") ? META_API_URL : LlmApiUrl.DEFAULT_API_URL;
+    return provider.equals("meta") ? DEFAULT_MODEL : DEEPSEEK_MODEL;
   }
 
   private static boolean thinkingEnabledFromEnv() {
@@ -480,11 +488,7 @@ public final class PredicateProposalClient {
     };
   }
 
-  /**
-   * DeepSeek V4 official API accepts {@code low}/{@code medium}/{@code high}/{@code max}
-   * natively (verified 2026-08-15: reasoning lengths 221/625/270/396 chars); pass all
-   * through. Default stays {@code high}.
-   */
+  /** Returns the configured reasoning effort, defaulting to {@code high}. */
   private static @Nullable String reasoningEffortFromEnv() {
     String effort = System.getenv("VGUIDE_LLM_REASONING_EFFORT");
     if (effort == null || effort.isBlank() || "default".equalsIgnoreCase(effort)) {
