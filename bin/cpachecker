@@ -9,7 +9,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # the location of the java command
-[ -z "$JAVA" ] && JAVA=java
+if [ -z "$JAVA" ]; then
+  for candidate in /usr/lib/jvm/java-21-openjdk-*/bin/java; do
+    [ -x "$candidate" ] && JAVA="$candidate" && break
+  done
+  [ -n "$JAVA" ] || JAVA=java
+fi
 
 #------------------------------------------------------------------------------
 # From here on you should not need to change anything

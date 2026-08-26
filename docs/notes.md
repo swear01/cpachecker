@@ -19,18 +19,26 @@
 - **`DEEPSEEK_API_KEY` is required for live/record mode.** A paired replay may omit it only when `VGUIDE_LLM_REPLAY_DIR` is set. Record/replay are mutually exclusive and a replay miss terminates the run instead of falling back to the live API or stock behavior.
 - **`cpachecker-experiments/runs/legacy_output_2026/vguide/` is gitignored.** Experiment results live locally only. Do not commit them.
 - **Raw output lifecycle (both git-ignored).** Active raw → `cpachecker-experiments/runs/legacy_output_2026/vguide/experiments/` (run.sh writes here automatically). Retired raw → `mv` it to `cpachecker-experiments/records/archive/raw-legacy/` to keep it; do NOT delete raw just to free git (it's already ignored), and never put raw in tracked dirs.
-- **Native-solver test exclusions (issues #30/#111, since 2026-08-11).** Before any repo-wide
-  JUnit run on this fleet, use `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1 ant unit-tests`; do not run
-  bare `ant unit-tests` or `ant standard-checks` and interpret the resulting native crashes as
-  change regressions. The gate assumes-away OpenSMT, Z3, Z3_WITH_INTERPOLATION, CVC4, CVC5 and
-  BITWUZLA (besides BOOLECTOR/YICES2) because of documented bundled-native/shared-JVM failures
-  in #30/#111. On Ubuntu 26.04/glibc 2.43 the gated suite creates no JVM crash; machines without
-  the gate retain full solver coverage.
+- **Native-solver test exclusions (issues #30/#111, since 2026-08-11).** On a host/JDK that still
+  reproduces the documented bundled-native or shared-JVM failures, use
+  `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1 ant unit-tests` as a component command. It assumes-away
+  OpenSMT, Z3, Z3_WITH_INTERPOLATION, CVC4, CVC5 and BITWUZLA (besides BOOLECTOR/YICES2), so it is
+  not a replacement for the canonical full gate. With Ubuntu's packaged OpenJDK 21, bare
+  `ant all-checks` completed the repo-wide JUnit suite without a JVM crash; keep the exclusion only
+  for environments that independently reproduce #30/#111.
 - **The canonical full verification command is `ant all-checks` (issue #154).** It includes the
   strict ECJ build and expensive tests; `.settings/org.eclipse.jdt.core.prefs` is a tracked Ant
   build input, not optional IDE state. Keep the fleet-specific native-solver exclusion above as a
   separate `VGUIDE_SKIP_BROKEN_NATIVE_SOLVERS=1 ant unit-tests` component command rather than
   weakening or replacing the full gate.
+- **Use Ubuntu's packaged OpenJDK 21 for local full verification (issue #154 follow-up).** Temurin,
+  Microsoft, Corretto, and Zulu 21.0.10 builds can crash in `libstdc++.so.6` at
+  `std::codecvt<char16_t>::do_in` when a JNI C++ library is loaded; the matching upstream report is
+  [JDK-8379560](https://bugs.openjdk.org/browse/JDK-8379560). The Ubuntu packaged JDK passes the Z3
+  configuration check on this host. Run the canonical full gate as
+  `env JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH ant all-checks`.
+  This JDK selection does not remove the separate unit-test exclusions for other bundled-native and
+  shared-JVM failures documented above.
 - **Scoped verification baseline (2026-08-25, `origin/main@0ddfec079f`).** A repo-wide failure
   that is already present on the canonical base does not block a research-scoped change when the
   exact baseline is recorded and the diff adds no finding; any new failing class, native crash,
