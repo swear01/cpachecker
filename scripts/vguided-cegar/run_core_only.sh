@@ -73,21 +73,21 @@ check_p_cores_idle() {
   load_window="$(LC_ALL=C mpstat -P "$P_CORE_RANGE" 1 5 2>/dev/null)" \
     || die "mpstat failed during the five-sample P-core load check"
   incomplete="$(printf '%s\n' "$load_window" | awk -F' +' -v order="$P_CORE_LIST" '
-    BEGIN { split(order, cores, ",") }
+    BEGIN { core_count = split(order, cores, ",") }
     $1 != "Average:" && $2 ~ /^[0-9]+$/ { count[$2]++ }
     END { for (i in cores) if (count[cores[i]] != 5) print cores[i] }
   ')"
   [[ -z "$incomplete" ]] \
     || die "incomplete five-sample P-core load check for cores: $incomplete"
   busy="$(printf '%s\n' "$load_window" | awk -F' +' -v order="$P_CORE_LIST" '
-    BEGIN { split(order, cores, ",") }
+    BEGIN { core_count = split(order, cores, ",") }
     $1 != "Average:" && $2 ~ /^[0-9]+$/ {
       cpu = $2
       count[cpu]++
       value[cpu SUBSEP count[cpu]] = 100 - $NF
     }
     END {
-      for (k = 1; k <= length(cores); k++) {
+      for (k = 1; k <= core_count; k++) {
         cpu = cores[k]
         for (i = 2; i <= count[cpu]; i++) {
           current = value[cpu SUBSEP i]
@@ -106,7 +106,7 @@ check_p_cores_idle() {
     die "P-core contention: median busy >= 50% on cores: $busy"
   fi
   LOAD_CHECK_NOW="$(printf '%s\n' "$load_window" | awk -F' +' -v order="$P_CORE_LIST" '
-    BEGIN { split(order, cores, ",") }
+    BEGIN { core_count = split(order, cores, ",") }
     $1 != "Average:" && $2 ~ /^[0-9]+$/ {
       cpu = $2
       count[cpu]++
@@ -114,7 +114,7 @@ check_p_cores_idle() {
     }
     END {
       printf "median_busy_lt_50;samples_busy_pct="
-      for (k = 1; k <= length(cores); k++) {
+      for (k = 1; k <= core_count; k++) {
         cpu = cores[k]
         if (k > 1) printf "|"
         printf "%s:", cpu

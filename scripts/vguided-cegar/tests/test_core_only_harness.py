@@ -30,6 +30,8 @@ def test_formal_runner_uses_five_sample_median_without_psr_veto():
     runner = (Path(__file__).resolve().parents[1] / "run_core_only.sh").read_text()
     assert 'mpstat -P "$P_CORE_RANGE" 1 5' in runner
     assert "median busy" in runner
+    assert runner.count("core_count = split") == 3
+    assert "length(cores)" not in runner
     assert "ps -eo user,pgid,psr,pcpu,comm" not in runner
 
 
