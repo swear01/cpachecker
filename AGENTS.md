@@ -5,7 +5,8 @@
   遷移清單：GitHub Issue #55）。
 - **研究設計與 decisions**：GitHub Wiki（source of truth）。
 - **只有正式 timing/performance/PAR-2 run 強制 CPU isolation**：taskset
-  `0,2,4,6,8,10,12,14`、run 前 load check、三機 pool 擇 `idle_ready`。
+  `0,2,4,6,8,10,12,14`、run 前 5×1 秒即時 load window、三機 pool 任一
+  `idle_ready` 即原子 claim。不得用累積 process `%CPU` 或單一 `PSR` 當拒絕條件。
   Capability/mechanism run 可在記錄 host/load/provenance 後執行；其結果只支援
   verdict/refinement 主張，不支援精確 timing。完整 protocol：
   `/home/swear01/cpachecker-experiments/docs/vguided-cegar/EXPERIMENT_PROTOCOL.md`

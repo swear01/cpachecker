@@ -59,14 +59,18 @@
   VGuide components and non-VGuide configs remain runnable checks; VGuide component checks need
   the normal provider or replay environment. The checker does not globally
   suppress `vguide.*` or silently add the VGuide hook.
-- **Evidence-tiered CPU isolation (Baseline-Protocol, updated 2026-08-25).**
+- **Evidence-tiered CPU isolation (Baseline-Protocol, updated 2026-08-26).**
   Formal timing/performance/PAR-2 experiments must pin
   CPA invocations with `taskset -c 0,2,4,6,8,10,12,14` (8 physical P-cores, no SMT sibling,
-  no E-core), refuse to start when the P-core pool is busy (mpstat ≥50% or concurrent local
-  processes), record `cpu_isolation`/`load_check` in run_meta.json, and pick the machine via
-  the fleet availability monitor (valkyrie/athena/cthulhu, idle_ready; 13900K/14900K P-cores
-  are comparable and mixable). Capability and predicate-mechanism runs may proceed without an
-  idle-ready host when they record host/load/provenance; they support correct verdict/refinement
+  no E-core). Classify load from five consecutive one-second `mpstat` samples: a host is
+  `idle_ready` when every selected P-core has median busy below 50%, and `busy` otherwise.
+  The first `idle_ready` host in the valkyrie/athena/cthulhu pool may run after an atomic claim
+  and immediate post-claim recheck; 13900K/14900K P-cores are comparable and mixable. Process
+  snapshots are diagnostic and identify an explicit conflicting CPAchecker/solver/BenchExec
+  owner, but cumulative process `%CPU` and a process's last `PSR` must not veto a host. Record
+  `cpu_isolation`/window samples/claim in `run_meta.json`. Capability and predicate-mechanism
+  runs may proceed without an idle-ready host when they record host/load/provenance; they
+  support correct verdict/refinement
   claims only, and near-timeout or asymmetric-load outcomes require replication. `run_core_only.sh`
   remains the strict timing runner. Full text: `docs/EXPERIMENT_PROTOCOL.md` (branch
   `research/vguide-upstream-reimpl`). The 2026-08-11 stock+augmented 224 runs predate this

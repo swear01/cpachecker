@@ -73,12 +73,16 @@ All formal runs MUST follow the previous agents' protocol (Baseline-Protocol,
 
 - taskset pin every CPA invocation to logical CPUs `0,2,4,6,8,10,12,14`
   (8 physical P-cores, no SMT sibling, no E-core);
-- refuse to start when any P-core is ≥50% busy or has concurrent local
-  processes (foreign_p_core_contention);
-- record `cpu_isolation` + `load_check` in `run_meta.json`;
-- machine selection via the fleet availability monitor
-  (valkyrie/athena/cthulhu, `idle_ready`); 13900K/14900K P-cores are
-  comparable and mixable.
+- take five consecutive one-second `mpstat` samples; load-based refusal applies only when any
+  selected P-core has median busy ≥50%; do not veto from cumulative process
+  `%CPU` or a process's last `PSR`;
+- treat process snapshots as diagnostics, except for an explicit conflicting
+  CPAchecker/solver/BenchExec owner on the selected CPU set;
+- record `cpu_isolation`, all load-window samples, and the pool claim in
+  `run_meta.json`;
+- machine selection via the fleet availability monitor: atomically claim the
+  first `idle_ready` valkyrie/athena/cthulhu host, then immediately recheck it;
+  13900K/14900K P-cores are comparable and mixable.
 - Contaminated runs are invalid for timing claims; verdict-only claims
   need an explicit caveat.
 
