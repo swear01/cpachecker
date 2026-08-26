@@ -10,8 +10,10 @@
 
 # the location of the java command
 if [ -z "$JAVA" ]; then
-  JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java
-  [ -x "$JAVA" ] || JAVA=java
+  for candidate in /usr/lib/jvm/java-21-openjdk-*/bin/java; do
+    [ -x "$candidate" ] && JAVA="$candidate" && break
+  done
+  [ -n "$JAVA" ] || JAVA=java
 fi
 
 #------------------------------------------------------------------------------

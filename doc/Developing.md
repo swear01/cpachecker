@@ -103,7 +103,7 @@ We use javac, the Eclipse Java Compiler,
 for findings bugs in the source, and we keep CPAchecker
 free of warnings from all these tools.
 You can run them all at once (plus the unit tests) with `ant all-checks`.
-On 64bit Ubuntu, use the distribution-provided OpenJDK 21 for the full gate:
+On Ubuntu x86-64, use the distribution-provided OpenJDK 21 for the full gate:
 ```
 env JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
   PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH \
