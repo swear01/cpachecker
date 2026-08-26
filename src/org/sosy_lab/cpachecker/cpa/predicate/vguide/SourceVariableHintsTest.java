@@ -29,6 +29,23 @@ public class SourceVariableHintsTest {
   }
 
   @Test
+  public void scalarNamesHandleFirstDeclarationInFunctionBody() {
+    String src =
+        """
+        extern void fail(const char *message, unsigned int __line, int __errnum);
+        int main() {
+          int i,j,k,n,l,m;
+          return 0;
+        }
+        """;
+
+    assertThat(SourceVariableHints.scalarNames(src))
+        .containsExactly("i", "j", "k", "n", "l", "m")
+        .inOrder();
+    assertThat(SourceVariableHints.scalarDeclCount(src)).isEqualTo(6);
+  }
+
+  @Test
   public void scalarNamesKeepScalarsFromMixedDeclaration() {
     String src = "int A[16], i = (j + 1), j;";
     assertThat(SourceVariableHints.scalarNames(src)).containsExactly("i", "j").inOrder();

@@ -140,6 +140,63 @@ public class ProposalPromptBuilderTest {
   }
 
   @Test
+  public void cegarPromptUsesSsaContractAsOnlyVariableAuthority() {
+    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "int sourceOnly; int i;\n",
+            "i",
+            ImmutableList.of(),
+            ImmutableMap.of("i", ImmutableSet.of("main::i@2")),
+            ImmutableSet.of("main::i@2"),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "L@N1: (= i 0)\n",
+            "");
+
+    PromptMessages prompt =
+        builder.buildPrompt(pack, new PredicateBudget(4, 8), PromptProfile.SAFE, 1);
+
+    assertThat(prompt.user()).contains("Variable contract (use LEFT names in predicates)");
+    assertThat(prompt.user()).contains("i -> [main::i@2]");
+    assertThat(prompt.user()).doesNotContain("Allowed scalar variables");
+    assertThat(prompt.user()).doesNotContain("Contract keys must match allowed scalars above");
+  }
+
+  @Test
+  public void sourceOnlyPromptScansFirstFunctionBodyDeclaration() {
+    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ContextPack pack =
+        new ContextPack(
+            0,
+            """
+            extern void fail(unsigned int __line, int __errnum);
+            int main() {
+              int i,n;
+              return i < n;
+            }
+            """,
+            "i < n",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "",
+            "");
+
+    PromptMessages prompt =
+        builder.buildPrompt(pack, new PredicateBudget(4, 8), PromptProfile.SAFE, 1);
+
+    assertThat(prompt.user()).contains("Allowed scalar variables (use ONLY these names): [i, n]");
+    assertThat(prompt.user()).doesNotContain("__line");
+    assertThat(prompt.user()).doesNotContain("__errnum");
+  }
+
+  @Test
   public void historyBlockInsertedWhenProvided() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
     ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
