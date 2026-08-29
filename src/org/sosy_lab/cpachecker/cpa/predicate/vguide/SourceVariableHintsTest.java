@@ -46,6 +46,25 @@ public class SourceVariableHintsTest {
   }
 
   @Test
+  public void scalarNamesHandleQualifiedForAndBraceInitializedDeclarations() {
+    String src =
+        """
+        static int count;
+        const unsigned int limit;
+        int A[3] = {1, 2, 3};
+        for (int i = 0; i < limit; i++) {
+          count += A[i];
+        }
+        """;
+
+    assertThat(SourceVariableHints.scalarNames(src))
+        .containsExactly("count", "limit", "i")
+        .inOrder();
+    assertThat(SourceVariableHints.scalarDeclCount(src)).isEqualTo(3);
+    assertThat(SourceVariableHints.hasArrayDecl(src)).isTrue();
+  }
+
+  @Test
   public void scalarNamesKeepScalarsFromMixedDeclaration() {
     String src = "int A[16], i = (j + 1), j;";
     assertThat(SourceVariableHints.scalarNames(src)).containsExactly("i", "j").inOrder();
