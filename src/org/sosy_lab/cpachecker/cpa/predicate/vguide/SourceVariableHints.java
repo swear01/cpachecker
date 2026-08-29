@@ -22,7 +22,7 @@ public final class SourceVariableHints {
           "(?m)(?:(?:^|(?<=[;{}]))\\s*|\\bfor\\s*\\(\\s*)"
               + "(?:(?:auto|const|extern|register|restrict|signed|static|unsigned|volatile|long|"
               + "short|_Atomic|_Thread_local)\\s+)*int\\s+"
-              + "([^;{}]*(?:=\\s*\\{[^{}]*\\}[^;{}]*)*);");
+              + "([^;{}]*(?:=[^;]*)?);");
   private static final Pattern DECLARATOR_NAME =
       Pattern.compile("\\s*([A-Za-z_]\\w*)\\s*(?:=.*)?");
   private static final Pattern ARRAY_NAME =

@@ -66,6 +66,18 @@ public class SourceVariableHintsTest {
   }
 
   @Test
+  public void scalarNamesHandleNestedBraceInitializers() {
+    String src =
+        """
+        int A[2][2] = {{1, 2}, {3, 4}}, count;
+        int value = (struct S){1};
+        """;
+
+    assertThat(SourceVariableHints.scalarNames(src)).containsExactly("count", "value").inOrder();
+    assertThat(SourceVariableHints.hasArrayDecl(src)).isTrue();
+  }
+
+  @Test
   public void scalarNamesKeepScalarsFromMixedDeclaration() {
     String src = "int A[16], i = (j + 1), j;";
     assertThat(SourceVariableHints.scalarNames(src)).containsExactly("i", "j").inOrder();
