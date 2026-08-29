@@ -8,6 +8,7 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
 
 public class SourceVariableHintsTest {
@@ -107,7 +108,7 @@ public class SourceVariableHintsTest {
 
   @Test
   public void arrayPromptUsesCanonicalSourceSyntax() {
-    String hints = SourceVariableHints.formatForPrompt("int A[1024]; int i;", java.util.Map.of());
+    String hints = SourceVariableHints.formatForPrompt("int A[1024]; int i;", ImmutableMap.of());
     assertThat(hints).contains("array element reads are allowed");
     assertThat(hints).contains("A[i]");
     assertThat(hints).doesNotContain("do NOT use array identifiers");

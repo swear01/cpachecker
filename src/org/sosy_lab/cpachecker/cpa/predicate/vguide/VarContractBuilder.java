@@ -41,7 +41,8 @@ public final class VarContractBuilder {
     String name = encoded.strip();
     if (name.startsWith("|") && name.endsWith("|") && name.length() > 1) {
       name = name.substring(1, name.length() - 1);
-    } else if (!name.contains("::") && !name.contains("@")) {
+    }
+    if (!name.contains("::") && !name.contains("@")) {
       return "";
     }
     int scope = name.lastIndexOf("::");

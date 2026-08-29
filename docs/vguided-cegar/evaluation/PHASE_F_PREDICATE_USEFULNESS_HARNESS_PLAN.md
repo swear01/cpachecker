@@ -40,9 +40,10 @@ triage, not proof of current behavior.
 - SSA contract extraction accepts both quoted and unquoted formula-manager
   names and removes scope/version syntax before presenting source names;
 - source hints currently cover simple `int` object declarators only: array
-  declarators, pointers, function declarations, struct/union fields, comments,
-  and string/character literals are excluded deterministically; the first
-  declaration in a function body is covered;
+  declarators (including brace initializers), common type/storage modifiers,
+  and `for` initializers are covered; pointers, function declarations,
+  struct/union fields, comments, and string/character literals are excluded
+  deterministically;
 - final-prompt tests, not only helper-method tests.
 
 ### F2 — structured context contract

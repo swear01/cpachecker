@@ -18,7 +18,11 @@ import java.util.regex.Pattern;
 public final class SourceVariableHints {
 
   private static final Pattern INT_DECL =
-      Pattern.compile("(?m)(?:^|(?<=[;{}]))\\s*int\\s+([^;{}]+);");
+      Pattern.compile(
+          "(?m)(?:(?:^|(?<=[;{}]))\\s*|\\bfor\\s*\\(\\s*)"
+              + "(?:(?:auto|const|extern|register|restrict|signed|static|unsigned|volatile|long|"
+              + "short|_Atomic|_Thread_local)\\s+)*int\\s+"
+              + "([^;{}]*(?:=\\s*\\{[^{}]*\\}[^;{}]*)*);");
   private static final Pattern DECLARATOR_NAME =
       Pattern.compile("\\s*([A-Za-z_]\\w*)\\s*(?:=.*)?");
   private static final Pattern ARRAY_NAME =
