@@ -398,6 +398,14 @@ public class VocabularyGuide {
     if (token.matches("-?\\d+")) {
       return bvmgr.makeBitvector(32, new java.math.BigInteger(token));
     }
+    if (token.matches("#b[01]+")) {
+      return bvmgr.makeBitvector(
+          token.length() - 2, new java.math.BigInteger(token.substring(2), 2));
+    }
+    if (token.matches("#x[0-9a-fA-F]+")) {
+      return bvmgr.makeBitvector(
+          (token.length() - 2) * 4, new java.math.BigInteger(token.substring(2), 16));
+    }
     String encoded = resolveVariableName(token, encodedVariableNames);
     int bits = varBits.getOrDefault(unversioned(encoded), 32);
     return bvmgr.makeVariable(bits, encoded);

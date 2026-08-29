@@ -157,7 +157,7 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
   }
 
   @Test
-  public void parseErrorRejected() {
+  public void parseErrorsRejected() {
     makeHeads();
     BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
     PredicateValidationPipeline pipeline =
@@ -166,12 +166,16 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
     var outcome =
         pipeline.validateCandidates(
             pack(ENCODED_F1_X, block),
-            ImmutableList.of(candidate(headA.label(), "(= x")),
+            ImmutableList.of(
+                candidate(headA.label(), "(= x"),
+                candidate(headA.label(), "(bvslt x (bv 100 32))")),
             trace(headA.node()));
 
     assertThat(outcome.validation().validated()).isEmpty();
-    assertThat(outcome.rejections()).hasSize(1);
+    assertThat(outcome.rejections()).hasSize(2);
     assertThat(outcome.rejections().get(0).reason())
+        .isEqualTo(PredicateValidationPipeline.REASON_PARSE_ERROR);
+    assertThat(outcome.rejections().get(1).reason())
         .isEqualTo(PredicateValidationPipeline.REASON_PARSE_ERROR);
   }
 
@@ -305,6 +309,29 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
             trace(headA.node()));
 
     assertThat(outcome.validation().validated()).hasSize(1);
+    assertThat(outcome.rejections()).isEmpty();
+  }
+
+  @Test
+  public void standardBitvectorLiteralsAcceptedAsConstants() {
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(ENCODED_F1_X, block),
+            ImmutableList.of(
+                candidate(headA.label(), "(bvslt x #x00000064)"),
+                candidate(headA.label(), "(bvsge x #b00000001)")),
+            trace(headA.node()));
+
+    assertThat(outcome.validation().validated()).hasSize(2);
+    assertThat(outcome.validation().validated().get(0).formula())
+        .isEqualTo(parse("(bvslt x (_ bv100 32))", ENCODED_F1_X));
+    assertThat(outcome.validation().validated().get(1).formula())
+        .isEqualTo(parse("(bvsge x (_ bv1 8))", ENCODED_F1_X));
     assertThat(outcome.rejections()).isEmpty();
   }
 
