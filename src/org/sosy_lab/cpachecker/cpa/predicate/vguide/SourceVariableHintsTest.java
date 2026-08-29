@@ -8,6 +8,7 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
 
 public class SourceVariableHintsTest {
@@ -26,6 +27,54 @@ public class SourceVariableHintsTest {
         .containsExactly("i", "j", "k", "n", "l", "m")
         .inOrder();
     assertThat(SourceVariableHints.scalarDeclCount(src)).isEqualTo(6);
+  }
+
+  @Test
+  public void scalarNamesHandleFirstDeclarationInFunctionBody() {
+    String src =
+        """
+        extern void fail(const char *message, unsigned int __line, int __errnum);
+        int main() {
+          int i,j,k,n,l,m;
+          return 0;
+        }
+        """;
+
+    assertThat(SourceVariableHints.scalarNames(src))
+        .containsExactly("i", "j", "k", "n", "l", "m")
+        .inOrder();
+    assertThat(SourceVariableHints.scalarDeclCount(src)).isEqualTo(6);
+  }
+
+  @Test
+  public void scalarNamesHandleQualifiedForAndBraceInitializedDeclarations() {
+    String src =
+        """
+        static int count;
+        const unsigned int limit;
+        int A[3] = {1, 2, 3};
+        for (int i = 0; i < limit; i++) {
+          count += A[i];
+        }
+        """;
+
+    assertThat(SourceVariableHints.scalarNames(src))
+        .containsExactly("count", "limit", "i")
+        .inOrder();
+    assertThat(SourceVariableHints.scalarDeclCount(src)).isEqualTo(3);
+    assertThat(SourceVariableHints.hasArrayDecl(src)).isTrue();
+  }
+
+  @Test
+  public void scalarNamesHandleNestedBraceInitializers() {
+    String src =
+        """
+        int A[2][2] = {{1, 2}, {3, 4}}, count;
+        int value = (struct S){1};
+        """;
+
+    assertThat(SourceVariableHints.scalarNames(src)).containsExactly("count", "value").inOrder();
+    assertThat(SourceVariableHints.hasArrayDecl(src)).isTrue();
   }
 
   @Test
@@ -71,7 +120,7 @@ public class SourceVariableHintsTest {
 
   @Test
   public void arrayPromptUsesCanonicalSourceSyntax() {
-    String hints = SourceVariableHints.formatForPrompt("int A[1024]; int i;", java.util.Map.of());
+    String hints = SourceVariableHints.formatForPrompt("int A[1024]; int i;", ImmutableMap.of());
     assertThat(hints).contains("array element reads are allowed");
     assertThat(hints).contains("A[i]");
     assertThat(hints).doesNotContain("do NOT use array identifiers");

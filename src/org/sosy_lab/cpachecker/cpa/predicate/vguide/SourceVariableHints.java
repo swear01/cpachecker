@@ -17,7 +17,12 @@ import java.util.regex.Pattern;
 /** Scans C source for variables safe to mention in LLM predicate proposals. */
 public final class SourceVariableHints {
 
-  private static final Pattern INT_DECL = Pattern.compile("\\bint\\s+([^;]+);");
+  private static final Pattern INT_DECL =
+      Pattern.compile(
+          "(?m)(?:(?:^|(?<=[;{}]))\\s*|\\bfor\\s*\\(\\s*)"
+              + "(?:(?:auto|const|extern|register|restrict|signed|static|unsigned|volatile|long|"
+              + "short|_Atomic|_Thread_local)\\s+)*int\\s+"
+              + "([^;{}]*(?:=[^;]*)?);");
   private static final Pattern DECLARATOR_NAME =
       Pattern.compile("\\s*([A-Za-z_]\\w*)\\s*(?:=.*)?");
   private static final Pattern ARRAY_NAME =
@@ -79,16 +84,17 @@ public final class SourceVariableHints {
   }
 
   public static String formatForPrompt(String source, java.util.Map<String, ?> contract) {
+    if (!contract.isEmpty()) {
+      return "";
+    }
     ImmutableList<String> scalars = scalarNames(source);
-    if (scalars.isEmpty() && contract.isEmpty()) {
+    if (scalars.isEmpty()) {
       return "";
     }
     StringBuilder sb = new StringBuilder();
-    if (!scalars.isEmpty()) {
-      sb.append("Allowed scalar variables (use ONLY these names): ")
-          .append(scalars)
-          .append('\n');
-    }
+    sb.append("Allowed scalar variables (use ONLY these names): ")
+        .append(scalars)
+        .append('\n');
     if (hasArrayDecl(source)) {
       sb.append(
           """
@@ -96,9 +102,6 @@ public final class SourceVariableHints {
           Do not use bare array identifiers, select/store, heap names, or SSA names.
           GOOD: (= A[i] 0), (bvsge i (_ bv0 32)), (bvsle i (_ bv1024 32))
           """);
-    }
-    if (!contract.isEmpty()) {
-      sb.append("Contract keys must match allowed scalars above.\n");
     }
     return sb.toString();
   }

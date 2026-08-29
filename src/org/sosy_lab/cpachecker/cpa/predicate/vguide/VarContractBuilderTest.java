@@ -23,4 +23,22 @@ public class VarContractBuilderTest {
     assertThat(contract.get("n")).containsExactly("|main::n@1|");
     assertThat(contract).doesNotContainKey("unrelated");
   }
+
+  @Test
+  public void mapsUnquotedNamesReturnedByFormulaManager() {
+    var contract =
+        VarContractBuilder.build(
+            ImmutableSet.of(
+                "main::i@2",
+                "main::n@1",
+                "__VERIFIER_nondet_int!2@",
+                "__string__",
+                "|__string__|"));
+
+    assertThat(contract).containsKey("i");
+    assertThat(contract.get("i")).containsExactly("main::i@2");
+    assertThat(contract.get("n")).containsExactly("main::n@1");
+    assertThat(contract).doesNotContainKey("__VERIFIER_nondet_int!2");
+    assertThat(contract).doesNotContainKey("__string__");
+  }
 }
