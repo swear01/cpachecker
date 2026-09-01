@@ -35,6 +35,7 @@ import org.sosy_lab.cpachecker.core.interfaces.Precision;
 import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractState;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.util.Precisions;
@@ -45,11 +46,11 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
 
 /**
  * Writes per-task analysis dumps for predicate overlap / PCS studies. Enabled when {@code
- * VGUIDE_ANALYSIS_DUMP_DIR} is set. See docs/vguided-cegar/analysis/PREDICATE_ANALYSIS_PLAN.md.
+ * VGUIDE_ANALYSIS_DUMP_DIR} is set. See docs/vguided-cegar/evaluation/CORE_ONLY_EVALUATION_PLAN.md.
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "10";
+  public static final String SCHEMA_VERSION = "11";
   private static final ObjectMapper JSON = new ObjectMapper();
   static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -176,6 +177,7 @@ public final class VGuideAnalysisDumper {
     row.set("var_contract", varContractJson(pack.varContract()));
     row.set("loop_heads", loopHeadsJson(pack.loopHeads()));
     row.set("abstraction_states", abstractionStatesJson(abstractionStatesTrace));
+    row.set("abstraction_formulas_pre", abstractionFormulasJson(abstractionStatesTrace));
     ObjectNode precisionBeforeSnapshot =
         precisionBefore == null ? precisionSnapshot(null) : precisionBefore;
     row.set("precision_local_before", precisionBeforeSnapshot.path("local"));
@@ -457,6 +459,25 @@ public final class VGuideAnalysisDumper {
       if (node != null) {
         o.put("node", "N" + node.getNodeNumber());
       }
+      arr.add(o);
+    }
+    return arr;
+  }
+
+  private ArrayNode abstractionFormulasJson(List<ARGState> trace) {
+    ArrayNode arr = JSON.createArrayNode();
+    int i = 0;
+    for (ARGState argState : trace) {
+      ObjectNode o = JSON.createObjectNode();
+      o.put("index", i++);
+      CFANode node = extractLocation(argState);
+      if (node != null) {
+        o.put("node", "N" + node.getNodeNumber());
+      }
+      PredicateAbstractState state = PredicateAbstractState.getPredicateState(argState);
+      o.put("uninstantiated_smt", dumpFormula(state.getAbstractionFormula().asFormula()));
+      o.put(
+          "instantiated_smt", dumpFormula(state.getAbstractionFormula().asInstantiatedFormula()));
       arr.add(o);
     }
     return arr;

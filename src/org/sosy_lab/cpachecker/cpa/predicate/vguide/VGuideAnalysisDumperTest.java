@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.sosy_lab.common.collect.PathCopyingPersistentTreeMap;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
@@ -31,15 +32,20 @@ import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.core.interfaces.Precision;
 import org.sosy_lab.cpachecker.core.reachedset.UnmodifiableReachedSet;
 import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
+import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractState;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision;
 import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
+import org.sosy_lab.cpachecker.util.predicates.AbstractionFormula;
 import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
+import org.sosy_lab.cpachecker.util.predicates.pathformula.PathFormula;
+import org.sosy_lab.cpachecker.util.predicates.regions.SymbolicRegionManager;
 import org.sosy_lab.cpachecker.util.predicates.smt.SolverViewBasedTest0;
 import org.sosy_lab.java_smt.api.BooleanFormula;
 
-/** Schema-5 refinement rows must carry candidate diagnostics and observable rejections. */
+/** Refinement rows must preserve diagnostics needed by offline analysis. */
 public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
 
   private static final LogManager LOGGER = LogManager.createNullLogManager();
@@ -133,7 +139,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
     assertThat(rejected.path("predicate").asText()).isEqualTo("(bvslt w n)");
 
     JsonNode manifest = JSON.readTree(tmp.getRoot().toPath().resolve("run_manifest.json").toFile());
-    assertThat(manifest.path("schema_version").asText()).isEqualTo("10");
+    assertThat(manifest.path("schema_version").asText()).isEqualTo("11");
     assertThat(manifest.path("model").asText()).isEqualTo("muse-spark-1.2-contributor");
   }
 
@@ -277,5 +283,73 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
     assertThat(row.path("precision_local_before").size()).isEqualTo(0);
     assertThat(row.path("precision_local_after").path("N" + node.getNodeNumber()).size())
         .isEqualTo(1);
+  }
+
+  @Test
+  public void recordsActualAbstractionFormulaForTraceState() throws Exception {
+    VGuideOptions options = new VGuideOptions(Configuration.builder().build());
+    VGuideAnalysisDumper dumper =
+        new VGuideAnalysisDumper(
+            LOGGER, tmp.getRoot().toPath(), "task", "task", 0, false, false, mgrv, options);
+    BooleanFormula uninstantiated = imgrv.greaterThan(imgrv.makeVariable("x"), imgrv.makeNumber(0));
+    BooleanFormula instantiated =
+        imgrv.greaterThan(imgrv.makeVariable("x", 2), imgrv.makeNumber(0));
+    PathFormula pathFormula = mock(PathFormula.class);
+    AbstractionFormula abstractionFormula =
+        new AbstractionFormula(
+            mgrv,
+            new SymbolicRegionManager(solver).makeTrue(),
+            uninstantiated,
+            instantiated,
+            pathFormula,
+            ImmutableSet.of());
+    PredicateAbstractState predicateState =
+        PredicateAbstractState.mkAbstractionState(
+            pathFormula, abstractionFormula, PathCopyingPersistentTreeMap.of());
+    ARGState argState = new ARGState(predicateState, null);
+    BlockFormulas formulas = new BlockFormulas(ImmutableList.of(instantiated));
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "",
+            "",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            formulas,
+            ImmutableList.of(),
+            "",
+            "");
+
+    dumper.recordRefinement(
+        1,
+        false,
+        "schedule",
+        null,
+        null,
+        pack,
+        ImmutableList.of(argState),
+        formulas,
+        CounterexampleTraceInfo.infeasible(ImmutableList.of(instantiated)),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        -1,
+        -1,
+        false,
+        null);
+
+    Path rowFile =
+        tmp.getRoot().toPath().resolve("tasks").resolve("task").resolve("refinements.jsonl");
+    JsonNode row = JSON.readTree(Files.readString(rowFile).strip());
+    JsonNode dumped = row.path("abstraction_formulas_pre").get(0);
+    assertThat(dumped.path("index").asInt()).isEqualTo(0);
+    assertThat(dumped.path("uninstantiated_smt").asText()).contains("x");
+    assertThat(dumped.path("instantiated_smt").asText()).contains("x@2");
   }
 }
