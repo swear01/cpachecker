@@ -7,7 +7,6 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
-import static org.sosy_lab.cpachecker.util.AbstractStates.extractStateByType;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -467,22 +466,18 @@ public final class VGuideAnalysisDumper {
 
   private ArrayNode abstractionFormulasJson(List<ARGState> trace) {
     ArrayNode arr = JSON.createArrayNode();
-    for (int i = 0; i < trace.size(); i++) {
+    int i = 0;
+    for (ARGState argState : trace) {
       ObjectNode o = JSON.createObjectNode();
-      o.put("index", i);
-      CFANode node = extractLocation(trace.get(i));
+      o.put("index", i++);
+      CFANode node = extractLocation(argState);
       if (node != null) {
         o.put("node", "N" + node.getNodeNumber());
       }
-      PredicateAbstractState state = extractStateByType(trace.get(i), PredicateAbstractState.class);
-      if (state == null) {
-        o.putNull("uninstantiated_smt");
-        o.putNull("instantiated_smt");
-      } else {
-        o.put("uninstantiated_smt", dumpFormula(state.getAbstractionFormula().asFormula()));
-        o.put(
-            "instantiated_smt", dumpFormula(state.getAbstractionFormula().asInstantiatedFormula()));
-      }
+      PredicateAbstractState state = PredicateAbstractState.getPredicateState(argState);
+      o.put("uninstantiated_smt", dumpFormula(state.getAbstractionFormula().asFormula()));
+      o.put(
+          "instantiated_smt", dumpFormula(state.getAbstractionFormula().asInstantiatedFormula()));
       arr.add(o);
     }
     return arr;
