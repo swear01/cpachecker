@@ -397,7 +397,7 @@ public final class VGuideRefinementBridge {
     dump.formulas = formulas;
     dump.counterexample = counterexample;
     dump.llmCalled = false;
-    if (precisionCompiler != null) {
+    if (counterexample.isSpurious() && precisionCompiler != null) {
       dump.precisionCompilerResult = precisionCompiler.compile(fullPath);
     }
     pendingDump = dump;
