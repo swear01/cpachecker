@@ -150,7 +150,9 @@ public final class VGuideRefinementBridge {
         new FrozenPredicateLoader(logger, opts.getFrozenDir()),
         new WallClockBudget(opts.getWallBudgetSec()),
         new LlmCallScheduler(opts, logger),
-        opts.isPrecisionCompilerEnabled() ? new CfaPrecisionCompiler(pfmgr, fmgr, loopHeads) : null,
+        opts.isPrecisionCompilerEnabled()
+            ? new CfaPrecisionCompiler(pfmgr, fmgr, loopHeads, solver, cfa.getMachineModel())
+            : null,
         VGuideAnalysisDumper.createOptional(
             logger, taskName, taskNameBase, bridgeIndex, fmgr, opts));
   }
@@ -398,7 +400,11 @@ public final class VGuideRefinementBridge {
     dump.counterexample = counterexample;
     dump.llmCalled = false;
     if (counterexample.isSpurious() && precisionCompiler != null) {
-      dump.precisionCompilerResult = precisionCompiler.compile(fullPath);
+      dump.precisionCompilerResult =
+          counterexample.getInterpolants() == null
+              ? precisionCompiler.compile(fullPath)
+              : precisionCompiler.compile(
+                  fullPath, abstractionStatesTrace, formulas, counterexample.getInterpolants());
     }
     pendingDump = dump;
 
