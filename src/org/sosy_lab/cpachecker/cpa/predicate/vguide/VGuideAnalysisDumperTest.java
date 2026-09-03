@@ -122,6 +122,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         -1,
         -1,
         false,
+        null,
         null);
 
     Path rowFile =
@@ -139,7 +140,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
     assertThat(rejected.path("predicate").asText()).isEqualTo("(bvslt w n)");
 
     JsonNode manifest = JSON.readTree(tmp.getRoot().toPath().resolve("run_manifest.json").toFile());
-    assertThat(manifest.path("schema_version").asText()).isEqualTo("11");
+    assertThat(manifest.path("schema_version").asText()).isEqualTo("12");
     assertThat(manifest.path("model").asText()).isEqualTo("muse-spark-1.2-contributor");
   }
 
@@ -202,6 +203,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         -1,
         -1,
         false,
+        null,
         null);
 
     Path rowFile =
@@ -275,6 +277,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         -1,
         -1,
         false,
+        null,
         null);
 
     Path rowFile =
@@ -342,6 +345,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         -1,
         -1,
         false,
+        null,
         null);
 
     Path rowFile =

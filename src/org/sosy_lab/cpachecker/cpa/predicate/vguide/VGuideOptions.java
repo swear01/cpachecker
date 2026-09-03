@@ -18,9 +18,7 @@ import org.sosy_lab.common.configuration.Options;
 @Options(prefix = "vguide")
 public class VGuideOptions {
 
-  @Option(
-      secure = true,
-      description = "Enable unified VGuide bridge when useVocabularyGuide=true")
+  @Option(secure = true, description = "Enable unified VGuide bridge when useVocabularyGuide=true")
   private boolean enable = true;
 
   @Option(
@@ -36,6 +34,13 @@ public class VGuideOptions {
               + " draws when llmSamplesPerCall>1). 0 = no LLM.")
   @IntegerOption(min = 0)
   private int maxLlmRoundsPerAnalysis = 1;
+
+  @Option(
+      secure = true,
+      description =
+          "Compile taken scalar guards from the authoritative ARGPath into local"
+              + " PRECISION_ONLY predicates")
+  private boolean enablePrecisionCompiler = false;
 
   @Option(
       secure = true,
@@ -56,7 +61,8 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
-          "Run SAFE and BUG_HUNT prompt profiles each LLM round (2×K HTTP when K=llmSamplesPerCall).")
+          "Run SAFE and BUG_HUNT prompt profiles each LLM round (2×K HTTP when"
+              + " K=llmSamplesPerCall).")
   private boolean dualPromptMode = false;
 
   @Option(
@@ -221,6 +227,14 @@ public class VGuideOptions {
 
   public int getMaxLlmRoundsPerAnalysis() {
     return maxLlmRoundsPerAnalysis;
+  }
+
+  public boolean isPrecisionCompilerEnabled() {
+    return enablePrecisionCompiler;
+  }
+
+  public boolean needsLlmClient() {
+    return sourcePriorMode || maxLlmRoundsPerAnalysis > 0;
   }
 
   public int getMaxLlmRoundsPerProcess() {

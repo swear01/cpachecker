@@ -303,7 +303,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
           counterexample =
               vGuideBridge.onSpuriousBeforeRefinement(
                   refinements,
-                  allStatesTrace.asStatesList(),
+                  allStatesTrace,
                   abstractionStatesTrace,
                   formulas,
                   counterexample,
@@ -311,8 +311,14 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         }
 
         List<BooleanFormula> predicates = counterexample.getInterpolants();
-        logger.log(Level.INFO, "refinement #", refinements, ": predicates=", predicates.size(),
-            " traceStates=", abstractionStatesTrace.size());
+        logger.log(
+            Level.INFO,
+            "refinement #",
+            refinements,
+            ": predicates=",
+            predicates.size(),
+            " traceStates=",
+            abstractionStatesTrace.size());
 
         boolean trackFurtherCEX =
             strategy.performRefinement(
@@ -435,7 +441,6 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
     return interpolationManager.buildCounterexampleTrace(
         formulas, ImmutableList.copyOf(abstractionStatesTrace), Optional.of(allStatesTrace));
   }
-
 
   private CounterexampleTraceInfo performInvariantsRefinement(
       final ARGPath allStatesTrace,
@@ -689,7 +694,6 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         vGuideBridge.onAnalysisEnd(numberOfRefinements, result, lastArgReachedForVGuide);
         w0.put("VGuide outcome", vGuideBridge.getOutcome());
       }
-
     }
 
     @Override

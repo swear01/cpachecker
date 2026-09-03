@@ -5960,6 +5960,10 @@ vguide.enableAdaptivePredicateBudget = false
 # strengthen). Enable for parity/invariant-heavy benchmarks.
 vguide.enableL3Entailment = false
 
+# Compile taken scalar guards from the authoritative ARGPath into local
+# PRECISION_ONLY predicates
+vguide.enablePrecisionCompiler = false
+
 # Enable the frozen verifier-side gate that may suppress optional LLM
 # precision batches
 vguide.enablePredicateUsefulnessGate = false

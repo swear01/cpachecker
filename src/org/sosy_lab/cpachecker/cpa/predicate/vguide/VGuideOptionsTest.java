@@ -66,4 +66,17 @@ public class VGuideOptionsTest {
     assertThat(budget.minPerCall()).isEqualTo(8);
     assertThat(budget.maxPerCall()).isEqualTo(12);
   }
+
+  @Test
+  public void compilerOnlyDoesNotNeedLlmClient() throws InvalidConfigurationException {
+    VGuideOptions opts =
+        new VGuideOptions(
+            Configuration.builder()
+                .setOption("vguide.enablePrecisionCompiler", "true")
+                .setOption("vguide.maxLlmRoundsPerAnalysis", "0")
+                .build());
+
+    assertThat(opts.isPrecisionCompilerEnabled()).isTrue();
+    assertThat(opts.needsLlmClient()).isFalse();
+  }
 }
