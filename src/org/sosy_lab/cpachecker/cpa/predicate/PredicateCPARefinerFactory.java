@@ -175,19 +175,26 @@ public final class PredicateCPARefinerFactory {
     boolean useVocabularyGuideForThisAnalysis = useVocabularyGuide;
     if (useVocabularyGuideForThisAnalysis && predicateCpa instanceof BAMPredicateCPA) {
       logger.log(
-          Level.WARNING,
-          "VGuide is not supported under BAM, falling back to standard refiner");
+          Level.WARNING, "VGuide is not supported under BAM, falling back to standard refiner");
       useVocabularyGuideForThisAnalysis = false;
     }
 
     if (useVocabularyGuideForThisAnalysis) {
       VGuideOptions vguideOptions = new VGuideOptions(config);
       PredicateProposalClient llmClient =
-          PredicateProposalClient.createOptional(logger, vguideOptions.getLlmMaxCompletionTokens());
-      if (llmClient == null) {
+          vguideOptions.needsLlmClient()
+              ? PredicateProposalClient.createOptional(
+                  logger, vguideOptions.getLlmMaxCompletionTokens())
+              : null;
+      if (vguideOptions.needsLlmClient() && llmClient == null) {
         throw new InvalidConfigurationException(
             "useVocabularyGuide=true requires the configured provider API key or"
                 + " VGUIDE_LLM_REPLAY_DIR");
+      }
+      if (!vguideOptions.needsLlmClient() && !vguideOptions.isPrecisionCompilerEnabled()) {
+        throw new InvalidConfigurationException(
+            "useVocabularyGuide=true has no enabled producer: enable the precision compiler or"
+                + " allow at least one LLM round");
       }
 
       logger.log(Level.INFO, "Unified VGuide CEGAR enabled (first-spurious LLM path)");
@@ -204,7 +211,7 @@ public final class PredicateCPARefinerFactory {
 
       VGuideRefinementBridge bridge =
           VGuideRefinementBridge.create(
-              config, logger, cfa, loopStructure, solver, predAbsManager, llmClient);
+              config, logger, cfa, loopStructure, solver, pfmgr, predAbsManager, llmClient);
       if (bridge == null) {
         throw new InvalidConfigurationException(
             "useVocabularyGuide=true but vguide.enable=false; enable vguide or turn off"

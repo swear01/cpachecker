@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.log.LogManager;
+import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.CPAcheckerResult.Result;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.core.interfaces.Precision;
@@ -37,7 +38,6 @@ import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractState;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision;
-import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.util.Precisions;
 import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
@@ -50,7 +50,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
  */
 public final class VGuideAnalysisDumper {
 
-  public static final String SCHEMA_VERSION = "11";
+  public static final String SCHEMA_VERSION = "12";
   private static final ObjectMapper JSON = new ObjectMapper();
   static final AtomicBoolean MANIFEST_WRITTEN = new AtomicBoolean(false);
 
@@ -152,7 +152,8 @@ public final class VGuideAnalysisDumper {
       int llmPrecisionRemoved,
       int llmPrecisionRetained,
       boolean usefulnessGateEnabled,
-      PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision) {
+      PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision,
+      CfaPrecisionCompiler.@Nullable Result precisionCompilerResult) {
     if (llmCalled && llmRoundIndex != null) {
       llmRoundCount = Math.max(llmRoundCount, llmRoundIndex);
     }
@@ -168,16 +169,16 @@ public final class VGuideAnalysisDumper {
     row.set(
         "usefulness_gate",
         usefulnessGateJson(
-            usefulnessGateEnabled,
-            usefulnessGateDecision,
-            llmSkipReason,
-            validatedPredicates));
+            usefulnessGateEnabled, usefulnessGateDecision, llmSkipReason, validatedPredicates));
     row.set("interpolants_pre", interpolantsJson(counterexample, abstractionStatesTrace));
     row.set("block_formulas", blockFormulasJson(formulas));
     row.set("var_contract", varContractJson(pack.varContract()));
     row.set("loop_heads", loopHeadsJson(pack.loopHeads()));
     row.set("abstraction_states", abstractionStatesJson(abstractionStatesTrace));
     row.set("abstraction_formulas_pre", abstractionFormulasJson(abstractionStatesTrace));
+    row.set(
+        "precision_compiler",
+        precisionCompilerResult == null ? JSON.nullNode() : precisionCompilerResult.dump());
     ObjectNode precisionBeforeSnapshot =
         precisionBefore == null ? precisionSnapshot(null) : precisionBefore;
     row.set("precision_local_before", precisionBeforeSnapshot.path("local"));
@@ -191,10 +192,14 @@ public final class VGuideAnalysisDumper {
       }
       row.set(
           "validated_predicates",
-          validatedPredicates == null ? JSON.createArrayNode() : validatedPredicatesJson(validatedPredicates));
+          validatedPredicates == null
+              ? JSON.createArrayNode()
+              : validatedPredicatesJson(validatedPredicates));
       row.set(
           "precision_injected",
-          injectedPredicates == null ? JSON.createArrayNode() : injectedPredicatesJson(injectedPredicates));
+          injectedPredicates == null
+              ? JSON.createArrayNode()
+              : injectedPredicatesJson(injectedPredicates));
       row.set(
           "candidate_rejections",
           candidateRejections == null
@@ -356,24 +361,28 @@ public final class VGuideAnalysisDumper {
       manifest.put("schema_version", SCHEMA_VERSION);
       manifest.put("started_at", Instant.now().toString());
       manifest.put("run_id", runRoot.getFileName().toString());
-      manifest.put("benchmark_set", System.getenv().getOrDefault("VGUIDE_ANALYSIS_BENCHMARK_SET", ""));
+      manifest.put(
+          "benchmark_set", System.getenv().getOrDefault("VGUIDE_ANALYSIS_BENCHMARK_SET", ""));
       manifest.put("model", PredicateProposalClient.modelFromEnvironment());
       manifest.put("llm_thinking", llmThinkingModeForManifest());
       manifest.put("llm_response_mode", llmResponseModeForManifest());
       manifest.put(
           "llm_cache_dir",
-          System.getenv().getOrDefault(
-              "VGUIDE_LLM_REPLAY_DIR",
-              System.getenv().getOrDefault("VGUIDE_LLM_RECORD_DIR", "")));
+          System.getenv()
+              .getOrDefault(
+                  "VGUIDE_LLM_REPLAY_DIR",
+                  System.getenv().getOrDefault("VGUIDE_LLM_RECORD_DIR", "")));
       manifest.put(
           "llm_replay_preserve_latency",
           System.getenv().getOrDefault("VGUIDE_LLM_REPLAY_PRESERVE_LATENCY", "true"));
-      manifest.put("timelimit_sec", System.getenv().getOrDefault("VGUIDE_ANALYSIS_TIMELIMIT_SEC", ""));
+      manifest.put(
+          "timelimit_sec", System.getenv().getOrDefault("VGUIDE_ANALYSIS_TIMELIMIT_SEC", ""));
       manifest.put("git_commit", readGitCommit());
       manifest.put("dump_prompts", dumpPrompts);
       manifest.put("dual_prompt_mode", options.isDualPromptMode());
       manifest.put("predicate_usefulness_gate_enabled", options.isPredicateUsefulnessGateEnabled());
       manifest.put("predicate_usefulness_gate_rule", PredicateUsefulnessGate.RULE_VERSION);
+      manifest.put("precision_compiler_enabled", options.isPrecisionCompilerEnabled());
       manifest.put("first_bridge_index", bridgeIndex);
       manifest.put(
           "bridge_task_name_policy", "first bridge keeps base name; later bridges use __bN");
@@ -476,8 +485,7 @@ public final class VGuideAnalysisDumper {
       }
       PredicateAbstractState state = PredicateAbstractState.getPredicateState(argState);
       o.put("uninstantiated_smt", dumpFormula(state.getAbstractionFormula().asFormula()));
-      o.put(
-          "instantiated_smt", dumpFormula(state.getAbstractionFormula().asInstantiatedFormula()));
+      o.put("instantiated_smt", dumpFormula(state.getAbstractionFormula().asInstantiatedFormula()));
       arr.add(o);
     }
     return arr;
@@ -683,8 +691,7 @@ public final class VGuideAnalysisDumper {
     o.put("loop_heads", formatLoopHeadsChars(pack.loopHeads()));
     o.put(
         "rules",
-        ProposalPromptBuilder.rulesCharCount(
-            options.getPredicateBudgetForDump(), minimalPrompt));
+        ProposalPromptBuilder.rulesCharCount(options.getPredicateBudgetForDump(), minimalPrompt));
     o.put("ce_summary", pack.ceSummary().length());
     o.put("trace", 0);
     return o;
@@ -727,7 +734,10 @@ public final class VGuideAnalysisDumper {
 
   private void appendJsonLine(Path file, ObjectNode row) {
     try {
-      Files.writeString(file, JSON.writeValueAsString(row) + "\n", StandardCharsets.UTF_8,
+      Files.writeString(
+          file,
+          JSON.writeValueAsString(row) + "\n",
+          StandardCharsets.UTF_8,
           java.nio.file.StandardOpenOption.CREATE,
           java.nio.file.StandardOpenOption.APPEND);
     } catch (IOException e) {
@@ -738,7 +748,9 @@ public final class VGuideAnalysisDumper {
   private void writeJson(Path file, ObjectNode node) {
     try {
       Files.createDirectories(file.getParent());
-      Files.writeString(file, JSON.writerWithDefaultPrettyPrinter().writeValueAsString(node),
+      Files.writeString(
+          file,
+          JSON.writerWithDefaultPrettyPrinter().writeValueAsString(node),
           StandardCharsets.UTF_8);
     } catch (IOException e) {
       logger.logDebugException(e, "Failed to write analysis dump " + file);

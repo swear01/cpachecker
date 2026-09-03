@@ -7,6 +7,7 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.google.common.base.Predicates;
+import com.google.common.collect.ImmutableSet;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -14,13 +15,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import org.sosy_lab.common.log.LogManager;
-import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
-import org.sosy_lab.cpachecker.core.interfaces.Precision;
 import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractionManager;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision;
 import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
-import org.sosy_lab.cpachecker.util.Precisions;
 import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
 import org.sosy_lab.java_smt.api.BooleanFormula;
 
@@ -30,8 +28,7 @@ public final class LoopHeadPrecisionInjector {
   private final LogManager logger;
   private final PredicateAbstractionManager predAbsManager;
 
-  public LoopHeadPrecisionInjector(
-      LogManager logger, PredicateAbstractionManager predAbsManager) {
+  public LoopHeadPrecisionInjector(LogManager logger, PredicateAbstractionManager predAbsManager) {
     this.logger = logger;
     this.predAbsManager = predAbsManager;
   }
@@ -59,25 +56,20 @@ public final class LoopHeadPrecisionInjector {
       return base;
     }
     PredicatePrecision merged = base.addLocalPredicates(entries);
-    logger.log(Level.INFO, "VGuide source-prior merged ", entries.size(), " predicates into initial precision");
+    logger.log(
+        Level.INFO,
+        "VGuide source-prior merged ",
+        entries.size(),
+        " predicates into initial precision");
     return merged;
   }
 
-  public boolean inject(
-      ARGReachedSet reached, List<ValidatedPredicate> precisionPredicates) {
+  public boolean inject(ARGReachedSet reached, List<ValidatedPredicate> precisionPredicates) {
     if (precisionPredicates.isEmpty() || predAbsManager == null) {
       return false;
     }
-    AbstractState firstState = reached.asReachedSet().getFirstState();
-    if (firstState == null) {
-      return false;
-    }
-    Precision currentPrec = reached.asReachedSet().getPrecision(firstState);
     PredicatePrecision currentPredPrec =
-        Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
-    if (currentPredPrec == null) {
-      return false;
-    }
+        PredicatePrecision.unionOf(reached.asReachedSet().getPrecisions());
 
     List<Map.Entry<org.sosy_lab.cpachecker.cfa.model.CFANode, AbstractionPredicate>> entries =
         new ArrayList<>();
@@ -119,7 +111,7 @@ public final class LoopHeadPrecisionInjector {
         new ArrayList<>();
     for (LoopHeadInfo head : loopHeads) {
       for (String text : predicateTexts) {
-        BooleanFormula f = VocabularyGuide.parsePredicate(text, fmgr, Set.of());
+        BooleanFormula f = VocabularyGuide.parsePredicate(text, fmgr, ImmutableSet.of());
         if (f == null) {
           continue;
         }
@@ -133,16 +125,8 @@ public final class LoopHeadPrecisionInjector {
     if (entries.isEmpty()) {
       return;
     }
-    AbstractState firstState = reached.asReachedSet().getFirstState();
-    if (firstState == null) {
-      return;
-    }
-    Precision currentPrec = reached.asReachedSet().getPrecision(firstState);
     PredicatePrecision currentPredPrec =
-        Precisions.extractPrecisionByType(currentPrec, PredicatePrecision.class);
-    if (currentPredPrec == null) {
-      return;
-    }
+        PredicatePrecision.unionOf(reached.asReachedSet().getPrecisions());
     PredicatePrecision newPredPrec = currentPredPrec.addLocalPredicates(entries);
     reached.updatePrecisionGlobally(newPredPrec, Predicates.instanceOf(PredicatePrecision.class));
     logger.log(Level.INFO, "VGuide FROZEN_SEED injected ", entries.size(), " predicates");

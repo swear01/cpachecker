@@ -20,8 +20,7 @@ public class LlmCallSchedulerTest {
   }
 
   private static LlmCallScheduler scheduler(
-      String schedule, int max, int everyN, int minSec, int processMax)
-      throws Exception {
+      String schedule, int max, int everyN, int minSec, int processMax) throws Exception {
     Configuration config =
         Configuration.builder()
             .setOption("vguide.llmCallSchedule", schedule)
@@ -110,6 +109,16 @@ public class LlmCallSchedulerTest {
     assertThat(s.shouldCall(2, 0)).isTrue();
     s.recordCallCompleted();
     assertThat(s.shouldCall(3, 0)).isFalse();
+  }
+
+  @Test
+  public void zeroMaxNeverSchedulesExternalCall() throws Exception {
+    LlmCallScheduler.resetProcessRoundCounterForTest();
+    LlmCallScheduler scheduler = scheduler("every_n", 0, 1, 0);
+
+    assertThat(scheduler.shouldCall(1, 100)).isFalse();
+    assertThat(scheduler.shouldCall(100, 100)).isFalse();
+    assertThat(scheduler.getLlmCallsDone()).isEqualTo(0);
   }
 
   @Test
