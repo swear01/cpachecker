@@ -143,6 +143,11 @@ public class CfaPrecisionCompilerTest extends SolverViewBasedTest0 {
             guardCandidates.stream()
                 .flatMap(candidate -> candidate.certificate().origins().stream()))
         .hasSize(2);
+    assertThat(
+            guardCandidates.stream()
+                .flatMap(candidate -> candidate.certificate().origins().stream())
+                .flatMap(origin -> origin.directMayDefs().stream()))
+        .contains("main::unrelated");
     assertThat(result.rejections().stream().map(CfaPrecisionCompiler.Rejection::reason))
         .contains(CfaPrecisionCompiler.RejectionReason.REFERENCED_VARIABLE_KILLED);
   }
@@ -186,7 +191,9 @@ public class CfaPrecisionCompilerTest extends SolverViewBasedTest0 {
                         origin.transportStartEdgeOccurrenceInclusive()
                                 == origin.sourceEdgeOccurrence() + 1
                             && origin.transportEndEdgeOccurrenceExclusive()
-                                == origin.targetNodeOccurrence()))
+                                == origin.targetNodeOccurrence()
+                            && origin.targetNode()
+                                == first.candidates().getFirst().loopHead().getNodeNumber()))
         .isTrue();
     List<Integer> targetOccurrences = new ArrayList<>();
     first

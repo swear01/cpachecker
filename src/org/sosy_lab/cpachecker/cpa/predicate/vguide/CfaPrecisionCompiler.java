@@ -69,9 +69,13 @@ final class CfaPrecisionCompiler {
 
   record Origin(
       int sourceEdgeOccurrence,
+      int sourcePredecessorNode,
+      int sourceSuccessorNode,
       int targetNodeOccurrence,
+      int targetNode,
       int transportStartEdgeOccurrenceInclusive,
-      int transportEndEdgeOccurrenceExclusive) {}
+      int transportEndEdgeOccurrenceExclusive,
+      ImmutableList<String> directMayDefs) {}
 
   record Certificate(String semantics, ImmutableList<Origin> origins) {}
 
@@ -186,6 +190,7 @@ final class CfaPrecisionCompiler {
               .map(MemoryLocation::getExtendedQualifiedName)
               .sorted()
               .collect(ImmutableList.toImmutableList());
+      Set<MemoryLocation> accumulatedMayDefs = new TreeSet<>();
 
       for (int targetOccurrence = sourceIndex + 1;
           targetOccurrence <= edges.size();
@@ -193,7 +198,8 @@ final class CfaPrecisionCompiler {
         int transportEdgeIndex = targetOccurrence - 1;
         if (transportEdgeIndex > sourceIndex) {
           CFAEdge transportEdge = edges.get(transportEdgeIndex);
-          RejectionReason barrier = barrier(transportEdge, sourceFunction, guard.support());
+          RejectionReason barrier =
+              barrier(transportEdge, sourceFunction, guard.support(), accumulatedMayDefs);
           if (barrier != null) {
             rejections.add(
                 new Rejection(
@@ -215,7 +221,18 @@ final class CfaPrecisionCompiler {
                 unused ->
                     new CandidateAccumulator(guard.formula(), target, canonicalFormula, variables));
         candidate.origins.add(
-            new Origin(sourceIndex, targetOccurrence, sourceIndex + 1, targetOccurrence));
+            new Origin(
+                sourceIndex,
+                assume.getPredecessor().getNodeNumber(),
+                assume.getSuccessor().getNodeNumber(),
+                targetOccurrence,
+                target.getNodeNumber(),
+                sourceIndex + 1,
+                targetOccurrence,
+                accumulatedMayDefs.stream()
+                    .map(MemoryLocation::getExtendedQualifiedName)
+                    .sorted()
+                    .collect(ImmutableList.toImmutableList())));
       }
     }
     return result(candidates, rejections);
@@ -295,7 +312,10 @@ final class CfaPrecisionCompiler {
   }
 
   private RejectionReason barrier(
-      CFAEdge edge, String sourceFunction, ImmutableSet<MemoryLocation> support) {
+      CFAEdge edge,
+      String sourceFunction,
+      ImmutableSet<MemoryLocation> support,
+      Set<MemoryLocation> accumulatedMayDefs) {
     if (!edge.getPredecessor().getFunctionName().equals(sourceFunction)
         || !edge.getSuccessor().getFunctionName().equals(sourceFunction)
         || edge instanceof FunctionCallEdge
@@ -316,6 +336,7 @@ final class CfaPrecisionCompiler {
     if (defUse.getDefs().stream().anyMatch(support::contains)) {
       return RejectionReason.REFERENCED_VARIABLE_KILLED;
     }
+    accumulatedMayDefs.addAll(defUse.getDefs());
     return null;
   }
 
@@ -410,17 +431,23 @@ final class CfaPrecisionCompiler {
       item.put("transport_relation", "IDENTITY_FRAME");
       ObjectNode certificate = item.putObject("certificate");
       certificate.put("semantics", candidate.certificate().semantics());
+      certificate.put("rule", "SUPPORT_INTERSECT_MAY_DEF_EMPTY");
       ArrayNode origins = certificate.putArray("origins");
       for (Origin origin : candidate.certificate().origins()) {
         ObjectNode row = origins.addObject();
         row.put("source_edge_occurrence", origin.sourceEdgeOccurrence());
+        row.put("source_predecessor_node", origin.sourcePredecessorNode());
+        row.put("source_successor_node", origin.sourceSuccessorNode());
         row.put("target_node_occurrence", origin.targetNodeOccurrence());
+        row.put("target_node", origin.targetNode());
         row.put(
             "transport_start_edge_occurrence_inclusive",
             origin.transportStartEdgeOccurrenceInclusive());
         row.put(
             "transport_end_edge_occurrence_exclusive",
             origin.transportEndEdgeOccurrenceExclusive());
+        ArrayNode mayDefs = row.putArray("direct_may_defs");
+        origin.directMayDefs().forEach(mayDefs::add);
       }
       item.put("abstraction_role", ValidatedPredicate.Classification.PRECISION_ONLY.name());
       item.putNull("estimated_cost");
