@@ -23,10 +23,13 @@ import org.sosy_lab.common.ShutdownNotifier;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.Language;
+import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
+import org.sosy_lab.cpachecker.cfa.ast.c.CIdExpression;
 import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.cfa.model.c.CAssumeEdge;
 import org.sosy_lab.cpachecker.cfa.types.MachineModel;
+import org.sosy_lab.cpachecker.cfa.types.c.CNumericTypes;
 import org.sosy_lab.cpachecker.core.AnalysisDirection;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.arg.path.ARGPath;
@@ -284,6 +287,26 @@ public class CfaPrecisionCompilerTest extends SolverViewBasedTest0 {
             .compile(path(guard, headFor(cfa, "i < 2")));
     assertThat(result.rejections().stream().map(CfaPrecisionCompiler.Rejection::reason))
         .contains(CfaPrecisionCompiler.RejectionReason.FORMULA_SUPPORT_MISMATCH);
+  }
+
+  @Test
+  public void rejectsMissingDeclaration() throws Exception {
+    CAssumeEdge guard =
+        new CAssumeEdge(
+            "mystery",
+            FileLocation.DUMMY,
+            CFANode.newDummyCFANode("main"),
+            CFANode.newDummyCFANode("main"),
+            new CIdExpression(FileLocation.DUMMY, CNumericTypes.SIGNED_INT, "mystery", null),
+            true);
+
+    CfaPrecisionCompiler.Result result =
+        new CfaPrecisionCompiler(pfmgr, mgrv, new LoopHeadIndex(Optional.empty()))
+            .compile(path(ImmutableList.of(guard)));
+
+    assertThat(result.candidates()).isEmpty();
+    assertThat(result.rejections().stream().map(CfaPrecisionCompiler.Rejection::reason))
+        .contains(CfaPrecisionCompiler.RejectionReason.UNSUPPORTED_DECLARATION);
   }
 
   private void assertSourceReason(

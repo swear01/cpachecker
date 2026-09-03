@@ -69,7 +69,7 @@ public final class LoopHeadPrecisionInjector {
       return false;
     }
     PredicatePrecision currentPredPrec =
-        PredicatePrecision.unionOf(reached.asReachedSet().getPrecisions());
+        PredicatePrecision.unionOf(ImmutableSet.copyOf(reached.asReachedSet().getPrecisions()));
 
     List<Map.Entry<org.sosy_lab.cpachecker.cfa.model.CFANode, AbstractionPredicate>> entries =
         new ArrayList<>();
@@ -126,7 +126,7 @@ public final class LoopHeadPrecisionInjector {
       return;
     }
     PredicatePrecision currentPredPrec =
-        PredicatePrecision.unionOf(reached.asReachedSet().getPrecisions());
+        PredicatePrecision.unionOf(ImmutableSet.copyOf(reached.asReachedSet().getPrecisions()));
     PredicatePrecision newPredPrec = currentPredPrec.addLocalPredicates(entries);
     reached.updatePrecisionGlobally(newPredPrec, Predicates.instanceOf(PredicatePrecision.class));
     logger.log(Level.INFO, "VGuide FROZEN_SEED injected ", entries.size(), " predicates");

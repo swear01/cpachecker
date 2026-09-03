@@ -226,6 +226,15 @@ final class CfaPrecisionCompiler {
     Set<MemoryLocation> support = new TreeSet<>();
     for (CIdExpression id : CFAUtils.getCIdExpressionsOfExpression(assume.getExpression())) {
       CSimpleDeclaration declaration = id.getDeclaration();
+      if (declaration == null) {
+        rejections.add(
+            new Rejection(
+                sourceIndex,
+                sourceIndex,
+                RejectionReason.UNSUPPORTED_DECLARATION,
+                id.toASTString()));
+        return null;
+      }
       if (!(declaration instanceof CVariableDeclaration)
           && !(declaration instanceof CParameterDeclaration)) {
         rejections.add(
