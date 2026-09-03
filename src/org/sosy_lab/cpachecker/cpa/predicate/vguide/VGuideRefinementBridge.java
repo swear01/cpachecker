@@ -674,13 +674,13 @@ public final class VGuideRefinementBridge {
   /** Called after {@code strategy.performRefinement} to inject PRECISION_ONLY predicates. */
   public void onSpuriousAfterRefinement(int refinementIndex, ARGReachedSet reached) {
     if (pendingDump != null && pendingDump.refinementIndex == refinementIndex) {
+      int nativeDelta = nativePrecisionDelta(pendingDump.precisionBeforeSnapshot, reached);
+      refinementOutcomeStore.recordCompleted(refinementIndex, nativeDelta);
+      pendingDump.refinementOutcomeLine = refinementOutcomeStore.completedLineFor(refinementIndex);
       if (pendingDump.precisionCompilerResult != null) {
         precisionInjector.inject(
             reached, pendingDump.precisionCompilerResult.validatedPredicates());
       }
-      int nativeDelta = nativePrecisionDelta(pendingDump.precisionBeforeSnapshot, reached);
-      refinementOutcomeStore.recordCompleted(refinementIndex, nativeDelta);
-      pendingDump.refinementOutcomeLine = refinementOutcomeStore.completedLineFor(refinementIndex);
       List<VGuideAnalysisDumper.DumpValidatedPredicate> injected = ImmutableList.of();
       if (lastValidation != null) {
         ImmutableList<ValidatedPredicate> toInject =

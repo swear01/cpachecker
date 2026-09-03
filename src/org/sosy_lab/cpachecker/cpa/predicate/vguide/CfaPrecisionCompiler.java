@@ -70,8 +70,8 @@ final class CfaPrecisionCompiler {
   record Origin(
       int sourceEdgeOccurrence,
       int targetNodeOccurrence,
-      int transportStartEdgeOccurrence,
-      int transportEndEdgeOccurrence) {}
+      int transportStartEdgeOccurrenceInclusive,
+      int transportEndEdgeOccurrenceExclusive) {}
 
   record Certificate(String semantics, ImmutableList<Origin> origins) {}
 
@@ -415,8 +415,12 @@ final class CfaPrecisionCompiler {
         ObjectNode row = origins.addObject();
         row.put("source_edge_occurrence", origin.sourceEdgeOccurrence());
         row.put("target_node_occurrence", origin.targetNodeOccurrence());
-        row.put("transport_start_edge_occurrence", origin.transportStartEdgeOccurrence());
-        row.put("transport_end_edge_occurrence", origin.transportEndEdgeOccurrence());
+        row.put(
+            "transport_start_edge_occurrence_inclusive",
+            origin.transportStartEdgeOccurrenceInclusive());
+        row.put(
+            "transport_end_edge_occurrence_exclusive",
+            origin.transportEndEdgeOccurrenceExclusive());
       }
       item.put("abstraction_role", ValidatedPredicate.Classification.PRECISION_ONLY.name());
       item.putNull("estimated_cost");

@@ -10,7 +10,10 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -176,6 +179,15 @@ public class CfaPrecisionCompilerTest extends SolverViewBasedTest0 {
 
     assertThat(first.candidates()).hasSize(1);
     assertThat(first.candidates().getFirst().certificate().origins()).hasSize(4);
+    assertThat(
+            first.candidates().getFirst().certificate().origins().stream()
+                .allMatch(
+                    origin ->
+                        origin.transportStartEdgeOccurrenceInclusive()
+                                == origin.sourceEdgeOccurrence() + 1
+                            && origin.transportEndEdgeOccurrenceExclusive()
+                                == origin.targetNodeOccurrence()))
+        .isTrue();
     List<Integer> targetOccurrences = new ArrayList<>();
     first
         .dump()
@@ -187,6 +199,14 @@ public class CfaPrecisionCompilerTest extends SolverViewBasedTest0 {
     assertThat(targetOccurrences).isInOrder();
     assertThat(first.canonicalDump()).isEqualTo(second.canonicalDump());
     assertThat(first.sha256()).isEqualTo(second.sha256());
+    assertThat(
+            Hashing.sha256()
+                .hashString(
+                    new ObjectMapper()
+                        .writeValueAsString(first.dump().deepCopy().without("sha256")),
+                    StandardCharsets.UTF_8)
+                .toString())
+        .isEqualTo(first.sha256());
   }
 
   @Test
