@@ -147,9 +147,16 @@ check_p_cores_idle
 RESOURCE_SNAPSHOT="$(python3 - <<'EOF'
 import json, os, socket
 from pathlib import Path
+
+def read_resource(path):
+    try:
+        return Path(path).read_text()
+    except OSError as error:
+        return {"unavailable": str(error)}
+
 print(json.dumps({"host": socket.gethostname(), "loadavg": os.getloadavg(),
-                  "meminfo": Path("/proc/meminfo").read_text(),
-                  "memory_pressure": Path("/proc/pressure/memory").read_text()}))
+                  "meminfo": read_resource("/proc/meminfo"),
+                  "memory_pressure": read_resource("/proc/pressure/memory")}))
 EOF
 )"
 
