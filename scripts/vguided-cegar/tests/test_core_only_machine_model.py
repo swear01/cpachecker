@@ -118,8 +118,12 @@ def test_width_sensitive_fixture_is_not_a_model_free_noop(tmp_path):
         "  return sizeof(long) == sizeof(void*) && sizeof(long) == 8 ? 0 : 1;\n"
         "}\n"
     )
-    assert "sizeof(long)" in fixture.read_text()
-    assert "sizeof(void*)" in fixture.read_text()
+    multilib = subprocess.run(
+        [gcc, "-m32", "-x", "c", "-", "-o", str(tmp_path / "multilib-probe")],
+        input="int main(void) { return 0; }\n", text=True, capture_output=True, check=False,
+    )
+    if multilib.returncode:
+        pytest.skip("gcc -m32 needs a working multilib toolchain: " + multilib.stderr)
     for bits, expected_exit in ((32, 1), (64, 0)):
         binary = tmp_path / f"width{bits}"
         subprocess.run([gcc, f"-m{bits}", str(fixture), "-o", str(binary)], check=True)

@@ -490,3 +490,35 @@ def test_runtime_hash_tracks_existing_binary_without_build(tmp_path, monkeypatch
     assert (
         records.runtime_identity(tmp_path)["runtime_sha256"] != first["runtime_sha256"]
     )
+
+
+def test_capture_preserves_status_when_process_exits_before_sigkill(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    waits = iter([False, False, True])
+
+    def wait(timeout=None):
+        if not next(waits):
+            raise subprocess.TimeoutExpired("fixture", timeout)
+        return 0
+
+    def killpg(pid, sig):
+        if sig == signal.SIGKILL:
+            raise ProcessLookupError(pid)
+
+    proc = SimpleNamespace(pid=12345, returncode=0, wait=wait)
+    monkeypatch.setattr(records.subprocess, "Popen", lambda *args, **kwargs: proc)
+    monkeypatch.setattr(records.os, "killpg", killpg)
+    outcome = records.capture_run(["fixture"], tmp_path / "log", tmp_path / "status", 1)
+    assert outcome["termination_reason"] == "wall_timeout" and outcome["exit_code"] == 0
+    assert json.loads((tmp_path / "status").read_text()) == outcome
+
+
+def test_missing_execution_sidecar_is_an_integrity_error(tmp_path):
+    paths, manifest = fixture_pair(tmp_path)
+    Path(json.loads(paths[0].read_text())["execution_file"]).unlink()
+    arms, errors = smoke.validate(paths, manifest)
+    assert set(arms) == {"stock", "augmented"}
+    assert any("execution artifact mismatch" in error for error in errors)

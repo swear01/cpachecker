@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -10,6 +11,18 @@ RUNNER = Path(__file__).resolve().parents[1] / "run_core_only.sh"
 
 
 def test_exploratory_load_allocation_and_resume(tmp_path):
+    # The verifier is mocked; this test must also work in an unbuilt checkout.
+    repo = tmp_path / "repo"
+    runner = repo / "scripts/vguided-cegar/run_core_only.sh"
+    shutil.copytree(RUNNER.parent, runner.parent, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    shutil.copytree(RUNNER.parents[2] / "config", repo / "config")
+    for relative in ("scripts/cpa.sh", "bin/cpachecker", "jdk/bin/java", "classes/org/sosy_lab/cpachecker/cmdline/CPAMain.class"):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture runtime; taskset below mocks execution\n")
+        path.chmod(0o755)
+    subprocess.run(["git", "init", "--quiet", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "fixture"], check=True)
     mpstat = tmp_path / "mpstat"
     mpstat.write_text(
         "#!/bin/bash\n"
@@ -36,13 +49,15 @@ def test_exploratory_load_allocation_and_resume(tmp_path):
     }]}))
     output = tmp_path / "out"
     env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
-           "SV_BENCHMARKS": str(tmp_path)}
+           "SV_BENCHMARKS": str(tmp_path), "JAVA": str(repo / "jdk/bin/java")}
+    for key in ("CLASSPATH", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "PATH_TO_CPACHECKER"):
+        env.pop(key, None)
 
     def run(*args):
         stdout, stderr = tmp_path / "stdout", tmp_path / "stderr"
         with stdout.open("w") as out, stderr.open("w") as err:
             result = subprocess.run(
-                ["bash", str(RUNNER), "--arm", "stock", "--manifest", str(manifest),
+                ["bash", str(runner), "--arm", "stock", "--manifest", str(manifest),
                  "--out", str(output), "--parallel", "2", *args],
                 env=env, text=True, stdout=out, stderr=err, timeout=20, check=False,
             )

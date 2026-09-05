@@ -212,7 +212,10 @@ def capture_run(command: list[str], log: Path, status: Path, wall_limit: float) 
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGKILL)
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                     proc.wait()
             outcome["exit_code"] = proc.returncode
             outcome["signal"] = -proc.returncode if proc.returncode < 0 else None
