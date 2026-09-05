@@ -285,7 +285,7 @@ final class SourceSlicer {
         i++;
         while (i < source.length() && source.charAt(i) != quote) {
           if (source.charAt(i) == '\\' && i + 1 < source.length()) {
-            sb.append("  ");
+            sb.append(' ').append(source.charAt(i + 1) == '\n' ? '\n' : ' ');
             i += 2;
             continue;
           }
