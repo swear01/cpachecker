@@ -32,6 +32,12 @@ The Dataset v2 release's 448 validation rows are historical dataset-construction
   rerun, and the run refuses to start if `run_meta.json` provenance (arm,
   commit, config/manifest hashes, timelimit, model, thinking) differs from
   the invocation.
+- Owner-authorized exploratory checkpoints can add `--exploratory --cpu-list 8,10
+  --parallel 2`. They record the five-sample CPU window, host load, memory and memory
+  pressure without requiring an idle host. Only allocated physical P-cores are used,
+  concurrency cannot exceed their count, and resume rejects changed allocation or
+  evidence tier. `timing_claims_allowed=false` excludes formal timing/PAR-2 claims.
+  The default remains the strict performance policy.
 - `scripts/vguided-cegar/core_only_config_diff.py`: resolves both configs
   (including `#include` trees) and rejects any difference outside the
   augmentation allowlist (`vguide.*`, `cpa.predicate.refinement.useVocabularyGuide`).

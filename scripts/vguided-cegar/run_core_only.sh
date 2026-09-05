@@ -16,6 +16,8 @@
 #   --parallel N            max concurrent CPA jobs (default 8)
 #   --timelimit S           per-task CPU limit in seconds (default 300)
 #   --heap M                JVM heap (default 6000M)
+#   --exploratory           record ordinary background load; no timing/PAR-2 claims
+#   --cpu-list LIST         allocated physical P-cores (exploratory mode only)
 #   --dry-run               print commands only
 #
 # Output:
@@ -47,6 +49,7 @@ P_CORE_RANGE="$P_CORE_LIST"
 
 
 ARM="" MANIFEST="" OUT="" PARALLEL="8" TIMELIMIT="300" HEAP="6000M" DRY=0
+EVIDENCE_TIER="performance"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arm) ARM="$2"; shift 2 ;;
@@ -55,6 +58,8 @@ while [[ $# -gt 0 ]]; do
     --parallel) PARALLEL="$2"; shift 2 ;;
     --timelimit) TIMELIMIT="${2%s}"; shift 2 ;;
     --heap) HEAP="$2"; shift 2 ;;
+    --exploratory) EVIDENCE_TIER="exploratory"; shift ;;
+    --cpu-list) P_CORE_LIST="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -65,6 +70,16 @@ done
 [[ -n "$OUT" ]] || die "--out required"
 [[ "$TIMELIMIT" =~ ^[1-9][0-9]*$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
 [[ -d "$SV_BENCHMARKS" ]] || die "SV_BENCHMARKS not found: $SV_BENCHMARKS (export SV_BENCHMARKS=~/sv-benchmarks/c)"
+[[ "$PARALLEL" =~ ^[1-9][0-9]*$ ]] || die "--parallel must be a positive integer"
+[[ "$P_CORE_LIST" =~ ^(0|2|4|6|8|10|12|14)(,(0|2|4|6|8|10|12|14))*$ ]] \
+  || die "--cpu-list must contain physical P-cores 0,2,4,6,8,10,12,14"
+IFS=',' read -r -a ALLOCATED_CORES <<<"$P_CORE_LIST"
+[[ "$(printf '%s\n' "${ALLOCATED_CORES[@]}" | sort -u | wc -l)" -eq "${#ALLOCATED_CORES[@]}" ]] \
+  || die "--cpu-list contains duplicates"
+[[ "$PARALLEL" -le "${#ALLOCATED_CORES[@]}" ]] || die "--parallel exceeds allocated CPU count"
+[[ "$EVIDENCE_TIER" == "exploratory" || "$P_CORE_LIST" == "$P_CORE_RANGE" ]] \
+  || die "--cpu-list requires --exploratory"
+P_CORE_RANGE="$P_CORE_LIST"
 
 # Refuse when any selected P-core has median busy >= 50% across five one-second samples.
 # Process snapshots are diagnostics only; cumulative %CPU and last-PSR placement never veto.
@@ -102,7 +117,7 @@ check_p_cores_idle() {
       }
     }
   ')"
-  if [[ -n "$busy" ]]; then
+  if [[ -n "$busy" && "$EVIDENCE_TIER" == "performance" ]]; then
     die "P-core contention: median busy >= 50% on cores: $busy"
   fi
   LOAD_CHECK_NOW="$(printf '%s\n' "$load_window" | awk -F' +' -v order="$P_CORE_LIST" '
@@ -113,7 +128,7 @@ check_p_cores_idle() {
       value[cpu SUBSEP count[cpu]] = 100 - $NF
     }
     END {
-      printf "median_busy_lt_50;samples_busy_pct="
+      printf "samples_busy_pct="
       for (k = 1; k <= core_count; k++) {
         cpu = cores[k]
         if (k > 1) printf "|"
@@ -129,6 +144,14 @@ check_p_cores_idle() {
 }
 LOAD_CHECK_NOW=""
 check_p_cores_idle
+RESOURCE_SNAPSHOT="$(python3 - <<'EOF'
+import json, os, socket
+from pathlib import Path
+print(json.dumps({"host": socket.gethostname(), "loadavg": os.getloadavg(),
+                  "meminfo": Path("/proc/meminfo").read_text(),
+                  "memory_pressure": Path("/proc/pressure/memory").read_text()}))
+EOF
+)"
 
 mkdir -p "$OUT/logs"
 LLM_PROVIDER="$(printf '%s' "${VGUIDE_LLM_PROVIDER:-meta}" | tr '[:upper:]' '[:lower:]')"
@@ -163,7 +186,7 @@ TIMEOUT_GRACE="${TIMEOUT_GRACE%s}" # strip a trailing 's'
 [[ "$TIMEOUT_GRACE" =~ ^[0-9]+$ ]] || die "TIMEOUT_GRACE must be a non-negative integer, got: $TIMEOUT_GRACE"
 
 if [[ "$DRY" == "1" ]]; then
-  echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE"
+  echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE evidence_tier=$EVIDENCE_TIER cpus=$P_CORE_LIST"
   echo "tasks: $(python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --no-verify --out "$OUT/tasks.tsv")"
   exit 0
 fi
@@ -286,7 +309,7 @@ if [[ -f "$OUT/run_meta.json" ]]; then
   OLD_STARTED_AT="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('started_at',''))")"
   OLD_LOAD_CHECK="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('load_check',''))")"
   ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" CPA_SH_SHA_C="$CPA_SH_SHA" \
-  TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
+  TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" TIER_C="$EVIDENCE_TIER" CPUS_C="$P_CORE_LIST" \
   PROVIDER_C="$LLM_PROVIDER" MODEL_C="$LLM_MODEL" THINKING_C="$THINKING" EFFORT_C="$EFFORT" FORMAT_C="$LLM_API_FORMAT" \
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
   REPLAY_FP_C="$REPLAY_FP" \
@@ -306,6 +329,8 @@ want = {
     "timeout_grace": int(os.environ["GRACE_C"]),
     "heap": os.environ["HEAP_C"],
     "parallel": int(os.environ["PARALLEL_C"]),
+    "evidence_tier": os.environ["TIER_C"],
+    "cpu_list": os.environ["CPUS_C"],
     "llm_provider": os.environ["PROVIDER_C"],
     "model": os.environ["MODEL_C"],
     "thinking": os.environ["THINKING_C"],
@@ -348,7 +373,7 @@ RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
 REPLAY_FP_M="$REPLAY_FP" \
   APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="$LLM_MAX_COMPLETION_TOKENS" \
 PRESERVE_M="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
-STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" CURRLOAD_M="$CURRENT_LOAD" P_CORES_M="$P_CORE_LIST" \
+STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" CURRLOAD_M="$CURRENT_LOAD" P_CORES_M="$P_CORE_LIST" TIER_M="$EVIDENCE_TIER" RESOURCES_M="$RESOURCE_SNAPSHOT" \
 python3 - "$OUT/run_meta.json" <<'EOF'
 import json, os, sys
 meta = {
@@ -377,7 +402,11 @@ meta = {
     "llm_max_completion_tokens": os.environ["MAXTOK_M"],
     "llm_replay_preserve_latency": os.environ["PRESERVE_M"],
     "started_at": os.environ["STARTED_M"],
-    "cpu_isolation": "taskset " + os.environ["P_CORES_M"] + " (8 physical P-cores, no SMT sibling, no E-core)",
+    "cpu_isolation": "taskset " + os.environ["P_CORES_M"] + " (physical P-cores, no SMT sibling, no E-core)",
+    "cpu_list": os.environ["P_CORES_M"],
+    "evidence_tier": os.environ["TIER_M"],
+    "timing_claims_allowed": os.environ["TIER_M"] == "performance",
+    "resource_snapshot": json.loads(os.environ["RESOURCES_M"]),
     "load_check": os.environ["LOAD_M"],
     "load_checks": json.loads(os.environ["LOADS_M"]) + [os.environ["CURRLOAD_M"]],
 }

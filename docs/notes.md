@@ -76,7 +76,10 @@
   runs may proceed without an idle-ready host when they record host/load/provenance; they
   support correct verdict/refinement
   claims only, and near-timeout or asymmetric-load outcomes require replication. `run_core_only.sh`
-  remains the strict timing runner. Full text: `docs/EXPERIMENT_PROTOCOL.md` (branch
+  defaults to the strict timing policy. For owner-authorized exploration (#180/#182),
+  `--exploratory --cpu-list 8,10 --parallel 2` records load and memory pressure while
+  accepting ordinary background load. CPU allocation and evidence tier are frozen
+  resume fields; exploratory metadata forbids timing/PAR-2 claims. Full text: `docs/EXPERIMENT_PROTOCOL.md` (branch
   `research/vguide-upstream-reimpl`). The 2026-08-11 stock+augmented 224 runs predate this
   and support verdict-only usefulness observations, not timing claims.
 - **LLM soundness constraint.** VGuide must only propose candidates (Tier S) or control resources/routing (Tier R). Never let LLM output be used as a direct verdict or unverified assumption (Tier X = forbidden).
