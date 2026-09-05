@@ -6,27 +6,30 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
-import org.sosy_lab.cpachecker.cfa.model.c.CDeclarationEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
+import org.sosy_lab.cpachecker.cfa.model.c.CDeclarationEdge;
+import org.sosy_lab.cpachecker.core.interfaces.AbstractStateWithLocation;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
-import org.sosy_lab.cpachecker.util.AbstractStates;
-import org.sosy_lab.cpachecker.util.LoopStructure;
-import org.sosy_lab.cpachecker.util.LoopStructure.Loop;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
+import org.sosy_lab.cpachecker.util.AbstractStates;
+import org.sosy_lab.cpachecker.util.LoopStructure.Loop;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.java_smt.api.BooleanFormula;
@@ -34,8 +37,7 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
 /** Builds {@link ContextPack} from a spurious refinement event. */
 public final class ContextPackBuilder {
 
-  private static final Pattern ASSERTION =
-      Pattern.compile("__VERIFIER_assert\\s*\\(\\s*(.+?)\\s*\\)");
+  private static final Pattern ASSERTION = Pattern.compile("\\b__VERIFIER_assert\\s*\\(");
 
   private final CFA cfa;
   private final LoopHeadIndex loopHeadIndex;
@@ -48,10 +50,10 @@ public final class ContextPackBuilder {
   }
 
   public ContextPack buildSourceOnly() {
-    String source = readSourceSliced(List.of());
+    String source = readSourceSliced(ImmutableList.of());
     String assertion = extractAssertion(source);
     ImmutableList<LoopHeadInfo> loopHeads = loopHeadIndex.getLoopHeads();
-    var varContract = VarContractBuilder.build(Set.of());
+    var varContract = VarContractBuilder.build(ImmutableSet.of());
     return new ContextPack(
         0,
         source,
@@ -87,7 +89,14 @@ public final class ContextPackBuilder {
         CeSummaryBuilder.build(
             fmgr, formulas, itps, loopHeads, varContract, assertion, abstractionTrace);
     String ceSummary =
-        StructuredCounterexampleBuilder.build(assertion, loopHeads, abstractionTrace, relationSummary);
+        StructuredCounterexampleBuilder.build(
+            assertion,
+            loopHeads,
+            abstractionTrace.stream()
+                .map(s -> AbstractStates.extractStateByType(s, AbstractStateWithLocation.class))
+                .filter(Objects::nonNull)
+                .toList(),
+            relationSummary);
     return new ContextPack(
         refinementIndex,
         source,
@@ -101,86 +110,88 @@ public final class ContextPackBuilder {
         "");
   }
 
-  /**
-   * Reads the source; for very large files (issue #74) slices each to the full counterexample
-   * path, loop heads, top-level declarations and assertion so the prompt stays within the LLM
-   * context budget. Slicing is per file so line numbers stay file-local.
-   */
-  /** Total prompt-source budget across all files. */
-  private static final int PROMPT_BUDGET = 300_000;
+  /** Source-only UTF-16 budget, including file headers, newlines and omission markers. */
+  static final int PROMPT_BUDGET = 300_000;
 
-  /**
-   * Reads the source; for very large files (issue #74) slices each to the full counterexample
-   * path, loop heads, top-level declarations and assertion so the prompt stays within the LLM
-   * context budget. Slicing is per file so line numbers stay file-local; the cumulative total
-   * is capped at {@link #PROMPT_BUDGET}.
-   */
   private String readSourceSliced(List<ARGState> fullTrace) {
-    try {
-      StringBuilder sb = new StringBuilder();
-      for (Path f : cfa.getFileNames()) {
-        if (sb.length() >= PROMPT_BUDGET) {
-          break; // budget exhausted: no more files
+    StringBuilder sb = new StringBuilder();
+    List<Path> files = cfa.getFileNames();
+    long rawTotal = 0;
+    if (files.size() > 1) {
+      for (Path file : files) {
+        try {
+          rawTotal +=
+              Files.readString(file, StandardCharsets.UTF_8).length()
+                  + ("// File: " + file.getFileName() + "\n\n").length();
+        } catch (IOException e) {
+          rawTotal +=
+              ("// File: " + file.getFileName() + "\n// source unavailable: read failed\n")
+                  .length();
         }
-        sb.append("// File: ").append(f.getFileName()).append('\n');
-        String content = Files.readString(f);
-        if (content.length() <= SourceSlicer.SLICE_THRESHOLD) {
-          if (sb.length() + content.length() <= PROMPT_BUDGET) {
-            sb.append(content).append('\n');
-          } else {
-            // only partial space left: keep the assertion sites so the property survives;
-            // a file without assertions is bounded by its head instead of appended in full
-            List<int[]> assertionRanges = SourceSlicer.assertionRanges(content);
-            sb.append(
-                    assertionRanges.isEmpty()
-                        ? SourceSlicer.head(content)
-                        : SourceSlicer.slice(content, assertionRanges, 2))
-                .append('\n');
-          }
-          continue;
+      }
+    }
+    for (int i = 0; i < files.size(); i++) {
+      Path file = files.get(i);
+      String header = "// File: " + file.getFileName() + "\n";
+      String omitted = "// source omitted: file budget exhausted\n";
+      int remaining = PROMPT_BUDGET - sb.length();
+      int share = rawTotal <= PROMPT_BUDGET ? remaining : remaining / (files.size() - i);
+      if (share < header.length() + omitted.length() + 1) {
+        String marker = "// source omitted: " + (files.size() - i) + " remaining files (budget)\n";
+        if (marker.length() <= remaining) {
+          sb.append(marker);
         }
-        List<int[]> topLevelRanges = SourceSlicer.topLevelDeclarationRanges(content);
-        List<int[]> essentialRanges = new ArrayList<>();
-        Path target = f.toAbsolutePath().normalize();
-        java.util.Optional<LoopStructure> loopStructure = cfa.getLoopStructure();
-        if (loopStructure.isPresent()) {
-          for (Loop loop : loopStructure.get().getAllLoops()) {
-            for (CFANode head : loop.getLoopHeads()) {
-              collectNodeLines(target, head, essentialRanges);
+        break;
+      }
+      int limit = share - header.length() - 1;
+      sb.append(header);
+      try {
+        String content = Files.readString(file, StandardCharsets.UTF_8);
+        String part = content;
+        if (content.length() > SourceSlicer.SLICE_THRESHOLD || content.length() > limit) {
+          List<int[]> assertions = SourceSlicer.assertionRanges(content);
+          List<int[]> essential = new ArrayList<>(assertions);
+          Path target = file.toAbsolutePath().normalize();
+          if (cfa.getLoopStructure().isPresent()) {
+            for (Loop loop : cfa.getLoopStructure().orElseThrow().getAllLoops()) {
+              for (CFANode head : loop.getLoopHeads()) {
+                collectNodeLines(target, head, essential);
+              }
             }
           }
-        }
-        for (ARGState state : fullTrace) {
-          CFANode node = AbstractStates.extractLocation(state);
-          if (node != null) {
-            collectNodeLines(target, node, essentialRanges);
+          for (ARGState state : fullTrace) {
+            CFANode node = AbstractStates.extractLocation(state);
+            if (node != null) {
+              collectNodeLines(target, node, essential);
+            }
+          }
+          List<int[]> all = new ArrayList<>(SourceSlicer.topLevelDeclarationRanges(content));
+          all.addAll(essential);
+          part = all.isEmpty() ? SourceSlicer.head(content) : SourceSlicer.slice(content, all, 2);
+          if (part.length() > limit) {
+            part =
+                "// source omitted: declarations (budget)\n"
+                    + (essential.isEmpty()
+                        ? SourceSlicer.head(content)
+                        : SourceSlicer.slice(content, essential, 2));
+          }
+          if (part.length() > limit && !assertions.isEmpty()) {
+            part =
+                "// source omitted: non-assertion ranges (budget)\n"
+                    + SourceSlicer.slice(content, assertions, 2);
+          }
+          if (part.length() > limit) {
+            int headLimit = Math.min(limit, SourceSlicer.HEAD_LIMIT);
+            int end = part.lastIndexOf('\n', headLimit - omitted.length() - 1);
+            part = (end < 0 ? "" : part.substring(0, end + 1)) + omitted;
           }
         }
-        essentialRanges.addAll(SourceSlicer.assertionRanges(content));
-        List<int[]> allRanges = new ArrayList<>(topLevelRanges);
-        allRanges.addAll(essentialRanges);
-        String part;
-        if (allRanges.isEmpty()) {
-          // no loop heads / assertion / declarations detected: bounded head instead of the
-          // full oversized payload
-          part = SourceSlicer.head(content);
-        } else {
-          part = SourceSlicer.slice(content, allRanges, 2);
-        }
-        if (sb.length() + part.length() > PROMPT_BUDGET) {
-          // declarations crowd out the essentials: re-slice without them (path + loops +
-          // assertion only), and fall back to a head for pathological oversized paths
-          part = SourceSlicer.slice(content, essentialRanges, 2);
-        }
-        if (sb.length() + part.length() > PROMPT_BUDGET) {
-          part = SourceSlicer.head(part);
-        }
         sb.append(part).append('\n');
+      } catch (IOException e) {
+        sb.append("// source unavailable: read failed\n");
       }
-      return sb.toString();
-    } catch (IOException e) {
-      return "// source unavailable";
     }
+    return sb.toString();
   }
 
   /** Collects the line ranges of all entering and leaving edges of the node (its statements). */
@@ -205,15 +216,27 @@ public final class ContextPackBuilder {
         && location.getFileName().toAbsolutePath().normalize().equals(file)) {
       // origin line numbers map to the original source even when preprocessing or line
       // directives changed the analysis-code line numbers
-      ranges.add(
-          new int[] {location.getStartingLineInOrigin(), location.getEndingLineInOrigin()});
+      ranges.add(new int[] {location.getStartingLineInOrigin(), location.getEndingLineInOrigin()});
     }
   }
 
   static String extractAssertion(String source) {
-    Matcher m = ASSERTION.matcher(source);
-    if (m.find()) {
-      return m.group(1).trim();
+    List<String> lines = Splitter.on('\n').splitToList(source);
+    for (int[] range : SourceSlicer.assertionRanges(source)) {
+      String call = String.join("\n", lines.subList(range[0] - 1, range[1]));
+      String masked = SourceSlicer.stripCommentsAndStrings(call);
+      Matcher match = ASSERTION.matcher(masked);
+      if (!match.find()) {
+        continue;
+      }
+      int depth = 1;
+      for (int i = match.end(); i < masked.length(); i++) {
+        if (masked.charAt(i) == '(') {
+          depth++;
+        } else if (masked.charAt(i) == ')' && --depth == 0) {
+          return call.substring(match.end(), i).trim();
+        }
+      }
     }
     return "";
   }

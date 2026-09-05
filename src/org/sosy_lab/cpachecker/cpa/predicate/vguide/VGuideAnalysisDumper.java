@@ -234,12 +234,13 @@ public final class VGuideAnalysisDumper {
       int llmRoundIndex,
       String callKind,
       String promptKind,
-      String prompt,
+      PromptMessages messages,
       ContextPack pack,
       PromptProfile promptProfile,
       LlmProposalResult api,
       List<String> rejectedPredicates,
       @Nullable BudgetResolution budgetRes) {
+    String prompt = messages.fullText();
     apiCallIndex++;
     llmApiCallCount++;
     JsonNode usage = api.usage();
@@ -267,6 +268,10 @@ public final class VGuideAnalysisDumper {
     row.put("response_hash", hashUtf8(api.content()));
     row.put("response_source", api.responseSource());
     row.set("prompt_components", promptComponents(pack));
+    row.set(
+        "prompt_accounting",
+        promptAccounting(messages, options.getLlmMaxCompletionTokens(), usage));
+    row.set("context_selection", contextSelection(pack));
     if (usage != null) {
       row.set("usage", usage);
     } else {
@@ -291,14 +296,33 @@ public final class VGuideAnalysisDumper {
 
     if (dumpPrompts) {
       String promptFileName =
-          String.format("r%03d_%s_%s.prompt.txt", refinementIndex, promptKind, callKind);
+          String.format(
+              Locale.ROOT,
+              "r%03d_%s_%s_c%04d.prompt.txt",
+              refinementIndex,
+              promptKind,
+              callKind,
+              apiCallIndex);
       Path promptPath = taskRoot.resolve("prompts").resolve(promptFileName);
       try {
         Files.writeString(promptPath, prompt, StandardCharsets.UTF_8);
+        row.put("prompt_path", "prompts/" + promptFileName);
+        ObjectNode exact = JSON.createObjectNode();
+        exact.put("system", messages.system());
+        exact.put("user", messages.user());
+        Files.writeString(
+            taskRoot.resolve("prompts").resolve(promptFileName + ".json"),
+            JSON.writeValueAsString(exact),
+            StandardCharsets.UTF_8);
+        row.put("prompt_messages_path", "prompts/" + promptFileName + ".json");
+        row.put("prompt_dump_status", "written");
       } catch (IOException e) {
+        row.put("prompt_dump_status", "write_failed");
+        row.put("prompt_dump_error", e.getClass().getSimpleName());
         logger.logDebugException(e, "Failed to write prompt file");
       }
-      row.put("prompt_path", "prompts/" + promptFileName);
+    } else {
+      row.put("prompt_dump_status", "disabled");
     }
     appendJsonLine(llmRoundsFile, row);
   }
@@ -682,6 +706,89 @@ public final class VGuideAnalysisDumper {
                 .collect(ImmutableSet.toImmutableSet());
     gate.set("batch_profiles", stringArray(ImmutableList.copyOf(profiles)));
     return gate;
+  }
+
+  static ObjectNode promptAccounting(
+      PromptMessages messages, int configuredCompletionTokens, @Nullable JsonNode usage) {
+    ObjectNode accounting = JSON.createObjectNode();
+    accounting.put("schema_version", "prompt-accounting-v1");
+    accounting.set("system", textSize(messages.system()));
+    accounting.set("user", textSize(messages.user()));
+    accounting.set("messages_total", textSize(messages.system() + messages.user()));
+    accounting.set("log_delimiters", textSize("SYSTEM:\n\nUSER:\n"));
+    ObjectNode components = accounting.putObject("user_components");
+    messages.userComponents().forEach((name, text) -> components.set(name, textSize(text)));
+    accounting.put("components_reconcile", true);
+    accounting.put("configured_completion_tokens", configuredCompletionTokens);
+    int reservedCompletionTokens = Math.max(256, configuredCompletionTokens);
+    accounting.put("reserved_completion_tokens", reservedCompletionTokens);
+    JsonNode inputTokens = usage == null ? null : usage.get("prompt_tokens");
+    if (inputTokens != null && inputTokens.isIntegralNumber() && inputTokens.asLong() >= 0) {
+      accounting.set("api_prompt_tokens", inputTokens);
+      accounting.put(
+          "api_prompt_plus_reserved_completion_tokens",
+          inputTokens.asLong() + reservedCompletionTokens);
+    } else {
+      accounting.putNull("api_prompt_tokens");
+      accounting.putNull("api_prompt_plus_reserved_completion_tokens");
+    }
+    accounting.putNull("preflight_prompt_tokens");
+    accounting.putNull("provider_context_limit_tokens");
+    accounting.putNull("fits_context_window");
+    accounting.put(
+        "token_budget_status",
+        "unverified: model tokenizer and context limit unavailable; chars are not tokens");
+    accounting.put(
+        "api_usage_scope",
+        "provider-reported; framing/schema accounting is provider-specific, not attributable to text components");
+    return accounting;
+  }
+
+  private ObjectNode contextSelection(ContextPack pack) {
+    ObjectNode selection = JSON.createObjectNode();
+    selection.put("schema_version", "context-selection-v1");
+    selection.put("source_budget_utf16_units", ContextPackBuilder.PROMPT_BUDGET);
+    selection.put("source_slice_threshold_utf16_units", SourceSlicer.SLICE_THRESHOLD);
+    selection.put("source_head_limit_utf16_units", SourceSlicer.HEAD_LIMIT);
+    selection.put("source_line_cap_utf16_units", SourceSlicer.LINE_CAP);
+    selection.put(
+        "priority",
+        "whole small source if it fits; assertion+loop/path+declarations; assertion+loop/path;"
+            + " assertion sites; bounded head; CFA file order with remaining-file shares on"
+            + " overflow");
+    selection.put(
+        "assertion_summary",
+        pack.assertion().isEmpty()
+            ? "unavailable: no recognized assertion expression; inspect retained source for"
+                + " reach_error"
+            : "first recognized __VERIFIER_assert call; not a complete property specification");
+    selection.set(
+        "source_markers",
+        stringArray(
+            pack.sourceCode()
+                .lines()
+                .filter(line -> line.startsWith("// source ") || line.startsWith("// [lines "))
+                .toList()));
+    selection.put("ce_relation_head_limit", CeSummaryBuilder.MAX_LOOP_HEADS);
+    selection.put("ce_relations_per_head_limit", CeSummaryBuilder.MAX_RELS_PER_HEAD);
+    selection.put("ce_interpolant_relation_limit", CeSummaryBuilder.MAX_INTERPOLANTS);
+    selection.put("ce_relation_limit_utf16_units", CeSummaryBuilder.MAX_REL_CHARS);
+    selection.put("ce_relation_text_limit_utf16_units", CeSummaryBuilder.MAX_TOTAL_CHARS);
+    selection.put(
+        "ce_selection",
+        "trace-mapped blocks; assertion-name priority; global textual deduplication; limits apply"
+            + " to relations, not structured trace JSON");
+    selection.put("standalone_trace_summary_sent", false);
+    return selection;
+  }
+
+  private static ObjectNode textSize(String text) {
+    ObjectNode size = JSON.createObjectNode();
+    size.put("utf16_units", text.length());
+    size.put("unicode_code_points", text.codePointCount(0, text.length()));
+    size.put("utf8_bytes", text.getBytes(StandardCharsets.UTF_8).length);
+    size.put("sha256_utf8", hashUtf8(text));
+    return size;
   }
 
   private ObjectNode promptComponents(ContextPack pack) {

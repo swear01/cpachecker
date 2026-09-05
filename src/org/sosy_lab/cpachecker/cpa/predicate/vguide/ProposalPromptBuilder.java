@@ -6,6 +6,7 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
+import com.google.common.collect.ImmutableMap;
 import java.util.List;
 import java.util.Locale;
 
@@ -67,12 +68,16 @@ public final class ProposalPromptBuilder {
       String ceHistory,
       String refinementOutcomes,
       String nativePredicateContext) {
-    String user =
-        buildSharedUserPrefix(pack)
-            + buildSourceBlock(pack)
-            + buildProfileBlock(pack, profile, refinementIndex)
-            + buildDynamicTail(pack, ceHistory, refinementOutcomes, nativePredicateContext);
-    return new PromptMessages(buildSystemMessage(budget, minimalPrompt), user);
+    return new PromptMessages(
+        buildSystemMessage(budget, minimalPrompt),
+        userComponents(
+                pack,
+                profile,
+                refinementIndex,
+                ceHistory,
+                refinementOutcomes,
+                nativePredicateContext)
+            .buildOrThrow());
   }
 
   public PromptMessages buildRepair(
@@ -93,13 +98,17 @@ public final class ProposalPromptBuilder {
       String ceHistory,
       String refinementOutcomes,
       String nativePredicateContext) {
-    String user =
-        buildSharedUserPrefix(pack)
-            + buildSourceBlock(pack)
-            + buildProfileBlock(pack, profile, refinementIndex)
-            + buildDynamicTail(pack, ceHistory, refinementOutcomes, nativePredicateContext)
-            + buildRepairTail(rejectedPredicates, profile);
-    return new PromptMessages(buildSystemMessage(budget, minimalPrompt), user);
+    return new PromptMessages(
+        buildSystemMessage(budget, minimalPrompt),
+        userComponents(
+                pack,
+                profile,
+                refinementIndex,
+                ceHistory,
+                refinementOutcomes,
+                nativePredicateContext)
+            .put("repair", buildRepairTail(rejectedPredicates, profile))
+            .buildOrThrow());
   }
 
   /** Legacy string API for tests. */
@@ -124,15 +133,35 @@ public final class ProposalPromptBuilder {
         + buildJsonContract(budget);
   }
 
-  private String buildSharedUserPrefix(ContextPack pack) {
-    return loopHeadIndex.formatForPrompt()
-        + "\n"
-        + VarContractBuilder.formatForPrompt(pack.varContract())
-        + SourceVariableHints.formatForPrompt(pack.sourceCode(), pack.varContract());
+  private ImmutableMap.Builder<String, String> userComponents(
+      ContextPack pack,
+      PromptProfile profile,
+      int refinementIndex,
+      String ceHistory,
+      String refinementOutcomes,
+      String nativePredicateContext) {
+    return ImmutableMap.<String, String>builder()
+        .put("loop_heads", loopHeadIndex.formatForPrompt() + "\n")
+        .put("contract", VarContractBuilder.formatForPrompt(pack.varContract()))
+        .put(
+            "source_hints",
+            SourceVariableHints.formatForPrompt(pack.sourceCode(), pack.varContract()))
+        .put("source", "\nSource code:\n" + pack.sourceCode() + "\n")
+        .put("profile", buildProfileBlock(pack, profile, refinementIndex))
+        .put(
+            "ce_summary",
+            "\nSTRUCTURED SPURIOUS COUNTEREXAMPLE (read-only):\n" + pack.ceSummary() + "\n")
+        .put("ce_history", optionalBlock("\nPRIOR CE HISTORY (bounded, read-only):\n", ceHistory))
+        .put(
+            "refinement_outcomes",
+            optionalBlock("\nREFINEMENT PROGRESS (read-only):\n", refinementOutcomes))
+        .put(
+            "native_precision",
+            optionalBlock("\nNATIVE CEGAR PRECISION (read-only):\n", nativePredicateContext));
   }
 
-  private static String buildSourceBlock(ContextPack pack) {
-    return "\nSource code:\n" + pack.sourceCode() + "\n";
+  private static String optionalBlock(String heading, String text) {
+    return text == null || text.isBlank() ? "" : heading + text;
   }
 
   private String buildProfileBlock(ContextPack pack, PromptProfile profile, int refinementIndex) {
@@ -141,30 +170,6 @@ public final class ProposalPromptBuilder {
     String task =
         refinementIndex == 1 ? profileFirstTask(profile) : profileLaterTask(profile);
     return assertionLine + "\n" + role + "\n" + task;
-  }
-
-  private static String buildDynamicTail(
-      ContextPack pack, String ceHistory,
-      String refinementOutcomes,
-      String nativePredicateContext) {
-    String historyBlock =
-        ceHistory == null || ceHistory.isBlank()
-            ? ""
-            : "\nPRIOR CE HISTORY (bounded, read-only):\n" + ceHistory;
-    String outcomeBlock =
-        refinementOutcomes == null || refinementOutcomes.isBlank()
-            ? ""
-            : "\nREFINEMENT PROGRESS (read-only):\n" + refinementOutcomes;
-    String nativeBlock =
-        nativePredicateContext == null || nativePredicateContext.isBlank()
-            ? ""
-            : "\nNATIVE CEGAR PRECISION (read-only):\n" + nativePredicateContext;
-    return "\nSTRUCTURED SPURIOUS COUNTEREXAMPLE (read-only):\n"
-        + pack.ceSummary()
-        + "\n"
-        + historyBlock
-        + outcomeBlock
-        + nativeBlock;
   }
 
   private static String formatAssertionLine(String assertion, PromptProfile profile) {
