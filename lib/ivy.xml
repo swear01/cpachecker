@@ -180,13 +180,15 @@ SPDX-License-Identifier: Apache-2.0
         <dependency org="org.sosy_lab" name="java-smt" rev="6.0.0" conf="runtime->runtime-without-gpl; contrib->sources">
           <!-- OptiMathSAT causes segfaults: https://github.com/sosy-lab/java-smt/issues/132 -->
           <exclude org="org.sosy_lab" module="javasmt-solver-optimathsat"/>
-          <exclude org="org.sosy_lab" module="javasmt-solver-mathsat"/>
         </dependency>
-        <!-- MathSAT5 beyond 5.6.11 requires system dependencies equivalent of Ubuntu 24.04/Debian 13 or greater.
-             We use version 5.6.11 as an intermediate step to give users and our systems some time to upgrade
-             before switching to newer MathSAT5 versions.
+        <!-- MathSAT5 is the solver native module shipped with JavaSMT 6.0.0 (MathSAT5 5.6.15).
+             MathSAT5 5.6.12 and later are built reentrant, which is required because CPAchecker
+             creates and destroys a solver environment per query around one shared long-lived
+             environment (see issue #174: intermittent native crashes in 5.6.11, the last
+             non-reentrant release). The 5.6.15 native binary requires system libraries
+             equivalent to Ubuntu 24.04/Debian 13 or greater, which all supported systems
+             and container images provide (see INSTALL.md).
         -->
-        <dependency org="org.sosy_lab" name="javasmt-solver-mathsat" rev="5.6.11" conf="runtime->solver-mathsat" />
 
 
         <!-- YAML parser -->
