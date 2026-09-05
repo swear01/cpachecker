@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -632,7 +633,9 @@ public final class VGuideRefinementBridge {
             rejection.loopHead());
       }
       dump.validated =
-          buildValidatedDump(pack, rawPreds, lastValidation, abstractionStatesTrace, profileByRaw);
+          buildValidatedDump(
+              pack, validationOutcome.rawStrings(), lastValidation, abstractionStatesTrace,
+              profileByRaw);
       dump.rejections = validationOutcome.rejections();
       if (lastValidation != null) {
         refinementOutcomeStore.recordLlmOutcome(
@@ -1070,7 +1073,7 @@ public final class VGuideRefinementBridge {
 
   private List<VGuideAnalysisDumper.DumpValidatedPredicate> buildValidatedDump(
       ContextPack pack,
-      List<String> rawPreds,
+      Map<ValidatedPredicate, String> rawStrings,
       ValidationResult validation,
       List<ARGState> trace,
       Map<String, String> profileByRaw) {
@@ -1079,21 +1082,11 @@ public final class VGuideRefinementBridge {
     }
     Map<CFANode, BooleanFormula> blocks =
         LoopHeadBlockFormulaIndex.fromTrace(pack.blockFormulas(), trace);
-    BooleanFormulaManager bfmgr = fmgr.getBooleanFormulaManager();
-    Map<BooleanFormula, String> formulaToRaw = new LinkedHashMap<>();
-    for (String raw : rawPreds) {
-      if (!PredicateContractValidator.isValid(raw)) {
-        continue;
-      }
-      BooleanFormula parsed = VocabularyGuide.parsePredicate(raw, fmgr, pack.encodedVars());
-      if (parsed != null && !bfmgr.isTrue(parsed) && !bfmgr.isFalse(parsed)) {
-        formulaToRaw.putIfAbsent(parsed, raw);
-      }
-    }
     List<VGuideAnalysisDumper.DumpValidatedPredicate> out = new ArrayList<>();
     for (ValidatedPredicate vp : validation.validated()) {
-      String raw = formulaToRaw.getOrDefault(vp.formula(), "");
-      BooleanFormula block = blocks.getOrDefault(vp.loopHeadNode(), bfmgr.makeTrue());
+      String raw = Objects.requireNonNull(rawStrings.get(vp));
+      BooleanFormula block =
+          blocks.getOrDefault(vp.loopHeadNode(), fmgr.getBooleanFormulaManager().makeTrue());
       out.add(
           new VGuideAnalysisDumper.DumpValidatedPredicate(
               analysisDumper.nextPredicateId(),
