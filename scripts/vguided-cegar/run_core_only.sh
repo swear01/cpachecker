@@ -172,9 +172,17 @@ machine_model_for() {
   esac
 }
 
+read_task_row() {
+  local row="$1" sep=$'\x1f'
+  row="${row//$'\t'/$sep}"
+  IFS="$sep" read -r task source expected model family tsha ssha <<<"$row"
+}
+
 build_command() {
   local data_model="$1" source="$2" machine_model
-  machine_model="$(machine_model_for "$data_model")"
+  if ! machine_model="$(machine_model_for "$data_model")" || [[ -z "$machine_model" ]]; then
+    return 1
+  fi
   RUN_CMD=(
     timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
     taskset -c "$P_CORE_LIST"
@@ -196,7 +204,8 @@ build_command() {
 if [[ "$DRY" == "1" ]]; then
   echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE"
   echo "tasks: $(python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --no-verify --out "$OUT/tasks.tsv")"
-  while IFS=$'\t' read -r task source expected model family tsha ssha; do
+  while IFS= read -r line; do
+    read_task_row "$line"
     machine_model="$(machine_model_for "$model")"
     effective_machine_model="$(printf '%s' "$machine_model" | tr '[:lower:]' '[:upper:]')"
     build_command "$model" "$source"
@@ -432,7 +441,8 @@ python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMAR
 
 # Validate every frozen row before starting workers. A malformed model must
 # fail the run, not become a default LINUX32 execution.
-while IFS=$'\t' read -r task source expected model family tsha ssha; do
+while IFS= read -r line; do
+  read_task_row "$line"
   machine_model_for "$model" >/dev/null
 done <"$OUT/tasks.tsv"
 
@@ -444,12 +454,12 @@ task_name_of() {
   printf '%s' "${1//\//_}~$(printf '%s' "$1" | sha256sum | cut -c1-6)"
 }
 export -f sha256sum 2>/dev/null || true
-export -f die machine_model_for build_command
+export -f die read_task_row machine_model_for build_command
 export -f task_name_of
 run_one() {
   local line="$1"
   local task source expected model family tsha ssha
-  IFS=$'\t' read -r task source expected model family tsha ssha <<<"$line"
+  read_task_row "$line"
   # Fail closed on malformed rows: an empty task would turn the cleanup paths
   # below into rm -rf of the whole dump/cache roots.
   [[ -n "$task" ]] || { echo "empty task row; aborting task"; return 1; }
@@ -460,7 +470,10 @@ run_one() {
   local task_name="$(task_name_of "$task")"
   local log="$OUT/logs/${task_name}.log"
   local machine_model effective_machine_model
-  machine_model="$(machine_model_for "$model")"
+  if ! machine_model="$(machine_model_for "$model")" || [[ -z "$machine_model" ]]; then
+    echo "invalid data_model '$model'; aborting task"
+    return 1
+  fi
   effective_machine_model="$(printf '%s' "$machine_model" | tr '[:lower:]' '[:upper:]')"
   # Resume support: a per-task record already written means this task finished
   # in a previous invocation — skip it instead of re-running. The record must
@@ -506,7 +519,7 @@ run_one() {
     SANITIZED="$(printf '%s' "$(basename "$OUT")/$task" | tr -c 'A-Za-z0-9._-' '_')"
     rm -rf "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" || return 1
   fi
-  build_command "$model" "$source"
+  build_command "$model" "$source" || return 1
   printf 'Effective machine model: %s\n' "$effective_machine_model" >"$log"
   set +e
   if [[ "$ARM" == "augmented" ]]; then

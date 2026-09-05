@@ -36,7 +36,7 @@ def runner_env(tmp_path: Path):
     }
 
 
-def manifest(path: Path, data_model: str) -> Path:
+def manifest(path: Path, data_model: str, family: str = "issue178") -> Path:
     path.write_text(
         json.dumps(
             {
@@ -47,7 +47,7 @@ def manifest(path: Path, data_model: str) -> Path:
                         "source_paths": [f"c/issue178/{data_model}.c"],
                         "expected_verdict": "true",
                         "data_model": data_model,
-                        "family": "issue178",
+                        "family": family,
                         "task_sha256": "a" * 64,
                         "source_sha256": ["b" * 64],
                     }
@@ -126,7 +126,13 @@ def test_dry_run_rejects_missing_or_unsupported_model(tmp_path, data_model):
             "--arm",
             "stock",
             "--manifest",
-            str(manifest(tmp_path / "manifest.json", data_model)),
+            str(
+                manifest(
+                    tmp_path / "manifest.json",
+                    data_model,
+                    family="LP64" if data_model == "" else "issue178",
+                )
+            ),
             "--out",
             str(tmp_path / "out"),
             "--dry-run",
@@ -154,7 +160,10 @@ def test_width_sensitive_fixture_is_not_a_model_free_noop(tmp_path):
     assert "sizeof(void*)" in fixture.read_text()
     for bits, expected_exit in ((32, 1), (64, 0)):
         binary = tmp_path / f"width{bits}"
-        subprocess.run([gcc, f"-m{bits}", str(fixture), "-o", str(binary)], check=True)
+        try:
+            subprocess.run([gcc, f"-m{bits}", str(fixture), "-o", str(binary)], check=True)
+        except subprocess.CalledProcessError as exc:
+            pytest.skip(f"gcc -m{bits} multilib is unavailable: {exc}")
         assert subprocess.run([str(binary)], check=False).returncode == expected_exit
 
 
