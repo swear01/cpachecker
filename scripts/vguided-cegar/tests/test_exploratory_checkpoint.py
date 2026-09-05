@@ -1,11 +1,10 @@
 """Exploratory load policy must remain explicit and part of resume identity."""
 
-import json
 import hashlib
+import json
 import os
 import subprocess
 from pathlib import Path
-
 
 RUNNER = Path(__file__).resolve().parents[1] / "run_core_only.sh"
 
@@ -45,7 +44,7 @@ def test_exploratory_load_allocation_and_resume(tmp_path):
             result = subprocess.run(
                 ["bash", str(RUNNER), "--arm", "stock", "--manifest", str(manifest),
                  "--out", str(output), "--parallel", "2", *args],
-                env=env, text=True, stdout=out, stderr=err, timeout=20,
+                env=env, text=True, stdout=out, stderr=err, timeout=20, check=False,
             )
         return subprocess.CompletedProcess(
             result.args, result.returncode, stdout.read_text(), stderr.read_text()

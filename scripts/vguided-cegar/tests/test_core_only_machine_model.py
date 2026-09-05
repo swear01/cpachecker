@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[3]
 RUNNER = ROOT / "scripts/vguided-cegar/run_core_only.sh"
 
@@ -103,6 +102,7 @@ def test_dry_run_rejects_missing_or_unsupported_model(tmp_path, data_model):
         env=runner_env(tmp_path),
         text=True,
         capture_output=True,
+        check=False,
     )
     assert result.returncode != 0
     assert "invalid data model" in result.stderr
@@ -123,4 +123,4 @@ def test_width_sensitive_fixture_is_not_a_model_free_noop(tmp_path):
     for bits, expected_exit in ((32, 1), (64, 0)):
         binary = tmp_path / f"width{bits}"
         subprocess.run([gcc, f"-m{bits}", str(fixture), "-o", str(binary)], check=True)
-        assert subprocess.run([str(binary)]).returncode == expected_exit
+        assert subprocess.run([str(binary)], check=False).returncode == expected_exit
