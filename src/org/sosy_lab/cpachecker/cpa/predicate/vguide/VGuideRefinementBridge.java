@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.configuration.Configuration;
@@ -886,6 +887,8 @@ public final class VGuideRefinementBridge {
    */
   private record PrecisionReplacementCounts(int removed, int retained) {}
 
+  record PrecisionReplacement(PredicatePrecision filtered, int removed, int retained) {}
+
   private PrecisionReplacementCounts removeLlmOwnedPrecision(ARGReachedSet reached) {
     AbstractState firstState = reached.asReachedSet().getFirstState();
     if (firstState == null) {
@@ -897,6 +900,27 @@ public final class VGuideRefinementBridge {
     if (current == null) {
       return new PrecisionReplacementCounts(0, 0);
     }
+    PrecisionReplacement replacement =
+        filterLlmOwnedPrecision(current, llmOwnedKeys, this::canonical);
+    if (replacement.removed() == 0) {
+      return new PrecisionReplacementCounts(0, replacement.retained());
+    }
+    reached.updatePrecisionGlobally(
+        replacement.filtered(), Predicates.instanceOf(PredicatePrecision.class));
+    logger.log(
+        Level.INFO,
+        "VGuide replaced LLM precision: removed ",
+        replacement.removed(),
+        " stale, retained ",
+        replacement.retained(),
+        " local predicates before injecting the new round");
+    return new PrecisionReplacementCounts(replacement.removed(), replacement.retained());
+  }
+
+  static PrecisionReplacement filterLlmOwnedPrecision(
+      PredicatePrecision current,
+      Set<String> llmOwnedKeys,
+      Function<BooleanFormula, String> canonicalizer) {
     ImmutableSetMultimap.Builder<CFANode, AbstractionPredicate> locals =
         ImmutableSetMultimap.builder();
     // The local and location-instance maps both contain eagerly merged predicates,
@@ -909,7 +933,8 @@ public final class VGuideRefinementBridge {
         continue;
       }
       String key =
-          llmOwnedKey(e.getKey().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+          llmOwnedKey(
+              e.getKey().getNodeNumber(), canonicalizer.apply(e.getValue().getSymbolicAtom()));
       if (llmOwnedKeys.contains(key)) {
         removedKeys.add(key);
       } else {
@@ -930,7 +955,8 @@ public final class VGuideRefinementBridge {
       }
       String key =
           llmOwnedKey(
-              e.getKey().getLocation().getNodeNumber(), canonical(e.getValue().getSymbolicAtom()));
+              e.getKey().getLocation().getNodeNumber(),
+              canonicalizer.apply(e.getValue().getSymbolicAtom()));
       if (llmOwnedKeys.contains(key)) {
         removedKeys.add(key);
       } else {
@@ -942,7 +968,7 @@ public final class VGuideRefinementBridge {
     }
     int removed = removedKeys.size();
     if (removed == 0) {
-      return new PrecisionReplacementCounts(0, retainedKeys.size());
+      return new PrecisionReplacement(current, 0, retainedKeys.size());
     }
     PredicatePrecision filtered =
         new PredicatePrecision(
@@ -950,15 +976,7 @@ public final class VGuideRefinementBridge {
             locals.build(),
             current.getFunctionPredicates(),
             current.getGlobalPredicates());
-    reached.updatePrecisionGlobally(filtered, Predicates.instanceOf(PredicatePrecision.class));
-    logger.log(
-        Level.INFO,
-        "VGuide replaced LLM precision: removed ",
-        removed,
-        " stale, retained ",
-        retainedKeys.size(),
-        " local predicates before injecting the new round");
-    return new PrecisionReplacementCounts(removed, retainedKeys.size());
+    return new PrecisionReplacement(filtered, removed, retainedKeys.size());
   }
 
   /** Canonical ownership key for one (loop head, formula) LLM predicate. */
