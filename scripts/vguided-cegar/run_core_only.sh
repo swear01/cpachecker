@@ -16,7 +16,7 @@
 #   --parallel N            max concurrent CPA jobs (default 8)
 #   --timelimit S           per-task CPU limit in seconds (default 300)
 #   --heap M                JVM heap (default 6000M)
-#   --dry-run               print commands only
+#   --dry-run               print effective launch commands without running CPA
 #
 # Output:
 #   <out>/tasks.tsv           frozen task rows (source-hash verified)
@@ -162,9 +162,48 @@ TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-10}"
 TIMEOUT_GRACE="${TIMEOUT_GRACE%s}" # strip a trailing 's'
 [[ "$TIMEOUT_GRACE" =~ ^[0-9]+$ ]] || die "TIMEOUT_GRACE must be a non-negative integer, got: $TIMEOUT_GRACE"
 
+machine_model_for() {
+  case "$1" in
+    # CPAchecker parses these enum names case-insensitively, but keep the
+    # canonical command spelling used by the existing runners.
+    ILP32) printf '%s\n' Linux32 ;;
+    LP64) printf '%s\n' Linux64 ;;
+    *) die "unsupported or missing data_model '$1' (expected ILP32 or LP64)" ;;
+  esac
+}
+
+build_command() {
+  local data_model="$1" source="$2" machine_model
+  machine_model="$(machine_model_for "$data_model")"
+  RUN_CMD=(
+    timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
+    taskset -c "$P_CORE_LIST"
+    "$CPA_SH" --heap "$HEAP"
+    --config "$REPO/$CONFIG"
+    --option "analysis.machineModel=$machine_model"
+    --option "cpa.predicate.refinement.useVocabularyGuide=$USE_VGUIDE"
+    --timelimit "${TIMELIMIT}s"
+    --spec "$SPEC"
+    --stats
+    --no-output-files
+  )
+  if [[ "$ARM" == "augmented" ]]; then
+    RUN_CMD+=(--option "vguide.llmMaxCompletionTokens=$LLM_MAX_COMPLETION_TOKENS")
+  fi
+  RUN_CMD+=("$SV_BENCHMARKS/$source")
+}
+
 if [[ "$DRY" == "1" ]]; then
   echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE"
   echo "tasks: $(python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --no-verify --out "$OUT/tasks.tsv")"
+  while IFS=$'\t' read -r task source expected model family tsha ssha; do
+    machine_model="$(machine_model_for "$model")"
+    effective_machine_model="$(printf '%s' "$machine_model" | tr '[:lower:]' '[:upper:]')"
+    build_command "$model" "$source"
+    printf 'task=%s data_model=%s effective_machine_model=%s: ' "$task" "$model" "$effective_machine_model"
+    printf '%q ' "${RUN_CMD[@]}"
+    printf '\n'
+  done <"$OUT/tasks.tsv"
   exit 0
 fi
 
@@ -391,6 +430,12 @@ EOF
 # resume provenance check so a refused resume cannot clobber an existing tasks.tsv.
 python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --out "$OUT/tasks.tsv"
 
+# Validate every frozen row before starting workers. A malformed model must
+# fail the run, not become a default LINUX32 execution.
+while IFS=$'\t' read -r task source expected model family tsha ssha; do
+  machine_model_for "$model" >/dev/null
+done <"$OUT/tasks.tsv"
+
 # 3. Run each task once (parallel), then emit one record per task.
 rm -f "$OUT/records.jsonl"
 # Hash-suffixed task name: '/'-replaced names can collide (a/b vs a_b); the
@@ -399,6 +444,7 @@ task_name_of() {
   printf '%s' "${1//\//_}~$(printf '%s' "$1" | sha256sum | cut -c1-6)"
 }
 export -f sha256sum 2>/dev/null || true
+export -f machine_model_for build_command
 export -f task_name_of
 run_one() {
   local line="$1"
@@ -413,12 +459,16 @@ run_one() {
   fi
   local task_name="$(task_name_of "$task")"
   local log="$OUT/logs/${task_name}.log"
+  local machine_model effective_machine_model
+  machine_model="$(machine_model_for "$model")"
+  effective_machine_model="$(printf '%s' "$machine_model" | tr '[:lower:]' '[:upper:]')"
   # Resume support: a per-task record already written means this task finished
   # in a previous invocation — skip it instead of re-running. The record must
   # parse as JSON with the expected task identity and a verdict (filenames can
   # collide after / -> _); truncated/corrupt records are discarded and rerun.
   if [[ -f "$OUT/logs/${task_name}.json" ]]; then
-    if TASK_C="$task" python3 -c "import json, os, sys; d = json.load(open(sys.argv[1])); assert isinstance(d, dict) and d.get('task') == os.environ['TASK_C'] and 'verdict' in d" "$OUT/logs/${task_name}.json" 2>/dev/null; then
+    if TASK_C="$task" python3 -c "import json, os, sys; d = json.load(open(sys.argv[1])); assert isinstance(d, dict) and d.get('task') == os.environ['TASK_C'] and 'verdict' in d" "$OUT/logs/${task_name}.json" 2>/dev/null \
+        && grep -Fqx "Effective machine model: $effective_machine_model" "$log" 2>/dev/null; then
       # Record-mode: a completed task must still have its replay/record cache
       # namespace; a deleted cache means the resume would replay nothing.
       if [[ "$ARM" == "augmented" && -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
@@ -456,32 +506,15 @@ run_one() {
     SANITIZED="$(printf '%s' "$(basename "$OUT")/$task" | tr -c 'A-Za-z0-9._-' '_')"
     rm -rf "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" || return 1
   fi
-  local cmd=(
-    timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
-    taskset -c "$P_CORE_LIST"
-    "$CPA_SH" --heap "$HEAP"
-    --config "$REPO/$CONFIG"
-    --option "cpa.predicate.refinement.useVocabularyGuide=$USE_VGUIDE"
-    --timelimit "${TIMELIMIT}s"
-    --spec "$SPEC"
-    --stats
-    --no-output-files
-  )
-  if [[ "$ARM" == "augmented" ]]; then
-    cmd+=(--option "vguide.llmMaxCompletionTokens=$LLM_MAX_COMPLETION_TOKENS")
-  fi
-  cmd+=("$SV_BENCHMARKS/$source")
-  if [[ "$DRY" == "1" ]]; then
-    echo "${cmd[*]}"
-    return 0
-  fi
+  build_command "$model" "$source"
+  printf 'Effective machine model: %s\n' "$effective_machine_model" >"$log"
   set +e
   if [[ "$ARM" == "augmented" ]]; then
     # Per-task dump root: benchmark base names can collide across families.
     VGUIDE_LLM_CACHE_NAMESPACE="$(basename "$OUT")/$task" VGUIDE_ANALYSIS_DUMP_DIR="$OUT/dumps/${task_name}" \
-      "${cmd[@]}" >"$log" 2>&1
+      "${RUN_CMD[@]}" >>"$log" 2>&1
   else
-    "${cmd[@]}" >"$log" 2>&1
+    "${RUN_CMD[@]}" >>"$log" 2>&1
   fi
   local rc=$?
   set -e
