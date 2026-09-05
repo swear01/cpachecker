@@ -92,7 +92,7 @@ class Coverage:
 
 def load_manifest(path: Path) -> list[str]:
     tasks: list[str] = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -104,7 +104,7 @@ def load_json(path: Path) -> dict | None:
     if not path.is_file():
         return None
     try:
-        value = json.loads(path.read_text())
+        value = json.loads(path.read_text(encoding="utf-8"))
         return value if isinstance(value, dict) else None
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
@@ -114,7 +114,7 @@ def load_jsonl(path: Path) -> list[dict]:
     if not path.is_file():
         return []
     rows: list[dict] = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -159,7 +159,7 @@ def assert_part(s: str) -> str:
 def load_log_verdict(log_path: Path) -> dict:
     if not log_path.is_file():
         return {}
-    text = log_path.read_text(errors="replace")
+    text = log_path.read_text(encoding="utf-8", errors="replace")
     m = RE_VER.search(text)
     verdict = m.group(1).upper() if m else "UNKNOWN"
     wm = RE_WALL.search(text)
@@ -173,7 +173,7 @@ def load_csv_verdicts(csv_path: Path) -> dict[str, dict]:
     if not csv_path.is_file():
         return {}
     out: dict[str, dict] = {}
-    with csv_path.open() as f:
+    with csv_path.open(encoding="utf-8") as f:
         for row in csv.DictReader(f):
             out[row["task"]] = {
                 "verdict": row.get("result", "UNKNOWN").upper(),
@@ -376,7 +376,10 @@ def validate_task(
     if llm_state == "malformed":
         report.fail(task, "V2", "llm_rounds.jsonl is malformed")
     spurious_count = len(refinements)
-    ref_count = summary.get("refinements") if summary else spurious_count
+    raw_ref_count = summary.get("refinements") if summary else spurious_count
+    ref_count = raw_ref_count if isinstance(raw_ref_count, int) else None
+    if summary and ref_count is None:
+        report.fail(task, "V2", "task_summary refinements is not an integer")
 
     if ref_count == 0:
         if refinements:
@@ -391,8 +394,11 @@ def validate_task(
     if summary and "precision_final" not in summary:
         report.fail(task, "V8", "task_summary missing precision_final")
 
-    log_text = log_path.read_text(errors="replace") if log_path and log_path.is_file() else ""
-    llm_api_calls = summary.get("llm_api_calls") if summary else len(llm_rounds)
+    log_text = log_path.read_text(encoding="utf-8", errors="replace") if log_path and log_path.is_file() else ""
+    raw_llm_api_calls = summary.get("llm_api_calls") if summary else len(llm_rounds)
+    llm_api_calls = raw_llm_api_calls if isinstance(raw_llm_api_calls, (int, float)) else None
+    if summary and raw_llm_api_calls is not None and llm_api_calls is None:
+        report.fail(task, "V2", "task_summary llm_api_calls is not numeric")
 
     if RE_LLM_ROUND.search(log_text):
         if llm_api_calls is not None and llm_api_calls <= 0 and llm_rounds:
@@ -484,7 +490,7 @@ def validate_dump(
         log_path = logs_dir / f"{task}.log" if logs_dir else None
         coverage = classify_coverage(
             dump_dir / "tasks" / task,
-            log_path.read_text(errors="replace") if log_path and log_path.is_file() else "",
+            log_path.read_text(encoding="utf-8", errors="replace") if log_path and log_path.is_file() else "",
         )
         if coverage.status == "dump_incomplete":
             report.fail(task, "V1", f"{coverage.reason} (coverage={coverage.status})")
@@ -495,20 +501,32 @@ def validate_dump(
 
 def write_csv(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as f:
+    with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
 
 def sum_known(rows: list[dict], key: str) -> int | str:
-    values = [r[key] for r in rows if r.get(key) not in (None, "")]
-    return sum(int(v) for v in values) if values else ""
+    values = [v for r in rows if (v := as_int(r.get(key))) is not None]
+    return sum(values) if values else ""
 
 
 def median_known(rows: list[dict], key: str) -> int | str:
-    values = sorted(int(r[key]) for r in rows if r.get(key) not in (None, ""))
+    values = sorted(v for r in rows if (v := as_int(r.get(key))) is not None)
     return values[len(values) // 2] if values else ""
+
+
+def as_int(value: object) -> int | None:
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value)
+    return None
 
 
 def run_analysis(
@@ -539,11 +557,15 @@ def run_analysis(
         task: classify_coverage(
             tasks_root / task,
             (
-                (logs_dir / f"{task}.log").read_text(errors="replace")
+                (logs_dir / f"{task}.log").read_text(encoding="utf-8", errors="replace")
                 if logs_dir and (logs_dir / f"{task}.log").is_file()
                 else ""
             ),
         )
+        for task in tasks
+    }
+    meta_by_task = {
+        task: task_meta(task, tasks_root / task, analysis_csv, stock_csv, coverage_by_task[task])
         for task in tasks
     }
 
@@ -614,13 +636,19 @@ def run_analysis(
         by_task[r["task"]].append(r)
     for task in tasks:
         rows = by_task.get(task, [])
-        meta = task_meta(task, tasks_root / task, analysis_csv, stock_csv, coverage_by_task[task])
+        meta = meta_by_task[task]
         llm_rounds_path = tasks_root / task / "llm_rounds.jsonl"
         known_zero = meta["coverage_status"] in {"no_spurious_ce", "llm_not_scheduled"}
         budget_task_rows.append(
             {
                 **meta,
-                "api_calls": 0 if known_zero else len(rows) if llm_rounds_path.is_file() else "",
+                "api_calls": (
+                    0
+                    if known_zero
+                    else len(rows)
+                    if llm_rounds_path.is_file() and meta["coverage_reason"] != "malformed_jsonl"
+                    else ""
+                ),
                 "prompt_tokens_sum": 0 if known_zero else sum_known(rows, "prompt_tokens"),
                 "completion_tokens_sum": 0 if known_zero else sum_known(rows, "completion_tokens"),
                 "total_tokens_sum": 0 if known_zero else sum_known(rows, "total_tokens"),
@@ -664,7 +692,7 @@ def run_analysis(
 
     for task in tasks:
         task_dir = tasks_root / task
-        meta = task_meta(task, task_dir, analysis_csv, stock_csv, coverage_by_task[task])
+        meta = meta_by_task[task]
         precision_final = (load_json(task_dir / "task_summary.json") or {}).get(
             "precision_final", {}
         )
@@ -773,7 +801,7 @@ def run_analysis(
 
     overlap_summary_rows: list[dict] = []
     for task in tasks:
-        meta = task_meta(task, tasks_root / task, analysis_csv, stock_csv, coverage_by_task[task])
+        meta = meta_by_task[task]
         oc = overlap_task.get(task, Counter())
         total_p = sum(oc.values())
         metrics_known = meta["coverage_status"] in {
@@ -815,7 +843,7 @@ def run_analysis(
     )
 
     # --- analysis_report.md ---
-    prompt_tokens = [int(r["prompt_tokens"]) for r in budget_rows if r["prompt_tokens"] not in (None, "") and int(r["prompt_tokens"]) > 0]
+    prompt_tokens = [t for r in budget_rows if (t := as_int(r["prompt_tokens"])) and t > 0]
     pt_sorted = sorted(prompt_tokens)
     verdict_counts = Counter(m["verdict"] for m in budget_task_rows)
     coverage_counts = Counter(m["coverage_status"] for m in budget_task_rows)
