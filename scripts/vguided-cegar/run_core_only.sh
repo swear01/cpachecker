@@ -80,6 +80,7 @@ IFS=',' read -r -a ALLOCATED_CORES <<<"$P_CORE_LIST"
 [[ "$EVIDENCE_TIER" == "exploratory" || "$P_CORE_LIST" == "$P_CORE_RANGE" ]] \
   || die "--cpu-list requires --exploratory"
 P_CORE_RANGE="$P_CORE_LIST"
+SV_BENCHMARKS="$(cd "$SV_BENCHMARKS" && pwd)"
 
 # Refuse when any selected P-core has median busy >= 50% across five one-second samples.
 # Process snapshots are diagnostics only; cumulative %CPU and last-PSR placement never veto.
@@ -349,7 +350,7 @@ if [[ ! -f "$OUT/run_meta.json" ]] && ls "$OUT"/logs/*.json >/dev/null 2>&1; the
 fi
 OLD_LOADS_JSON="[]"
 if [[ -f "$OUT/run_meta.json" ]]; then
-  if ! OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))" "$OUT/run_meta.json" 2>/dev/null)"; then
+  if ! OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding='utf-8'))))" "$OUT/run_meta.json" 2>/dev/null)"; then
     die "$OUT/run_meta.json exists but is not valid JSON (corrupt metadata file); fix or remove it manually"
   fi
   OLD_LOADS_JSON="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('load_checks', [])))" 2>/dev/null || echo '[]')"
@@ -364,9 +365,9 @@ if [[ -f "$OUT/run_meta.json" ]]; then
   PRESERVE_C="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
   python3 - "$OUT/run_meta.json" <<'EOF' || die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
 import json, os, sys
-old = json.load(open(sys.argv[1]))
+old = json.load(open(sys.argv[1], encoding="utf-8"))
 want = {
-    **json.load(open(os.environ["RUNTIME_C"])),
+    **json.load(open(os.environ["RUNTIME_C"], encoding="utf-8")),
     "arm": os.environ["ARM_C"],
     "commit": os.environ["COMMIT_C"],
     "config_sha256": os.environ["CONFIG_SHA_C"],
@@ -425,7 +426,7 @@ STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" CURRLOAD_
 python3 - "$OUT/run_meta.json" <<'EOF'
 import json, os, sys
 meta = {
-    **json.load(open(os.environ["RUNTIME_M"])),
+    **json.load(open(os.environ["RUNTIME_M"], encoding="utf-8")),
     "arm": os.environ["ARM_M"],
     "commit": os.environ["COMMIT_M"],
     "config": os.path.abspath(os.environ["CONFIG_M"]),
@@ -461,7 +462,7 @@ meta = {
     "load_checks": json.loads(os.environ["LOADS_M"]) + [os.environ["CURRLOAD_M"]],
 }
 tmp = sys.argv[1] + ".tmp"
-with open(tmp, "w") as f:
+with open(tmp, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 os.replace(tmp, sys.argv[1])
 EOF
@@ -502,7 +503,7 @@ run_one() {
   build_command "$model" "$source"
   # A completed failure is evidence too. Never overwrite an interrupted attempt.
   if [[ -f "$OUT/logs/${task_name}.json" ]]; then
-    python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert isinstance(d,dict) and d.get("task")==sys.argv[2] and d.get("execution",{}).get("command")==sys.argv[3:]' "$OUT/logs/${task_name}.json" "$task" "${RUN_CMD[@]}" \
+    python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert isinstance(d,dict) and d.get("task")==sys.argv[2] and d.get("execution",{}).get("command")==sys.argv[3:]' "$OUT/logs/${task_name}.json" "$task" "${RUN_CMD[@]}" \
       || { echo "invalid existing record for $task; use fresh OUT" >&2; return 1; }
     echo "skip $task (record exists)"
     return 0

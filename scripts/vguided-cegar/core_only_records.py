@@ -406,7 +406,11 @@ def record_from_run(
                 match = SOLVER_RE.search(line)
                 if match:
                     solver = f"{match.group(1)} {match.group(2)}"
-                has_oom |= "OutOfMemoryError" in line or "Out of memory" in line
+                has_oom |= (
+                    "OutOfMemoryError" in line
+                    or "Out of memory" in line
+                    or "memory problems (Java heap space)" in line
+                )
                 has_hang |= "forcing immediate termination" in line
                 has_exc |= bool(
                     "Exception in thread" in line
@@ -585,8 +589,12 @@ def main() -> int:
             args.arm,
             args.timelimit,
             args.exit_code,
-            json.loads(args.execution.read_text()) if args.execution else None,
-            json.loads(args.run_meta.read_text()) if args.run_meta else None,
+            json.loads(args.execution.read_text(encoding="utf-8"))
+            if args.execution
+            else None,
+            json.loads(args.run_meta.read_text(encoding="utf-8"))
+            if args.run_meta
+            else None,
         )
         if args.execution:
             record["execution_file"] = str(args.execution.resolve())

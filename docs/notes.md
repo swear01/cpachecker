@@ -4,6 +4,9 @@
 
 ## Gotchas
 
+- **CFA heap exhaustion can exit 0 without a verdict (#180).** The log warning
+  `memory problems (Java heap space)` is classified as `out_of_memory`; an exit code of zero
+  does not certify a completed analysis. Preserve the empty reported verdict and raw log.
 - **Core-only evidence contract (#179).** `run_core_only.sh` writes untouched verifier logs and
   `<task>.execution.json` with the actual process exit/signal, termination reason, command and
   monotonic elapsed time. Incomplete attempts require a fresh output directory; resume preserves

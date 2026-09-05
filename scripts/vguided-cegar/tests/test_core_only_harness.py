@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Tests for the core-only evaluation harness (Issue #2)."""
 
 import json
