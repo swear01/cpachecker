@@ -65,6 +65,7 @@ done
 [[ -n "$OUT" ]] || die "--out required"
 [[ "$TIMELIMIT" =~ ^[1-9][0-9]*$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
 [[ -d "$SV_BENCHMARKS" ]] || die "SV_BENCHMARKS not found: $SV_BENCHMARKS (export SV_BENCHMARKS=~/sv-benchmarks/c)"
+SV_BENCHMARKS="$(cd "$SV_BENCHMARKS" && pwd)"
 
 # Refuse when any selected P-core has median busy >= 50% across five one-second samples.
 # Process snapshots are diagnostics only; cumulative %CPU and last-PSR placement never veto.
@@ -131,6 +132,7 @@ LOAD_CHECK_NOW=""
 check_p_cores_idle
 
 mkdir -p "$OUT/logs"
+OUT="$(cd "$OUT" && pwd)"
 LLM_PROVIDER="$(printf '%s' "${VGUIDE_LLM_PROVIDER:-meta}" | tr '[:upper:]' '[:lower:]')"
 [[ "$LLM_PROVIDER" == "deepseek" || "$LLM_PROVIDER" == "meta" ]] \
   || die "VGUIDE_LLM_PROVIDER must be deepseek or meta, got: ${VGUIDE_LLM_PROVIDER:-}"
@@ -230,6 +232,8 @@ trap 'kill "$LOCK_HEARTBEAT" 2>/dev/null || true; rm -rf "$OUT/.run.lock" 2>/dev
 # 2. Run metadata (computed before tasks.tsv so the resume provenance check can
 # validate the invocation without overwriting an existing tasks.tsv).
 COMMIT="$(git -C "$REPO" rev-parse HEAD)"
+RUNTIME_FILE="$OUT/runtime-current.$$.json"
+python3 "$RECORDS_PY" runtime --repo "$REPO" >"$RUNTIME_FILE"
 CONFIG_SHA="$(python3 -c "import sys; sys.path.insert(0, '$SCRIPT_DIR'); import core_only_config_diff as d; print(d.config_sha256(__import__('pathlib').Path('$REPO/$CONFIG')))")"
 MANIFEST_SHA="$(sha256sum "$MANIFEST" | cut -d' ' -f1)"
 SPEC_SHA="$(sha256sum "$SPEC" | cut -d' ' -f1)"
@@ -279,13 +283,13 @@ if [[ ! -f "$OUT/run_meta.json" ]] && ls "$OUT"/logs/*.json >/dev/null 2>&1; the
 fi
 OLD_LOADS_JSON="[]"
 if [[ -f "$OUT/run_meta.json" ]]; then
-  if ! OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))" "$OUT/run_meta.json" 2>/dev/null)"; then
+  if ! OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding='utf-8'))))" "$OUT/run_meta.json" 2>/dev/null)"; then
     die "$OUT/run_meta.json exists but is not valid JSON (corrupt metadata file); fix or remove it manually"
   fi
   OLD_LOADS_JSON="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('load_checks', [])))" 2>/dev/null || echo '[]')"
   OLD_STARTED_AT="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('started_at',''))")"
   OLD_LOAD_CHECK="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('load_check',''))")"
-  ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" CPA_SH_SHA_C="$CPA_SH_SHA" \
+  RUNTIME_C="$RUNTIME_FILE" ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" CPA_SH_SHA_C="$CPA_SH_SHA" \
   TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
   PROVIDER_C="$LLM_PROVIDER" MODEL_C="$LLM_MODEL" THINKING_C="$THINKING" EFFORT_C="$EFFORT" FORMAT_C="$LLM_API_FORMAT" \
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
@@ -294,8 +298,9 @@ if [[ -f "$OUT/run_meta.json" ]]; then
   PRESERVE_C="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
   python3 - "$OUT/run_meta.json" <<'EOF' || die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
 import json, os, sys
-old = json.load(open(sys.argv[1]))
+old = json.load(open(sys.argv[1], encoding="utf-8"))
 want = {
+    **json.load(open(os.environ["RUNTIME_C"], encoding="utf-8")),
     "arm": os.environ["ARM_C"],
     "commit": os.environ["COMMIT_C"],
     "config_sha256": os.environ["CONFIG_SHA_C"],
@@ -340,7 +345,7 @@ else
 fi
 
 # Atomic, escaping-safe write of run_meta.json (values via env, json.dumps).
-ARM_M="$ARM" COMMIT_M="$COMMIT" CONFIG_M="$CONFIG" CONFIG_SHA_M="$CONFIG_SHA" \
+SV_BENCHMARKS_M="$SV_BENCHMARKS" RUNTIME_M="$RUNTIME_FILE" ARM_M="$ARM" COMMIT_M="$COMMIT" CONFIG_M="$REPO/$CONFIG" CONFIG_SHA_M="$CONFIG_SHA" \
 MANIFEST_M="$MANIFEST" MANIFEST_SHA_M="$MANIFEST_SHA" SPEC_SHA_M="$SPEC_SHA" CPA_SH_SHA_M="$CPA_SH_SHA" \
 TIMELIMIT_M="$TIMELIMIT" GRACE_M="$TIMEOUT_GRACE" PARALLEL_M="$PARALLEL" HEAP_M="$HEAP" \
 SPEC_M="$SPEC" PROVIDER_M="$LLM_PROVIDER" MODEL_M="$LLM_MODEL" THINKING_M="$THINKING" EFFORT_M="$EFFORT" FORMAT_M="$LLM_API_FORMAT" \
@@ -352,9 +357,11 @@ STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" CURRLOAD_
 python3 - "$OUT/run_meta.json" <<'EOF'
 import json, os, sys
 meta = {
+    **json.load(open(os.environ["RUNTIME_M"], encoding="utf-8")),
     "arm": os.environ["ARM_M"],
     "commit": os.environ["COMMIT_M"],
-    "config": os.environ["CONFIG_M"],
+    "config": os.path.abspath(os.environ["CONFIG_M"]),
+    "sv_benchmarks": os.path.abspath(os.environ["SV_BENCHMARKS_M"]),
     "config_sha256": os.environ["CONFIG_SHA_M"],
     "manifest": os.environ["MANIFEST_M"],
     "manifest_sha256": os.environ["MANIFEST_SHA_M"],
@@ -382,10 +389,12 @@ meta = {
     "load_checks": json.loads(os.environ["LOADS_M"]) + [os.environ["CURRLOAD_M"]],
 }
 tmp = sys.argv[1] + ".tmp"
-with open(tmp, "w") as f:
+with open(tmp, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 os.replace(tmp, sys.argv[1])
 EOF
+
+rm -f "$RUNTIME_FILE"
 
 # 1. Frozen task rows (hash-verified; fails on any mismatch) — generated after the
 # resume provenance check so a refused resume cannot clobber an existing tasks.tsv.
@@ -404,8 +413,7 @@ run_one() {
   local line="$1"
   local task source expected model family tsha ssha
   IFS=$'\t' read -r task source expected model family tsha ssha <<<"$line"
-  # Fail closed on malformed rows: an empty task would turn the cleanup paths
-  # below into rm -rf of the whole dump/cache roots.
+  # Reject malformed identities before deriving evidence paths.
   [[ -n "$task" ]] || { echo "empty task row; aborting task"; return 1; }
   if [[ "$task" =~ (^|/)\.\.?(/|$) ]]; then
     echo "unsafe task path '$task'; aborting task"
@@ -413,51 +421,18 @@ run_one() {
   fi
   local task_name="$(task_name_of "$task")"
   local log="$OUT/logs/${task_name}.log"
-  # Resume support: a per-task record already written means this task finished
-  # in a previous invocation — skip it instead of re-running. The record must
-  # parse as JSON with the expected task identity and a verdict (filenames can
-  # collide after / -> _); truncated/corrupt records are discarded and rerun.
+  # A completed failure is evidence too. Never overwrite an interrupted attempt.
   if [[ -f "$OUT/logs/${task_name}.json" ]]; then
-    if TASK_C="$task" python3 -c "import json, os, sys; d = json.load(open(sys.argv[1])); assert isinstance(d, dict) and d.get('task') == os.environ['TASK_C'] and 'verdict' in d" "$OUT/logs/${task_name}.json" 2>/dev/null; then
-      # Record-mode: a completed task must still have its replay/record cache
-      # namespace; a deleted cache means the resume would replay nothing.
-      if [[ "$ARM" == "augmented" && -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
-        SANITIZED="$(printf '%s' "$(basename "$OUT")/$task" | tr -c 'A-Za-z0-9._-' '_')"
-        # A completed task with zero LLM calls has no cache namespace
-        # (LlmResponseCache creates it on the first call) — that is normal.
-        if [[ ! -d "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" ]] \
-            && ! python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('llm_calls', 0))" "$OUT/logs/${task_name}.json" 2>/dev/null | grep -q '^0$'; then
-          echo "record-mode cache missing for $task; rerunning"
-          rm -f "$OUT/logs/${task_name}.json"
-          rm -rf "$OUT/dumps/${task_name}"
-        else
-          echo "skip $task (record exists)"
-          return 0
-        fi
-      else
-        echo "skip $task (record exists)"
-        return 0
-      fi
-    else
-      echo "discard mismatched/corrupt record for $task; rerunning"
-      rm -f "$OUT/logs/${task_name}.json"
-    fi
+    TASK_C="$task" python3 -c 'import json,os,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert isinstance(d,dict) and d.get("task")==os.environ["TASK_C"] and "execution" in d' "$OUT/logs/${task_name}.json" \
+      || { echo "invalid existing record for $task; use fresh OUT" >&2; return 1; }
+    echo "skip $task (record exists)"
+    return 0
   fi
-  # A previous attempt may have left a partial dump (no record was written):
-  # clear it so LLM rounds / refinements from both attempts do not mix.
-  # Cleanup failures abort this task (missing record -> merge fails closed).
-  if [[ "$ARM" == "augmented" ]]; then
-    rm -rf "$OUT/dumps/${task_name}" || return 1
-  fi
-  # Record-mode LLM caches are namespaced per task with the same sanitization as
-  # LlmResponseCache (chars outside [A-Za-z0-9._-] become '_'); clear a partial
-  # cache. Only for the augmented arm (stock runs never touch LLM state).
-  if [[ "$ARM" == "augmented" && -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
-    SANITIZED="$(printf '%s' "$(basename "$OUT")/$task" | tr -c 'A-Za-z0-9._-' '_')"
-    rm -rf "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" || return 1
+  if [[ -e "$log" || -e "$OUT/logs/${task_name}.execution.json" || -e "$OUT/dumps/${task_name}" ]]; then
+    echo "unfinished evidence exists for $task; preserve it and use fresh OUT" >&2
+    return 1
   fi
   local cmd=(
-    timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
     taskset -c "$P_CORE_LIST"
     "$CPA_SH" --heap "$HEAP"
     --config "$REPO/$CONFIG"
@@ -475,25 +450,14 @@ run_one() {
     echo "${cmd[*]}"
     return 0
   fi
-  set +e
+  local execution="$OUT/logs/${task_name}.execution.json"
+  local capture=(python3 "$RECORDS_PY" capture --log "$log" --status "$execution"
+    --wall-limit "$((TIMELIMIT + TIMEOUT_GRACE))" -- "${cmd[@]}")
   if [[ "$ARM" == "augmented" ]]; then
-    # Per-task dump root: benchmark base names can collide across families.
     VGUIDE_LLM_CACHE_NAMESPACE="$(basename "$OUT")/$task" VGUIDE_ANALYSIS_DUMP_DIR="$OUT/dumps/${task_name}" \
-      "${cmd[@]}" >"$log" 2>&1
+      "${capture[@]}" || return 1
   else
-    "${cmd[@]}" >"$log" 2>&1
-  fi
-  local rc=$?
-  set -e
-  # Complete records: append a synthetic UNKNOWN summary for logs that died without
-  # a CPA summary line (native hang/crash), mirroring run_benchmark_set.sh.
-  if ! grep -q 'Verification result:' "$log" 2>/dev/null; then
-    {
-      echo ""
-      echo "--- core-only runner post-process $(date -Iseconds) ---"
-      echo "Verification result: UNKNOWN, incomplete analysis (no CPA summary line)."
-      echo "Total time for CPAchecker: ${TIMELIMIT}.000s"
-    } >>"$log"
+    "${capture[@]}" || return 1
   fi
   # One JSON record per task (also for failures — never silently dropped).
   local dump_dir=""
@@ -506,7 +470,8 @@ run_one() {
     --commit "$COMMIT" \
     --arm "$ARM" \
     --timelimit "$TIMELIMIT" \
-    --exit-code "$rc" \
+    --execution "$execution" \
+    --run-meta "$OUT/run_meta.json" \
     --out "$OUT/logs/${task_name}.json"
 }
 export -f run_one

@@ -12,12 +12,18 @@ The manifest is the immutable authority (Hard-case Dataset v2 final
 release); augmented outcomes must never alter it.
 """
 
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json
+import os
 import re
+import shutil
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 SOLVER_RE = re.compile(r"Using predicate analysis with (\S+) version (\S+)")
@@ -31,208 +37,482 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def tasks_from_manifest(manifest_path: Path, sv_benchmarks: Path, verify: bool = True):
-    """Yield dicts of the frozen 224 tasks; verify source hashes by default."""
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+def load_manifest(path: Path) -> tuple[dict, str]:
+    raw = path.read_bytes()
+    manifest = json.loads(raw)
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("tasks"), list):
+        raise TypeError("manifest must contain a tasks list")
     tasks = manifest["tasks"]
-    if manifest.get("task_count") is not None and len(tasks) != manifest["task_count"]:
-        raise SystemExit(
-            f"manifest task_count mismatch: declared {manifest['task_count']}, got {len(tasks)}"
-        )
-    rows = []
-    for t in tasks:
-        source = t["source_paths"][0]
-        # Manifest paths carry the sv-benchmarks 'c/' prefix; SV_BENCHMARKS is the c/ root.
-        source = source[2:] if source.startswith("c/") else source
-        source_file = sv_benchmarks / source
+    if not tasks or manifest.get("task_count", len(tasks)) != len(tasks):
+        raise ValueError("empty manifest or task_count mismatch")
+    seen = set()
+    for task in tasks:
+        if not isinstance(task, dict):
+            raise TypeError("manifest task must be an object")
+        name = task.get("task")
+        if not isinstance(name, str) or not name or name in seen:
+            raise ValueError(f"invalid/duplicate manifest task: {name!r}")
+        seen.add(name)
+        if str(task.get("expected_verdict")).lower() not in ("true", "false"):
+            raise ValueError(f"invalid expected label: {name}")
+        if task.get("data_model") not in ("ILP32", "LP64"):
+            raise ValueError(f"invalid data model: {name}")
+        sources, hashes = task.get("source_paths"), task.get("source_sha256")
+        if (
+            not isinstance(sources, list)
+            or len(sources) != 1
+            or not isinstance(hashes, list)
+            or len(hashes) != 1
+        ):
+            raise ValueError(f"expected exactly one source/hash: {name}")
+        for filename in (name, sources[0]):
+            if (
+                not isinstance(filename, str)
+                or Path(filename).is_absolute()
+                or ".." in Path(filename).parts
+                or any(c in filename for c in "\t\n\r")
+            ):
+                raise ValueError(f"unsafe manifest path: {filename!r}")
+        for value in (task.get("task_sha256"), hashes[0]):
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError(f"invalid hash: {name}")
+    return manifest, hashlib.sha256(raw).hexdigest()
+
+
+def manifest_rows(manifest):
+    return [
+        {
+            "task": task["task"],
+            "source": task["source_paths"][0].removeprefix("c/"),
+            "expected_verdict": str(task["expected_verdict"]).lower(),
+            "data_model": task["data_model"],
+            "family": task.get("family", ""),
+            "task_sha256": task["task_sha256"],
+            "source_sha256": task["source_sha256"][0],
+        }
+        for task in manifest["tasks"]
+    ]
+
+
+def tasks_from_manifest(manifest_path: Path, sv_benchmarks: Path, verify: bool = True):
+    """Verify task YAML and source bytes against the frozen manifest."""
+    manifest, _ = load_manifest(manifest_path)
+    rows = manifest_rows(manifest)
+    for task in manifest["tasks"]:
+        source = task["source_paths"][0].removeprefix("c/")
         if verify:
-            if not source_file.is_file():
-                raise SystemExit(
-                    f"source missing for {t['task']}: {source_file} (expected by manifest)"
-                )
-            got = sha256_file(source_file)
-            expected = t["source_sha256"][0]
-            if got != expected:
-                raise SystemExit(
-                    f"source hash mismatch for {t['task']}: got {got}, expected {expected}"
-                )
-        rows.append(
-            {
-                "task": t["task"],
-                "source": source,
-                "expected_verdict": t["expected_verdict"],
-                "data_model": t.get("data_model", ""),
-                "family": t.get("family", ""),
-                "task_sha256": t["task_sha256"],
-                "source_sha256": t["source_sha256"][0],
-            }
-        )
+            for relative, expected in (
+                (source, task["source_sha256"][0]),
+                (task["task"].removeprefix("c/"), task["task_sha256"]),
+            ):
+                path = sv_benchmarks / relative
+                if not path.is_file() or sha256_file(path) != expected:
+                    raise SystemExit(
+                        f"missing file or hash mismatch for {task['task']}: {path}"
+                    )
     return rows
 
 
 def commit_sha(repo: Path) -> str:
     try:
         out = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return out.stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return ""
 
 
+def runtime_identity(repo: Path) -> dict:
+    """Fingerprint existing runtime bytes; never build or redirect another checkout."""
+    repo = repo.resolve()
+    if (
+        os.environ.get("CLASSPATH")
+        or os.environ.get("JAVA_TOOL_OPTIONS")
+        or os.environ.get("JDK_JAVA_OPTIONS")
+    ):
+        raise ValueError(
+            "external classpath/JVM options need a separately frozen runtime"
+        )
+    if (
+        os.environ.get("PATH_TO_CPACHECKER")
+        and Path(os.environ["PATH_TO_CPACHECKER"]).resolve() != repo
+    ):
+        raise ValueError("PATH_TO_CPACHECKER redirects this isolated runtime")
+    if (
+        not (repo / "classes/org/sosy_lab/cpachecker/cmdline/CPAMain.class").is_file()
+        and not (repo / "cpachecker.jar").is_file()
+    ):
+        raise ValueError("no built CPAchecker runtime; build an isolated runtime first")
+    paths = [repo / "scripts/cpa.sh", repo / "bin/cpachecker"]
+    paths += [p for p in (repo / "classes").rglob("*") if p.is_file()]
+    paths += [p for p in (repo / "lib").rglob("*") if p.is_file()]
+    if (repo / "cpachecker.jar").is_file():
+        paths.append(repo / "cpachecker.jar")
+    java = os.environ.get("JAVA")
+    if not java:
+        java = next(
+            (
+                str(p)
+                for p in sorted(Path("/usr/lib/jvm").glob("java-21-openjdk-*/bin/java"))
+                if os.access(p, os.X_OK)
+            ),
+            "java",
+        )
+    executable = shutil.which(java)
+    if executable is None:
+        raise ValueError(f"Java executable missing: {java}")
+    java_path = Path(executable).resolve()
+    paths.append(java_path)
+    for relative in ("release", "lib/modules", "lib/server/libjvm.so"):
+        path = java_path.parent.parent / relative
+        if path.is_file():
+            paths.append(path)
+    files = {str(p): sha256_file(p) for p in sorted(set(paths))}
+    return {
+        "runtime_files": files,
+        "runtime_sha256": hashlib.sha256(
+            json.dumps(files, sort_keys=True).encode()
+        ).hexdigest(),
+    }
+
+
+def capture_run(command: list[str], log: Path, status: Path, wall_limit: float) -> dict:
+    """Capture an actual process outcome without writing synthetic verifier output."""
+    if status.exists():
+        raise FileExistsError(status)
+    started = time.monotonic()
+    outcome = {
+        "command": command,
+        "exit_code": None,
+        "signal": None,
+        "termination_reason": "exit",
+        "launch_error": None,
+    }
+    with log.open("xb") as stream:
+        try:
+            proc = subprocess.Popen(
+                command, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True
+            )
+        except OSError as error:
+            outcome.update(termination_reason="launch_error", launch_error=str(error))
+        else:
+            try:
+                proc.wait(timeout=wall_limit)
+            except subprocess.TimeoutExpired:
+                outcome["termination_reason"] = "wall_timeout"
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    proc.wait()
+            outcome["exit_code"] = proc.returncode
+            outcome["signal"] = -proc.returncode if proc.returncode < 0 else None
+    outcome["raw_wall_s"] = time.monotonic() - started
+    outcome["log_sha256"] = sha256_file(log)
+    with status.open("x", encoding="utf-8") as stream:
+        json.dump(outcome, stream)
+        stream.write("\n")
+    return outcome
+
+
+def dump_metrics(task_row: dict, dump_dir: Path | None, arm: str) -> dict:
+    metrics = {
+        "llm_calls": None,
+        "validated_predicates": None,
+        "injected_predicates": None,
+        "llm_response_parse_failures": None,
+        "llm_empty_responses": None,
+        "dump_status": "missing",
+        "dump_parse_errors": [],
+        "dump_files": {},
+    }
+    if arm == "stock":
+        metrics.update(
+            {
+                key: 0
+                for key in metrics
+                if key not in {"dump_status", "dump_parse_errors", "dump_files"}
+            }
+        )
+        metrics["dump_status"] = "not_applicable"
+        return metrics
+    if dump_dir is None or not (dump_dir / "tasks").is_dir():
+        return metrics
+    stem = Path(task_row["source"]).stem
+    candidates = sorted(
+        p
+        for p in (dump_dir / "tasks").iterdir()
+        if p.is_dir()
+        and (p.name == stem or re.fullmatch(re.escape(stem) + r"__b[0-9]+", p.name))
+    )
+    if not candidates:
+        return metrics
+    # Multiple bridge dumps are all evidence; never choose the first match silently.
+    llm_rows, ref_rows, summaries = [], [], []
+    seen_llm = seen_ref = False
+    metrics["dump_files"] = {
+        str(p): sha256_file(p) for p in sorted(dump_dir.rglob("*")) if p.is_file()
+    }
+    for task_dump in candidates:
+        summary = task_dump / "task_summary.json"
+        if summary.is_file():
+            try:
+                value = json.loads(summary.read_text(encoding="utf-8"))
+                if not isinstance(value, dict) or any(
+                    type(value.get(k)) is not int or value[k] < 0
+                    for k in ("refinements", "llm_api_calls")
+                ):
+                    raise ValueError(
+                        "task_summary needs nonnegative refinements/llm_api_calls"
+                    )
+                summaries.append(value)
+            except (ValueError, TypeError, UnicodeError) as error:
+                metrics["dump_parse_errors"].append(
+                    {"file": str(summary), "line": None, "reason": str(error)}
+                )
+        for filename, target in (
+            ("llm_rounds.jsonl", llm_rows),
+            ("refinements.jsonl", ref_rows),
+        ):
+            path = task_dump / filename
+            if not path.is_file():
+                continue
+            seen_llm |= filename == "llm_rounds.jsonl"
+            seen_ref |= filename == "refinements.jsonl"
+            metrics["dump_files"][str(path)] = sha256_file(path)
+            with path.open("rb") as stream:
+                for number, line in enumerate(stream, 1):
+                    if not line.strip():
+                        continue
+                    try:
+                        row = json.loads(line)
+                        if not isinstance(row, dict):
+                            raise TypeError("expected JSON object")
+                        if filename == "refinements.jsonl":
+                            for key in ("validated_predicates", "precision_injected"):
+                                if key not in row and row.get("llm_called") is False:
+                                    row[key] = []
+                                if not isinstance(row.get(key), list):
+                                    raise TypeError(
+                                        f"{key} must be a list when LLM was called"
+                                    )
+                        target.append(row)
+                    except (ValueError, TypeError, UnicodeError) as error:
+                        metrics["dump_parse_errors"].append(
+                            {"file": str(path), "line": number, "reason": str(error)}
+                        )
+    complete = len(summaries) == len(candidates)
+    metrics["dump_status"] = "present" if complete else "partial"
+    if complete:
+        calls = sum(r["llm_api_calls"] for r in summaries)
+        if calls != len(llm_rows):
+            metrics["dump_parse_errors"].append(
+                {
+                    "file": str(dump_dir),
+                    "line": None,
+                    "reason": "LLM call count does not match task summaries",
+                }
+            )
+        if calls == 0 and not seen_llm:
+            metrics.update(
+                llm_calls=0, llm_response_parse_failures=0, llm_empty_responses=0
+            )
+        if not seen_ref and all(r["refinements"] == 0 for r in summaries):
+            metrics.update(validated_predicates=0, injected_predicates=0)
+        elif not seen_ref:
+            metrics["dump_status"] = "missing"
+    if metrics["dump_parse_errors"]:
+        metrics["dump_status"] = "malformed"
+        return metrics
+    if seen_llm:
+        metrics.update(
+            llm_calls=len(llm_rows),
+            llm_response_parse_failures=(
+                sum(r["response_parse_ok"] is False for r in llm_rows)
+                if all(type(r.get("response_parse_ok")) is bool for r in llm_rows)
+                else None
+            ),
+            llm_empty_responses=(
+                sum(r["response_raw"] == "" for r in llm_rows)
+                if all(isinstance(r.get("response_raw"), str) for r in llm_rows)
+                else None
+            ),
+        )
+    if seen_ref:
+        metrics.update(
+            validated_predicates=sum(len(r["validated_predicates"]) for r in ref_rows),
+            injected_predicates=sum(len(r["precision_injected"]) for r in ref_rows),
+        )
+    return metrics
+
+
 def record_from_run(
     task_row: dict,
     log: Path,
-    dump_dir: Path,
+    dump_dir: Path | None,
     config_sha: str,
     commit: str,
     arm: str,
     timelimit: int,
     exit_code: int = 0,
+    execution: dict | None = None,
+    run_meta: dict | None = None,
 ) -> dict:
-    """One JSONL record per task: hashes, commit, resource use, verdict, metrics."""
+    """Keep reported verdict, failure cause and missing measurements separate."""
+    log = log.resolve()
+    dump_dir = dump_dir.resolve() if dump_dir else None
     result = ""
-    refs = 0
-    wall_s = 0.0
-    cpu_s = 0.0
-    memory_mb = ""
+    refs = wall_s = cpu_s = memory_mb = None
     solver = ""
-    saw_result = False
-    has_oom = has_hang = has_exc = has_cpu = False
+    has_oom = has_hang = has_exc = has_cpu = has_wall = has_native = False
+    provider_failures = analysis_failures = 0
     if log.is_file():
-        # Single line-by-line pass: logs can be huge, never read them whole.
-        with open(log, encoding="utf-8", errors="replace") as f:
-            for line in f:
-                if not saw_result and line.startswith("Verification result:"):
-                    m = re.search(r"Verification result:\s*([A-Za-z]+)", line)
-                    if m:
-                        result = m.group(1).upper()
-                        saw_result = True
-                elif line.startswith("Number of predicate refinements:"):
-                    m = re.search(r"Number of predicate refinements:\s*(\d+)", line)
-                    if m:
-                        refs = int(m.group(1))
-                elif line.startswith("Total time for CPAchecker:"):
-                    m = re.search(r"Total time for CPAchecker:\s*([0-9.]+)", line)
-                    if m:
-                        wall_s = float(m.group(1))
-                elif line.startswith("Total CPU time for CPAchecker:"):
-                    m = re.search(r"Total CPU time for CPAchecker:\s*([0-9.]+)", line)
-                    if m:
-                        cpu_s = float(m.group(1))
-                elif line.startswith("Memory consumption for CPAchecker:"):
-                    m = re.search(r"Memory consumption for CPAchecker:\s*([0-9.]+)\s*MB", line)
-                    if m:
-                        memory_mb = m.group(1)
-                elif line.startswith("Using predicate analysis with"):
-                    m = SOLVER_RE.search(line)
-                    if m:
-                        solver = f"{m.group(1)} {m.group(2)}"
-                if "OutOfMemoryError" in line or "Out of memory" in line:
-                    has_oom = True
-                elif "forcing immediate termination" in line:
-                    has_hang = True
-                elif "Exception in thread" in line or re.search(
-                    r"java\.lang\.\w*(Exception|Error)\b", line
+        with log.open(encoding="utf-8", errors="replace") as stream:
+            for line in stream:
+                if line.startswith("Verification result:"):
+                    match = re.search(
+                        r"Verification result:\s*(TRUE|FALSE|UNKNOWN)\b", line
+                    )
+                    if match:
+                        result = match.group(1)
+                for prefix, name in (
+                    ("Number of predicate refinements:", "refs"),
+                    ("Total time for CPAchecker:", "wall"),
+                    ("Total CPU time for CPAchecker:", "cpu"),
+                    ("Memory consumption for CPAchecker:", "memory"),
                 ):
-                    has_exc = True
-                elif "CPU-time limit of" in line:
-                    has_cpu = True
-
-    llm_calls = 0
-    validated = 0
-    injected = 0
-    if dump_dir is not None and str(dump_dir) and dump_dir.is_dir():
-        # VGuideAnalysisDumper writes <dump_dir>/tasks/<benchmark base name>/...
-        # Locate by iteration so multi-extension benchmark names resolve robustly.
-        task_dump = None
-        tasks_root = dump_dir / "tasks"
-        if tasks_root.is_dir():
-            stem = Path(task_row["source"]).stem
-            cand = tasks_root / stem
-            if cand.is_dir():
-                task_dump = cand
-            else:
-                for d in tasks_root.iterdir():
-                    if d.is_dir() and d.name.startswith(stem + "."):
-                        task_dump = d
-                        break
-        llm_file = (
-            task_dump / "llm_rounds.jsonl" if task_dump is not None else dump_dir / "none"
-        )
-        if llm_file.is_file():
-            with open(llm_file, encoding="utf-8", errors="replace") as f:
-                llm_calls = sum(1 for _ in f)
-        ref_file = (
-            task_dump / "refinements.jsonl" if task_dump is not None else dump_dir / "none"
-        )
-        if ref_file.is_file():
-            with open(ref_file, encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    try:
-                        row = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if not isinstance(row, dict):
-                        continue
-                    validated += len(row.get("validated_predicates") or [])
-                    injected += len(row.get("precision_injected") or [])
-
-    failure = "ok"
-    if not log.is_file() or log.stat().st_size == 0:
-        failure = "no_log"
-    elif exit_code == 124:
+                    if line.startswith(prefix):
+                        match = re.match(r"\s*(\d+(?:\.\d+)?)", line[len(prefix) :])
+                        if match:
+                            value = float(match.group(1))
+                            if name == "refs":
+                                refs = int(value)
+                            elif name == "wall":
+                                wall_s = value
+                            elif name == "cpu":
+                                cpu_s = value
+                            else:
+                                memory_mb = value
+                match = SOLVER_RE.search(line)
+                if match:
+                    solver = f"{match.group(1)} {match.group(2)}"
+                has_oom |= "OutOfMemoryError" in line or "Out of memory" in line
+                has_hang |= "forcing immediate termination" in line
+                has_exc |= bool(
+                    "Exception in thread" in line
+                    or re.search(r"java\.lang\.\w*(Exception|Error)\b", line)
+                )
+                has_native |= any(
+                    token in line
+                    for token in (
+                        "stack smashing detected",
+                        "SIGSEGV",
+                        "SIGABRT",
+                        "A fatal error has been detected by the Java Runtime Environment",
+                    )
+                )
+                has_cpu |= "CPU-time limit of" in line and "has elapsed" in line
+                has_wall |= (
+                    "walltime limit of" in line.lower() and "has elapsed" in line
+                )
+                provider_failures += line.count("VGuide LLM call failed")
+                analysis_failures += line.count("Refinement failed:")
+    execution = execution or {
+        "exit_code": exit_code,
+        "signal": -exit_code if exit_code < 0 else None,
+        "termination_reason": "wall_timeout" if exit_code == 124 else "exit",
+        "raw_wall_s": None,
+    }
+    code = execution["exit_code"]
+    reason = execution["termination_reason"]
+    if reason == "launch_error" or code in (125, 126, 127):
+        failure = "infrastructure_error"
+    elif has_oom:
+        failure = "out_of_memory"
+    elif (
+        has_native
+        or (code not in (None, 0, 124) and reason != "wall_timeout")
+        or has_exc
+    ):
+        failure = "crash"
+    elif reason == "wall_timeout" or has_cpu or has_wall:
         failure = "timeout"
-    elif saw_result and result in ("TRUE", "FALSE"):
+    elif not log.is_file() or log.stat().st_size == 0:
+        failure = "no_log"
+    elif has_hang:
+        failure = "smt_hang"
+    elif analysis_failures:
+        failure = "analysis_failure"
+    elif provider_failures:
+        failure = "provider_failure"
+    elif result == "UNKNOWN":
+        failure = "unknown"
+    elif result in ("TRUE", "FALSE"):
         failure = "ok"
     else:
-        if has_oom:
-            failure = "out_of_memory"
-        elif has_hang:
-            failure = "smt_hang"
-        elif has_exc:
-            failure = "crash"
-        elif has_cpu or wall_s >= timelimit:
-            failure = "timeout"
-        else:
-            failure = "incomplete"
-
+        failure = "incomplete"
+    meta = run_meta or {}
+    if arm == "stock":
+        dump_dir = None
     return {
-        "task": task_row["task"],
-        "source": task_row["source"],
+        **task_row,
         "property": "unreach-call",
-        "expected_verdict": task_row["expected_verdict"],
-        "data_model": task_row["data_model"],
-        "family": task_row["family"],
-        "task_sha256": task_row["task_sha256"],
-        "source_sha256": task_row["source_sha256"],
         "arm": arm,
         "commit": commit,
         "config_sha256": config_sha,
+        **{
+            key: meta.get(key)
+            for key in ("manifest_sha256", "spec_sha256", "runtime_sha256")
+        },
         "solver": solver,
-        "verdict": result,
+        "reported_verdict": result,
+        "verdict": result if failure in ("ok", "unknown", "timeout") else "",
+        "exit_code": code,
+        "signal": execution.get("signal"),
+        "termination_reason": reason,
+        "raw_wall_s": execution.get("raw_wall_s"),
         "refinements": refs,
-        "wall_s": round(min(wall_s, timelimit), 3),
-        "cpu_s": round(cpu_s, 3),
+        "wall_s": wall_s,
+        "score_wall_s": min(wall_s, timelimit) if wall_s is not None else None,
+        "cpu_s": cpu_s,
         "memory_mb": memory_mb,
-        "llm_calls": llm_calls,
-        "validated_predicates": validated,
-        "injected_predicates": injected,
+        "provider_failures": provider_failures,
+        "analysis_failure_messages": analysis_failures,
+        **dump_metrics(task_row, dump_dir, arm),
         "failure_category": failure,
         "log": str(log),
+        "log_sha256": sha256_file(log) if log.is_file() else None,
+        "execution": execution,
+        "dump_dir": str(dump_dir) if dump_dir else None,
     }
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p_tasks = sub.add_parser("tasks", help="emit tasks.tsv rows from the frozen manifest")
+    p_tasks = sub.add_parser(
+        "tasks", help="emit tasks.tsv rows from the frozen manifest"
+    )
     p_tasks.add_argument("--manifest", required=True, type=Path)
     p_tasks.add_argument("--sv-benchmarks", required=True, type=Path)
     p_tasks.add_argument("--no-verify", action="store_true")
     p_tasks.add_argument("--out", required=True, type=Path)
     p_record = sub.add_parser("record", help="emit one JSONL record from a CPA log")
-    p_record.add_argument("--task-row", required=True, help="tab-separated tasks.tsv row")
+    p_record.add_argument(
+        "--task-row", required=True, help="tab-separated tasks.tsv row"
+    )
     p_record.add_argument("--log", required=True, type=Path)
     p_record.add_argument("--dump-dir", type=Path, default=None)
     p_record.add_argument("--config-sha", required=True)
@@ -241,28 +521,49 @@ def main() -> int:
     p_record.add_argument("--timelimit", type=int, default=300)
     p_record.add_argument("--exit-code", type=int, default=0)
     p_record.add_argument("--out", required=True, type=Path)
+    p_record.add_argument("--execution", type=Path)
+    p_record.add_argument("--run-meta", type=Path)
+    p_capture = sub.add_parser(
+        "capture", help="capture untouched log and process status"
+    )
+    p_capture.add_argument("--log", required=True, type=Path)
+    p_capture.add_argument("--status", required=True, type=Path)
+    p_capture.add_argument("--wall-limit", required=True, type=float)
+    p_capture.add_argument("command", nargs=argparse.REMAINDER)
+    p_runtime = sub.add_parser("runtime", help="hash the existing isolated runtime")
+    p_runtime.add_argument("--repo", required=True, type=Path)
     args = ap.parse_args()
+    if args.cmd == "runtime":
+        print(json.dumps(runtime_identity(args.repo)))
+        return 0
+
+    if args.cmd == "capture":
+        command = args.command[1:] if args.command[:1] == ["--"] else args.command
+        if not command or args.wall_limit <= 0:
+            ap.error("capture needs a command and positive wall limit")
+        capture_run(command, args.log, args.status, args.wall_limit)
+        return 0
 
     if args.cmd == "tasks":
         rows = tasks_from_manifest(
             args.manifest, args.sv_benchmarks, verify=not args.no_verify
         )
         with open(args.out, "w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(
-                    "\t".join(
-                        [
-                            r["task"],
-                            r["source"],
-                            r["expected_verdict"],
-                            r["data_model"],
-                            r["family"],
-                            r["task_sha256"],
-                            r["source_sha256"],
-                        ]
-                    )
-                    + "\n"
+            f.writelines(
+                "\t".join(
+                    [
+                        r["task"],
+                        r["source"],
+                        r["expected_verdict"],
+                        r["data_model"],
+                        r["family"],
+                        r["task_sha256"],
+                        r["source_sha256"],
+                    ]
                 )
+                + "\n"
+                for r in rows
+            )
         print(f"wrote {len(rows)} tasks to {args.out}")
         return 0
 
@@ -286,8 +587,17 @@ def main() -> int:
             args.arm,
             args.timelimit,
             args.exit_code,
+            json.loads(args.execution.read_text(encoding="utf-8"))
+            if args.execution
+            else None,
+            json.loads(args.run_meta.read_text(encoding="utf-8"))
+            if args.run_meta
+            else None,
         )
-        with open(args.out, "a", encoding="utf-8") as f:
+        if args.execution:
+            record["execution_file"] = str(args.execution.resolve())
+            record["execution_sha256"] = sha256_file(args.execution)
+        with open(args.out, "x", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
         return 0
 
