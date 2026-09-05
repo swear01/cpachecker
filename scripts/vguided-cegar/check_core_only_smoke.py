@@ -87,7 +87,7 @@ def load_disputes(path):
         return set()
     return {
         line.split("\t", 1)[0].strip()
-        for line in Path(path).read_text().splitlines()
+        for line in Path(path).read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     }
 
@@ -120,7 +120,7 @@ def validate(paths, manifest_path):
     for path in paths:
         path = Path(path)
         rows = load(path)
-        meta = json.loads((path.parent / "run_meta.json").read_text())
+        meta = json.loads((path.parent / "run_meta.json").read_text(encoding="utf-8"))
         if not isinstance(meta, dict) or meta.get("arm") not in ("stock", "augmented"):
             raise ValueError(f"{path}: invalid run metadata/arm")
         arm = meta["arm"]
@@ -234,6 +234,7 @@ def validate(paths, manifest_path):
             ):
                 errors.append(f"{tag}: missing/invalid captured argv")
             else:
+                # The runner freezes absolute paths; the harvester's cwd is irrelevant.
                 for flag, value in (
                     ("--config", meta["config"]),
                     ("--spec", meta["spec"]),

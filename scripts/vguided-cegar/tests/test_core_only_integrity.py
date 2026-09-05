@@ -278,6 +278,7 @@ def test_positive_pair(tmp_path):
         "missing_field",
         "null",
         "log",
+        "relative_source",
     ],
 )
 def test_gate_rejects_adversarial_evidence(tmp_path, mutation):
@@ -302,6 +303,11 @@ def test_gate_rejects_adversarial_evidence(tmp_path, mutation):
             del row["failure_category"]
         if mutation == "null":
             row = None
+        if mutation == "relative_source":
+            row["execution"]["command"][-1] = row["source"]
+            execution = Path(row["execution_file"])
+            execution.write_text(json.dumps(row["execution"]))
+            row["execution_sha256"] = records.sha256_file(execution)
         paths[0].write_text(json.dumps(row) + "\n")
     result = subprocess.run(
         [
@@ -506,3 +512,31 @@ def test_missing_execution_sidecar_is_an_integrity_error(tmp_path):
     arms, errors = smoke.validate(paths, manifest)
     assert set(arms) == {"stock", "augmented"}
     assert any("execution artifact mismatch" in error for error in errors)
+
+
+def test_utf8_evidence_is_read_under_ascii_locale(tmp_path):
+    import os
+
+    paths, manifest = fixture_pair(tmp_path)
+    for path in paths:
+        meta_path = path.parent / "run_meta.json"
+        meta = json.loads(meta_path.read_text())
+        meta["note"] = "證據"
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    disputes = tmp_path / "disputes"
+    disputes.write_text("# 註記\nc/f/a.yml\n", encoding="utf-8")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(smoke.__file__)),
+            *map(str, paths),
+            "--manifest",
+            str(manifest),
+            "--known-disputes",
+            str(disputes),
+        ],
+        env=dict(os.environ, LC_ALL="C", PYTHONUTF8="0", PYTHONCOERCECLOCALE="0"),
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)

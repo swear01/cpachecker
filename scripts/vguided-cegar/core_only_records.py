@@ -585,8 +585,12 @@ def main() -> int:
             args.arm,
             args.timelimit,
             args.exit_code,
-            json.loads(args.execution.read_text()) if args.execution else None,
-            json.loads(args.run_meta.read_text()) if args.run_meta else None,
+            json.loads(args.execution.read_text(encoding="utf-8"))
+            if args.execution
+            else None,
+            json.loads(args.run_meta.read_text(encoding="utf-8"))
+            if args.run_meta
+            else None,
         )
         if args.execution:
             record["execution_file"] = str(args.execution.resolve())
