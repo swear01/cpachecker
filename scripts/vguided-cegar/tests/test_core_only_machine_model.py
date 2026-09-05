@@ -206,3 +206,50 @@ def test_real_runner_records_marker_and_requires_it_for_resume(tmp_path):
     second = subprocess.run(command, env=env, text=True, capture_output=True, check=False)
     assert second.returncode == 0, second.stdout + second.stderr
     assert "skip c/issue178/LP64.yml (record exists)" in second.stdout
+
+
+def test_child_shell_rejects_invalid_model_before_creating_log(tmp_path):
+    fake_root = tmp_path / "fake-cpa"
+    fake_bin = fake_root / "bin"
+    fake_bin.mkdir(parents=True)
+    fake_cpa = fake_bin / "cpachecker"
+    fake_cpa.write_text("#!/bin/sh\nexit 0\n")
+    fake_cpa.chmod(0o755)
+
+    env = runner_env(tmp_path)
+    env["PATH_TO_CPACHECKER"] = str(fake_root)
+    xargs = tmp_path / "bin" / "xargs"
+    xargs.write_text(
+        "#!/bin/bash\n"
+        "IFS= read -r -d '' line || exit 1\n"
+        "prefix=$(printf '%s' \"$line\" | cut -f1-3)\n"
+        "suffix=$(printf '%s' \"$line\" | cut -f5-)\n"
+        "mutated=\"$prefix\"$'\\tINVALID'\n"
+        "if [[ -n \"$suffix\" ]]; then mutated+=$'\\t'\"$suffix\"; fi\n"
+        "/bin/bash -c 'run_one \"$1\"' _ \"$mutated\"\n"
+    )
+    xargs.chmod(0o755)
+    manifest_path = verified_manifest(tmp_path / "manifest.json", tmp_path, "ILP32")
+    out = tmp_path / "out"
+    result = subprocess.run(
+        [
+            str(RUNNER),
+            "--arm",
+            "stock",
+            "--manifest",
+            str(manifest_path),
+            "--out",
+            str(out),
+            "--parallel",
+            "1",
+            "--timelimit",
+            "1",
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "invalid data_model 'INVALID'; aborting task" in result.stdout
+    assert not list((out / "logs").glob("*.log"))
