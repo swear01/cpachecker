@@ -213,6 +213,24 @@ def fixture_pair(tmp_path, verdict="TRUE", category="ok"):
             ).hexdigest(),
             "timelimit_s": 10,
             "heap": "1000M",
+            "timeout_grace": 5,
+            "parallel": 1,
+            "cpu_list": "4",
+            "evidence_tier": "exploratory",
+            "timing_claims_allowed": False,
+            "model": "fixture-model",
+            "thinking": "disabled",
+            "reasoning_effort": None,
+            "llm_provider": "meta",
+            "llm_api_format": "meta-chat-completions-json-schema-v1",
+            "llm_api_url": "",
+            "llm_max_completion_tokens": "1024",
+            "resource_snapshot": {
+                "host": "fixture-host",
+                "loadavg": [0, 0, 0],
+                "meminfo": {"unavailable": "offline fixture"},
+                "memory_pressure": {"unavailable": "offline fixture"},
+            },
         }
         (root / "run_meta.json").write_text(json.dumps(meta))
         log = root / "raw.log"
@@ -227,7 +245,12 @@ def fixture_pair(tmp_path, verdict="TRUE", category="ok"):
             "raw_wall_s": 0.2,
             "log_sha256": records.sha256_file(log),
             "command": [
+                "taskset",
+                "-c",
+                "4",
                 "fixture",
+                "--heap",
+                "1000M",
                 "--config",
                 str(cfg),
                 "--spec",

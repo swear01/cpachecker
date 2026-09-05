@@ -14,9 +14,11 @@
   elapsed time, and only `score_wall_s` is capped; absent measurements and dump metrics are null.
   `reported_verdict` preserves the actual summary even if the process later crashes; failures
   cannot masquerade as an ordinary UNKNOWN. Runtime metadata hashes existing launcher, classes,
-  libraries and Java bytes without rebuilding them.
+  libraries and Java bytes without rebuilding them. This deployment identity includes absolute
+  paths: paired arms require the same frozen checkout/JDK locations; relocation is not transparent.
   Run `check_core_only_smoke.py <stock>/records.jsonl <augmented>/records.jsonl --manifest <frozen.json>`
   with adjacent `run_meta.json` files and original artifact paths available. Integrity rechecks
+  required typed resource/provider/tier metadata, captured CPU/heap consistency, same-host pairing,
   frozen task/source/label identity, uniqueness, pairing, metadata/artifact hashes and harvested
   fields against raw logs/status/dumps. Smoke eligibility is separate from structural integrity.
   `--known-disputes` annotates official wrongs and never waives them.
