@@ -2,11 +2,11 @@
 
 | Path | Purpose |
 |------|---------|
-| `src/org/sosy_lab/cpachecker/cpa/predicate/vguide/` | **VGuide Java implementation** — LLM bridge, per-loop-head candidate contract (loop-head-candidate-v1), validator + scope check, precision injector, usefulness gate, fail-closed paired-response cache, schema-10 analysis dump |
+| `src/org/sosy_lab/cpachecker/cpa/predicate/vguide/` | **VGuide Java implementation** — LLM bridge, per-loop-head candidate contract, validator + scope check, precision injector, usefulness gate, fail-closed paired-response cache, current dump schema 12 |
 | `config/vguide.properties` | Runtime defaults: LLM scheduling; **L3 off** (not used after ablation) |
 | `config/predicateAnalysis-vguide.properties` | PredicateCPA + VGuide entry config |
 | `config/vguide-experiment-usefulness-gate-{off,on}.properties` | Frozen paired experiment configs; general default remains off |
-| `config/svcomp26-vguide.properties` | Competition config: routes reachability + overflow through VGuide |
+| `config/svcomp26-vguide.properties` | Historical competition config: routes reachability + overflow through VGuide |
 | `config/vguide-experiment-source-prior-{loops,overflow}.properties` | 消融實驗：source-prior mode，base config（predicateAnalysis-vguide 底） |
 | `config/vguide-experiment-source-prior-svcomp26-{loops,overflow}.properties` | 消融實驗：source-prior mode，svcomp26 portfolio 底 |
 | `scripts/vguided-cegar/run.sh` | Local VGuide/benchmark entry point; formal runs additionally follow the external protocol |
@@ -17,12 +17,13 @@
 | `docs/vguided-cegar/evaluation/nla_oracle_smoke_candidates.json` | 12-task reference polynomial candidates + frozen source/YAML hashes |
 | `docs/vguided-cegar/evaluation/predicate_usefulness_gate_frozen_20260711.json` | Frozen commits, config/manifest hashes, gate constants, model/solver, and primary resource protocol |
 | `docs/vguided-cegar/evaluation/HARD_CASE_DATASET_V2_FINAL.md` | Final Issue #16 dataset identity, counts, release verification, and downstream-use boundary |
+| `docs/vguided-cegar/evaluation/HARD_218_MANIFEST_LINEAGE.md` | Current 224→218 identity, hashes, exclusions and evidence boundary |
 | `docs/vguided-cegar/benchmark_sets/` | `.list` manifests read by `run.sh` |
 | `docs/vguided-cegar/predicate_sets/` | Frozen predicates for NO_SPURIOUS replay |
 | `/home/swear01/cpachecker-experiments/runs/` | Active raw experiment output |
 | `/home/swear01/cpachecker-experiments/records/archive/` | Historical material; never current truth |
-| `report/` | **LNCS report** (FM 期末,**草稿、尚未投稿**,持續修訂——已納入 v1.7.x schedule 結果;Zenodo artifact DOI `10.5281/zenodo.20745141`) — `main.tex` (llncs.cls), `references.bib`；build artifacts + PDF gitignored |
-| `slides/vguide-presentation/` | **Beamer deck** (dark metropolis) — `main.tex`, `metadata.tex` (數字), `slides/NN_*.tex` (一 frame 一檔), `figures/`; `build.sh [light]` |
+| `/home/swear01/cpachecker-experiments/records/paper/` | LNCS paper draft and figures; outside this repo |
+| `/home/swear01/cpachecker-experiments/records/slides/` | Beamer presentation; outside this repo |
 | `test/` | CPAchecker upstream test suite |
 | `build/`, `classes/` | Compiled artifacts |
 | `doc/` | Upstream CPAchecker official docs |

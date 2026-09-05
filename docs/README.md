@@ -20,5 +20,6 @@
 scripts/config 直接引用的 benchmark、predicate 與 evaluation 資料。
 
 Benchmark 入口：[`vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md`](vguided-cegar/evaluation/STANDARD_BENCHMARK_SUITE.md)。
+Current hard-case identity：[`vguided-cegar/evaluation/HARD_218_MANIFEST_LINEAGE.md`](vguided-cegar/evaluation/HARD_218_MANIFEST_LINEAGE.md)。
 
 CPAchecker 官方文件：[`doc/`](../doc/)。
