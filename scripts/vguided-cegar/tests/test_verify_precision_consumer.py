@@ -158,3 +158,27 @@ def test_compiler_only_does_not_accept_recorded_call(tmp_path):
     recorded_dump(tmp_path)
     with pytest.raises(ValueError, match="call ledger/budget"):
         gate.verify_dump(tmp_path, True, "none", 0)
+
+
+def test_cli_rejects_missing_fields_without_success_output(tmp_path):
+    import subprocess
+
+    task = recorded_dump(tmp_path)
+    (task / "task_summary.json").write_text("{}")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(gate.__file__)),
+            "--dump",
+            str(tmp_path),
+            "--max-calls",
+            "1",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert not result.stdout
+    assert "Invalid consumer evidence (KeyError)" in result.stderr
+    assert "Traceback" not in result.stderr

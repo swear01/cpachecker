@@ -261,19 +261,18 @@ def main():
     parser.add_argument("--cache", type=Path)
     parser.add_argument("--replay-of", type=Path)
     args = parser.parse_args()
-    print(
-        json.dumps(
-            verify_dump(
-                args.dump,
-                args.compiler,
-                args.source,
-                args.max_calls,
-                args.cache,
-                args.replay_of,
-            ),
-            indent=2,
+    try:
+        result = verify_dump(
+            args.dump,
+            args.compiler,
+            args.source,
+            args.max_calls,
+            args.cache,
+            args.replay_of,
         )
-    )
+    except (KeyError, TypeError, AttributeError, OSError, ValueError) as error:
+        parser.exit(1, f"Invalid consumer evidence ({type(error).__name__}): {error}\n")
+    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
