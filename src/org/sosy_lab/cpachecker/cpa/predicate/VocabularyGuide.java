@@ -609,14 +609,16 @@ public class VocabularyGuide {
   }
 
   private static String resolveVariableName(String simpleName, Set<String> encodedNames) {
+    if (encodedNames.contains(simpleName)) {
+      return simpleName;
+    }
     for (String encoded : encodedNames) {
-      if (encoded.endsWith("::" + simpleName + "@")
-          || encoded.contains("::" + simpleName + "@")) {
+      if (unversioned(encoded).endsWith("::" + simpleName)) {
         return encoded;
       }
     }
     for (String encoded : encodedNames) {
-      if (encoded.endsWith(simpleName) || encoded.contains("::" + simpleName)) {
+      if (unversioned(encoded).equals(simpleName)) {
         return encoded;
       }
     }
