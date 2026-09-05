@@ -235,20 +235,20 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
         .isEqualTo(
             "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3 32))))"
                 + " (bvmul (bvmul main::i main::i) main::i))");
-    // Parse with a dedicated CVC4 context: the junit default solver on this machine
-    // (MathSAT5/OpenSMT variants) cannot build the array-typed heap variable.
+    // Exercise the same native bitvector/array encoding used by predicate analysis.
     org.sosy_lab.common.configuration.ConfigurationBuilder cb =
         org.sosy_lab.common.configuration.Configuration.builder();
-    cb.setOption("solver.solver", "CVC4");
-    org.sosy_lab.cpachecker.util.predicates.smt.Solver cvc4Solver =
+    cb.setOption("solver.solver", "MATHSAT5");
+    try (org.sosy_lab.cpachecker.util.predicates.smt.Solver nativeSolver =
         org.sosy_lab.cpachecker.util.predicates.smt.Solver.create(
             cb.build(),
             org.sosy_lab.common.log.LogManager.createNullLogManager(),
-            org.sosy_lab.common.ShutdownNotifier.createDummy());
-    FormulaManagerView cvc4 = cvc4Solver.getFormulaManager();
-    var parsed =
-        VocabularyGuide.parsePredicate(
-            translated, cvc4, Set.of(), translator.arrayTypes(), translator.varBits());
-    assertThat(parsed).isNotNull();
+            org.sosy_lab.common.ShutdownNotifier.createDummy())) {
+      FormulaManagerView nativeFmgr = nativeSolver.getFormulaManager();
+      var parsed =
+          VocabularyGuide.parsePredicate(
+              translated, nativeFmgr, Set.of(), translator.arrayTypes(), translator.varBits());
+      assertThat(parsed).isNotNull();
+    }
   }
 }

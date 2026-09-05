@@ -138,17 +138,14 @@ public class VocabularyGuideTest extends SolverViewBasedTest0 {
   }
 
   @Test
-  public void shortVarPromotesTo32BitsInMixedComparison() {
-    // Issue #92: a short variable (varBits 16) in a mixed-width comparison must be
-    // declared 32-bit (C integer promotion) or the later 32-bit SSA instantiation
-    // of the same symbol crashes with "symbol already exists".
+  public void shortVarKeepsItsWidthInMixedComparison() {
+    // Issue #92: extend the comparison operand, never the native symbol declaration.
     var encoded = Set.of("main::SIZE@3", "main::SIZE@1");
     var f =
         VocabularyGuide.parsePredicate(
             "(> SIZE (_ bv1 32))", mgrv, encoded, Map.of(), Map.of("main::SIZE", 16));
     assertThat(f).isNotNull();
-    // the variable is created at 32 bits: parsing the same symbol again (another
-    // candidate) must not crash with a duplicate declaration of a different width
+    // A second candidate reuses the same declaration.
     var f2 =
         VocabularyGuide.parsePredicate(
             "(> SIZE (_ bv1 32))", mgrv, encoded, Map.of(), Map.of("main::SIZE", 16));
