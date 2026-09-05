@@ -23,7 +23,7 @@ def compiler_row():
         "rejections": [],
     }
     compiler["sha256"] = hashlib.sha256(
-        json.dumps(compiler, ensure_ascii=True, separators=(",", ":")).encode()
+        json.dumps(compiler, ensure_ascii=False, separators=(",", ":")).encode()
     ).hexdigest()
     return {
         "precision_compiler": compiler,
@@ -107,7 +107,7 @@ def test_native_true_is_counted_as_not_lowered():
     payload.pop("sha256")
     payload["candidates"][0]["antecedent_formula"] = "(assert true)"
     payload["sha256"] = hashlib.sha256(
-        json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode()
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
     ).hexdigest()
     row["precision_local_after"] = {}
     assert gate.verify_compiler(row) == 0
@@ -182,3 +182,14 @@ def test_cli_rejects_missing_fields_without_success_output(tmp_path):
     assert not result.stdout
     assert "Invalid consumer evidence (KeyError)" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_compiler_hash_uses_jackson_utf8_payload():
+    row = compiler_row()
+    payload = row["precision_compiler"]
+    payload.pop("sha256")
+    payload["candidates"][0]["antecedent_formula"] = "(assert π)"
+    raw = '{"schema_version":"cfa-precision-compiler-v2","candidates":[{"abstraction_role":"PRECISION_ONLY","consequent_head":"N24","antecedent_formula":"(assert π)"}],"rejections":[]}'
+    payload["sha256"] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    row["precision_local_after"] = {"N24": ["(assert π)"]}
+    assert gate.verify_compiler(row) == 1

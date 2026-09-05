@@ -26,7 +26,11 @@ def require(condition, message):
 
 
 def read_rows(path):
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def canonical(formula):
@@ -38,7 +42,7 @@ def verify_compiler(row):
     require(isinstance(compiler, dict), "missing compiler dump")
     payload = {k: v for k, v in compiler.items() if k != "sha256"}
     actual = sha256(
-        json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode()
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
     )
     require(compiler.get("sha256") == actual, "compiler hash mismatch")
     require(
@@ -115,7 +119,7 @@ def task_data(dump):
     summaries = list(dump.glob("tasks/*/task_summary.json"))
     require(len(summaries) == 1, "expected exactly one task summary")
     task = summaries[0].parent
-    summary = json.loads(summaries[0].read_text())
+    summary = json.loads(summaries[0].read_text(encoding="utf-8"))
     rows = read_rows(task / "refinements.jsonl")
     require(bool(rows), "empty refinement ledger")
     calls_path = task / "llm_rounds.jsonl"
@@ -185,7 +189,7 @@ def verify_dump(dump, compiler, source, max_calls, cache=None, replay_of=None):
     if cache is not None:
         cache_rows = []
         for path in sorted(cache.rglob("*.json")):
-            entry = json.loads(path.read_text())
+            entry = json.loads(path.read_text(encoding="utf-8"))
             require(
                 entry["schema_version"] == 1
                 and path.parent.name == entry["request_hash"],
