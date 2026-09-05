@@ -15,6 +15,12 @@
   `reported_verdict` preserves the actual summary even if the process later crashes; failures
   cannot masquerade as an ordinary UNKNOWN. Runtime metadata hashes existing launcher, classes,
   libraries and Java bytes without rebuilding them.
+  On SIGINT/SIGTERM, capture sends TERM to the verifier process group, waits up to
+  10 seconds for its leader, then KILLs remaining group members and reaps the leader
+  before propagating the original signal. Repeated interruption does not bypass cleanup.
+  The raw partial log remains without a completed execution sidecar; preserve it and
+  use a fresh output directory for an explicitly recorded recovery. SIGKILL cannot be
+  handled. Direct `capture_run` callers must run in the main thread for signal handling.
   Run `check_core_only_smoke.py <stock>/records.jsonl <augmented>/records.jsonl --manifest <frozen.json>`
   with adjacent `run_meta.json` files and original artifact paths available. Integrity rechecks
   frozen task/source/label identity, uniqueness, pairing, metadata/artifact hashes and harvested
