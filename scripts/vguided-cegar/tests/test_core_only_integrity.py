@@ -1,0 +1,476 @@
+"""Adversarial behavior checks for truthful capture and manifest-exact pairing."""
+
+import hashlib
+import json
+import signal
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import analyze_core_only_pair as pair
+import check_core_only_smoke as smoke
+import core_only_records as records
+from core_only_config_diff import config_sha256
+
+
+def task_row():
+    return {
+        "task": "c/f/a.yml",
+        "source": "f/a.c",
+        "expected_verdict": "true",
+        "data_model": "ILP32",
+        "family": "f",
+        "task_sha256": "a" * 64,
+        "source_sha256": "b" * 64,
+    }
+
+
+def record(tmp_path, text, code=0, arm="stock", execution=None):
+    log = tmp_path / "run.log"
+    log.write_text(text)
+    return records.record_from_run(
+        task_row(), log, None, "c" * 64, "d" * 40, arm, 10, code, execution
+    )
+
+
+@pytest.mark.parametrize(
+    "text,code,category,verdict",
+    [
+        ("*** stack smashing detected ***\n", 134, "crash", ""),
+        ('Exception in thread "main" java.lang.AssertionError\n', 1, "crash", ""),
+        (
+            "Verification result: UNKNOWN\nTotal time for CPAchecker: 99s\n",
+            0,
+            "unknown",
+            "UNKNOWN",
+        ),
+        (
+            "Using the following resource limits: CPU-time limit of 10s\nVerification result: UNKNOWN\n",
+            0,
+            "unknown",
+            "UNKNOWN",
+        ),
+        (
+            "The CPU-time limit of 10s has elapsed.\nVerification result: UNKNOWN\n",
+            0,
+            "timeout",
+            "UNKNOWN",
+        ),
+        ("no summary\n", 124, "timeout", ""),
+        (
+            "VGuide LLM call failed\nVerification result: UNKNOWN\n",
+            0,
+            "provider_failure",
+            "",
+        ),
+        (
+            "Refinement failed: solver error\nVerification result: UNKNOWN\n",
+            0,
+            "analysis_failure",
+            "",
+        ),
+        ("java.lang.OutOfMemoryError\n", 1, "out_of_memory", ""),
+        (
+            "Verification result: TRUE\n*** stack smashing detected ***\n",
+            134,
+            "crash",
+            "",
+        ),
+    ],
+)
+def test_failure_precedes_synthetic_or_decisive_summary(
+    tmp_path, text, code, category, verdict
+):
+    row = record(tmp_path, text, code)
+    assert (row["failure_category"], row["verdict"]) == (category, verdict)
+    assert row["exit_code"] == code
+    assert row["cpu_s"] is None and row["memory_mb"] is None
+    assert row["wall_s"] is None or row["wall_s"] == 99
+
+
+@pytest.mark.parametrize(
+    "code,limit,reason,signum",
+    [
+        (
+            "import os, signal; os.kill(os.getpid(), signal.SIGABRT)",
+            30,
+            "exit",
+            signal.SIGABRT,
+        ),
+        ("import time; time.sleep(10)", 0.05, "wall_timeout", signal.SIGTERM),
+        ('raise RuntimeError("deliberate")', 30, "exit", None),
+        ('print("Verification result: UNKNOWN")', 30, "exit", None),
+    ],
+)
+def test_real_subprocess_capture(tmp_path, code, limit, reason, signum):
+    log, status = tmp_path / "raw.log", tmp_path / "execution.json"
+    # Disable core files for this test process and inherited children.
+    import resource
+
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    outcome = records.capture_run([sys.executable, "-c", code], log, status, limit)
+    assert outcome["termination_reason"] == reason and outcome["signal"] == signum
+    assert outcome["raw_wall_s"] > 0
+    assert json.loads(status.read_text()) == outcome
+    assert b"runner post-process" not in log.read_bytes()
+    if "print(" not in code:
+        assert b"Verification result:" not in log.read_bytes()
+    before = log.read_bytes()
+    with pytest.raises(FileExistsError):
+        records.capture_run(
+            [sys.executable, "-c", "print('overwritten')"], log, status, 1
+        )
+    assert log.read_bytes() == before
+
+
+def test_launch_failure_is_retained(tmp_path):
+    result = records.capture_run(
+        [str(tmp_path / "absent")], tmp_path / "log", tmp_path / "status", 1
+    )
+    assert result["termination_reason"] == "launch_error"
+    assert result["exit_code"] is None and result["launch_error"]
+
+
+@pytest.mark.parametrize(
+    "bad", ["null\n", "[]\n", "{bad\n", '{"validated_predicates": 3}\n', b"\xff\n"]
+)
+def test_malformed_dump_not_silently_zero(tmp_path, bad):
+    root = tmp_path / "dumps" / "tasks" / "a"
+    root.mkdir(parents=True)
+    (root / "refinements.jsonl").write_bytes(
+        bad.encode() if isinstance(bad, str) else bad
+    )
+    metrics = records.dump_metrics(task_row(), tmp_path / "dumps", "augmented")
+    assert metrics["dump_status"] == "malformed"
+    assert metrics["dump_parse_errors"][0]["line"] == 1
+    assert metrics["validated_predicates"] is None
+
+
+def test_absent_dump_is_unobserved(tmp_path):
+    metrics = records.dump_metrics(task_row(), tmp_path, "augmented")
+    assert metrics["dump_status"] == "missing" and metrics["llm_calls"] is None
+
+
+def fixture_pair(tmp_path, verdict="TRUE", category="ok"):
+    cfg, spec, runtime = (tmp_path / name for name in ("config", "spec", "binary"))
+    cfg.write_text("solver = MathSAT5\n")
+    spec.write_text("CHECK unreach-call\n")
+    runtime.write_bytes(b"fixture binary")
+    task = task_row()
+    (tmp_path / "f").mkdir()
+    (tmp_path / "f/a.c").write_text("int main() { return 0; }\n")
+    (tmp_path / "f/a.yml").write_text("input_files: a.c\n")
+    task["source_sha256"] = records.sha256_file(tmp_path / "f/a.c")
+    task["task_sha256"] = records.sha256_file(tmp_path / "f/a.yml")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "task_count": 1,
+                "tasks": [
+                    {
+                        "task": task["task"],
+                        "source_paths": ["c/" + task["source"]],
+                        "expected_verdict": "true",
+                        "data_model": "ILP32",
+                        "family": "f",
+                        "task_sha256": task["task_sha256"],
+                        "source_sha256": [task["source_sha256"]],
+                    }
+                ],
+            }
+        )
+    )
+    runtime_files = {str(runtime): records.sha256_file(runtime)}
+    paths = []
+    for arm in ("stock", "augmented"):
+        root = tmp_path / arm
+        root.mkdir()
+        meta = {
+            "arm": arm,
+            "commit": "d" * 40,
+            "config": str(cfg),
+            "sv_benchmarks": str(tmp_path),
+            "config_sha256": config_sha256(cfg),
+            "manifest_sha256": records.sha256_file(manifest),
+            "spec": str(spec),
+            "spec_sha256": records.sha256_file(spec),
+            "runtime_files": runtime_files,
+            "runtime_sha256": hashlib.sha256(
+                json.dumps(runtime_files, sort_keys=True).encode()
+            ).hexdigest(),
+            "timelimit_s": 10,
+            "heap": "1000M",
+        }
+        (root / "run_meta.json").write_text(json.dumps(meta))
+        log = root / "raw.log"
+        log.write_text(
+            f"Verification result: {verdict}\n"
+            + ("*** stack smashing detected ***\n" if category == "crash" else "")
+        )
+        execution = {
+            "exit_code": 0,
+            "signal": None,
+            "termination_reason": "exit",
+            "raw_wall_s": 0.2,
+            "log_sha256": records.sha256_file(log),
+            "command": [
+                "fixture",
+                "--config",
+                str(cfg),
+                "--spec",
+                str(spec),
+                "--timelimit",
+                "10s",
+                "--option",
+                f"cpa.predicate.refinement.useVocabularyGuide={'true' if arm == 'augmented' else 'false'}",
+                str(tmp_path / task["source"]),
+            ],
+        }
+        dump_dir = None
+        if arm == "augmented":
+            dump_dir = root / "dumps"
+            task_dump = dump_dir / "tasks/a"
+            task_dump.mkdir(parents=True)
+            (task_dump / "task_summary.json").write_text(
+                json.dumps({"refinements": 0, "llm_api_calls": 0})
+            )
+        row = records.record_from_run(
+            task,
+            log,
+            dump_dir,
+            meta["config_sha256"],
+            meta["commit"],
+            arm,
+            10,
+            execution=execution,
+            run_meta=meta,
+        )
+        execution_path = root / "execution.json"
+        execution_path.write_text(json.dumps(execution))
+        row["execution_file"] = str(execution_path)
+        row["execution_sha256"] = records.sha256_file(execution_path)
+        path = root / "records.jsonl"
+        path.write_text(json.dumps(row) + "\n")
+        paths.append(path)
+    return paths, manifest
+
+
+def test_positive_pair(tmp_path):
+    paths, manifest = fixture_pair(tmp_path)
+    report = pair.harvest(paths, manifest)
+    assert report["integrity_ok"] and report["comparison_usable"]
+    assert report["cohort_size"] == 1 and report["arms"]["stock"]["official_wrong"] == 0
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "duplicate",
+        "missing",
+        "hash",
+        "label",
+        "runtime",
+        "arm",
+        "missing_field",
+        "null",
+        "log",
+    ],
+)
+def test_gate_rejects_adversarial_evidence(tmp_path, mutation):
+    paths, manifest = fixture_pair(tmp_path)
+    row = json.loads(paths[0].read_text())
+    if mutation == "duplicate":
+        paths[0].write_text(paths[0].read_text() * 2)
+    elif mutation == "missing":
+        paths[0].write_text("")
+    elif mutation == "log":
+        Path(row["log"]).write_text("tampered\n")
+    else:
+        if mutation == "hash":
+            row["source_sha256"] = "invalid"
+        if mutation == "label":
+            row["expected_verdict"] = "false"
+        if mutation == "runtime":
+            row["runtime_sha256"] = "f" * 64
+        if mutation == "arm":
+            row["arm"] = "augmented"
+        if mutation == "missing_field":
+            del row["failure_category"]
+        if mutation == "null":
+            row = None
+        paths[0].write_text(json.dumps(row) + "\n")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(smoke.__file__)),
+            *map(str, paths),
+            "--manifest",
+            str(manifest),
+            "--expect-count",
+            "1",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1, result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_crashes_are_valid_evidence_but_fail_smoke(tmp_path, monkeypatch):
+    paths, manifest = fixture_pair(tmp_path, category="crash")
+    monkeypatch.setattr(
+        sys, "argv", ["smoke", *map(str, paths), "--manifest", str(manifest)]
+    )
+    assert smoke.main() == 1
+    assert pair.harvest(paths, manifest)["arms"]["stock"]["failures"] == {"crash": 1}
+
+
+def test_disputes_never_waive_official_wrong(tmp_path, monkeypatch):
+    paths, manifest = fixture_pair(tmp_path, verdict="FALSE")
+    disputes = tmp_path / "disputes"
+    disputes.write_text("  # comment\nc/f/a.yml\n")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "smoke",
+            *map(str, paths),
+            "--manifest",
+            str(manifest),
+            "--known-disputes",
+            str(disputes),
+        ],
+    )
+    assert smoke.main() == 1
+    report = pair.harvest(paths, manifest, smoke.load_disputes(disputes))
+    assert report["comparison_usable"]
+    assert report["arms"]["stock"]["official_wrong"] == 1
+    assert report["arms"]["augmented"]["annotated_wrong_tasks"] == ["c/f/a.yml"]
+
+
+def test_crash_cannot_be_relabeled_unknown(tmp_path):
+    paths, manifest = fixture_pair(tmp_path, category="crash")
+    row = json.loads(paths[0].read_text())
+    row.update(failure_category="unknown", verdict="UNKNOWN")
+    paths[0].write_text(json.dumps(row) + "\n")
+    _, errors = smoke.validate(paths, manifest)
+    assert any("harvested field" in error for error in errors)
+
+
+def test_augmented_only_wrong_stops_comparison(tmp_path):
+    paths, manifest = fixture_pair(tmp_path)
+    row = json.loads(paths[1].read_text())
+    log = Path(row["log"])
+    log.write_text("Verification result: FALSE\n")
+    row.update(
+        verdict="FALSE", reported_verdict="FALSE", log_sha256=records.sha256_file(log)
+    )
+    row["execution"]["log_sha256"] = row["log_sha256"]
+    execution = Path(row["execution_file"])
+    execution.write_text(json.dumps(row["execution"]))
+    row["execution_sha256"] = records.sha256_file(execution)
+    paths[1].write_text(json.dumps(row) + "\n")
+    result = pair.harvest(paths, manifest)
+    assert result["integrity_ok"] and not result["comparison_usable"]
+    assert result["augmentation_only_wrong_tasks"] == ["c/f/a.yml"]
+
+
+def test_runner_failure_capture_and_resume_preserve_logs(tmp_path):
+    import os
+    import re
+    import resource
+
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    paths, manifest = fixture_pair(tmp_path)
+    root = tmp_path / "runner"
+    (root / "logs").mkdir(parents=True)
+    (root / "run_meta.json").write_bytes(
+        (paths[0].parent / "run_meta.json").read_bytes()
+    )
+    meta = json.loads((root / "run_meta.json").read_text())
+    executable = tmp_path / "abort-verifier"
+    executable.write_text(
+        f'#!{sys.executable}\nimport os,signal\nprint("*** stack smashing detected ***",flush=True)\nos.kill(os.getpid(),signal.SIGABRT)\n'
+    )
+    executable.chmod(0o755)
+    runner = (Path(records.__file__).parent / "run_core_only.sh").read_text()
+    functions = "\n".join(
+        re.search(rf"^{name}\(\) \{{.*?^\}}", runner, re.MULTILINE | re.DOTALL).group()
+        for name in ("task_name_of", "run_one")
+    )
+    frozen, _ = records.load_manifest(manifest)
+    row = records.manifest_rows(frozen)[0]
+    env = dict(
+        os.environ,
+        OUT=str(root),
+        ARM="stock",
+        USE_VGUIDE="false",
+        REPO=str(tmp_path),
+        CPA_SH=str(executable),
+        SV_BENCHMARKS=str(tmp_path),
+        RECORDS_PY=records.__file__,
+        CONFIG="config",
+        SPEC=str(tmp_path / "spec"),
+        TIMELIMIT="30",
+        TIMEOUT_GRACE="5",
+        HEAP="1000M",
+        COMMIT=meta["commit"],
+        CONFIG_SHA=meta["config_sha256"],
+        P_CORE_LIST=str(min(os.sched_getaffinity(0))),
+        DRY="0",
+        TASK_ROW="\t".join(str(v) for v in row.values()),
+    )
+    command = ["bash", "-c", functions + '\nrun_one "$TASK_ROW"']
+    first = subprocess.run(
+        command, env=env, capture_output=True, text=True, check=False
+    )
+    assert first.returncode == 0, first.stderr
+    status = next((root / "logs").glob("*.execution.json"))
+    captured = json.loads(status.read_text())
+    assert captured["exit_code"] == -signal.SIGABRT
+    log = next((root / "logs").glob("*.log"))
+    assert log.read_bytes() == b"*** stack smashing detected ***\n"
+    record_path = next(p for p in (root / "logs").glob("*.json") if p != status)
+    record_row = json.loads(record_path.read_text())
+    assert record_row["failure_category"] == "crash" and record_row["verdict"] == ""
+    before = {p: p.read_bytes() for p in (root / "logs").iterdir()}
+    second = subprocess.run(
+        command, env=env, capture_output=True, text=True, check=False
+    )
+    assert second.returncode == 0 and "skip" in second.stdout
+    assert before == {p: p.read_bytes() for p in (root / "logs").iterdir()}
+    record_path.write_text("{truncated")
+    third = subprocess.run(
+        command, env=env, capture_output=True, text=True, check=False
+    )
+    assert third.returncode != 0 and log.read_bytes() == before[log]
+
+
+def test_runtime_hash_tracks_existing_binary_without_build(tmp_path, monkeypatch):
+    main_class = tmp_path / "classes/org/sosy_lab/cpachecker/cmdline/CPAMain.class"
+    main_class.parent.mkdir(parents=True)
+    main_class.write_bytes(b"fixture class v1")
+    for relative in ("scripts/cpa.sh", "bin/cpachecker", "jdk/bin/java"):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture executable")
+        path.chmod(0o755)
+    monkeypatch.setenv("JAVA", str(tmp_path / "jdk/bin/java"))
+    for key in (
+        "CLASSPATH",
+        "JAVA_TOOL_OPTIONS",
+        "JDK_JAVA_OPTIONS",
+        "PATH_TO_CPACHECKER",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    first = records.runtime_identity(tmp_path)
+    assert first == records.runtime_identity(tmp_path)
+    main_class.write_bytes(b"fixture class v2")
+    assert (
+        records.runtime_identity(tmp_path)["runtime_sha256"] != first["runtime_sha256"]
+    )

@@ -16,12 +16,12 @@ import core_only_records as rec
 
 def test_formal_runner_uses_meta_contributor_with_canonical_completion_budget():
     runner = (Path(__file__).resolve().parents[1] / "run_core_only.sh").read_text()
-    assert 'VGUIDE_LLM_PROVIDER:-meta' in runner
-    assert 'VGUIDE_LLM_MODEL:-muse-spark-1.2-contributor' in runner
+    assert "VGUIDE_LLM_PROVIDER:-meta" in runner
+    assert "VGUIDE_LLM_MODEL:-muse-spark-1.2-contributor" in runner
     assert 'LLM_MAX_COMPLETION_TOKENS="1024"' in runner
     worker_exports = re.search(r"export OUT .*", runner).group(0)
     assert "LLM_MAX_COMPLETION_TOKENS" in worker_exports
-    assert 'vguide.llmMaxCompletionTokens=$LLM_MAX_COMPLETION_TOKENS' in runner
+    assert "vguide.llmMaxCompletionTokens=$LLM_MAX_COMPLETION_TOKENS" in runner
     assert "VGUIDE_LLM_MAX_COMPLETION_TOKENS" not in runner
     assert 'THINKING="required"' not in runner
 
@@ -40,7 +40,9 @@ def test_deepseek_is_replay_only_in_active_runners():
     for name in ("run.sh", "run_benchmark_set.sh", "run_core_only.sh"):
         runner = (script_dir / name).read_text()
         assert "DEEPSEEK_API_KEY" not in runner
-        assert "DeepSeek live requests are disabled; set VGUIDE_LLM_REPLAY_DIR" in runner
+        assert (
+            "DeepSeek live requests are disabled; set VGUIDE_LLM_REPLAY_DIR" in runner
+        )
 
 
 # ---------------------------------------------------------------- config diff
@@ -81,7 +83,9 @@ def test_diff_accepts_only_augmentation(tmp_path):
 
 def test_diff_rejects_non_augmentation_change(tmp_path):
     stock = write(tmp_path / "stock.properties", "solver = z3\ncpa.predicate.x = 1\n")
-    augmented = write(tmp_path / "augmented.properties", "solver = mathsat\ncpa.predicate.x = 1\n")
+    augmented = write(
+        tmp_path / "augmented.properties", "solver = mathsat\ncpa.predicate.x = 1\n"
+    )
     diffs = diff.diff_configs(stock, augmented)
     assert any(d[0] == "solver" and not d[3] for d in diffs)
 
@@ -112,6 +116,9 @@ def test_tasks_from_manifest_verifies_hashes(tmp_path):
     import hashlib
 
     sha = hashlib.sha256(src.read_bytes()).hexdigest()
+    task_file = tmp_path / "f" / "a.yml"
+    task_file.write_text("input_files: a.c\n")
+    task_sha = rec.sha256_file(task_file)
     manifest = {
         "task_count": 1,
         "tasks": [
@@ -121,7 +128,7 @@ def test_tasks_from_manifest_verifies_hashes(tmp_path):
                 "expected_verdict": "true",
                 "data_model": "ILP32",
                 "family": "f",
-                "task_sha256": "x" * 64,
+                "task_sha256": task_sha,
                 "source_sha256": [sha],
             }
         ],
@@ -145,8 +152,8 @@ def test_tasks_from_manifest_rejects_hash_mismatch(tmp_path):
                 "expected_verdict": "true",
                 "data_model": "ILP32",
                 "family": "f",
-                "task_sha256": "x" * 64,
-                "source_sha256": ["y" * 64],
+                "task_sha256": "a" * 64,
+                "source_sha256": ["b" * 64],
             }
         ],
     }
@@ -178,32 +185,35 @@ def test_record_from_run_parses_log_and_dump(tmp_path):
         "expected_verdict": "true",
         "data_model": "ILP32",
         "family": "f",
-        "task_sha256": "x" * 64,
+        "task_sha256": "a" * 64,
         "source_sha256": "y" * 64,
     }
-    r = rec.record_from_run(task_row, log, dump_root, "cfgsha", "commitsha", "augmented", 300)
+    r = rec.record_from_run(
+        task_row, log, dump_root, "cfgsha", "commitsha", "augmented", 300
+    )
     assert r["solver"] == "MathSAT5 5.6.11"
     assert r["refinements"] == 47
-    assert r["wall_s"] == 300.0  # capped at timelimit (issue #71)
+    assert r["wall_s"] == 300.796
+    assert r["score_wall_s"] == 300.0
     assert r["cpu_s"] == 300.25
-    assert r["memory_mb"] == "512.0"
+    assert r["memory_mb"] == 512.0
     assert r["verdict"] == "UNKNOWN"
     assert r["llm_calls"] == 2
     assert r["validated_predicates"] == 2
     assert r["injected_predicates"] == 1
-    assert r["failure_category"] == "timeout"  # wall_s >= timelimit
+    assert r["failure_category"] == "unknown"  # duration is not proof of a timeout
 
 
 def test_record_from_run_detects_crash_and_timeout(tmp_path):
     log = tmp_path / "t.log"
-    log.write_text("Exception in thread \"main\" java.lang.OutOfMemoryError\n")
+    log.write_text('Exception in thread "main" java.lang.OutOfMemoryError\n')
     task_row = {
         "task": "c/f/a.yml",
         "source": "f/a.c",
         "expected_verdict": "true",
         "data_model": "ILP32",
         "family": "f",
-        "task_sha256": "x" * 64,
+        "task_sha256": "a" * 64,
         "source_sha256": "y" * 64,
     }
     r = rec.record_from_run(task_row, log, None, "s", "c", "stock", 300)
