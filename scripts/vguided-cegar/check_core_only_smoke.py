@@ -58,6 +58,7 @@ REQUIRED_FIELDS = (
     "termination_reason",
     "raw_wall_s",
     "wall_s",
+    "score_wall_s",
     "cpu_s",
     "memory_mb",
     "refinements",
@@ -374,6 +375,7 @@ def validate(paths, manifest_path):
                     "reported_verdict",
                     "failure_category",
                     "wall_s",
+                    "score_wall_s",
                     "cpu_s",
                     "memory_mb",
                     "refinements",
@@ -394,7 +396,13 @@ def validate(paths, manifest_path):
                         )
             if not finite_number(row["raw_wall_s"]):
                 errors.append(f"{tag}: missing/invalid measured elapsed time")
-            for field in ("wall_s", "cpu_s", "memory_mb", "refinements"):
+            for field in (
+                "wall_s",
+                "score_wall_s",
+                "cpu_s",
+                "memory_mb",
+                "refinements",
+            ):
                 if row[field] is not None and not finite_number(row[field]):
                     errors.append(f"{tag}: invalid measurement {field}")
             for filename, digest in {

@@ -18,16 +18,20 @@
   cannot masquerade as an ordinary UNKNOWN. Runtime metadata hashes existing launcher, classes,
   libraries and Java bytes without rebuilding them. This deployment identity includes absolute
   paths: paired arms require the same frozen checkout/JDK locations; relocation is not transparent.
+  Launcher-injected `CPACHECKER_ARGUMENTS` are refused because they bypass the captured command.
   Run `check_core_only_smoke.py <stock>/records.jsonl <augmented>/records.jsonl --manifest <frozen.json>`
   with adjacent `run_meta.json` files and original artifact paths available. Integrity rechecks
   required typed resource/provider/tier metadata, captured CPU/heap consistency, same-host pairing,
   frozen task/source/label identity, uniqueness, pairing, metadata/artifact hashes and harvested
-  fields against raw logs/status/dumps. Smoke eligibility is separate from structural integrity.
+  fields, including the capped score, against raw logs/status/dumps. Smoke eligibility is separate from structural integrity.
   `--known-disputes` annotates official wrongs and never waives them.
   `analyze_core_only_pair.py --stock-records <path> --augmented-records <path> --manifest <path> --out <new.json>`
   retains failures and official wrong counts for exploration, stops an affected comparison on
   integrity failure or a new augmentation-only wrong, and emits no formal timing/PAR-2 claims.
   `dump_status` distinguishes present, partial, missing, malformed and stock not-applicable;
+  fewer refinement rows than summary attempts means partial coverage, including an unfinished
+  or feasible final counterexample. Candidate counts describe observed rows and can be lower
+  bounds for partial dumps. Excess rows are malformed evidence.
   finer hook/coverage explanations belong to the #108 analyzer.
 
 - **正式 run 一律用 claimed HAPI worktree 與 session-attached job（since 2026-08-26，#153）。** NFS 共享 repo 的 classes/ 在執行中 rebuild 會讓 JVM `NoClassDefFoundError: ...$1`（匿名 class 不一致）crash 整個 run（2026-08-16 兩次：212/224、174/224 crash 作廢）；改被執行中的 script 也會 bash `unexpected EOF`。勿再從主 repo 或 detached `nohup` driver 跑正式實驗。

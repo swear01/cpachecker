@@ -134,9 +134,10 @@ def runtime_identity(repo: Path) -> dict:
         os.environ.get("CLASSPATH")
         or os.environ.get("JAVA_TOOL_OPTIONS")
         or os.environ.get("JDK_JAVA_OPTIONS")
+        or os.environ.get("CPACHECKER_ARGUMENTS")
     ):
         raise ValueError(
-            "external classpath/JVM options need a separately frozen runtime"
+            "external launcher/classpath/JVM options need a separately frozen runtime"
         )
     if (
         os.environ.get("PATH_TO_CPACHECKER")
@@ -306,11 +307,13 @@ def dump_metrics(task_row: dict, dump_dir: Path | None, arm: str) -> dict:
         return metrics
     # Multiple bridge dumps are all evidence; never choose the first match silently.
     llm_rows, ref_rows, summaries = [], [], []
-    seen_llm = seen_ref = False
+    seen_llm = seen_ref = incomplete_ref = False
     metrics["dump_files"] = {
         str(p): sha256_file(p) for p in sorted(dump_dir.rglob("*")) if p.is_file()
     }
     for task_dump in candidates:
+        value = None
+        previous_refs = len(ref_rows)
         summary = task_dump / "task_summary.json"
         if summary.is_file():
             try:
@@ -324,6 +327,7 @@ def dump_metrics(task_row: dict, dump_dir: Path | None, arm: str) -> dict:
                     )
                 summaries.append(value)
             except (ValueError, TypeError, UnicodeError) as error:
+                value = None
                 metrics["dump_parse_errors"].append(
                     {"file": str(summary), "line": None, "reason": str(error)}
                 )
@@ -358,8 +362,20 @@ def dump_metrics(task_row: dict, dump_dir: Path | None, arm: str) -> dict:
                         metrics["dump_parse_errors"].append(
                             {"file": str(path), "line": number, "reason": str(error)}
                         )
+        if value is not None:
+            count = len(ref_rows) - previous_refs
+            # The summary counts attempts, including an unfinished or feasible final CE.
+            incomplete_ref |= count < value["refinements"]
+            if count > value["refinements"]:
+                metrics["dump_parse_errors"].append(
+                    {
+                        "file": str(summary),
+                        "line": None,
+                        "reason": "refinement rows exceed task summary attempts",
+                    }
+                )
     complete = len(summaries) == len(candidates)
-    metrics["dump_status"] = "present" if complete else "partial"
+    metrics["dump_status"] = "present" if complete and not incomplete_ref else "partial"
     if complete:
         calls = sum(r["llm_api_calls"] for r in summaries)
         if calls != len(llm_rows):

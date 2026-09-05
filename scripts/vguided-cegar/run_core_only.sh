@@ -206,7 +206,7 @@ machine_model_for() {
 
 build_command() {
   local data_model="$1" source="$2" machine_model
-  machine_model="$(machine_model_for "$data_model")"
+  machine_model="$(machine_model_for "$data_model")" || return 1
   RUN_CMD=(
     taskset -c "$P_CORE_LIST"
     "$CPA_SH" --heap "$HEAP"
@@ -501,7 +501,7 @@ run_one() {
   fi
   local task_name="$(task_name_of "$task")"
   local log="$OUT/logs/${task_name}.log"
-  build_command "$model" "$source"
+  build_command "$model" "$source" || return 1
   # A completed failure is evidence too. Never overwrite an interrupted attempt.
   if [[ -f "$OUT/logs/${task_name}.json" ]]; then
     python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert isinstance(d,dict) and d.get("task")==sys.argv[2] and d.get("execution",{}).get("command")==sys.argv[3:]' "$OUT/logs/${task_name}.json" "$task" "${RUN_CMD[@]}" \
@@ -513,7 +513,6 @@ run_one() {
     echo "unfinished evidence exists for $task; preserve it and use fresh OUT" >&2
     return 1
   fi
-  build_command "$model" "$source"
   if [[ "$DRY" == "1" ]]; then
     echo "${RUN_CMD[*]}"
     return 0

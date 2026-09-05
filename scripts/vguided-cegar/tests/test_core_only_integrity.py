@@ -163,6 +163,32 @@ def test_absent_dump_is_unobserved(tmp_path):
     assert metrics["dump_status"] == "missing" and metrics["llm_calls"] is None
 
 
+@pytest.mark.parametrize(
+    "attempts,rows,status",
+    [(2, 0, "partial"), (2, 1, "partial"), (1, 1, "present"), (1, 2, "malformed")],
+)
+def test_refinement_rows_do_not_certify_unobserved_attempts(
+    tmp_path, attempts, rows, status
+):
+    root = tmp_path / "tasks" / "a"
+    root.mkdir(parents=True)
+    (root / "task_summary.json").write_text(
+        json.dumps({"refinements": attempts, "llm_api_calls": 0})
+    )
+    (root / "refinements.jsonl").write_text(
+        (json.dumps({"llm_called": False}) + "\n") * rows
+    )
+    metrics = records.dump_metrics(task_row(), tmp_path, "augmented")
+    assert metrics["dump_status"] == status
+    assert bool(metrics["dump_parse_errors"]) == (status == "malformed")
+
+
+def test_runtime_rejects_launcher_argument_injection(tmp_path, monkeypatch):
+    monkeypatch.setenv("CPACHECKER_ARGUMENTS", "--option analysis.machineModel=Linux64")
+    with pytest.raises(ValueError, match="external launcher"):
+        records.runtime_identity(tmp_path)
+
+
 def fixture_pair(tmp_path, verdict="TRUE", category="ok"):
     cfg, spec, runtime = (tmp_path / name for name in ("config", "spec", "binary"))
     cfg.write_text("solver = MathSAT5\n")
@@ -300,11 +326,27 @@ def test_positive_pair(tmp_path):
     assert report["cohort_size"] == 1 and report["arms"]["stock"]["official_wrong"] == 0
 
 
+@pytest.mark.parametrize("missing", [True, False])
+def test_capped_score_requires_raw_evidence(tmp_path, missing):
+    paths, manifest = fixture_pair(tmp_path)
+    row = json.loads(paths[0].read_text())
+    if missing:
+        del row["score_wall_s"]
+    else:
+        row["score_wall_s"] = 17.0
+    paths[0].write_text(json.dumps(row) + "\n")
+    report = pair.harvest(paths, manifest)
+    assert not report["integrity_ok"]
+    assert any("score_wall_s" in error for error in report["errors"])
+
+
 def test_captured_model_must_match_manifest_even_with_consistent_hashes(tmp_path):
     paths, manifest = fixture_pair(tmp_path)
     row = json.loads(paths[0].read_text())
     command = row["execution"]["command"]
-    command[command.index("analysis.machineModel=Linux32")] = "analysis.machineModel=Linux64"
+    command[command.index("analysis.machineModel=Linux32")] = (
+        "analysis.machineModel=Linux64"
+    )
     execution = Path(row["execution_file"])
     execution.write_text(json.dumps(row["execution"]))
     row["execution_sha256"] = records.sha256_file(execution)

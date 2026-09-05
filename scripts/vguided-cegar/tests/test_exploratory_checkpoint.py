@@ -86,3 +86,17 @@ def test_exploratory_load_allocation_and_resume(tmp_path):
     assert changed.returncode != 0
     assert "provenance mismatch: cpu_list" in changed.stderr
     assert json.loads((output / "run_meta.json").read_text()) == meta
+
+    # Corrupt dispatch after parent validation; a plain child shell has no errexit.
+    output = tmp_path / "invalid-worker"
+    xargs = tmp_path / "xargs"
+    xargs.write_text(
+        '#!/bin/bash\nIFS= read -r -d "" line\n'
+        'line=${line/ILP32/INVALID}\n'
+        'exec bash -c \'run_one "$1"\' _ "$line"\n'
+    )
+    xargs.chmod(0o755)
+    invalid = run("--exploratory", "--cpu-list", "8,10")
+    assert invalid.returncode != 0
+    assert "unsupported or missing data_model" in invalid.stderr
+    assert not list((output / "logs").glob("*.log"))
