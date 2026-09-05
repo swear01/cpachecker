@@ -28,8 +28,9 @@ The Dataset v2 release's 448 validation rows are historical dataset-construction
   failure category. Interrupted/invalid runs are recorded, never silently
   retried. **Resume (since 2026-08-14):** restarting the harness on the same
   `--out` dir resumes — tasks with a valid (JSON-parseable) per-task record are
-  skipped, corrupt records and partial augmented dumps are discarded and
-  rerun, and the run refuses to start if `run_meta.json` provenance (arm,
+  skipped only when their captured command matches the current invocation.
+  Corrupt records and partial evidence are preserved and require a fresh output
+  root; the run refuses to start if `run_meta.json` provenance (arm,
   commit, config/manifest hashes, timelimit, model, thinking) differs from
   the invocation.
 - Owner-authorized exploratory checkpoints can add `--exploratory --cpu-list 8,10
@@ -38,6 +39,13 @@ The Dataset v2 release's 448 validation rows are historical dataset-construction
   concurrency cannot exceed their count, and resume rejects changed allocation or
   evidence tier. `timing_claims_allowed=false` excludes formal timing/PAR-2 claims.
   The default remains the strict performance policy.
+- Task semantics map ILP32 to `analysis.machineModel=Linux32` and LP64 to
+  `Linux64`. Exact executed arguments and process status are separate artifacts;
+  verifier logs are never prefixed or given synthetic UNKNOWN summaries. The
+  smoke and paired-harvest gates check the captured model and paired resources.
+  `check_core_only_smoke.py` requires `--manifest <frozen-smoke-manifest.json>`;
+  `analyze_core_only_pair.py` retains official-label wrongs, failures and new/lost
+  correct results, with no dispute exemptions.
 - `scripts/vguided-cegar/core_only_config_diff.py`: resolves both configs
   (including `#include` trees) and rejects any difference outside the
   augmentation allowlist (`vguide.*`, `cpa.predicate.refinement.useVocabularyGuide`).
