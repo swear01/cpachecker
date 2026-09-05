@@ -56,6 +56,8 @@ public class ContextPackBudgetTest {
     assertThat(ContextPackBuilder.extractAssertion(source)).isEqualTo("(x + 1) > a[i]");
     assertThat(ContextPackBuilder.extractAssertion("__VERIFIER_assert(x /* ) */ == 1);\n"))
         .isEqualTo("x /* ) */ == 1");
+    String continuedString = "const char *s = \"a" + '\\' + "\nb\";\n__VERIFIER_assert(x > 0);\n";
+    assertThat(ContextPackBuilder.extractAssertion(continuedString)).isEqualTo("x > 0");
   }
 
   @Test
