@@ -1,0 +1,68 @@
+"""Real signal delivery must not leave the isolated verifier running."""
+
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
+def test_capture_interruption_reaps_verifier(tmp_path, signum):
+    log, status, ready = (tmp_path / name for name in ("raw.log", "status.json", "pid"))
+    child_code = (
+        "import os,signal,time; from pathlib import Path; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "print('verifier started', flush=True); "
+        f"Path({str(ready)!r}).write_text(str(os.getpid())); time.sleep(60)"
+    )
+    capture = subprocess.Popen(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[1] / "core_only_records.py"),
+            "capture",
+            "--log",
+            str(log),
+            "--status",
+            str(status),
+            "--wall-limit",
+            "60",
+            "--",
+            sys.executable,
+            "-c",
+            child_code,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    child_pid = None
+    try:
+        deadline = time.monotonic() + 20
+        while not ready.exists() and time.monotonic() < deadline:
+            assert capture.poll() is None
+            time.sleep(0.05)
+        assert ready.is_file(), "verifier did not become ready"
+        child_pid = int(ready.read_text())
+        assert os.getpgid(child_pid) == child_pid
+        capture.send_signal(signum)
+        time.sleep(0.1)
+        if capture.poll() is None:
+            capture.send_signal(signum)
+        assert capture.wait(timeout=20) == -signum
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+        assert log.read_bytes() == b"verifier started\n"
+        assert not status.exists()
+    finally:
+        if child_pid is not None:
+            try:
+                os.killpg(child_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if capture.poll() is None:
+            capture.kill()
+        capture.wait(timeout=5)

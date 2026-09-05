@@ -182,7 +182,7 @@ def runtime_identity(repo: Path) -> dict:
 
 
 def capture_run(command: list[str], log: Path, status: Path, wall_limit: float) -> dict:
-    """Capture an actual process outcome without writing synthetic verifier output."""
+    """Capture raw output; reap interrupted groups before propagating their signal."""
     if status.exists():
         raise FileExistsError(status)
     started = time.monotonic()
@@ -193,32 +193,75 @@ def capture_run(command: list[str], log: Path, status: Path, wall_limit: float) 
         "termination_reason": "exit",
         "launch_error": None,
     }
-    with log.open("xb") as stream:
+    proc = None
+    interrupted_signal = None
+    cleaning_up = False
+
+    def interrupt(signum, _frame):
+        nonlocal interrupted_signal
+        if interrupted_signal is None:
+            interrupted_signal = signum
+        if proc is not None and not cleaning_up:
+            raise KeyboardInterrupt
+
+    def terminate_group():
+        nonlocal cleaning_up
+        cleaning_up = True
         try:
-            proc = subprocess.Popen(
-                command, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True
-            )
-        except OSError as error:
-            outcome.update(termination_reason="launch_error", launch_error=str(error))
-        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        # The leader may have exited while other group members are still running.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+
+    with log.open("xb") as stream:
+        previous_handlers = {
+            signum: signal.signal(signum, interrupt)
+            for signum in (signal.SIGINT, signal.SIGTERM)
+        }
+        try:
             try:
-                proc.wait(timeout=wall_limit)
-            except subprocess.TimeoutExpired:
-                outcome["termination_reason"] = "wall_timeout"
+                proc = subprocess.Popen(
+                    command,
+                    stdout=stream,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+            except OSError as error:
+                outcome.update(
+                    termination_reason="launch_error", launch_error=str(error)
+                )
+            else:
+                if interrupted_signal is not None:
+                    raise KeyboardInterrupt
                 try:
-                    os.killpg(proc.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-                try:
-                    proc.wait(timeout=10)
+                    proc.wait(timeout=wall_limit)
                 except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    proc.wait()
-            outcome["exit_code"] = proc.returncode
-            outcome["signal"] = -proc.returncode if proc.returncode < 0 else None
+                    outcome["termination_reason"] = "wall_timeout"
+                    terminate_group()
+                outcome["exit_code"] = proc.returncode
+                outcome["signal"] = -proc.returncode if proc.returncode < 0 else None
+        except BaseException:
+            if proc is not None and not cleaning_up:
+                terminate_group()
+            if interrupted_signal is None:
+                raise
+        finally:
+            for signum, handler in previous_handlers.items():
+                signal.signal(signum, handler)
+        if interrupted_signal is not None:
+            signal.raise_signal(interrupted_signal)
+            raise InterruptedError(
+                f"capture interrupted by signal {interrupted_signal}"
+            )
     outcome["raw_wall_s"] = time.monotonic() - started
     outcome["log_sha256"] = sha256_file(log)
     with status.open("x", encoding="utf-8") as stream:
