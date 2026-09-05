@@ -266,6 +266,19 @@ def test_positive_pair(tmp_path):
     assert report["cohort_size"] == 1 and report["arms"]["stock"]["official_wrong"] == 0
 
 
+def test_record_paths_survive_a_different_harvest_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    Path("raw.log").write_text("Verification result: UNKNOWN\n")
+    Path("dumps").mkdir()
+    row = records.record_from_run(
+        task_row(), Path("raw.log"), Path("dumps"), "c" * 64, "d" * 40, "augmented", 10
+    )
+    monkeypatch.chdir(tmp_path.parent)
+    assert Path(row["log"]).is_absolute() and Path(row["dump_dir"]).is_absolute()
+    assert records.sha256_file(Path(row["log"])) == row["log_sha256"]
+    assert Path(row["dump_dir"]).is_dir()
+
+
 @pytest.mark.parametrize(
     "mutation",
     [

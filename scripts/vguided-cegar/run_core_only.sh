@@ -132,6 +132,7 @@ LOAD_CHECK_NOW=""
 check_p_cores_idle
 
 mkdir -p "$OUT/logs"
+OUT="$(cd "$OUT" && pwd)"
 LLM_PROVIDER="$(printf '%s' "${VGUIDE_LLM_PROVIDER:-meta}" | tr '[:upper:]' '[:lower:]')"
 [[ "$LLM_PROVIDER" == "deepseek" || "$LLM_PROVIDER" == "meta" ]] \
   || die "VGUIDE_LLM_PROVIDER must be deepseek or meta, got: ${VGUIDE_LLM_PROVIDER:-}"

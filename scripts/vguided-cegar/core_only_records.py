@@ -371,6 +371,8 @@ def record_from_run(
     run_meta: dict | None = None,
 ) -> dict:
     """Keep reported verdict, failure cause and missing measurements separate."""
+    log = log.resolve()
+    dump_dir = dump_dir.resolve() if dump_dir else None
     result = ""
     refs = wall_s = cpu_s = memory_mb = None
     solver = ""
