@@ -26,6 +26,13 @@
   `dump_status` distinguishes present, partial, missing, malformed and stock not-applicable;
   finer hook/coverage explanations belong to the #108 analyzer.
 
+- **Candidate symbols retain native trace widths (#92).** Scalar validation passes the trace's
+  declared bitwidths to `VocabularyGuide.parsePredicate`; integer promotion extends terms, never
+  symbol declarations. Dump attribution preserves each validated predicate's original candidate
+  text without reparsing it. Name resolution matches complete local/global SSA names, not
+  prefixes. Array translation parses against unversioned vocabulary before applying the target
+  head's SSAMap. Declaring a global `short SIZE` or `long long ARR_SIZE` as BV32 can otherwise poison
+  the shared solver and crash a later native abstraction even after candidate parsing returned.
 - **正式 run 一律用 claimed HAPI worktree 與 session-attached job（since 2026-08-26，#153）。** NFS 共享 repo 的 classes/ 在執行中 rebuild 會讓 JVM `NoClassDefFoundError: ...$1`（匿名 class 不一致）crash 整個 run（2026-08-16 兩次：212/224、174/224 crash 作廢）；改被執行中的 script 也會 bash `unexpected EOF`。勿再從主 repo 或 detached `nohup` driver 跑正式實驗。
 - **每個實驗必須先建立 GitHub tracking issue（流程 #97）。** Issue 是跨 agent/session 的生命週期介面：launch 前記 hypothesis、arms、commit/config/manifest/spec hashes、provider/route、資源協議、exact command、output path 與 acceptance criteria；launch 時記 machine/worktree/start/run id；執行中記 provider/infrastructure failures 與 reruns；harvest 時回貼完整 records、verdict/wrong/dispute/failure/PAR-2、validity decision、artifact paths/hashes。Issue 不能取代 `run_meta.json`、`records.jsonl` 與 raw logs。
 - **764 全量 run 必須用 `run.sh --mode svcomp26-vguide`（或明確設 `VGUIDE_CONFIG`/`VGUIDE_SVCOMP`/`VGUIDE_SPEC`）— since 2026-08-14.** `run_benchmark_set.sh` 的 config 預設是 `predicateAnalysis-vguide`；直接跑它會與既有 764 數據（`svcomp26-vguide`）不可比。2026-08-14 的 Flash run 就是這樣作廢的（漏 `VGUIDE_CONFIG` → 613 vs 242 LLM 觸發、全部收割結論作廢，見 #76）。完整 launch 環境對照：`cpachecker-experiments/docs/LAUNCH_RECIPES.md`（sibling）。收割前驗證：summary CSV 的 `config` 欄位（2026-08-14 起記錄）或任一 task log 開頭的 `CPAchecker ... / <config>` 字串。
