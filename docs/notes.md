@@ -9,7 +9,9 @@
   does not certify a completed analysis. Preserve the empty reported verdict and raw log.
 - **Core-only evidence contract (#179).** `run_core_only.sh` writes untouched verifier logs and
   `<task>.execution.json` with the actual process exit/signal, termination reason, command and
-  monotonic elapsed time. Incomplete attempts require a fresh output directory; resume preserves
+  monotonic elapsed time. SIGINT/SIGTERM cleanup reaps the isolated process group and writes an
+  `interrupted` status before propagating the signal; this is an infrastructure failure, even when
+  the verifier printed a result. Incomplete attempts require a fresh output directory; resume preserves
   completed failures. `wall_s` is the uncapped CPA statistic, `raw_wall_s` is measured process
   elapsed time, and only `score_wall_s` is capped; absent measurements and dump metrics are null.
   `reported_verdict` preserves the actual summary even if the process later crashes; failures

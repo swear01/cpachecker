@@ -201,7 +201,7 @@ def capture_run(command: list[str], log: Path, status: Path, wall_limit: float) 
         nonlocal interrupted_signal
         if interrupted_signal is None:
             interrupted_signal = signum
-        if proc is not None and not cleaning_up:
+        if proc is not None and proc.returncode is None and not cleaning_up:
             raise KeyboardInterrupt
 
     def terminate_group():
@@ -229,44 +229,46 @@ def capture_run(command: list[str], log: Path, status: Path, wall_limit: float) 
         }
         try:
             try:
-                proc = subprocess.Popen(
-                    command,
-                    stdout=stream,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                )
-            except OSError as error:
-                outcome.update(
-                    termination_reason="launch_error", launch_error=str(error)
-                )
-            else:
-                if interrupted_signal is not None:
-                    raise KeyboardInterrupt
                 try:
-                    proc.wait(timeout=wall_limit)
-                except subprocess.TimeoutExpired:
-                    outcome["termination_reason"] = "wall_timeout"
+                    proc = subprocess.Popen(
+                        command,
+                        stdout=stream,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                    )
+                except OSError as error:
+                    outcome.update(
+                        termination_reason="launch_error", launch_error=str(error)
+                    )
+                else:
+                    if interrupted_signal is not None:
+                        raise KeyboardInterrupt
+                    try:
+                        proc.wait(timeout=wall_limit)
+                    except subprocess.TimeoutExpired:
+                        outcome["termination_reason"] = "wall_timeout"
+                        terminate_group()
+            except BaseException:
+                if proc is not None and not cleaning_up:
                     terminate_group()
+                if interrupted_signal is None:
+                    raise
+            if interrupted_signal is not None:
+                outcome["termination_reason"] = "interrupted"
+            if proc is not None:
                 outcome["exit_code"] = proc.returncode
                 outcome["signal"] = -proc.returncode if proc.returncode < 0 else None
-        except BaseException:
-            if proc is not None and not cleaning_up:
-                terminate_group()
-            if interrupted_signal is None:
-                raise
+            outcome["raw_wall_s"] = time.monotonic() - started
+            outcome["log_sha256"] = sha256_file(log)
+            with status.open("x", encoding="utf-8") as status_stream:
+                json.dump(outcome, status_stream)
+                status_stream.write("\n")
         finally:
             for signum, handler in previous_handlers.items():
                 signal.signal(signum, handler)
-        if interrupted_signal is not None:
-            signal.raise_signal(interrupted_signal)
-            raise InterruptedError(
-                f"capture interrupted by signal {interrupted_signal}"
-            )
-    outcome["raw_wall_s"] = time.monotonic() - started
-    outcome["log_sha256"] = sha256_file(log)
-    with status.open("x", encoding="utf-8") as stream:
-        json.dump(outcome, stream)
-        stream.write("\n")
+    if interrupted_signal is not None:
+        signal.raise_signal(interrupted_signal)
+        raise InterruptedError(f"capture interrupted by signal {interrupted_signal}")
     return outcome
 
 
@@ -484,7 +486,7 @@ def record_from_run(
     }
     code = execution["exit_code"]
     reason = execution["termination_reason"]
-    if reason == "launch_error" or code in (125, 126, 127):
+    if reason in ("launch_error", "interrupted") or code in (125, 126, 127):
         failure = "infrastructure_error"
     elif has_oom:
         failure = "out_of_memory"

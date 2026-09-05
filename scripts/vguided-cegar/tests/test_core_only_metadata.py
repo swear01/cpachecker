@@ -69,3 +69,22 @@ def test_captured_resources_must_match_metadata(tmp_path, field, value):
     report = pair.harvest(paths, manifest)
     assert not report["integrity_ok"]
     assert any("captured" in error for error in report["errors"])
+
+
+def test_interrupted_success_report_is_not_a_usable_verdict(tmp_path):
+    from test_core_only_integrity import records, task_row
+
+    log = tmp_path / "raw.log"
+    log.write_text("Verification result: TRUE\n")
+    execution = {
+        "exit_code": 0,
+        "signal": None,
+        "termination_reason": "interrupted",
+        "raw_wall_s": 1,
+    }
+    row = records.record_from_run(
+        task_row(), log, None, "c" * 64, "d" * 40, "stock", 10, execution=execution
+    )
+    assert row["failure_category"] == "infrastructure_error"
+    assert row["reported_verdict"] == "TRUE"
+    assert row["verdict"] == ""

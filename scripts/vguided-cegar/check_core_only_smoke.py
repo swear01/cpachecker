@@ -311,6 +311,7 @@ def validate(paths, manifest_path):
                 "exit",
                 "wall_timeout",
                 "launch_error",
+                "interrupted",
             ):
                 errors.append(f"{tag}: invalid termination reason")
             command = execution.get("command") if isinstance(execution, dict) else None
