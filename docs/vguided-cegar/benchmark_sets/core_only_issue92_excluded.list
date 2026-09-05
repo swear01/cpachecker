@@ -1,0 +1,8 @@
+# Known MathSAT symbol/type-conflict tasks from Issue #92.
+# Exclude only from the 218-task LM-helping mechanism cohort; retain raw history.
+c/array-crafted/zero_sum2.yml	SIZE@3 symbol conflict
+c/array-patterns/array5_pattern.yml	ARR_SIZE@3 symbol conflict
+c/array-patterns/array13_pattern.yml	ARR_SIZE symbol conflict
+c/array-patterns/array19_pattern.yml	ARR_SIZE@3 symbol conflict
+c/array-patterns/array27_pattern.yml	ARR_SIZE symbol conflict
+c/array-patterns/array29_pattern.yml	ARR_SIZE symbol conflict

@@ -99,6 +99,9 @@ def record_from_run(
     solver = ""
     saw_result = False
     has_oom = has_hang = has_exc = has_cpu = False
+    provider_failures = 0
+    analysis_failures = []
+    crash_detail = ""
     if log.is_file():
         # Single line-by-line pass: logs can be huge, never read them whole.
         with open(log, encoding="utf-8", errors="replace") as f:
@@ -128,6 +131,19 @@ def record_from_run(
                     m = SOLVER_RE.search(line)
                     if m:
                         solver = f"{m.group(1)} {m.group(2)}"
+                if "VGuide LLM call failed" in line:
+                    provider_failures += 1
+                if "Refinement failed:" in line:
+                    if len(analysis_failures) < 3:
+                        analysis_failures.append(line.strip())
+                if "NoClassDefFoundError" in line or "ClassNotFoundException" in line:
+                    crash_detail = "classpath"
+                elif (
+                    crash_detail != "classpath"
+                    and "symbol with name" in line
+                    and "already exists" in line
+                ):
+                    crash_detail = "symbol_conflict"
                 if "OutOfMemoryError" in line or "Out of memory" in line:
                     has_oom = True
                 elif "forcing immediate termination" in line:
@@ -140,6 +156,8 @@ def record_from_run(
                     has_cpu = True
 
     llm_calls = 0
+    llm_response_parse_failures = 0
+    llm_empty_responses = 0
     validated = 0
     injected = 0
     if dump_dir is not None and str(dump_dir) and dump_dir.is_dir():
@@ -162,7 +180,20 @@ def record_from_run(
         )
         if llm_file.is_file():
             with open(llm_file, encoding="utf-8", errors="replace") as f:
-                llm_calls = sum(1 for _ in f)
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        call = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(call, dict):
+                        continue
+                    llm_calls += 1
+                    if call.get("response_parse_ok") is False:
+                        llm_response_parse_failures += 1
+                    if call.get("response_raw") == "":
+                        llm_empty_responses += 1
         ref_file = (
             task_dump / "refinements.jsonl" if task_dump is not None else dump_dir / "none"
         )
@@ -192,6 +223,8 @@ def record_from_run(
             failure = "smt_hang"
         elif has_exc:
             failure = "crash"
+        elif analysis_failures:
+            failure = "analysis_failure"
         elif has_cpu or wall_s >= timelimit:
             failure = "timeout"
         else:
@@ -219,6 +252,11 @@ def record_from_run(
         "validated_predicates": validated,
         "injected_predicates": injected,
         "failure_category": failure,
+        "provider_failures": provider_failures,
+        "analysis_failure_messages": analysis_failures,
+        "crash_detail": crash_detail,
+        "llm_response_parse_failures": llm_response_parse_failures,
+        "llm_empty_responses": llm_empty_responses,
         "log": str(log),
     }
 

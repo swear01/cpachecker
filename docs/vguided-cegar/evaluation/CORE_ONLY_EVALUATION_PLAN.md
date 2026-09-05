@@ -2,6 +2,21 @@
 
 Status: planning only. Do not run the held-out set until every freeze gate below passes. This plan implements Issue [#2](https://github.com/swear01/cpachecker/issues/2).
 
+## Current minimal LM-helping follow-up (600s)
+
+This is a diagnostic follow-up, not a replacement for the frozen 224-task core-only plan.
+It compares **Stock-Core** with **Flash non-thinking Augmented-Core** on 218 tasks:
+
+- Base manifest: `/home/swear01/cpachecker-experiments/manifests/candidate-manifest.json`.
+- Exclusions: `benchmark_sets/core_only_issue92_excluded.list` (six known #92 MathSAT symbol-conflict tasks).
+- Derived manifest: `/home/swear01/cpachecker-experiments/manifests/candidate-manifest-218.json`.
+- Timelimit: 600s; same current commit/config/route/resource protocol for both arms.
+- The six excluded tasks remain in raw history and are not relabeled; they are omitted only from the LM-mechanism cohort.
+- The frozen official `expected_verdict` is ground truth. All 12 Issue #54 mismatches count as wrong; `official_label_conflicts.txt` is diagnostic only.
+- Primary outputs: official-correct new/lost, decisive new/lost, raw wrong, provider/analysis/truncation diagnostics, and PAR-2.
+
+Do not interpret old 600s runs as the answer: they used different commits/routes and include provider failures.
+
 ## Fixed scope
 
 - Dataset: Hard-case Dataset v2's frozen manifest of **224 distinct tasks**.
