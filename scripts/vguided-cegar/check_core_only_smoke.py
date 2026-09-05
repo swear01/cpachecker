@@ -202,8 +202,10 @@ def validate(paths, manifest_path):
                 errors.append(f"{tag}: failed process masquerades as verdict")
             execution_path = Path(row["execution_file"])
             if (
-                sha256_file(execution_path) != row["execution_sha256"]
-                or json.loads(execution_path.read_text()) != row["execution"]
+                not execution_path.is_file()
+                or sha256_file(execution_path) != row["execution_sha256"]
+                or json.loads(execution_path.read_text(encoding="utf-8"))
+                != row["execution"]
             ):
                 errors.append(f"{tag}: execution artifact mismatch")
             execution = row["execution"]
