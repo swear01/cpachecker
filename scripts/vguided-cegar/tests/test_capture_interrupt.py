@@ -17,7 +17,9 @@ def test_capture_interruption_reaps_verifier(tmp_path, signum):
         "import os,signal,time; from pathlib import Path; "
         "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
         "print('verifier started', flush=True); "
-        f"Path({str(ready)!r}).write_text(str(os.getpid())); time.sleep(60)"
+        f"p=Path({str(ready)!r}); "
+        "p.with_suffix('.tmp').write_text(str(os.getpid())); "
+        "p.with_suffix('.tmp').replace(p); time.sleep(60)"
     )
     capture = subprocess.Popen(
         [
