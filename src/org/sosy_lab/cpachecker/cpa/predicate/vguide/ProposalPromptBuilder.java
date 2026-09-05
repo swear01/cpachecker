@@ -260,6 +260,8 @@ public final class ProposalPromptBuilder {
         - role (optional): initiation, supporting, relational, or bound.
         CANDIDATE POLICY (array order = priority, best first):
         - Return at most %d candidates; an empty candidates array is valid. Stop when no new grounded split remains.
+        - When the current counterexample summary shows L@N entries, prioritize useful
+          splits at those heads; absence from the summary does not prove a head was unvisited.
         - Add a candidate only if it separates proof-relevant concrete or spurious abstract states at that head;
           for nested loops, consider inherited outer-guard facts over variables unchanged there.
         - Logically equivalent predicates and logical negations are the same split, including algebraic rewrites, swapped operands, and shifted integer bounds. Keep only the better-ranked representative.
