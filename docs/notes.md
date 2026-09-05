@@ -9,20 +9,23 @@
   does not certify a completed analysis. Preserve the empty reported verdict and raw log.
 - **Core-only evidence contract (#179).** `run_core_only.sh` writes untouched verifier logs and
   `<task>.execution.json` with the actual process exit/signal, termination reason, command and
-  monotonic elapsed time. Incomplete attempts require a fresh output directory; resume preserves
+  monotonic elapsed time. SIGINT/SIGTERM cleanup reaps the isolated process group and writes an
+  `interrupted` status before propagating the signal; this is an infrastructure failure, even when
+  the verifier printed a result. Incomplete attempts require a fresh output directory; resume preserves
   completed failures. `wall_s` is the uncapped CPA statistic, `raw_wall_s` is measured process
   elapsed time, and only `score_wall_s` is capped; absent measurements and dump metrics are null.
   `reported_verdict` preserves the actual summary even if the process later crashes; failures
   cannot masquerade as an ordinary UNKNOWN. Runtime metadata hashes existing launcher, classes,
-  libraries and Java bytes without rebuilding them.
-  On SIGINT/SIGTERM, capture sends TERM to the verifier process group, waits up to
-  10 seconds for its leader, then KILLs remaining group members and reaps the leader
-  before propagating the original signal. Repeated interruption does not bypass cleanup.
-  The raw partial log remains without a completed execution sidecar; preserve it and
-  use a fresh output directory for an explicitly recorded recovery. SIGKILL cannot be
-  handled. Direct `capture_run` callers must run in the main thread for signal handling.
+  libraries and Java bytes without rebuilding them. This deployment identity includes absolute
+  paths: paired arms require the same frozen checkout/JDK locations; relocation is not transparent.
+  Capture sends TERM to the verifier group, waits up to 10 seconds for its leader, then
+  KILLs remaining group members and reaps the leader. Repeated SIGINT/SIGTERM cannot
+  bypass cleanup; SIGKILL cannot be handled. Direct `capture_run` callers must run
+  in the main thread for signal handling. Preserve partial evidence and use a fresh
+  output directory for an explicitly recorded recovery.
   Run `check_core_only_smoke.py <stock>/records.jsonl <augmented>/records.jsonl --manifest <frozen.json>`
   with adjacent `run_meta.json` files and original artifact paths available. Integrity rechecks
+  required typed resource/provider/tier metadata, captured CPU/heap consistency, same-host pairing,
   frozen task/source/label identity, uniqueness, pairing, metadata/artifact hashes and harvested
   fields against raw logs/status/dumps. Smoke eligibility is separate from structural integrity.
   `--known-disputes` annotates official wrongs and never waives them.

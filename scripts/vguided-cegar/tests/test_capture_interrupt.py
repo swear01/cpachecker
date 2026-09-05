@@ -1,5 +1,7 @@
 """Real signal delivery must not leave the isolated verifier running."""
 
+import hashlib
+import json
 import os
 import signal
 import subprocess
@@ -11,7 +13,8 @@ import pytest
 
 
 @pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
-def test_capture_interruption_reaps_verifier(tmp_path, signum):
+@pytest.mark.parametrize("with_descendant", [False, True])
+def test_capture_interruption_reaps_verifier(tmp_path, signum, with_descendant):
     log, status, ready = (tmp_path / name for name in ("raw.log", "status.json", "pid"))
     child_code = (
         "import os,signal,time; from pathlib import Path; "
@@ -21,6 +24,21 @@ def test_capture_interruption_reaps_verifier(tmp_path, signum):
         "p.with_suffix('.tmp').write_text(str(os.getpid())); "
         "p.with_suffix('.tmp').replace(p); time.sleep(60)"
     )
+    descendant = tmp_path / "descendant"
+    if with_descendant:
+        descendant_code = (
+            "import os,signal,time; from pathlib import Path; "
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+            f"p=Path({str(descendant)!r}); "
+            "p.with_suffix('.tmp').write_text(str(os.getpid())); "
+            "p.with_suffix('.tmp').replace(p); time.sleep(60)"
+        )
+        child_code = (
+            "import subprocess,time; from pathlib import Path\n"
+            f"subprocess.Popen([{sys.executable!r}, '-c', {descendant_code!r}])\n"
+            f"while not Path({str(descendant)!r}).exists(): time.sleep(0.01)\n"
+            + child_code.replace("signal.signal(signal.SIGTERM, signal.SIG_IGN); ", "")
+        )
     capture = subprocess.Popen(
         [
             sys.executable,
@@ -58,7 +76,25 @@ def test_capture_interruption_reaps_verifier(tmp_path, signum):
         with pytest.raises(ProcessLookupError):
             os.kill(child_pid, 0)
         assert log.read_bytes() == b"verifier started\n"
-        assert not status.exists()
+        outcome = json.loads(status.read_text())
+        assert outcome["termination_reason"] == "interrupted"
+        child_signal = signal.SIGTERM if with_descendant else signal.SIGKILL
+        assert outcome["exit_code"] == -child_signal
+        assert outcome["signal"] == child_signal
+        if with_descendant:
+            proc_stat = Path(f"/proc/{int(descendant.read_text())}/stat")
+            deadline = time.monotonic() + 3
+            while True:
+                try:
+                    if proc_stat.read_text().split()[2] == "Z":
+                        break
+                except FileNotFoundError:
+                    break
+                assert time.monotonic() < deadline, "descendant still running"
+                time.sleep(0.01)
+
+        assert outcome["raw_wall_s"] > 0
+        assert outcome["log_sha256"] == hashlib.sha256(log.read_bytes()).hexdigest()
     finally:
         if child_pid is not None:
             try:

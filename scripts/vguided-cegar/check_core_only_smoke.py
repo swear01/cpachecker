@@ -112,6 +112,89 @@ def finite_number(value):
     return type(value) in (int, float) and math.isfinite(value) and value >= 0
 
 
+def validate_metadata(meta):
+    required = {
+        "config": str,
+        "spec": str,
+        "sv_benchmarks": str,
+        "timelimit_s": int,
+        "timeout_grace": int,
+        "parallel": int,
+        "heap": str,
+        "cpu_list": str,
+        "evidence_tier": str,
+        "timing_claims_allowed": bool,
+        "model": str,
+        "thinking": str,
+        "llm_provider": str,
+        "llm_api_format": str,
+        "llm_api_url": str,
+        "llm_max_completion_tokens": str,
+        "resource_snapshot": dict,
+        "reasoning_effort": (str, type(None)),
+    }
+    invalid = [
+        key
+        for key, kind in required.items()
+        if key not in meta
+        or (
+            type(meta[key]) not in kind
+            if isinstance(kind, tuple)
+            else type(meta[key]) is not kind
+        )
+    ]
+    if invalid:
+        return ["missing/invalid metadata fields: " + ", ".join(invalid)]
+    errors = []
+    for key in (
+        "config",
+        "spec",
+        "sv_benchmarks",
+        "heap",
+        "model",
+        "thinking",
+        "llm_api_format",
+    ):
+        if not meta[key]:
+            errors.append("empty metadata field: " + key)
+    cpus = meta["cpu_list"].split(",")
+    if (
+        not set(cpus) <= {str(cpu) for cpu in range(0, 16, 2)}
+        or len(cpus) != len(set(cpus))
+        or not 1 <= meta["parallel"] <= len(cpus)
+    ):
+        errors.append("invalid metadata CPU allocation")
+    if meta["timelimit_s"] <= 0 or meta["timeout_grace"] < 0:
+        errors.append("invalid metadata time budget")
+    if meta["evidence_tier"] not in ("performance", "exploratory") or meta[
+        "timing_claims_allowed"
+    ] != (meta["evidence_tier"] == "performance"):
+        errors.append("inconsistent metadata evidence tier/timing claims")
+    if meta["llm_provider"] not in ("meta", "deepseek") or not re.fullmatch(
+        r"[1-9][0-9]*", meta["llm_max_completion_tokens"]
+    ):
+        errors.append("invalid metadata provider/token budget")
+    resource = meta["resource_snapshot"]
+    if not isinstance(resource.get("host"), str) or not resource["host"]:
+        errors.append("missing/invalid metadata resource host")
+    loadavg = resource.get("loadavg")
+    if (
+        not isinstance(loadavg, list)
+        or len(loadavg) != 3
+        or not all(map(finite_number, loadavg))
+    ):
+        errors.append("missing/invalid metadata load snapshot")
+    for key in ("meminfo", "memory_pressure"):
+        value = resource.get(key)
+        if not (isinstance(value, str) and value) and not (
+            isinstance(value, dict)
+            and isinstance(value.get("unavailable"), str)
+            and value["unavailable"]
+        ):
+            errors.append("missing/invalid metadata resource: " + key)
+    return errors
+
+
 def validate(paths, manifest_path):
     """One structural validator shared by smoke and paired harvest."""
     manifest, manifest_sha = load_manifest(manifest_path)
@@ -127,6 +210,10 @@ def validate(paths, manifest_path):
         if arm in arms:
             errors.append(f"duplicate arm: {arm}")
         arms[arm], metas[arm] = rows, meta
+        metadata_errors = validate_metadata(meta)
+        if metadata_errors:
+            errors.extend(f"{arm}: {error}" for error in metadata_errors)
+            continue
         if meta.get("manifest_sha256") != manifest_sha:
             errors.append(f"{arm}: manifest hash mismatch")
         for field, actual in (
@@ -224,6 +311,7 @@ def validate(paths, manifest_path):
                 "exit",
                 "wall_timeout",
                 "launch_error",
+                "interrupted",
             ):
                 errors.append(f"{tag}: invalid termination reason")
             command = execution.get("command") if isinstance(execution, dict) else None
@@ -238,6 +326,7 @@ def validate(paths, manifest_path):
                 for flag, value in (
                     ("--config", meta["config"]),
                     ("--spec", meta["spec"]),
+                    ("--heap", meta["heap"]),
                     ("--timelimit", f"{meta['timelimit_s']}s"),
                 ):
                     positions = [i for i, v in enumerate(command) if v == flag]
@@ -247,13 +336,21 @@ def validate(paths, manifest_path):
                         or command[positions[0] + 1] != value
                     ):
                         errors.append(f"{tag}: captured command mismatch: {flag}")
+                if command[:3] != ["taskset", "-c", meta["cpu_list"]]:
+                    errors.append(f"{tag}: captured CPU allocation mismatch")
                 if command[-1] != str(Path(meta["sv_benchmarks"]) / row["source"]):
                     errors.append(f"{tag}: captured source mismatch")
                 guide = f"cpa.predicate.refinement.useVocabularyGuide={'true' if arm == 'augmented' else 'false'}"
                 if command.count(guide) != 1:
                     errors.append(f"{tag}: captured augmentation setting mismatch")
-                machine_model = {"ILP32": "Linux32", "LP64": "Linux64"}.get(row["data_model"])
-                if [value for value in command if value.startswith("analysis.machineModel=")] != [f"analysis.machineModel={machine_model}"]:
+                machine_model = {"ILP32": "Linux32", "LP64": "Linux64"}.get(
+                    row["data_model"]
+                )
+                if [
+                    value
+                    for value in command
+                    if value.startswith("analysis.machineModel=")
+                ] != [f"analysis.machineModel={machine_model}"]:
                     errors.append(f"{tag}: captured machine model mismatch")
             code = row["exit_code"]
             if code is not None and type(code) is not int:
@@ -316,7 +413,7 @@ def validate(paths, manifest_path):
                     errors.append(f"{tag}: missing/changed artifact: {filename}")
             if row["dump_status"] == "malformed" or row["dump_parse_errors"]:
                 errors.append(f"{tag}: malformed dump")
-    if len(arms) == 2:
+    if len(arms) == 2 and not errors:
         for field in (
             "commit",
             "manifest_sha256",
@@ -328,6 +425,9 @@ def validate(paths, manifest_path):
             "parallel",
             "cpu_list",
             "evidence_tier",
+            "timing_claims_allowed",
+            "llm_provider",
+            "llm_api_format",
             "model",
             "thinking",
             "reasoning_effort",
@@ -336,6 +436,10 @@ def validate(paths, manifest_path):
         ):
             if metas["stock"].get(field) != metas["augmented"].get(field):
                 errors.append(f"pair: inconsistent {field}")
+        if metas["stock"].get("resource_snapshot", {}).get("host") != metas[
+            "augmented"
+        ].get("resource_snapshot", {}).get("host"):
+            errors.append("pair: inconsistent resource host")
     return arms, errors
 
 
