@@ -444,7 +444,7 @@ task_name_of() {
   printf '%s' "${1//\//_}~$(printf '%s' "$1" | sha256sum | cut -c1-6)"
 }
 export -f sha256sum 2>/dev/null || true
-export -f machine_model_for build_command
+export -f die machine_model_for build_command
 export -f task_name_of
 run_one() {
   local line="$1"
