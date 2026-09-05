@@ -74,7 +74,7 @@ public class PromptAccountingTest {
     var rows = Files.readAllLines(task.resolve("llm_rounds.jsonl"), StandardCharsets.UTF_8);
     assertThat(rows).hasSize(2);
     ObjectMapper json = new ObjectMapper();
-    var first = json.readTree(rows.get(0));
+    var first = json.readTree(rows.getFirst());
     var second = json.readTree(rows.get(1));
     assertThat(first.path("prompt_path").asText())
         .isNotEqualTo(second.path("prompt_path").asText());
