@@ -2,7 +2,7 @@
 
 ## What This Is
 
-CPAchecker is a configurable software verifier for C programs, used in SV-COMP competitions. This fork adds **VGuide (Vocabulary-Guided CEGAR)**: an LLM-in-the-loop extension with implemented predicate and termination-ranking candidate paths. The current research line is **convergence-aware predicate usefulness gating** after the VGuide-NLA oracle-capacity gate failed on both exact-BV and exact NIA backends. The LLM only proposes candidates/search spaces (Tier S) or controls resource/routing decisions only (Tier R). No Tier X (direct LLM verdict or unverified assumption) is ever allowed.
+CPAchecker is a configurable software verifier for C programs, used in SV-COMP competitions. This fork adds **VGuide (Vocabulary-Guided CEGAR)**: an LLM-in-the-loop extension with implemented predicate and termination-ranking candidate paths. The current research entry point is the authenticated hard-218 manifest lineage; current exploratory work is trend evidence, not formal timing or publication data. The LLM only proposes candidates/search spaces (Tier S) or controls resource/routing decisions (Tier R). No Tier X (direct LLM verdict or unverified assumption) is allowed.
 
 ## Key Concepts / Domain
 
@@ -15,13 +15,14 @@ CPAchecker is a configurable software verifier for C programs, used in SV-COMP c
 | VGuide-NLA | Stopped after ordinary KI and final PDR/KI-PDR oracle gates: every reference-candidate arm produced 0/12 target wins |
 | Usefulness gate | Opt-in Tier-R pre-injection guard: short traces with multiple multiplicative predicates keep standard refinement but skip VGuide precision injection and later LLM rounds |
 | `run.sh` | Single entry point for all experiments; reads benchmark manifests |
-| `full_scalar` | 217-task benchmark set (SV-COMP reachability); main eval suite |
+| `hard-218` | Current comparable hard-case cohort: frozen 224 parent minus six #92 diagnostic tasks |
+| `full_scalar` | Historical 217-task scalar subset; not the current hard-case evaluation |
 | `sample` | 8-task subset for quick smoke tests |
-| svcomp26-vguide | The competition config: routes reachability + overflow through VGuide |
+| svcomp26-vguide | Historical competition config; current checkpoint uses the frozen hard-218 protocol |
 | Class-A | Config-only generalization (no Java change needed) |
-| Class-B | Requires Java engine hook; not yet attempted |
+| Class-B | Requires a Java engine hook; termination ranking hook exists, but is bounded mechanism evidence |
 | PAR-2 | Penalized Average Runtime × 2 — the competition scoring metric |
-| `min_interval` / `every_n` | LLM call scheduling knobs in `config/vguide.properties` |
+| `first_spurious` | Current LLM call schedule in `config/vguide.properties`; older schedules are historical |
 | L1 / L2 | Predicate validation: contract + parse (always on) |
 | noL3 | L3 SMT entailment not used (`enableL3Entailment=false`); ablation showed worse solved count / PAR-2 |
 
@@ -33,3 +34,4 @@ CPAchecker is a configurable software verifier for C programs, used in SV-COMP c
 - Research design: [GitHub Wiki](https://github.com/swear01/cpachecker/wiki)
 - Run protocol and artifacts: `/home/swear01/cpachecker-experiments/`
 - Final hard-case Dataset v2 evidence: `docs/vguided-cegar/evaluation/HARD_CASE_DATASET_V2_FINAL.md`
+- Current manifest lineage: `docs/vguided-cegar/evaluation/HARD_218_MANIFEST_LINEAGE.md`
