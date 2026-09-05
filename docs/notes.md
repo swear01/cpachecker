@@ -18,6 +18,11 @@
   cannot masquerade as an ordinary UNKNOWN. Runtime metadata hashes existing launcher, classes,
   libraries and Java bytes without rebuilding them. This deployment identity includes absolute
   paths: paired arms require the same frozen checkout/JDK locations; relocation is not transparent.
+  Capture sends TERM to the verifier group, waits up to 10 seconds for its leader, then
+  KILLs remaining group members and reaps the leader. Repeated SIGINT/SIGTERM cannot
+  bypass cleanup; SIGKILL cannot be handled. Direct `capture_run` callers must run
+  in the main thread for signal handling. Preserve partial evidence and use a fresh
+  output directory for an explicitly recorded recovery.
   Run `check_core_only_smoke.py <stock>/records.jsonl <augmented>/records.jsonl --manifest <frozen.json>`
   with adjacent `run_meta.json` files and original artifact paths available. Integrity rechecks
   required typed resource/provider/tier metadata, captured CPU/heap consistency, same-host pairing,
