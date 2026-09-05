@@ -217,12 +217,38 @@ public final class VGuideRefinementBridge {
       List<LoopHeadCandidate> rawCandidates = new ArrayList<>();
       PromptMessages safeMessages = promptBuilder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
       LlmProposalResult safeResult = llmClient.proposeWithUsage(safeMessages);
+      if (analysisDumper != null) {
+        analysisDumper.recordLlmApiCall(
+            0,
+            0,
+            "safe_primary",
+            "source_prior_safe",
+            safeMessages,
+            pack,
+            PromptProfile.SAFE,
+            safeResult,
+            ImmutableList.of(),
+            budgetRes);
+      }
       rawCandidates.addAll(LoopHeadCandidateParser.parse(safeResult.content()));
       if (options.isDualPromptMode()) {
         PromptMessages bugMessages =
             promptBuilder.buildPrompt(pack, budget, PromptProfile.BUG_HUNT, 1);
         LlmProposalResult bugResult = llmClient.proposeWithUsage(bugMessages);
         rawCandidates.addAll(LoopHeadCandidateParser.parse(bugResult.content()));
+        if (analysisDumper != null) {
+          analysisDumper.recordLlmApiCall(
+              0,
+              0,
+              "bug_primary",
+              "source_prior_bug",
+              bugMessages,
+              pack,
+              PromptProfile.BUG_HUNT,
+              bugResult,
+              ImmutableList.of(),
+              budgetRes);
+        }
       }
       long latency = System.currentTimeMillis() - t0;
       wallBudget.recordLlmCall(latency);
@@ -237,19 +263,6 @@ public final class VGuideRefinementBridge {
           preCegarValidated.size(),
           " latencyMs=",
           latency);
-      if (analysisDumper != null) {
-        analysisDumper.recordLlmApiCall(
-            0,
-            0,
-            "safe_primary",
-            "source_prior_safe",
-            safeMessages.fullText(),
-            pack,
-            PromptProfile.SAFE,
-            safeResult,
-            ImmutableList.of(),
-            budgetRes);
-      }
     } catch (IOException e) {
       logger.logUserException(Level.WARNING, e, "VGuide source-prior LLM call failed");
     } catch (InterruptedException e) {
@@ -596,7 +609,7 @@ public final class VGuideRefinementBridge {
                 dump.llmRoundIndex,
                 repairProfile.callKindPrefix() + "_repair",
                 promptKindBase + "_repair_" + repairProfile.promptKindSuffix(),
-                repairMessages.fullText(),
+                repairMessages,
                 pack,
                 repairProfile,
                 repair,
@@ -838,7 +851,7 @@ public final class VGuideRefinementBridge {
           llmRoundIndex,
           profile.callKindPrefix() + "_primary",
           promptKind,
-          messages.fullText(),
+          messages,
           pack,
           profile,
           primary,
@@ -859,7 +872,7 @@ public final class VGuideRefinementBridge {
               llmRoundIndex,
               profile.callKindPrefix() + "_ensemble_extra",
               promptKind,
-              messages.fullText(),
+              messages,
               pack,
               profile,
               extraResult,

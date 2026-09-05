@@ -119,7 +119,7 @@ final class SourceSlicer {
   }
 
   /** Lines longer than this are elided in slices (generated one-line initializers). */
-  private static final int LINE_CAP = 400;
+  static final int LINE_CAP = 400;
 
   /**
    * Merges the given 1-based line ranges (each {@code [start, end]}, inclusive) with a context
@@ -132,11 +132,11 @@ final class SourceSlicer {
       return source;
     }
     StringBuilder sb = new StringBuilder();
-    sb.append("// source truncated to counterexample path + loop heads + assertion (")
+    sb.append("// source truncated to selected ranges (")
         .append(merged.size())
         .append(" segments of ")
         .append(lines.size())
-        .append(" lines)\n");
+        .append(" lines); omitted lines outside listed ranges\n");
     for (int[] r : merged) {
       int start = Math.max(1, r[0]);
       int end = Math.min(lines.size(), r[1]);
@@ -158,7 +158,7 @@ final class SourceSlicer {
       return line;
     }
     int brace = line.indexOf('{');
-    if (brace >= 0 && brace < LINE_CAP) {
+    if (brace >= 0 && brace < LINE_CAP && line.substring(0, brace).stripTrailing().endsWith("=")) {
       return line.substring(0, brace + 1) + " /* values elided */ };";
     }
     return line.substring(0, LINE_CAP) + " // truncated";
@@ -250,7 +250,7 @@ final class SourceSlicer {
    * Replaces comments and string/char literals with blanks (keeps line structure) so braces
    * inside them are ignored.
    */
-  private static String stripCommentsAndStrings(String source) {
+  static String stripCommentsAndStrings(String source) {
     StringBuilder sb = new StringBuilder(source.length());
     boolean inBlock = false;
     int i = 0;
@@ -259,6 +259,7 @@ final class SourceSlicer {
       if (inBlock) {
         if (c == '*' && i + 1 < source.length() && source.charAt(i + 1) == '/') {
           inBlock = false;
+          sb.append(' ');
           i++;
         }
         sb.append(c == '\n' ? '\n' : ' ');
