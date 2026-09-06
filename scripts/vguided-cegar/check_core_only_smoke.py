@@ -252,6 +252,15 @@ def validate(paths, manifest_path):
             if missing:
                 errors.append(f"{tag}: missing fields {sorted(missing)}")
                 continue
+            if (
+                any(not isinstance(row[field], str) for field in (
+                    "task", "source", "data_model", "failure_category", "log", "execution_file",
+                ))
+                or not isinstance(row["dump_dir"], (str, type(None)))
+                or not isinstance(row["dump_files"], dict)
+            ):
+                errors.append(f"{tag}: invalid path/identity field types")
+                continue
             for field in HASH_FIELDS:
                 if not isinstance(row[field], str) or not re.fullmatch(
                     r"[0-9a-f]{64}", row[field]

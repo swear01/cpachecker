@@ -617,6 +617,20 @@ def test_missing_execution_sidecar_is_an_integrity_error(tmp_path):
     assert any("execution artifact mismatch" in error for error in errors)
 
 
+@pytest.mark.parametrize("field", [
+    "task", "source", "data_model", "failure_category", "log", "execution_file",
+    "dump_dir", "dump_files",
+])
+def test_malformed_record_types_return_integrity_errors(tmp_path, field):
+    paths, manifest = fixture_pair(tmp_path)
+    row = json.loads(paths[0].read_text())
+    row[field] = []
+    paths[0].write_text(json.dumps(row) + "\n")
+    arms, errors = smoke.validate(paths, manifest)
+    assert set(arms) == {"stock", "augmented"}
+    assert any("invalid path/identity field types" in error for error in errors)
+
+
 def test_utf8_evidence_is_read_under_ascii_locale(tmp_path):
     import os
 
