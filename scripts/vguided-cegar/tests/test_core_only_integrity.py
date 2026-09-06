@@ -510,7 +510,7 @@ def test_runner_failure_capture_and_resume_preserve_logs(tmp_path):
     runner = (Path(records.__file__).parent / "run_core_only.sh").read_text()
     functions = "\n".join(
         re.search(rf"^{name}\(\) \{{.*?^\}}", runner, re.MULTILINE | re.DOTALL).group()
-        for name in ("machine_model_for", "build_command", "task_name_of", "run_one")
+        for name in ("read_task_row", "machine_model_for", "build_command", "task_name_of", "run_one")
     )
     frozen, _ = records.load_manifest(manifest)
     row = records.manifest_rows(frozen)[0]

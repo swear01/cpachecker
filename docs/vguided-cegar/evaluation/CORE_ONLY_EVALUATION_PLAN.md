@@ -132,7 +132,7 @@ Harvest / gates (for the agent continuing this run):
 
 ### 5. Held-out core-only evaluation
 
-Run Stock-Core once for all 224 tasks. Verify completion, manifest/config hashes, and verdict soundness before running Augmented-Core once for the same 224 tasks. Do not retry individual tasks as a hidden performance fallback. Preserve interrupted or invalid attempts as infrastructure failures. An explicitly recorded recovery uses a fresh output root; the same-root resume path only starts tasks with no previous evidence and skips completed records after checking unchanged provenance. It refuses logs, execution status or dumps without a completed record.
+Run Stock-Core once for all 224 tasks. Verify completion, manifest/config hashes, and verdict soundness before running Augmented-Core once for the same 224 tasks. Do not retry individual tasks as a hidden performance fallback. Preserve interrupted or invalid attempts as infrastructure failures. An explicitly recorded recovery uses a fresh output root; the same-root resume path only starts tasks with no previous evidence and skips completed records after checking unchanged provenance. It refuses logs, execution status or dumps without a completed record. Resume checks JSON/task/command identity only; acceptance separately requires the smoke checker to verify the referenced logs, execution sidecars and hashes. SIGINT/SIGTERM preserves an `interrupted` sidecar and partial log as infrastructure-failure evidence; missing or corrupt sidecars remain invalid.
 
 Stop immediately on a wrong verdict, config/manifest mismatch, missing provenance, or provider failure that would otherwise be mistaken for an analysis result.
 

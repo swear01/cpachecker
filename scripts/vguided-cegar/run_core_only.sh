@@ -204,6 +204,14 @@ machine_model_for() {
   esac
 }
 
+read_task_row() {
+  local row="$1" sep=$'\x1f'
+  # Bash treats tab as IFS whitespace and would collapse empty TSV fields.
+  [[ "$row" != *"$sep"* ]] || die "invalid task row separator"
+  row="${row//$'\t'/$sep}"
+  IFS="$sep" read -r task source expected model family tsha ssha <<<"$row"
+}
+
 build_command() {
   local data_model="$1" source="$2" machine_model
   machine_model="$(machine_model_for "$data_model")" || return 1
@@ -227,7 +235,8 @@ build_command() {
 if [[ "$DRY" == "1" ]]; then
   echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE evidence_tier=$EVIDENCE_TIER cpus=$P_CORE_LIST"
   python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --no-verify --out "$OUT/tasks.tsv"
-  while IFS=$'\t' read -r task source expected model family tsha ssha; do
+  while IFS= read -r line; do
+    read_task_row "$line"
     machine_model="$(machine_model_for "$model")"
     effective_machine_model="$(printf '%s' "$machine_model" | tr '[:lower:]' '[:upper:]')"
     build_command "$model" "$source"
@@ -476,7 +485,8 @@ python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMAR
 
 # Validate every frozen row before starting workers. A malformed model must
 # fail the run, not become a default LINUX32 execution.
-while IFS=$'\t' read -r task source expected model family tsha ssha; do
+while IFS= read -r line; do
+  read_task_row "$line"
   machine_model_for "$model" >/dev/null
 done <"$OUT/tasks.tsv"
 
@@ -492,7 +502,7 @@ export -f task_name_of
 run_one() {
   local line="$1"
   local task source expected model family tsha ssha
-  IFS=$'\t' read -r task source expected model family tsha ssha <<<"$line"
+  read_task_row "$line" || return 1
   # Reject malformed identities before deriving evidence paths.
   [[ -n "$task" ]] || { echo "empty task row; aborting task"; return 1; }
   if [[ "$task" =~ (^|/)\.\.?(/|$) ]]; then
@@ -541,7 +551,7 @@ run_one() {
     --run-meta "$OUT/run_meta.json" \
     --out "$OUT/logs/${task_name}.json"
 }
-export -f run_one machine_model_for build_command die
+export -f run_one read_task_row machine_model_for build_command die
 export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMELIMIT TIMEOUT_GRACE HEAP COMMIT CONFIG_SHA P_CORE_LIST LLM_MAX_COMPLETION_TOKENS
 
 # 4. Run each task (no header row in tasks.tsv), merge per-task records in order,

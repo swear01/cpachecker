@@ -4,6 +4,16 @@
 
 ## Gotchas
 
+- **Terminal experiment notification (#180).** Wrap the real supervisor with
+  `python3 scripts/vguided-cegar/notify_core_only_completion.py --summary NEW/checkpoint-summary.json --receipt NEW/notification.json --session COORDINATOR_UUID -- python3 NEW/supervisor.py`
+  inside the session-attached `hapi job run` command. Create `NEW` first. Both summary and
+  receipt must be fresh. The supervisor must drain launched workers and write its final
+  summary on STOP as well as normal completion; the wrapper waits for process termination,
+  then sends summary hash, counts, STOP reason and exit status through `hapi ping-peer`.
+  Missing/malformed summary or failed notification produces a nonzero wrapper exit and
+  a receipt explaining the failure. Notification `accepted` means the CLI succeeded,
+  not that the coordinator read it. SIGKILL leaves the reserved receipt pending;
+  do not treat a pending receipt or a STOP sentinel as delivered final notification.
 - **CFA heap exhaustion can exit 0 without a verdict (#180).** The log warning
   `memory problems (Java heap space)` is classified as `out_of_memory`; an exit code of zero
   does not certify a completed analysis. Preserve the empty reported verdict and raw log.
@@ -18,6 +28,10 @@
   cannot masquerade as an ordinary UNKNOWN. Runtime metadata hashes existing launcher, classes,
   libraries and Java bytes without rebuilding them. This deployment identity includes absolute
   paths: paired arms require the same frozen checkout/JDK locations; relocation is not transparent.
+  Capture sends TERM to the verifier group, waits up to 10 seconds for its leader, then
+  KILLs remaining group members and reaps the leader. Repeated SIGINT/SIGTERM cannot
+  bypass cleanup; SIGKILL cannot be handled. Direct `capture_run` callers must run
+  in the main thread for signal handling.
   Launcher-injected `CPACHECKER_ARGUMENTS` are refused because they bypass the captured command.
   Run `check_core_only_smoke.py <stock>/records.jsonl <augmented>/records.jsonl --manifest <frozen.json>`
   with adjacent `run_meta.json` files and original artifact paths available. Integrity rechecks

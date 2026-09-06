@@ -12,6 +12,22 @@ ROOT = Path(__file__).resolve().parents[3]
 RUNNER = ROOT / "scripts/vguided-cegar/run_core_only.sh"
 
 
+@pytest.mark.parametrize("empty_index", [2, 3, 4, 5, 6])
+def test_task_row_preserves_empty_fields_in_exported_child(empty_index):
+    script = RUNNER.read_text()
+    helper = script[script.index("read_task_row() {"):script.index("build_command() {")]
+    fields = ["task", "source with spaces.c", "true", "LP64", "family", "taskhash", "sourcehash"]
+    fields[empty_index] = ""
+    result = subprocess.run(
+        ["bash", "-c", helper + "\nexport -f read_task_row\n"
+         "bash -c 'read_task_row \"$1\"; printf \"%s\\n\" \"$task\" \"$source\" "
+         "\"$expected\" \"$model\" \"$family\" \"$tsha\" \"$ssha\"' _ \"$1\"",
+         "_", "\t".join(fields)],
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.splitlines() == fields
+
+
 def runner_env(tmp_path: Path):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
