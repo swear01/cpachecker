@@ -28,10 +28,24 @@ The Dataset v2 release's 448 validation rows are historical dataset-construction
   failure category. Interrupted/invalid runs are recorded, never silently
   retried. **Resume (since 2026-08-14):** restarting the harness on the same
   `--out` dir resumes — tasks with a valid (JSON-parseable) per-task record are
-  skipped, corrupt records and partial augmented dumps are discarded and
-  rerun, and the run refuses to start if `run_meta.json` provenance (arm,
+  skipped only when their captured command matches the current invocation.
+  Corrupt records and partial evidence are preserved and require a fresh output
+  root; the run refuses to start if `run_meta.json` provenance (arm,
   commit, config/manifest hashes, timelimit, model, thinking) differs from
   the invocation.
+- Owner-authorized exploratory checkpoints can add `--exploratory --cpu-list 8,10
+  --parallel 2`. They record the five-sample CPU window, host load, memory and memory
+  pressure without requiring an idle host. Only allocated physical P-cores are used,
+  concurrency cannot exceed their count, and resume rejects changed allocation or
+  evidence tier. `timing_claims_allowed=false` excludes formal timing/PAR-2 claims.
+  The default remains the strict performance policy.
+- Task semantics map ILP32 to `analysis.machineModel=Linux32` and LP64 to
+  `Linux64`. Exact executed arguments and process status are separate artifacts;
+  verifier logs are never prefixed or given synthetic UNKNOWN summaries. The
+  smoke and paired-harvest gates check the captured model and paired resources.
+  `check_core_only_smoke.py` requires `--manifest <frozen-smoke-manifest.json>`;
+  `analyze_core_only_pair.py` retains official-label wrongs, failures and new/lost
+  correct results, with no dispute exemptions.
 - `scripts/vguided-cegar/core_only_config_diff.py`: resolves both configs
   (including `#include` trees) and rejects any difference outside the
   augmentation allowlist (`vguide.*`, `cpa.predicate.refinement.useVocabularyGuide`).
@@ -110,15 +124,15 @@ Smoke set: 12 tasks (12 families, 2 expected-false) from the frozen manifest (`/
 Harvest / gates (for the agent continuing this run):
 
 - Per-arm products under `output/vguide/core_only/<arm>_core/` (or `smoke_<arm>/`): `records.jsonl` (one record per task: task/property/source hashes, commit, config/solver hashes, wall/CPU/memory, verdict, refinements, LLM calls, validated/injected predicates, failure category), `run_meta.json` (arm/commit/config+manifest hashes/limits/model), `logs/<task>.log`, and `dumps/` for the augmented arm (historical schema-9 VGuide dump; schema 10 corrects before/after precision attribution, schema 11 records `abstraction_formulas_pre`, and schema 12 adds the deterministic CFA-native `precision_compiler` record).
-- Smoke gate: `python3 scripts/vguided-cegar/check_core_only_smoke.py output/vguide/core_only/smoke_stock/records.jsonl output/vguide/core_only/smoke_augmented/records.jsonl --expect-count 12` — complete records + 0 wrong verdicts; only then the driver proceeds to the held-out stage.
-- Held-out gate: same checker with `--expect-count 224` on `stock_core` / `augmented_core`.
+- Smoke gate: `python3 scripts/vguided-cegar/check_core_only_smoke.py output/vguide/core_only/smoke_stock/records.jsonl output/vguide/core_only/smoke_augmented/records.jsonl --manifest "$SMOKE_MANIFEST" --expect-count 12` — use the frozen 12-task smoke manifest; complete records + 0 wrong verdicts precede the held-out stage.
+- Held-out gate: same checker on `stock_core` / `augmented_core`, replacing the smoke manifest with `--manifest "$HELD_OUT_MANIFEST" --expect-count 224`.
 - Paired analysis (§6): join both arms' `records.jsonl` on `task`; per-task new/lost/disagreement/wrong; LLM metrics from the augmented dumps (`dumps/<task>/tasks/<stem>/llm_rounds.jsonl`, `refinements.jsonl` — validated/injected/rejections/ce_history/native_predicate_context).
 - Fixed parameters: parallelism 8, timelimit 300 s, heap 6000M, model `muse-spark-1.2-contributor`, reasoning effort `minimal`, max completion tokens 1024; ablation options all OFF (`vguide.ceHistoryMode=OFF`, `nativePredicateContext=false`, `refinementOutcomeContext=false`, `replaceLlmPredicates=false`).
-- 0 wrong is a hard gate; interrupted/invalid runs are recorded as infrastructure failures, never silently retried. Whole-run recovery = restart the harness with the same `--out` dir (resume skips completed tasks; provenance is validated against `run_meta.json`).
+- 0 wrong is a hard gate for this smoke; interrupted/invalid runs are recorded as infrastructure failures, never silently retried. Preserve an incomplete attempt and use a fresh `--out` root for an explicitly recorded recovery. Reusing an output root is allowed only when existing task evidence has completed records and invocation provenance matches; it skips those completed records, including failures.
 
 ### 5. Held-out core-only evaluation
 
-Run Stock-Core once for all 224 tasks. Verify completion, manifest/config hashes, and verdict soundness before running Augmented-Core once for the same 224 tasks. Do not retry individual tasks as a hidden performance fallback. Interrupted or invalid runs are recorded as infrastructure failures and restarted under the whole-run recovery procedure: re-invoke the harness with the same `--out` dir and unchanged provenance (arm/commit/config/manifest/timelimit/model/thinking); the resume path skips finished tasks and reruns only tasks without a valid record.
+Run Stock-Core once for all 224 tasks. Verify completion, manifest/config hashes, and verdict soundness before running Augmented-Core once for the same 224 tasks. Do not retry individual tasks as a hidden performance fallback. Preserve interrupted or invalid attempts as infrastructure failures. An explicitly recorded recovery uses a fresh output root; the same-root resume path only starts tasks with no previous evidence and skips completed records after checking unchanged provenance. It refuses logs, execution status or dumps without a completed record. Resume checks JSON/task/command identity only; acceptance separately requires the smoke checker to verify the referenced logs, execution sidecars and hashes. SIGINT/SIGTERM preserves an `interrupted` sidecar and partial log as infrastructure-failure evidence; missing or corrupt sidecars remain invalid.
 
 Stop immediately on a wrong verdict, config/manifest mismatch, missing provenance, or provider failure that would otherwise be mistaken for an analysis result.
 

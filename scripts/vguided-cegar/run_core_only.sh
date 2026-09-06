@@ -16,7 +16,9 @@
 #   --parallel N            max concurrent CPA jobs (default 8)
 #   --timelimit S           per-task CPU limit in seconds (default 300)
 #   --heap M                JVM heap (default 6000M)
-#   --dry-run               print commands only
+#   --exploratory           record ordinary background load; no timing/PAR-2 claims
+#   --cpu-list LIST         allocated physical P-cores (exploratory mode only)
+#   --dry-run               print effective launch commands without running CPA
 #
 # Output:
 #   <out>/tasks.tsv           frozen task rows (source-hash verified)
@@ -47,6 +49,7 @@ P_CORE_RANGE="$P_CORE_LIST"
 
 
 ARM="" MANIFEST="" OUT="" PARALLEL="8" TIMELIMIT="300" HEAP="6000M" DRY=0
+EVIDENCE_TIER="performance"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arm) ARM="$2"; shift 2 ;;
@@ -55,6 +58,8 @@ while [[ $# -gt 0 ]]; do
     --parallel) PARALLEL="$2"; shift 2 ;;
     --timelimit) TIMELIMIT="${2%s}"; shift 2 ;;
     --heap) HEAP="$2"; shift 2 ;;
+    --exploratory) EVIDENCE_TIER="exploratory"; shift ;;
+    --cpu-list) P_CORE_LIST="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -65,6 +70,17 @@ done
 [[ -n "$OUT" ]] || die "--out required"
 [[ "$TIMELIMIT" =~ ^[1-9][0-9]*$ ]] || die "TIMELIMIT must be a positive integer, got: $TIMELIMIT"
 [[ -d "$SV_BENCHMARKS" ]] || die "SV_BENCHMARKS not found: $SV_BENCHMARKS (export SV_BENCHMARKS=~/sv-benchmarks/c)"
+[[ "$PARALLEL" =~ ^[1-9][0-9]*$ ]] || die "--parallel must be a positive integer"
+[[ "$P_CORE_LIST" =~ ^(0|2|4|6|8|10|12|14)(,(0|2|4|6|8|10|12|14))*$ ]] \
+  || die "--cpu-list must contain physical P-cores 0,2,4,6,8,10,12,14"
+IFS=',' read -r -a ALLOCATED_CORES <<<"$P_CORE_LIST"
+[[ "$(printf '%s\n' "${ALLOCATED_CORES[@]}" | sort -u | wc -l)" -eq "${#ALLOCATED_CORES[@]}" ]] \
+  || die "--cpu-list contains duplicates"
+[[ "$PARALLEL" -le "${#ALLOCATED_CORES[@]}" ]] || die "--parallel exceeds allocated CPU count"
+[[ "$EVIDENCE_TIER" == "exploratory" || "$P_CORE_LIST" == "$P_CORE_RANGE" ]] \
+  || die "--cpu-list requires --exploratory"
+P_CORE_RANGE="$P_CORE_LIST"
+SV_BENCHMARKS="$(cd "$SV_BENCHMARKS" && pwd)"
 
 # Refuse when any selected P-core has median busy >= 50% across five one-second samples.
 # Process snapshots are diagnostics only; cumulative %CPU and last-PSR placement never veto.
@@ -102,7 +118,7 @@ check_p_cores_idle() {
       }
     }
   ')"
-  if [[ -n "$busy" ]]; then
+  if [[ -n "$busy" && "$EVIDENCE_TIER" == "performance" ]]; then
     die "P-core contention: median busy >= 50% on cores: $busy"
   fi
   LOAD_CHECK_NOW="$(printf '%s\n' "$load_window" | awk -F' +' -v order="$P_CORE_LIST" '
@@ -113,7 +129,7 @@ check_p_cores_idle() {
       value[cpu SUBSEP count[cpu]] = 100 - $NF
     }
     END {
-      printf "median_busy_lt_50;samples_busy_pct="
+      printf "samples_busy_pct="
       for (k = 1; k <= core_count; k++) {
         cpu = cores[k]
         if (k > 1) printf "|"
@@ -129,8 +145,24 @@ check_p_cores_idle() {
 }
 LOAD_CHECK_NOW=""
 check_p_cores_idle
+RESOURCE_SNAPSHOT="$(python3 - <<'EOF'
+import json, os, socket
+from pathlib import Path
+
+def read_resource(path):
+    try:
+        return Path(path).read_text()
+    except OSError as error:
+        return {"unavailable": str(error)}
+
+print(json.dumps({"host": socket.gethostname(), "loadavg": os.getloadavg(),
+                  "meminfo": read_resource("/proc/meminfo"),
+                  "memory_pressure": read_resource("/proc/pressure/memory")}))
+EOF
+)"
 
 mkdir -p "$OUT/logs"
+OUT="$(cd "$OUT" && pwd)"
 LLM_PROVIDER="$(printf '%s' "${VGUIDE_LLM_PROVIDER:-meta}" | tr '[:upper:]' '[:lower:]')"
 [[ "$LLM_PROVIDER" == "deepseek" || "$LLM_PROVIDER" == "meta" ]] \
   || die "VGUIDE_LLM_PROVIDER must be deepseek or meta, got: ${VGUIDE_LLM_PROVIDER:-}"
@@ -162,9 +194,56 @@ TIMEOUT_GRACE="${VGUIDE_TIMEOUT_GRACE:-10}"
 TIMEOUT_GRACE="${TIMEOUT_GRACE%s}" # strip a trailing 's'
 [[ "$TIMEOUT_GRACE" =~ ^[0-9]+$ ]] || die "TIMEOUT_GRACE must be a non-negative integer, got: $TIMEOUT_GRACE"
 
+machine_model_for() {
+  case "$1" in
+    # CPAchecker parses these enum names case-insensitively, but keep the
+    # canonical command spelling used by the existing runners.
+    ILP32) printf '%s\n' Linux32 ;;
+    LP64) printf '%s\n' Linux64 ;;
+    *) die "unsupported or missing data_model '$1' (expected ILP32 or LP64)" ;;
+  esac
+}
+
+read_task_row() {
+  local row="$1" sep=$'\x1f'
+  # Bash treats tab as IFS whitespace and would collapse empty TSV fields.
+  [[ "$row" != *"$sep"* ]] || die "invalid task row separator"
+  row="${row//$'\t'/$sep}"
+  IFS="$sep" read -r task source expected model family tsha ssha <<<"$row"
+}
+
+build_command() {
+  local data_model="$1" source="$2" machine_model
+  machine_model="$(machine_model_for "$data_model")" || return 1
+  RUN_CMD=(
+    taskset -c "$P_CORE_LIST"
+    "$CPA_SH" --heap "$HEAP"
+    --config "$REPO/$CONFIG"
+    --option "analysis.machineModel=$machine_model"
+    --option "cpa.predicate.refinement.useVocabularyGuide=$USE_VGUIDE"
+    --timelimit "${TIMELIMIT}s"
+    --spec "$SPEC"
+    --stats
+    --no-output-files
+  )
+  if [[ "$ARM" == "augmented" ]]; then
+    RUN_CMD+=(--option "vguide.llmMaxCompletionTokens=$LLM_MAX_COMPLETION_TOKENS")
+  fi
+  RUN_CMD+=("$SV_BENCHMARKS/$source")
+}
+
 if [[ "$DRY" == "1" ]]; then
-  echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE"
-  echo "tasks: $(python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --no-verify --out "$OUT/tasks.tsv")"
+  echo "arm=$ARM manifest=$MANIFEST out=$OUT config=$CONFIG use_vguide=$USE_VGUIDE evidence_tier=$EVIDENCE_TIER cpus=$P_CORE_LIST"
+  python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --no-verify --out "$OUT/tasks.tsv"
+  while IFS= read -r line; do
+    read_task_row "$line"
+    machine_model="$(machine_model_for "$model")"
+    effective_machine_model="$(printf '%s' "$machine_model" | tr '[:lower:]' '[:upper:]')"
+    build_command "$model" "$source"
+    printf 'task=%s data_model=%s effective_machine_model=%s: ' "$task" "$model" "$effective_machine_model"
+    printf '%q ' "${RUN_CMD[@]}"
+    printf '\n'
+  done <"$OUT/tasks.tsv"
   exit 0
 fi
 
@@ -230,6 +309,8 @@ trap 'kill "$LOCK_HEARTBEAT" 2>/dev/null || true; rm -rf "$OUT/.run.lock" 2>/dev
 # 2. Run metadata (computed before tasks.tsv so the resume provenance check can
 # validate the invocation without overwriting an existing tasks.tsv).
 COMMIT="$(git -C "$REPO" rev-parse HEAD)"
+RUNTIME_FILE="$OUT/runtime-current.$$.json"
+python3 "$RECORDS_PY" runtime --repo "$REPO" >"$RUNTIME_FILE"
 CONFIG_SHA="$(python3 -c "import sys; sys.path.insert(0, '$SCRIPT_DIR'); import core_only_config_diff as d; print(d.config_sha256(__import__('pathlib').Path('$REPO/$CONFIG')))")"
 MANIFEST_SHA="$(sha256sum "$MANIFEST" | cut -d' ' -f1)"
 SPEC_SHA="$(sha256sum "$SPEC" | cut -d' ' -f1)"
@@ -279,14 +360,14 @@ if [[ ! -f "$OUT/run_meta.json" ]] && ls "$OUT"/logs/*.json >/dev/null 2>&1; the
 fi
 OLD_LOADS_JSON="[]"
 if [[ -f "$OUT/run_meta.json" ]]; then
-  if ! OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))" "$OUT/run_meta.json" 2>/dev/null)"; then
+  if ! OLD_META="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding='utf-8'))))" "$OUT/run_meta.json" 2>/dev/null)"; then
     die "$OUT/run_meta.json exists but is not valid JSON (corrupt metadata file); fix or remove it manually"
   fi
   OLD_LOADS_JSON="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('load_checks', [])))" 2>/dev/null || echo '[]')"
   OLD_STARTED_AT="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('started_at',''))")"
   OLD_LOAD_CHECK="$(printf '%s' "$OLD_META" | python3 -c "import json,sys; print(json.load(sys.stdin).get('load_check',''))")"
-  ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" CPA_SH_SHA_C="$CPA_SH_SHA" \
-  TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" \
+  RUNTIME_C="$RUNTIME_FILE" ARM_C="$ARM" COMMIT_C="$COMMIT" CONFIG_SHA_C="$CONFIG_SHA" MANIFEST_SHA_C="$MANIFEST_SHA" SPEC_SHA_C="$SPEC_SHA" CPA_SH_SHA_C="$CPA_SH_SHA" \
+  TIMELIMIT_C="$TIMELIMIT" GRACE_C="$TIMEOUT_GRACE" HEAP_C="$HEAP" PARALLEL_C="$PARALLEL" TIER_C="$EVIDENCE_TIER" CPUS_C="$P_CORE_LIST" \
   PROVIDER_C="$LLM_PROVIDER" MODEL_C="$LLM_MODEL" THINKING_C="$THINKING" EFFORT_C="$EFFORT" FORMAT_C="$LLM_API_FORMAT" \
   RECORD_C="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_C="${VGUIDE_LLM_REPLAY_DIR:-}" \
   REPLAY_FP_C="$REPLAY_FP" \
@@ -294,8 +375,9 @@ if [[ -f "$OUT/run_meta.json" ]]; then
   PRESERVE_C="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
   python3 - "$OUT/run_meta.json" <<'EOF' || die "resume refused: $OUT/run_meta.json provenance differs from this invocation (use a fresh OUT dir)"
 import json, os, sys
-old = json.load(open(sys.argv[1]))
+old = json.load(open(sys.argv[1], encoding="utf-8"))
 want = {
+    **json.load(open(os.environ["RUNTIME_C"], encoding="utf-8")),
     "arm": os.environ["ARM_C"],
     "commit": os.environ["COMMIT_C"],
     "config_sha256": os.environ["CONFIG_SHA_C"],
@@ -306,6 +388,8 @@ want = {
     "timeout_grace": int(os.environ["GRACE_C"]),
     "heap": os.environ["HEAP_C"],
     "parallel": int(os.environ["PARALLEL_C"]),
+    "evidence_tier": os.environ["TIER_C"],
+    "cpu_list": os.environ["CPUS_C"],
     "llm_provider": os.environ["PROVIDER_C"],
     "model": os.environ["MODEL_C"],
     "thinking": os.environ["THINKING_C"],
@@ -340,7 +424,7 @@ else
 fi
 
 # Atomic, escaping-safe write of run_meta.json (values via env, json.dumps).
-ARM_M="$ARM" COMMIT_M="$COMMIT" CONFIG_M="$CONFIG" CONFIG_SHA_M="$CONFIG_SHA" \
+SV_BENCHMARKS_M="$SV_BENCHMARKS" RUNTIME_M="$RUNTIME_FILE" ARM_M="$ARM" COMMIT_M="$COMMIT" CONFIG_M="$REPO/$CONFIG" CONFIG_SHA_M="$CONFIG_SHA" \
 MANIFEST_M="$MANIFEST" MANIFEST_SHA_M="$MANIFEST_SHA" SPEC_SHA_M="$SPEC_SHA" CPA_SH_SHA_M="$CPA_SH_SHA" \
 TIMELIMIT_M="$TIMELIMIT" GRACE_M="$TIMEOUT_GRACE" PARALLEL_M="$PARALLEL" HEAP_M="$HEAP" \
 SPEC_M="$SPEC" PROVIDER_M="$LLM_PROVIDER" MODEL_M="$LLM_MODEL" THINKING_M="$THINKING" EFFORT_M="$EFFORT" FORMAT_M="$LLM_API_FORMAT" \
@@ -348,13 +432,15 @@ RECORD_M="${VGUIDE_LLM_RECORD_DIR:-}" REPLAY_M="${VGUIDE_LLM_REPLAY_DIR:-}" \
 REPLAY_FP_M="$REPLAY_FP" \
   APIURL_M="${VGUIDE_LLM_API_URL:-}" MAXTOK_M="$LLM_MAX_COMPLETION_TOKENS" \
 PRESERVE_M="${VGUIDE_LLM_REPLAY_PRESERVE_LATENCY:-}" \
-STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" CURRLOAD_M="$CURRENT_LOAD" P_CORES_M="$P_CORE_LIST" \
+STARTED_M="$STARTED_AT" LOAD_M="$LOAD_CHECK" LOADS_M="$OLD_LOADS_JSON" CURRLOAD_M="$CURRENT_LOAD" P_CORES_M="$P_CORE_LIST" TIER_M="$EVIDENCE_TIER" RESOURCES_M="$RESOURCE_SNAPSHOT" \
 python3 - "$OUT/run_meta.json" <<'EOF'
 import json, os, sys
 meta = {
+    **json.load(open(os.environ["RUNTIME_M"], encoding="utf-8")),
     "arm": os.environ["ARM_M"],
     "commit": os.environ["COMMIT_M"],
-    "config": os.environ["CONFIG_M"],
+    "config": os.path.abspath(os.environ["CONFIG_M"]),
+    "sv_benchmarks": os.path.abspath(os.environ["SV_BENCHMARKS_M"]),
     "config_sha256": os.environ["CONFIG_SHA_M"],
     "manifest": os.environ["MANIFEST_M"],
     "manifest_sha256": os.environ["MANIFEST_SHA_M"],
@@ -377,19 +463,32 @@ meta = {
     "llm_max_completion_tokens": os.environ["MAXTOK_M"],
     "llm_replay_preserve_latency": os.environ["PRESERVE_M"],
     "started_at": os.environ["STARTED_M"],
-    "cpu_isolation": "taskset " + os.environ["P_CORES_M"] + " (8 physical P-cores, no SMT sibling, no E-core)",
+    "cpu_isolation": "taskset " + os.environ["P_CORES_M"] + " (physical P-cores, no SMT sibling, no E-core)",
+    "cpu_list": os.environ["P_CORES_M"],
+    "evidence_tier": os.environ["TIER_M"],
+    "timing_claims_allowed": os.environ["TIER_M"] == "performance",
+    "resource_snapshot": json.loads(os.environ["RESOURCES_M"]),
     "load_check": os.environ["LOAD_M"],
     "load_checks": json.loads(os.environ["LOADS_M"]) + [os.environ["CURRLOAD_M"]],
 }
 tmp = sys.argv[1] + ".tmp"
-with open(tmp, "w") as f:
+with open(tmp, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 os.replace(tmp, sys.argv[1])
 EOF
 
+rm -f "$RUNTIME_FILE"
+
 # 1. Frozen task rows (hash-verified; fails on any mismatch) — generated after the
 # resume provenance check so a refused resume cannot clobber an existing tasks.tsv.
 python3 "$RECORDS_PY" tasks --manifest "$MANIFEST" --sv-benchmarks "$SV_BENCHMARKS" --out "$OUT/tasks.tsv"
+
+# Validate every frozen row before starting workers. A malformed model must
+# fail the run, not become a default LINUX32 execution.
+while IFS= read -r line; do
+  read_task_row "$line"
+  machine_model_for "$model" >/dev/null
+done <"$OUT/tasks.tsv"
 
 # 3. Run each task once (parallel), then emit one record per task.
 rm -f "$OUT/records.jsonl"
@@ -403,9 +502,8 @@ export -f task_name_of
 run_one() {
   local line="$1"
   local task source expected model family tsha ssha
-  IFS=$'\t' read -r task source expected model family tsha ssha <<<"$line"
-  # Fail closed on malformed rows: an empty task would turn the cleanup paths
-  # below into rm -rf of the whole dump/cache roots.
+  read_task_row "$line" || return 1
+  # Reject malformed identities before deriving evidence paths.
   [[ -n "$task" ]] || { echo "empty task row; aborting task"; return 1; }
   if [[ "$task" =~ (^|/)\.\.?(/|$) ]]; then
     echo "unsafe task path '$task'; aborting task"
@@ -413,87 +511,30 @@ run_one() {
   fi
   local task_name="$(task_name_of "$task")"
   local log="$OUT/logs/${task_name}.log"
-  # Resume support: a per-task record already written means this task finished
-  # in a previous invocation — skip it instead of re-running. The record must
-  # parse as JSON with the expected task identity and a verdict (filenames can
-  # collide after / -> _); truncated/corrupt records are discarded and rerun.
+  build_command "$model" "$source" || return 1
+  # A completed failure is evidence too. Never overwrite an interrupted attempt.
   if [[ -f "$OUT/logs/${task_name}.json" ]]; then
-    if TASK_C="$task" python3 -c "import json, os, sys; d = json.load(open(sys.argv[1])); assert isinstance(d, dict) and d.get('task') == os.environ['TASK_C'] and 'verdict' in d" "$OUT/logs/${task_name}.json" 2>/dev/null; then
-      # Record-mode: a completed task must still have its replay/record cache
-      # namespace; a deleted cache means the resume would replay nothing.
-      if [[ "$ARM" == "augmented" && -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
-        SANITIZED="$(printf '%s' "$(basename "$OUT")/$task" | tr -c 'A-Za-z0-9._-' '_')"
-        # A completed task with zero LLM calls has no cache namespace
-        # (LlmResponseCache creates it on the first call) — that is normal.
-        if [[ ! -d "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" ]] \
-            && ! python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('llm_calls', 0))" "$OUT/logs/${task_name}.json" 2>/dev/null | grep -q '^0$'; then
-          echo "record-mode cache missing for $task; rerunning"
-          rm -f "$OUT/logs/${task_name}.json"
-          rm -rf "$OUT/dumps/${task_name}"
-        else
-          echo "skip $task (record exists)"
-          return 0
-        fi
-      else
-        echo "skip $task (record exists)"
-        return 0
-      fi
-    else
-      echo "discard mismatched/corrupt record for $task; rerunning"
-      rm -f "$OUT/logs/${task_name}.json"
-    fi
-  fi
-  # A previous attempt may have left a partial dump (no record was written):
-  # clear it so LLM rounds / refinements from both attempts do not mix.
-  # Cleanup failures abort this task (missing record -> merge fails closed).
-  if [[ "$ARM" == "augmented" ]]; then
-    rm -rf "$OUT/dumps/${task_name}" || return 1
-  fi
-  # Record-mode LLM caches are namespaced per task with the same sanitization as
-  # LlmResponseCache (chars outside [A-Za-z0-9._-] become '_'); clear a partial
-  # cache. Only for the augmented arm (stock runs never touch LLM state).
-  if [[ "$ARM" == "augmented" && -n "${VGUIDE_LLM_RECORD_DIR:-}" ]]; then
-    SANITIZED="$(printf '%s' "$(basename "$OUT")/$task" | tr -c 'A-Za-z0-9._-' '_')"
-    rm -rf "$VGUIDE_LLM_RECORD_DIR/$SANITIZED" || return 1
-  fi
-  local cmd=(
-    timeout "$((TIMELIMIT + TIMEOUT_GRACE))s"
-    taskset -c "$P_CORE_LIST"
-    "$CPA_SH" --heap "$HEAP"
-    --config "$REPO/$CONFIG"
-    --option "cpa.predicate.refinement.useVocabularyGuide=$USE_VGUIDE"
-    --timelimit "${TIMELIMIT}s"
-    --spec "$SPEC"
-    --stats
-    --no-output-files
-  )
-  if [[ "$ARM" == "augmented" ]]; then
-    cmd+=(--option "vguide.llmMaxCompletionTokens=$LLM_MAX_COMPLETION_TOKENS")
-  fi
-  cmd+=("$SV_BENCHMARKS/$source")
-  if [[ "$DRY" == "1" ]]; then
-    echo "${cmd[*]}"
+    python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert isinstance(d,dict) and d.get("task")==sys.argv[2] and d.get("execution",{}).get("command")==sys.argv[3:]' "$OUT/logs/${task_name}.json" "$task" "${RUN_CMD[@]}" \
+      || { echo "invalid existing record for $task; use fresh OUT" >&2; return 1; }
+    echo "skip $task (record exists)"
     return 0
   fi
-  set +e
-  if [[ "$ARM" == "augmented" ]]; then
-    # Per-task dump root: benchmark base names can collide across families.
-    VGUIDE_LLM_CACHE_NAMESPACE="$(basename "$OUT")/$task" VGUIDE_ANALYSIS_DUMP_DIR="$OUT/dumps/${task_name}" \
-      "${cmd[@]}" >"$log" 2>&1
-  else
-    "${cmd[@]}" >"$log" 2>&1
+  if [[ -e "$log" || -e "$OUT/logs/${task_name}.execution.json" || -e "$OUT/dumps/${task_name}" ]]; then
+    echo "unfinished evidence exists for $task; preserve it and use fresh OUT" >&2
+    return 1
   fi
-  local rc=$?
-  set -e
-  # Complete records: append a synthetic UNKNOWN summary for logs that died without
-  # a CPA summary line (native hang/crash), mirroring run_benchmark_set.sh.
-  if ! grep -q 'Verification result:' "$log" 2>/dev/null; then
-    {
-      echo ""
-      echo "--- core-only runner post-process $(date -Iseconds) ---"
-      echo "Verification result: UNKNOWN, incomplete analysis (no CPA summary line)."
-      echo "Total time for CPAchecker: ${TIMELIMIT}.000s"
-    } >>"$log"
+  if [[ "$DRY" == "1" ]]; then
+    echo "${RUN_CMD[*]}"
+    return 0
+  fi
+  local execution="$OUT/logs/${task_name}.execution.json"
+  local capture=(python3 "$RECORDS_PY" capture --log "$log" --status "$execution"
+    --wall-limit "$((TIMELIMIT + TIMEOUT_GRACE))" -- "${RUN_CMD[@]}")
+  if [[ "$ARM" == "augmented" ]]; then
+    VGUIDE_LLM_CACHE_NAMESPACE="$(basename "$OUT")/$task" VGUIDE_ANALYSIS_DUMP_DIR="$OUT/dumps/${task_name}" \
+      "${capture[@]}" || return 1
+  else
+    "${capture[@]}" || return 1
   fi
   # One JSON record per task (also for failures — never silently dropped).
   local dump_dir=""
@@ -506,10 +547,11 @@ run_one() {
     --commit "$COMMIT" \
     --arm "$ARM" \
     --timelimit "$TIMELIMIT" \
-    --exit-code "$rc" \
+    --execution "$execution" \
+    --run-meta "$OUT/run_meta.json" \
     --out "$OUT/logs/${task_name}.json"
 }
-export -f run_one
+export -f run_one read_task_row machine_model_for build_command die
 export OUT ARM USE_VGUIDE REPO CPA_SH SV_BENCHMARKS RECORDS_PY CONFIG SPEC TIMELIMIT TIMEOUT_GRACE HEAP COMMIT CONFIG_SHA P_CORE_LIST LLM_MAX_COMPLETION_TOKENS
 
 # 4. Run each task (no header row in tasks.tsv), merge per-task records in order,
