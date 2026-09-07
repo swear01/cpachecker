@@ -645,14 +645,7 @@ time.sleep(60)
         "-c",
         leaf_code,
     ]
-    launcher_code = f"""
-import subprocess, time
-from pathlib import Path
-subprocess.run({inner_command!r}, check=False)
-while not Path({str(leaf_ready)!r}).exists():
-    time.sleep(0.01)
-time.sleep(60)
-"""
+    launcher_code = f"import subprocess; subprocess.run({inner_command!r}, check=False)"
     outer_log = tmp_path / "outer.log"
     outer_status = tmp_path / "outer.json"
     outer = subprocess.Popen(
@@ -691,13 +684,75 @@ time.sleep(60)
             os.kill(int(leaf_ready.read_text()), 0)
     finally:
         if outer.poll() is None:
-            outer.kill()
+            outer.send_signal(signal.SIGTERM)
+            try:
+                outer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                outer.kill()
         outer.wait(timeout=5)
         if leaf_ready.exists():
             try:
                 os.kill(int(leaf_ready.read_text()), signal.SIGKILL)
             except ProcessLookupError:
                 pass
+
+
+def test_nested_capture_setup_failure_does_not_leave_launcher_running(tmp_path):
+    records_script = Path(records.__file__).resolve()
+    inner_log = tmp_path / "inner.log"
+    inner_status = tmp_path / "inner.json"
+    inner_command = [
+        sys.executable,
+        str(records_script),
+        "capture",
+        "--log",
+        str(inner_log),
+        "--status",
+        str(inner_status),
+        "--wall-limit",
+        "60",
+        "--",
+        sys.executable,
+        "-c",
+        "raise SystemExit(1)",
+    ]
+    launcher_code = f"import subprocess; subprocess.run({inner_command!r}, check=False)"
+    outer_log = tmp_path / "outer.log"
+    outer_status = tmp_path / "outer.json"
+    outer = subprocess.Popen(
+        [
+            sys.executable,
+            str(records_script),
+            "capture",
+            "--log",
+            str(outer_log),
+            "--status",
+            str(outer_status),
+            "--wall-limit",
+            "5",
+            "--termination-grace",
+            "0.2",
+            "--",
+            sys.executable,
+            "-c",
+            launcher_code,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        assert outer.wait(timeout=5) == 0
+        assert json.loads(outer_status.read_text())["termination_reason"] == "exit"
+        assert json.loads(inner_status.read_text())["exit_code"] == 1
+    finally:
+        if outer.poll() is None:
+            outer.send_signal(signal.SIGTERM)
+            try:
+                outer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                outer.kill()
+        outer.wait(timeout=5)
 
 
 @pytest.mark.parametrize(
