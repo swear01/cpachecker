@@ -5,18 +5,20 @@ the sibling experiments checkout owns protocols, reports and logs.
 
 ## Active (2026-09-07)
 
-1. **#203 integration:** merge qualified independent changes and dependency
-   chains; retire superseded PRs after content verification. #178/#179 runtime
-   and record-integrity work must be judged from merged code and current tests.
-2. **#180/#198 completion planning:** preserve the 184-pair partial census and
-   qualify the 66-cell pending-only supplement before execution. Current main
-   and the frozen recovery runtime are distinct experimental identities.
-3. **#109/#200 factual context:** finish production-trigger qualification and
-   keep any context A/B separate from the frozen checkpoint. #183's null
-   wording experiment is complete; its cue is not adopted.
-4. **#92 diagnostic cohort:** six excluded array symbol-conflict tasks require
-   a verified repair before re-admission to a new 224-task comparison. #197
-   has no accepted repair; do not treat diagnostic evidence as a solved issue.
+1. **#203/#205 integration:** the qualified integration and Java/context
+   successor are merged. Judge #178/#179 runtime and record-integrity work
+   from merged code and current tests.
+2. **#208 current checkpoint:** prepare the new-main 24-task-to-218 checkpoint
+   under one freeze. Keep #180/#198's 66-cell old-runtime supplement separate
+   from its 184-pair partial census.
+3. **#109/#200 factual context:** the #109/#205 implementation is complete;
+   finish production-trigger qualification in #206 and keep the #200 context
+   A/B separate from the frozen checkpoint. #183's null wording experiment is
+   complete; its cue is not adopted.
+4. **#92 diagnostic cohort:** the original-symbol fix is complete, but the six
+   excluded tasks still have three separate interpolation limitations. #197
+   remains on safety hold with no accepted repair; do not treat diagnostic
+   evidence as a solved issue.
 
 ## Status boundaries
 
