@@ -721,7 +721,7 @@ def test_capture_rejects_nonfinite_limits(tmp_path, option, value):
     )
     termination_args = (
         ["--termination-grace=-inf"]
-        if value == "-inf"
+        if option == "--termination-grace" and value == "-inf"
         else ["--termination-grace", termination_grace]
     )
     result = subprocess.run(
