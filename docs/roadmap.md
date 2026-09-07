@@ -8,10 +8,11 @@ the sibling experiments checkout owns protocols, reports and logs.
 1. **#203/#205 integration:** the qualified integration and Java/context
    successor are merged. Judge #178/#179 runtime and record-integrity work
    from merged code and current tests.
-2. **Merged/current follow-up:** #211 closes #210; its 14 client tests pass but
-   do not enforce the new cap. #212/PR #213 nested-capture cleanup is under
-   final review. Keep #208 pending final-runtime/stop validation and its new
-   24-to-218 execution; it has no new full-cohort result.
+2. **Merged/current follow-up:** #211 closes #210; HTTP attempt evidence is now
+   available; it does not change request-budget enforcement. See #212/PR #213
+   for nested stop qualification and #208 for final-runtime/launch acceptance.
+   #208 remains pending that acceptance and the new 24-to-218 execution; it
+   has no new full-cohort result.
 3. **#208 current checkpoint:** prepare the new-main 24-task-to-218 checkpoint
    under one freeze. Keep #180/#198's 66-cell old-runtime supplement separate
    from its 184-pair partial census.

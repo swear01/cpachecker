@@ -5,10 +5,11 @@
 - **#203/#205 integration:** the integration and Java/context successor are
   merged in current main. #177/#189 documentation is consolidated here with
   the newer #198 census.
-- **Current status:** #211 is merged and closes #210; its 14 client tests pass,
-  but it does not enforce the new cap. #212/PR #213 nested-capture cleanup is
-  under final review. #208 remains pending final-runtime/stop validation and
-  the new 24-to-218 execution; it has no new full-cohort result.
+- **Current status:** #211 is merged and closes #210; HTTP attempt evidence is
+  now available; it does not change request-budget enforcement. See #212/PR
+  #213 for nested stop qualification and #208 for final-runtime/launch
+  acceptance. #208 remains pending that acceptance and the new 24-to-218
+  execution; it has no new full-cohort result.
 - **#208 current checkpoint vs #180 supplement:** #208 is the new-main
   24-task-to-218 checkpoint (24 first, then the remaining 194) under one
   freeze. The old #180/#198 recovery stopped with 184 matched pairs and two
