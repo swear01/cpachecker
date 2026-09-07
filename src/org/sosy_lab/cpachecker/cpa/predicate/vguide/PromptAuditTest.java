@@ -84,8 +84,12 @@ public class PromptAuditTest extends SolverViewBasedTest0 {
     Path root =
         auditDir == null ? tmp.getRoot().toPath() : Files.createDirectories(Path.of(auditDir));
     String helper =
-        "void reach_error(void);\nvoid __VERIFIER_assert(int cond) {\n"
-            + "  if (!cond) reach_error();\n}\n";
+        """
+        void reach_error(void);
+        void __VERIFIER_assert(int cond) {
+          if (!cond) reach_error();
+        }
+        """;
     String small =
         helper
             + "// Unicode: 中文 😀\nint main() {\n  int i = 0;\n"

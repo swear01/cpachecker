@@ -22,6 +22,7 @@ import org.junit.rules.TemporaryFolder;
 import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 
+@SuppressWarnings("DoNotMock")
 public class ContextPackBudgetTest {
   @Rule public final TemporaryFolder tmp = new TemporaryFolder();
 
@@ -50,9 +51,16 @@ public class ContextPackBudgetTest {
   @Test
   public void extractsCallInsteadOfHelperAndBalancesParentheses() {
     String source =
-        "/* __VERIFIER_assert(fake) */\nvoid __VERIFIER_assert(int cond) {\n"
-            + "  if (!cond) reach_error();\n}\nint main() {\n"
-            + "  __VERIFIER_assert(\n    (x + 1) > a[i]);\n}\n";
+        """
+        /* __VERIFIER_assert(fake) */
+        void __VERIFIER_assert(int cond) {
+          if (!cond) reach_error();
+        }
+        int main() {
+          __VERIFIER_assert(
+              (x + 1) > a[i]);
+        }
+        """;
     assertThat(ContextPackBuilder.extractAssertion(source)).isEqualTo("(x + 1) > a[i]");
     assertThat(ContextPackBuilder.extractAssertion("__VERIFIER_assert(x /* ) */ == 1);\n"))
         .isEqualTo("x /* ) */ == 1");
