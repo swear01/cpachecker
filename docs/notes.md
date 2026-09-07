@@ -4,6 +4,15 @@
 
 ## Gotchas
 
+- **HTTP-attempt evidence (#210).** `PredicateProposalClient` emits structured `vguide-http-attempt-v1`
+  events in the CPA log for each live attempt start and terminal result, keyed by request hash and
+  task-local request ordinal. IDs are scoped to one client instance / CPA log-run; extraction must
+  group by that run identity plus `logical_request_id` and use JSONDecoder.raw_decode after the
+  evidence prefix because CPA appends source/level text. A final `llm_request_outcome` records
+  success, parse/close failure, interruption, non-retryable failure, or retry exhaustion. Replay
+  returns before transport and emits no HTTP-attempt events; evidence contains no request payload,
+  headers, credentials, or provider error body.
+
 - **Candidate symbols retain native trace widths (#92).** Scalar validation passes the trace's
   declared bitwidths to `VocabularyGuide.parsePredicate`; integer promotion extends terms, never
   symbol declarations. Dump attribution preserves each validated predicate's original candidate
