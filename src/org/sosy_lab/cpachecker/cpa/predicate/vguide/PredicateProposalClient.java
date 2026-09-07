@@ -23,10 +23,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.log.LogManager;
@@ -38,10 +40,10 @@ import org.sosy_lab.cpachecker.cpa.predicate.LlmApiUrl;
  * <p>Configuration via environment: {@code VGUIDE_LLM_PROVIDER} ({@code meta}|{@code deepseek}),
  * {@code MODEL_API_KEY}, {@code VGUIDE_LLM_MODEL}, {@code VGUIDE_LLM_THINKING} ({@code disabled}|
  * {@code enabled}, default {@code disabled}), {@code VGUIDE_LLM_REASONING_EFFORT} ({@code low}|
- * {@code medium}|{@code high}|{@code max} when thinking is enabled, default {@code high}; for
- * Meta, disabled maps to the API's {@code minimal} effort), and the mutually exclusive
- * paired-evaluation directories {@code VGUIDE_LLM_RECORD_DIR} and {@code VGUIDE_LLM_REPLAY_DIR}.
- * DeepSeek is accepted only for exact historical response replay.
+ * {@code medium}|{@code high}|{@code max} when thinking is enabled, default {@code high}; for Meta,
+ * disabled maps to the API's {@code minimal} effort), and the mutually exclusive paired-evaluation
+ * directories {@code VGUIDE_LLM_RECORD_DIR} and {@code VGUIDE_LLM_REPLAY_DIR}. DeepSeek is accepted
+ * only for exact historical response replay.
  */
 public final class PredicateProposalClient {
 
@@ -65,6 +67,8 @@ public final class PredicateProposalClient {
   private final int retryBackoffMs;
   private final HttpClient http;
   private final @Nullable LlmResponseCache responseCache;
+  private final ConcurrentHashMap<String, AtomicInteger> requestOrdinals =
+      new ConcurrentHashMap<>();
 
   /** Returns a client when live API access or response replay is configured. */
   public static @Nullable PredicateProposalClient createOptional(LogManager pLogger) {
@@ -132,8 +136,7 @@ public final class PredicateProposalClient {
     }
     retryAttempts =
         Math.min(
-            MAX_RETRY_ATTEMPTS,
-            Math.max(0, readPositiveIntEnv("VGUIDE_LLM_RETRY_ATTEMPTS", 2)));
+            MAX_RETRY_ATTEMPTS, Math.max(0, readPositiveIntEnv("VGUIDE_LLM_RETRY_ATTEMPTS", 2)));
     retryBackoffMs =
         Math.min(
             (int) MAX_RETRY_DELAY_MS,
@@ -141,11 +144,28 @@ public final class PredicateProposalClient {
     http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
   }
 
+  PredicateProposalClient(
+      LogManager pLogger, URI pApiUrl, HttpClient pHttp, int pRetryAttempts, int pRetryBackoffMs) {
+    logger = pLogger;
+    apiUrl = pApiUrl;
+    apiKey = "test";
+    provider = "test";
+    model = "test";
+    thinkingEnabled = false;
+    reasoningEffort = null;
+    maxCompletionTokens = DEFAULT_MAX_COMPLETION_TOKENS;
+    retryAttempts = pRetryAttempts;
+    retryBackoffMs = pRetryBackoffMs;
+    http = pHttp;
+    responseCache = null;
+  }
+
   /** Call LLM with system + user messages; returns content and API {@code usage}. */
   public LlmProposalResult proposeWithUsage(PromptMessages messages)
       throws IOException, InterruptedException {
     long t0 = System.currentTimeMillis();
     String body = buildRequestBody(messages);
+    String requestHash = requestHash(body);
     LlmResponseCache.Request cachedRequest =
         responseCache == null ? null : responseCache.nextRequest(body);
     if (responseCache != null && responseCache.mode() == LlmResponseCache.Mode.REPLAY) {
@@ -155,6 +175,13 @@ public final class PredicateProposalClient {
         throw new IllegalStateException("LLM response replay failed without live fallback", e);
       }
     }
+    int requestOrdinal =
+        cachedRequest == null
+            ? requestOrdinals
+                .computeIfAbsent(requestHash, unused -> new AtomicInteger())
+                .incrementAndGet()
+            : cachedRequest.ordinal();
+    String logicalRequestId = requestHash + "/" + requestOrdinal;
     HttpRequest req =
         HttpRequest.newBuilder()
             .uri(apiUrl)
@@ -162,10 +189,45 @@ public final class PredicateProposalClient {
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
             .build();
-    LlmProposalResult streamed;
-    try (InputStream bodyStream = sendWithRetries(req)) {
-      streamed = parseStreamingResponse(bodyStream);
+    AttemptResponse response;
+    try {
+      response = sendWithRetries(req, logicalRequestId, requestHash);
+    } catch (InterruptedException e) {
+      logOutcome(logicalRequestId, requestHash, "interrupted");
+      throw e;
     }
+    LlmProposalResult streamed;
+    boolean parsed = false;
+    try (InputStream bodyStream = response.body()) {
+      streamed = parseStreamingResponse(bodyStream);
+      parsed = true;
+    } catch (IOException e) {
+      String outcome =
+          Thread.currentThread().isInterrupted()
+              ? "interrupted"
+              : parsed ? "stream_close_failure" : "stream_parse_failure";
+      logAttempt(
+          logicalRequestId,
+          requestHash,
+          response.attempt(),
+          retryAttempts + 1,
+          "terminal",
+          outcome,
+          200,
+          false);
+      logOutcome(logicalRequestId, requestHash, outcome);
+      throw e;
+    }
+    logAttempt(
+        logicalRequestId,
+        requestHash,
+        response.attempt(),
+        retryAttempts + 1,
+        "terminal",
+        "stream_success",
+        200,
+        false);
+    logOutcome(logicalRequestId, requestHash, "success");
     JsonNode usage = streamed.usage();
     long latency = System.currentTimeMillis() - t0;
     logger.log(Level.FINE, "VGuide LLM response length: ", streamed.content().length());
@@ -249,14 +311,15 @@ public final class PredicateProposalClient {
   }
 
   public List<LlmProposalResult> proposeParallelExtrasWithUsage(
-      String userPrompt, int extraDraws, int parallelism)
-      throws IOException, InterruptedException {
-    return proposeParallelExtrasWithUsage(new PromptMessages("", userPrompt), extraDraws, parallelism);
+      String userPrompt, int extraDraws, int parallelism) throws IOException, InterruptedException {
+    return proposeParallelExtrasWithUsage(
+        new PromptMessages("", userPrompt), extraDraws, parallelism);
   }
 
   public List<String> proposeParallelExtras(String userPrompt, int extraDraws, int parallelism)
       throws IOException, InterruptedException {
-    List<LlmProposalResult> results = proposeParallelExtrasWithUsage(userPrompt, extraDraws, parallelism);
+    List<LlmProposalResult> results =
+        proposeParallelExtrasWithUsage(userPrompt, extraDraws, parallelism);
     List<String> texts = new ArrayList<>(results.size());
     for (LlmProposalResult r : results) {
       texts.add(r.content());
@@ -265,25 +328,50 @@ public final class PredicateProposalClient {
   }
 
   /**
-   * Sends the request with retries on transient failures (network errors and 5xx /
-   * 429 responses): 2 retries by default, with a capped linear backoff. Non-transient
-   * client errors (4xx other than 429) are not retried.
+   * Sends the request with retries on transient failures (network errors and 5xx / 429 responses):
+   * 2 retries by default, with a capped linear backoff. Non-transient client errors (4xx other than
+   * 429) are not retried.
    */
-  private InputStream sendWithRetries(HttpRequest req) throws IOException, InterruptedException {
+  private AttemptResponse sendWithRetries(
+      HttpRequest req, String logicalRequestId, String requestHash)
+      throws IOException, InterruptedException {
     IOException lastIo = null;
     int attempts = retryAttempts + 1;
     for (int attempt = 1; attempt <= attempts; attempt++) {
+      logAttempt(logicalRequestId, requestHash, attempt, attempts, "start", "started", null, false);
       HttpResponse<InputStream> resp;
       try {
         resp = http.send(req, HttpResponse.BodyHandlers.ofInputStream());
+      } catch (InterruptedException e) {
+        logAttempt(
+            logicalRequestId,
+            requestHash,
+            attempt,
+            attempts,
+            "terminal",
+            "interrupted",
+            null,
+            false);
+        throw e;
       } catch (IOException e) {
         lastIo = e;
+        logAttempt(
+            logicalRequestId, requestHash, attempt, attempts, "terminal", "io_error", null, true);
         if (attempt < attempts) {
           Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
         }
         continue;
       }
       if (resp.statusCode() == 429 || resp.statusCode() >= 500) {
+        logAttempt(
+            logicalRequestId,
+            requestHash,
+            attempt,
+            attempts,
+            "terminal",
+            "retryable_http_error",
+            resp.statusCode(),
+            true);
         String error;
         try (InputStream errorBody = resp.body()) {
           error = new String(errorBody.readAllBytes(), StandardCharsets.UTF_8);
@@ -293,6 +381,7 @@ public final class PredicateProposalClient {
             Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
             continue;
           }
+          logOutcome(logicalRequestId, requestHash, "retry_exhausted");
           throw new IOException(
               provider + " API " + resp.statusCode() + " but failed to read error body", e);
         }
@@ -300,17 +389,75 @@ public final class PredicateProposalClient {
           Thread.sleep(Math.min(retryBackoffMs * (long) attempt, MAX_RETRY_DELAY_MS));
           continue;
         }
+        logOutcome(logicalRequestId, requestHash, "retry_exhausted");
         throw new IOException(provider + " API " + resp.statusCode() + ": " + error);
       }
       if (resp.statusCode() != 200) {
+        logAttempt(
+            logicalRequestId,
+            requestHash,
+            attempt,
+            attempts,
+            "terminal",
+            "http_error",
+            resp.statusCode(),
+            false);
+        String error;
         try (InputStream errorBody = resp.body()) {
-          String error = new String(errorBody.readAllBytes(), StandardCharsets.UTF_8);
-          throw new IOException(provider + " API " + resp.statusCode() + ": " + error);
+          error = new String(errorBody.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+          logOutcome(logicalRequestId, requestHash, "failed");
+          throw new IOException(
+              provider + " API " + resp.statusCode() + " but failed to read error body", e);
         }
+        logOutcome(logicalRequestId, requestHash, "failed");
+        throw new IOException(provider + " API " + resp.statusCode() + ": " + error);
       }
-      return resp.body();
+      return new AttemptResponse(resp.body(), attempt);
     }
+    logOutcome(logicalRequestId, requestHash, "retry_exhausted");
     throw Objects.requireNonNull(lastIo);
+  }
+
+  private record AttemptResponse(InputStream body, int attempt) {}
+
+  private void logAttempt(
+      String logicalRequestId,
+      String requestHash,
+      int attempt,
+      int maxAttempts,
+      String phase,
+      String outcome,
+      @Nullable Integer status,
+      boolean retryable) {
+    var event = JSON.createObjectNode();
+    event.put("schema", "vguide-http-attempt-v1");
+    event.put("event", "llm_http_attempt");
+    event.put("logical_request_scope", "client_instance");
+    event.put("logical_request_id", logicalRequestId);
+    event.put("request_hash", requestHash);
+    event.put("attempt", attempt);
+    event.put("max_attempts", maxAttempts);
+    event.put("phase", phase);
+    event.put("outcome", outcome);
+    event.put("retryable", retryable);
+    if (status == null) {
+      event.putNull("http_status");
+    } else {
+      event.put("http_status", status);
+    }
+    logger.log(Level.INFO, "VGuide LLM HTTP evidence: ", event.toString());
+  }
+
+  private void logOutcome(String logicalRequestId, String requestHash, String outcome) {
+    var event = JSON.createObjectNode();
+    event.put("schema", "vguide-http-attempt-v1");
+    event.put("event", "llm_request_outcome");
+    event.put("logical_request_scope", "client_instance");
+    event.put("logical_request_id", logicalRequestId);
+    event.put("request_hash", requestHash);
+    event.put("outcome", outcome);
+    logger.log(Level.INFO, "VGuide LLM HTTP evidence: ", event.toString());
   }
 
   static LlmProposalResult parseStreamingResponse(InputStream input) throws IOException {
@@ -530,7 +677,9 @@ public final class PredicateProposalClient {
     }
     if (replay) {
       return LlmResponseCache.forReplay(
-          Path.of(replayDir), namespace, readBooleanEnv("VGUIDE_LLM_REPLAY_PRESERVE_LATENCY", true));
+          Path.of(replayDir),
+          namespace,
+          readBooleanEnv("VGUIDE_LLM_REPLAY_PRESERVE_LATENCY", true));
     }
     return null;
   }
@@ -552,5 +701,4 @@ public final class PredicateProposalClient {
         .hashString(requestBody, StandardCharsets.UTF_8)
         .toString();
   }
-
 }
