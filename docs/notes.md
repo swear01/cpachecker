@@ -4,6 +4,50 @@
 
 ## Gotchas
 
+- **Terminal experiment notification (#180).** Wrap the real supervisor with
+  `python3 scripts/vguided-cegar/notify_core_only_completion.py --summary NEW/checkpoint-summary.json --receipt NEW/notification.json --session COORDINATOR_UUID -- python3 NEW/supervisor.py`
+  inside the session-attached `hapi job run` command. Create `NEW` first. Both summary and
+  receipt must be fresh. The supervisor must drain launched workers and write its final
+  summary on STOP as well as normal completion; the wrapper waits for process termination,
+  then sends summary hash, counts, STOP reason and exit status through `hapi ping-peer`.
+  Missing/malformed summary or failed notification produces a nonzero wrapper exit and
+  a receipt explaining the failure. Notification `accepted` means the CLI succeeded,
+  not that the coordinator read it. SIGKILL leaves the reserved receipt pending;
+  do not treat a pending receipt or a STOP sentinel as delivered final notification.
+- **CFA heap exhaustion can exit 0 without a verdict (#180).** The log warning
+  `memory problems (Java heap space)` is classified as `out_of_memory`; an exit code of zero
+  does not certify a completed analysis. Preserve the empty reported verdict and raw log.
+- **Core-only evidence contract (#179).** `run_core_only.sh` writes untouched verifier logs and
+  `<task>.execution.json` with the actual process exit/signal, termination reason, command and
+  monotonic elapsed time. SIGINT/SIGTERM cleanup reaps the isolated process group and writes an
+  `interrupted` status before propagating the signal; this is an infrastructure failure, even when
+  the verifier printed a result. Incomplete attempts require a fresh output directory; resume preserves
+  completed failures. `wall_s` is the uncapped CPA statistic, `raw_wall_s` is measured process
+  elapsed time, and only `score_wall_s` is capped; absent measurements and dump metrics are null.
+  `reported_verdict` preserves the actual summary even if the process later crashes; failures
+  cannot masquerade as an ordinary UNKNOWN. Runtime metadata hashes existing launcher, classes,
+  libraries and Java bytes without rebuilding them. This deployment identity includes absolute
+  paths: paired arms require the same frozen checkout/JDK locations; relocation is not transparent.
+  Capture sends TERM to the verifier group, waits up to 10 seconds for its leader, then
+  KILLs remaining group members and reaps the leader. Repeated SIGINT/SIGTERM cannot
+  bypass cleanup; SIGKILL cannot be handled. Direct `capture_run` callers must run
+  in the main thread for signal handling.
+  Launcher-injected `CPACHECKER_ARGUMENTS` are refused because they bypass the captured command.
+  Run `check_core_only_smoke.py <stock>/records.jsonl <augmented>/records.jsonl --manifest <frozen.json>`
+  with adjacent `run_meta.json` files and original artifact paths available. Integrity rechecks
+  required typed resource/provider/tier metadata, captured CPU/heap consistency, same-host pairing,
+  frozen task/source/label identity, uniqueness, pairing, metadata/artifact hashes and harvested
+  fields, including the capped score, against raw logs/status/dumps. Smoke eligibility is separate from structural integrity.
+  `--known-disputes` annotates official wrongs and never waives them.
+  `analyze_core_only_pair.py --stock-records <path> --augmented-records <path> --manifest <path> --out <new.json>`
+  retains failures and official wrong counts for exploration, stops an affected comparison on
+  integrity failure or a new augmentation-only wrong, and emits no formal timing/PAR-2 claims.
+  `dump_status` distinguishes present, partial, missing, malformed and stock not-applicable;
+  fewer refinement rows than summary attempts means partial coverage, including an unfinished
+  or feasible final counterexample. Candidate counts describe observed rows and can be lower
+  bounds for partial dumps. Excess rows are malformed evidence.
+  finer hook/coverage explanations belong to the #108 analyzer.
+
 - **正式 run 一律用 claimed HAPI worktree 與 session-attached job（since 2026-08-26，#153）。** NFS 共享 repo 的 classes/ 在執行中 rebuild 會讓 JVM `NoClassDefFoundError: ...$1`（匿名 class 不一致）crash 整個 run（2026-08-16 兩次：212/224、174/224 crash 作廢）；改被執行中的 script 也會 bash `unexpected EOF`。勿再從主 repo 或 detached `nohup` driver 跑正式實驗。
 - **每個實驗必須先建立 GitHub tracking issue（流程 #97）。** Issue 是跨 agent/session 的生命週期介面：launch 前記 hypothesis、arms、commit/config/manifest/spec hashes、provider/route、資源協議、exact command、output path 與 acceptance criteria；launch 時記 machine/worktree/start/run id；執行中記 provider/infrastructure failures 與 reruns；harvest 時回貼完整 records、verdict/wrong/dispute/failure/PAR-2、validity decision、artifact paths/hashes。Issue 不能取代 `run_meta.json`、`records.jsonl` 與 raw logs。
 - **764 全量 run 必須用 `run.sh --mode svcomp26-vguide`（或明確設 `VGUIDE_CONFIG`/`VGUIDE_SVCOMP`/`VGUIDE_SPEC`）— since 2026-08-14.** `run_benchmark_set.sh` 的 config 預設是 `predicateAnalysis-vguide`；直接跑它會與既有 764 數據（`svcomp26-vguide`）不可比。2026-08-14 的 Flash run 就是這樣作廢的（漏 `VGUIDE_CONFIG` → 613 vs 242 LLM 觸發、全部收割結論作廢，見 #76）。完整 launch 環境對照：`cpachecker-experiments/docs/LAUNCH_RECIPES.md`（sibling）。收割前驗證：summary CSV 的 `config` 欄位（2026-08-14 起記錄）或任一 task log 開頭的 `CPAchecker ... / <config>` 字串。
@@ -76,7 +120,10 @@
   runs may proceed without an idle-ready host when they record host/load/provenance; they
   support correct verdict/refinement
   claims only, and near-timeout or asymmetric-load outcomes require replication. `run_core_only.sh`
-  remains the strict timing runner. Full text: `docs/EXPERIMENT_PROTOCOL.md` (branch
+  defaults to the strict timing policy. For owner-authorized exploration (#180/#182),
+  `--exploratory --cpu-list 8,10 --parallel 2` records load and memory pressure while
+  accepting ordinary background load. CPU allocation and evidence tier are frozen
+  resume fields; exploratory metadata forbids timing/PAR-2 claims. Full text: `docs/EXPERIMENT_PROTOCOL.md` (branch
   `research/vguide-upstream-reimpl`). The 2026-08-11 stock+augmented 224 runs predate this
   and support verdict-only usefulness observations, not timing claims.
 - **LLM soundness constraint.** VGuide must only propose candidates (Tier S) or control resources/routing (Tier R). Never let LLM output be used as a direct verdict or unverified assumption (Tier X = forbidden).
