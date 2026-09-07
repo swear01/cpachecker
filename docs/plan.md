@@ -5,6 +5,10 @@
 - **#203/#205 integration:** the integration and Java/context successor are
   merged in current main. #177/#189 documentation is consolidated here with
   the newer #198 census.
+- **Current status:** #211 is merged and closes #210; its 14 client tests pass,
+  but it does not enforce the new cap. #212/PR #213 nested-capture cleanup is
+  under final review. #208 remains pending final-runtime/stop validation and
+  the new 24-to-218 execution; it has no new full-cohort result.
 - **#208 current checkpoint vs #180 supplement:** #208 is the new-main
   24-task-to-218 checkpoint (24 first, then the remaining 194) under one
   freeze. The old #180/#198 recovery stopped with 184 matched pairs and two
@@ -18,7 +22,10 @@
   disposition, supported attached jobs, exact frozen runtime, budget and
   resource qualification. #197 has no accepted solver repair.
 - **Context follow-up:** the #109/#205 context implementation is complete;
-  production-trigger qualification remains pending in #206. #200 supplies a
+  #206 is closed/accepted for model-free qualification on four original
+  fixtures with 8/8 offline empty-response requests, exact hashes and
+  trigger/context/accounting evidence. It proves request/context/replay
+  mechanism only, not live model, predicate or solve quality. #200 supplies a
   separate bounded A/B design.
   The completed #183 wording A/B supports retaining baseline wording; #194
   is closed without merging its cue.
@@ -38,6 +45,10 @@ one-request limit: same-round repair and transport retries must be budgeted.
 
 ## Completed or deferred
 
+- #105 completed six foreground zero-provider-call runs: cached full-response
+  TRUE 3/3 and Stock TRUE 3/3. This is fixed-response whole-augmentation
+  versus legal Stock evidence, not isolated candidate causality or a speedup/
+  population claim; its broader ablation remains open.
 - #181 compiler/LLM consumer fixtures are bounded mechanism evidence; PR #186
   supplies its provenance checker. No hard-218 solve-rate extrapolation.
 - #172 five-fixture mechanism result is complete; #173 remains stopped and
