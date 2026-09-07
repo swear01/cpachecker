@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import sys
 import tempfile
@@ -103,6 +104,40 @@ class PredicateStudyCoverageTest(unittest.TestCase):
             write_summary(missing_rows, refinements=1)
             coverage = study.classify_coverage(missing_rows, HOOK_LOG)
             self.assertEqual(coverage.reason, "missing_refinements_jsonl")
+
+    def test_malformed_summary_does_not_abort_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            task_dir = root / "tasks" / "bad_summary"
+            write_summary(task_dir)
+            summary = json.loads((task_dir / "task_summary.json").read_text())
+            summary["refinements"] = "unknown"
+            (task_dir / "task_summary.json").write_text(json.dumps(summary))
+
+            report = study.ValidationReport()
+            study.validate_task("bad_summary", root, None, False, report)
+            self.assertTrue(any("not an integer" in f.message for f in report.failures))
+
+    def test_malformed_llm_rows_keep_api_count_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            task_dir = root / "tasks" / "bad_rows"
+            write_summary(task_dir, refinements=1, llm_rounds=1)
+            (task_dir / "llm_rounds.jsonl").write_text("not json\n")
+            manifest = root / "manifest.list"
+            manifest.write_text("bad_rows.yml\n")
+
+            out = root / "analysis"
+            study.run_analysis(root, manifest, None, None, out)
+            with (out / "context_budget_per_task.csv").open(newline="") as stream:
+                row = next(csv.DictReader(stream))
+            self.assertEqual(row["coverage_reason"], "malformed_jsonl")
+            self.assertEqual(row["api_calls"], "")
+
+    def test_non_numeric_budget_values_are_unknown(self) -> None:
+        rows = [{"prompt_tokens": "not-a-number"}, {"prompt_tokens": 12}]
+        self.assertEqual(study.sum_known(rows, "prompt_tokens"), 12)
+        self.assertEqual(study.median_known([{"prompt_tokens": "not-a-number"}], "prompt_tokens"), "")
 
     def test_dump_is_sufficient_reach_evidence_when_hook_log_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
