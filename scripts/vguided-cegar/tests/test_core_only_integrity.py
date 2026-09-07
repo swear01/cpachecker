@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -604,9 +605,83 @@ def test_capture_preserves_status_when_process_exits_before_sigkill(
     proc = SimpleNamespace(pid=12345, returncode=0, wait=wait)
     monkeypatch.setattr(records.subprocess, "Popen", lambda *args, **kwargs: proc)
     monkeypatch.setattr(records.os, "killpg", killpg)
-    outcome = records.capture_run(["fixture"], tmp_path / "log", tmp_path / "status", 1)
+    outcome = records.capture_run(
+        ["fixture"], tmp_path / "log", tmp_path / "status", 1, termination_grace=0
+    )
     assert outcome["termination_reason"] == "wall_timeout" and outcome["exit_code"] == 0
     assert json.loads((tmp_path / "status").read_text()) == outcome
+
+
+def test_capture_waits_for_nested_capture_after_outer_leader_exits(tmp_path):
+    inner_log = tmp_path / "inner.log"
+    inner_status = tmp_path / "inner.json"
+    leaf_ready = tmp_path / "leaf.pid"
+    records_script = Path(records.__file__).resolve()
+    leaf_code = (
+        "import os, signal, time; from pathlib import Path; "
+        f"Path({str(leaf_ready)!r}).write_text(str(os.getpid())); "
+        "signal.signal(signal.SIGTERM, lambda *_: time.sleep(0.25)); "
+        "time.sleep(60)"
+    )
+    inner_command = [
+        sys.executable,
+        str(records_script),
+        "capture",
+        "--log",
+        str(inner_log),
+        "--status",
+        str(inner_status),
+        "--wall-limit",
+        "60",
+        "--termination-grace",
+        "0.5",
+        "--",
+        sys.executable,
+        "-c",
+        leaf_code,
+    ]
+    launcher_code = f"""
+import os, signal, subprocess, time
+from pathlib import Path
+inner = subprocess.Popen({inner_command!r}, start_new_session=True)
+def stop(*_):
+    os.kill(inner.pid, signal.SIGTERM)
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, stop)
+while not Path({str(leaf_ready)!r}).exists():
+    time.sleep(0.01)
+time.sleep(60)
+"""
+    outcome = records.capture_run(
+        [sys.executable, "-c", launcher_code],
+        tmp_path / "outer.log",
+        tmp_path / "outer.json",
+        5,
+        termination_grace=0.8,
+    )
+    assert outcome["termination_reason"] == "wall_timeout"
+    assert json.loads(inner_status.read_text())["termination_reason"] == "interrupted"
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(leaf_ready.read_text()), 0)
+
+
+def test_capture_bounds_uncooperative_group_without_unrelated_signal(tmp_path):
+    unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(5)"])
+    try:
+        code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(5)"
+        outcome = records.capture_run(
+            [sys.executable, "-c", code],
+            tmp_path / "log",
+            tmp_path / "status",
+            1,
+            termination_grace=0.05,
+        )
+        assert outcome["termination_reason"] == "wall_timeout"
+        assert outcome["signal"] == signal.SIGKILL
+        assert unrelated.poll() is None
+    finally:
+        unrelated.terminate()
+        unrelated.wait(timeout=5)
 
 
 def test_missing_execution_sidecar_is_an_integrity_error(tmp_path):
