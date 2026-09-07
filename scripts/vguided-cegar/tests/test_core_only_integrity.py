@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -652,19 +653,46 @@ while not Path({str(leaf_ready)!r}).exists():
     time.sleep(0.01)
 time.sleep(60)
 """
+    outer_log = tmp_path / "outer.log"
+    outer_status = tmp_path / "outer.json"
+    outer = subprocess.Popen(
+        [
+            sys.executable,
+            str(records_script),
+            "capture",
+            "--log",
+            str(outer_log),
+            "--status",
+            str(outer_status),
+            "--wall-limit",
+            "60",
+            "--termination-grace",
+            "0.8",
+            "--",
+            sys.executable,
+            "-c",
+            launcher_code,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
     try:
-        outcome = records.capture_run(
-            [sys.executable, "-c", launcher_code],
-            tmp_path / "outer.log",
-            tmp_path / "outer.json",
-            5,
-            termination_grace=0.8,
-        )
-        assert outcome["termination_reason"] == "wall_timeout"
+        deadline = time.monotonic() + 20
+        while not leaf_ready.exists() and time.monotonic() < deadline:
+            assert outer.poll() is None
+            time.sleep(0.01)
+        assert leaf_ready.exists()
+        outer.send_signal(signal.SIGINT)
+        assert outer.wait(timeout=20) == -signal.SIGINT
+        assert json.loads(outer_status.read_text())["termination_reason"] == "interrupted"
         assert json.loads(inner_status.read_text())["termination_reason"] == "interrupted"
         with pytest.raises(ProcessLookupError):
             os.kill(int(leaf_ready.read_text()), 0)
     finally:
+        if outer.poll() is None:
+            outer.kill()
+        outer.wait(timeout=5)
         if leaf_ready.exists():
             try:
                 os.kill(int(leaf_ready.read_text()), signal.SIGKILL)
