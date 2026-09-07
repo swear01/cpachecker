@@ -7,6 +7,7 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -74,7 +75,9 @@ public final class PredicateValidationPipeline {
   }
 
   public record CandidateValidationOutcome(
-      ValidationResult validation, ImmutableList<CandidateRejection> rejections) {}
+      ValidationResult validation,
+      ImmutableList<CandidateRejection> rejections,
+      ImmutableMap<ValidatedPredicate, String> rawStrings) {}
 
   public CandidateValidationOutcome validateCandidates(
       ContextPack pack, List<LoopHeadCandidate> candidates, List<? extends AbstractState> absTrace) {
@@ -108,6 +111,7 @@ public final class PredicateValidationPipeline {
     Map<CFANode, Set<String>> blockVarsCache = new HashMap<>();
     Map<CFANode, List<BooleanFormula>> validatedAtHead = new HashMap<>();
     List<ValidatedPredicate> out = new ArrayList<>();
+    Map<ValidatedPredicate, String> rawStrings = new HashMap<>();
     List<CandidateRejection> rejections = new ArrayList<>();
     Set<String> validatedPairs = new HashSet<>();
     for (LoopHeadCandidate candidate : orderedByRole(candidates)) {
@@ -149,7 +153,9 @@ public final class PredicateValidationPipeline {
       Set<String> freeVars = null;
       String formulaText = null;
       if (!arrayCandidate) {
-        parsed = VocabularyGuide.parsePredicate(candidate.predicate(), fmgr, pack.encodedVars());
+        parsed =
+            VocabularyGuide.parsePredicate(
+                candidate.predicate(), fmgr, pack.encodedVars(), ImmutableMap.of(), arrayTranslator.varBits());
         if (parsed == null) {
           rejections.add(
               new CandidateRejection(
@@ -181,11 +187,8 @@ public final class PredicateValidationPipeline {
         Set<String> headFreeVars = freeVars;
         String headFormulaText = formulaText;
         if (!arrayCandidate) {
-          // Parse against the head's BLOCK variables only (issue #92): resolving a
-          // source name to the block's SSA version reuses the width already declared
-          // by the block formula — a short/char width clash then fails parsing and
-          // rejects the candidate instead of crashing abstraction construction.
-          // (fmgr.instantiate only renames variables; it cannot fix widths.)
+          // Preserve both the native symbol width and the head's SSA version. Instantiation
+          // only renames symbols; C integer promotions belong on terms, not declarations.
           BooleanFormula block = blockByNode.get(head.node());
           if (block != null) {
             // Block variables first: source names resolve to the head's SSA versions
@@ -195,7 +198,9 @@ public final class PredicateValidationPipeline {
                 new LinkedHashSet<>(
                     blockVarsCache.computeIfAbsent(head.node(), node -> fmgr.extractVariableNames(block)));
             parseVars.addAll(pack.encodedVars());
-            headParsed = VocabularyGuide.parsePredicate(candidate.predicate(), fmgr, parseVars);
+            headParsed =
+                VocabularyGuide.parsePredicate(
+                    candidate.predicate(), fmgr, parseVars, ImmutableMap.of(), arrayTranslator.varBits());
             if (headParsed == null) {
               rejections.add(
                   new CandidateRejection(
@@ -230,7 +235,7 @@ public final class PredicateValidationPipeline {
               VocabularyGuide.parsePredicate(
                   translated,
                   fmgr,
-                  pack.encodedVars(),
+                  unversionedEncodedVars,
                   arrayTranslator.arrayTypes(),
                   arrayTranslator.varBits());
           if (headParsed == null) {
@@ -344,7 +349,7 @@ public final class PredicateValidationPipeline {
             validatedAtHead.computeIfAbsent(head.node(), node -> new ArrayList<>()).add(headParsed);
           }
         }
-        out.add(
+        ValidatedPredicate validated =
             new ValidatedPredicate(
                 headParsed,
                 head.node(),
@@ -352,7 +357,9 @@ public final class PredicateValidationPipeline {
                 candidate.role(),
                 candidate.variables(),
                 overSpecific,
-                groupConflict));
+                groupConflict);
+        out.add(validated);
+        rawStrings.put(validated, candidate.predicate());
         if (!perHead.isEmpty()) {
           perHead.append(' ');
         }
@@ -367,7 +374,9 @@ public final class PredicateValidationPipeline {
       logger.log(Level.INFO, "VGuide predicate ", lastFormulaText, " [", perHead, "]");
     }
     return new CandidateValidationOutcome(
-        new ValidationResult(ImmutableList.copyOf(out)), ImmutableList.copyOf(rejections));
+        new ValidationResult(ImmutableList.copyOf(out)),
+        ImmutableList.copyOf(rejections),
+        ImmutableMap.copyOf(rawStrings));
   }
 
   /** initiation first, then supporting, then the remaining roles in input order (stable). */
