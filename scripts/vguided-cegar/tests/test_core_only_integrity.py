@@ -714,16 +714,6 @@ time.sleep(60)
 def test_capture_rejects_nonfinite_limits(tmp_path, option, value):
     wall_limit = "1" if option != "--wall-limit" else value
     termination_grace = "1" if option != "--termination-grace" else value
-    wall_args = (
-        ["--wall-limit=-inf"]
-        if option == "--wall-limit" and value == "-inf"
-        else ["--wall-limit", wall_limit]
-    )
-    termination_args = (
-        ["--termination-grace=-inf"]
-        if option == "--termination-grace" and value == "-inf"
-        else ["--termination-grace", termination_grace]
-    )
     result = subprocess.run(
         [
             sys.executable,
@@ -733,8 +723,8 @@ def test_capture_rejects_nonfinite_limits(tmp_path, option, value):
             str(tmp_path / "log"),
             "--status",
             str(tmp_path / "status"),
-            *wall_args,
-            *termination_args,
+            f"--wall-limit={wall_limit}",
+            f"--termination-grace={termination_grace}",
             "--",
             sys.executable,
             "-c",
