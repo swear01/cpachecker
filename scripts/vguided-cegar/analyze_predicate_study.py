@@ -33,6 +33,21 @@ RE_REPAIR = re.compile(r"ensemble L1 empty; one repair LLM call")
 RE_VER = re.compile(r"Verification result:\s*(\w+)", re.I)
 RE_WALL = re.compile(r"Total time for CPAchecker:\s+([\d.]+)")
 RE_REFS = re.compile(r"Number of predicate refinements:\s+(\d+)")
+RE_VGUIDE_HOOK = re.compile(r"Unified VGuide CEGAR enabled")
+RE_VGUIDE_EVENT = re.compile(r"VGuide (?:peel:|LLM round|analysis dump|outcome:)")
+RE_PROVIDER_FAILURE = re.compile(r"VGuide LLM call failed")
+RE_ANALYSIS_CRASH = re.compile(
+    r"(?:SIG(?:SEGV|ABRT|BUS|ILL|FPE)|Segmentation fault|stack smashing detected|"
+    r"A fatal error has been detected by the Java Runtime Environment|"
+    r"Exception in thread\b|java\.lang\.[\w$]*(?:Exception|Error)\b|"
+    r"\bNoSuch(?:Method|Field)Error\b|\bOutOfMemoryError\b|\bhs_err_pid\d+)"
+)
+SCHEDULE_SKIP_REASONS = {
+    "schedule",
+    "wall_budget",
+    "process_round_cap",
+    "source_prior",
+}
 
 
 @dataclass
@@ -59,6 +74,22 @@ class ValidationReport:
         return not self.failures
 
 
+@dataclass(frozen=True)
+class Coverage:
+    status: str
+    reason: str
+    dump_status: str
+    evidence: tuple[str, ...] = ()
+
+    def fields(self) -> dict[str, str]:
+        return {
+            "coverage_status": self.status,
+            "coverage_reason": self.reason,
+            "dump_status": self.dump_status,
+            "coverage_evidence": ";".join(self.evidence),
+        }
+
+
 def load_manifest(path: Path) -> list[str]:
     tasks: list[str] = []
     for line in path.read_text().splitlines():
@@ -73,8 +104,9 @@ def load_json(path: Path) -> dict | None:
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text())
-    except json.JSONDecodeError:
+        value = json.loads(path.read_text())
+        return value if isinstance(value, dict) else None
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return None
 
 
@@ -86,8 +118,21 @@ def load_jsonl(path: Path) -> list[dict]:
         line = line.strip()
         if not line:
             continue
-        rows.append(json.loads(line))
+        row = json.loads(line)
+        if not isinstance(row, dict):
+            raise TypeError("JSONL row is not an object")
+        rows.append(row)
     return rows
+
+
+def load_jsonl_state(path: Path) -> tuple[list[dict], str | None]:
+    """Load JSONL while retaining missing/malformed-file evidence."""
+    if not path.is_file():
+        return [], "missing"
+    try:
+        return load_jsonl(path), None
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        return [], "malformed"
 
 
 def norm_smt(s: str) -> str:
@@ -118,9 +163,9 @@ def load_log_verdict(log_path: Path) -> dict:
     m = RE_VER.search(text)
     verdict = m.group(1).upper() if m else "UNKNOWN"
     wm = RE_WALL.search(text)
-    wall = float(wm.group(1)) if wm else 0.0
+    wall = float(wm.group(1)) if wm else None
     rm = RE_REFS.search(text)
-    refs = int(rm.group(1)) if rm else 0
+    refs = int(rm.group(1)) if rm else None
     return {"verdict": verdict, "wall_s": wall, "refinements": refs}
 
 
@@ -132,10 +177,87 @@ def load_csv_verdicts(csv_path: Path) -> dict[str, dict]:
         for row in csv.DictReader(f):
             out[row["task"]] = {
                 "verdict": row.get("result", "UNKNOWN").upper(),
-                "wall_s": float(row.get("wall_s") or 0),
-                "refinements": int(row.get("refinements") or 0),
+                "wall_s": float(row["wall_s"]) if row.get("wall_s") else None,
+                "refinements": int(row["refinements"]) if row.get("refinements") else None,
             }
     return out
+
+
+def classify_coverage(task_dir: Path, log_text: str = "") -> Coverage:
+    """Classify dump coverage without turning missing evidence into zeroes."""
+    task_summary_path = task_dir / "task_summary.json"
+    summary = load_json(task_summary_path)
+    refinements, refinements_state = load_jsonl_state(task_dir / "refinements.jsonl")
+    llm_rounds, llm_state = load_jsonl_state(task_dir / "llm_rounds.jsonl")
+    provider_failure = bool(RE_PROVIDER_FAILURE.search(log_text)) or any(
+        r.get("llm_skip_reason") == "llm_failed" for r in refinements
+    )
+    hook_reached = bool(
+        RE_VGUIDE_HOOK.search(log_text)
+        or RE_VGUIDE_EVENT.search(log_text)
+        or provider_failure
+    )
+    evidence: list[str] = []
+    if RE_VGUIDE_HOOK.search(log_text):
+        evidence.append("hook_log")
+    elif RE_VGUIDE_EVENT.search(log_text):
+        evidence.append("vguide_event_log")
+
+    if RE_ANALYSIS_CRASH.search(log_text):
+        dump_status = "present" if task_dir.is_dir() else "missing"
+        return Coverage("analysis_crash", "crash_evidence", dump_status, tuple(evidence + ["crash_log"]))
+
+    if not task_dir.is_dir():
+        if hook_reached:
+            return Coverage("dump_incomplete", "missing_task_directory", "missing", tuple(evidence))
+        if log_text and (RE_VER.search(log_text) or "Error:" in log_text):
+            return Coverage("vguide_not_reached", "no_hook_evidence", "not_applicable", ("completed_log",))
+        return Coverage("dump_incomplete", "missing_dump_evidence", "missing", ())
+
+    if not task_summary_path.is_file():
+        return Coverage("dump_incomplete", "missing_task_summary", "incomplete", tuple(evidence))
+    if summary is None:
+        return Coverage("dump_incomplete", "malformed_task_summary", "malformed", tuple(evidence))
+    if refinements_state == "malformed" or llm_state == "malformed":
+        return Coverage("dump_incomplete", "malformed_jsonl", "malformed", tuple(evidence))
+    if provider_failure:
+        return Coverage("provider_failure", "llm_failed", "present", tuple(evidence + ["provider_log"]))
+
+    refinement_count = summary.get("refinements")
+    if refinement_count is None:
+        return Coverage("dump_incomplete", "missing_refinement_count", "incomplete", tuple(evidence))
+    if not isinstance(refinement_count, int) or refinement_count < 0:
+        return Coverage("dump_incomplete", "malformed_refinement_count", "malformed", tuple(evidence))
+    if refinement_count > 0 and refinements_state == "missing":
+        return Coverage("dump_incomplete", "missing_refinements_jsonl", "incomplete", tuple(evidence))
+    llm_count = summary.get("llm_rounds")
+    api_count = summary.get("llm_api_calls")
+    if any(
+        count is not None and (not isinstance(count, int) or count < 0)
+        for count in (llm_count, api_count)
+    ):
+        return Coverage("dump_incomplete", "malformed_llm_count", "malformed", tuple(evidence))
+    if any(count and count > 0 for count in (llm_count, api_count)) and llm_state == "missing":
+        return Coverage("dump_incomplete", "missing_llm_rounds_jsonl", "incomplete", tuple(evidence))
+    if refinement_count == 0 and not refinements:
+        return Coverage(
+            "no_spurious_ce",
+            "zero_spurious_refinements",
+            "present",
+            tuple(evidence + ["summary"]),
+        )
+
+    skip_reasons = {r.get("llm_skip_reason") for r in refinements if not r.get("llm_called")}
+    if not llm_rounds and skip_reasons & SCHEDULE_SKIP_REASONS:
+        return Coverage(
+            "llm_not_scheduled",
+            "all_llm_calls_skipped",
+            "present",
+            tuple(evidence + ["skip_reason"]),
+        )
+    if not llm_rounds and refinements and skip_reasons == {"no_interpolants"}:
+        return Coverage("no_spurious_ce", "no_spurious_interpolants", "present", tuple(evidence + ["skip_reason"]))
+    return Coverage("complete", "task_summary_present", "present", tuple(evidence + ["summary"]))
 
 
 def task_meta(
@@ -143,34 +265,47 @@ def task_meta(
     task_dir: Path,
     analysis_logs: dict[str, dict],
     stock_logs: dict[str, dict],
+    coverage: Coverage,
 ) -> dict:
     summary = load_json(task_dir / "task_summary.json")
-    if summary:
-        return {
+    refinements, refinements_state = load_jsonl_state(task_dir / "refinements.jsonl")
+    llm_rounds, llm_state = load_jsonl_state(task_dir / "llm_rounds.jsonl")
+    if summary is not None:
+        known_zero = coverage.status in {"no_spurious_ce", "llm_not_scheduled"}
+        meta = {
             "task": task,
             "verdict": summary.get("verdict", "UNKNOWN"),
-            "wall_s": summary.get("wall_s", 0),
-            "refinements_cpa": summary.get("refinements", 0),
-            "spurious_refinements": len(load_jsonl(task_dir / "refinements.jsonl")),
-            "llm_rounds": summary.get("llm_rounds", 0),
-            "llm_api_calls": summary.get("llm_api_calls", 0),
+            "wall_s": summary.get("wall_s"),
+            "refinements_cpa": summary.get("refinements"),
+            "spurious_refinements": (
+                len(refinements)
+                if refinements_state is None
+                else 0
+                if known_zero
+                else None
+            ),
+            "llm_rounds": summary.get("llm_rounds"),
+            "llm_api_calls": summary.get("llm_api_calls"),
             "vguide_outcome": summary.get("vguide_outcome", ""),
             "incomplete": False,
             "stock_verdict": stock_logs.get(task, {}).get("verdict", ""),
         }
-    fb = analysis_logs.get(task, {})
-    return {
-        "task": task,
-        "verdict": fb.get("verdict", "UNKNOWN"),
-        "wall_s": fb.get("wall_s", 0),
-        "refinements_cpa": fb.get("refinements", 0),
-        "spurious_refinements": len(load_jsonl(task_dir / "refinements.jsonl")),
-        "llm_rounds": len({r.get("llm_round_index") for r in load_jsonl(task_dir / "llm_rounds.jsonl")}),
-        "llm_api_calls": len(load_jsonl(task_dir / "llm_rounds.jsonl")),
-        "vguide_outcome": "",
-        "incomplete": True,
-        "stock_verdict": stock_logs.get(task, {}).get("verdict", ""),
-    }
+    else:
+        fb = analysis_logs.get(task, {})
+        meta = {
+            "task": task,
+            "verdict": fb.get("verdict", "UNKNOWN"),
+            "wall_s": fb.get("wall_s"),
+            "refinements_cpa": fb.get("refinements"),
+            "spurious_refinements": len(refinements) if refinements_state is None else None,
+            "llm_rounds": len({r.get("llm_round_index") for r in llm_rounds}) if llm_state is None else None,
+            "llm_api_calls": len(llm_rounds) if llm_state is None else None,
+            "vguide_outcome": "",
+            "incomplete": True,
+            "stock_verdict": stock_logs.get(task, {}).get("verdict", ""),
+        }
+    meta.update(coverage.fields())
+    return meta
 
 
 def predicate_in_local(local: dict, loop_head: str, smt: str, *, relaxed: bool = False) -> bool:
@@ -234,15 +369,19 @@ def validate_task(
     elif not summary.get("verdict"):
         report.fail(task, "V2", "task_summary.json missing verdict")
 
-    refinements = load_jsonl(task_dir / "refinements.jsonl")
-    llm_rounds = load_jsonl(task_dir / "llm_rounds.jsonl")
+    refinements, refinements_state = load_jsonl_state(task_dir / "refinements.jsonl")
+    llm_rounds, llm_state = load_jsonl_state(task_dir / "llm_rounds.jsonl")
+    if refinements_state == "malformed":
+        report.fail(task, "V2", "refinements.jsonl is malformed")
+    if llm_state == "malformed":
+        report.fail(task, "V2", "llm_rounds.jsonl is malformed")
     spurious_count = len(refinements)
-    ref_count = int(summary.get("refinements", 0)) if summary else spurious_count
+    ref_count = summary.get("refinements") if summary else spurious_count
 
     if ref_count == 0:
         if refinements:
             report.fail(task, "V3", f"expected 0 refinements.jsonl lines, got {spurious_count}")
-    elif spurious_count not in (ref_count, ref_count - 1):
+    elif ref_count is not None and spurious_count not in (ref_count, ref_count - 1):
         report.warn(
             task,
             "V3",
@@ -253,10 +392,10 @@ def validate_task(
         report.fail(task, "V8", "task_summary missing precision_final")
 
     log_text = log_path.read_text(errors="replace") if log_path and log_path.is_file() else ""
-    llm_api_calls = int(summary.get("llm_api_calls", 0)) if summary else len(llm_rounds)
+    llm_api_calls = summary.get("llm_api_calls") if summary else len(llm_rounds)
 
     if RE_LLM_ROUND.search(log_text):
-        if llm_api_calls <= 0 and llm_rounds:
+        if llm_api_calls is not None and llm_api_calls <= 0 and llm_rounds:
             report.fail(task, "V4", "log has VGuide LLM round but llm_api_calls=0")
         for row in llm_rounds:
             usage = row.get("usage")
@@ -338,15 +477,17 @@ def validate_dump(
         return report
 
     present = {p.name for p in tasks_root.iterdir() if p.is_dir()}
-    for task in tasks:
-        if task not in present:
-            report.fail(task, "V1", "task directory missing")
-
     for task in sorted(present - set(tasks)):
         report.fail(task, "V1", "unexpected task directory (not in manifest)")
 
     for task in tasks:
         log_path = logs_dir / f"{task}.log" if logs_dir else None
+        coverage = classify_coverage(
+            dump_dir / "tasks" / task,
+            log_path.read_text(errors="replace") if log_path and log_path.is_file() else "",
+        )
+        if coverage.status == "dump_incomplete":
+            report.fail(task, "V1", f"{coverage.reason} (coverage={coverage.status})")
         validate_task(task, dump_dir, log_path, dump_prompts, report)
 
     return report
@@ -358,6 +499,16 @@ def write_csv(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
+
+
+def sum_known(rows: list[dict], key: str) -> int | str:
+    values = [r[key] for r in rows if r.get(key) not in (None, "")]
+    return sum(int(v) for v in values) if values else ""
+
+
+def median_known(rows: list[dict], key: str) -> int | str:
+    values = sorted(int(r[key]) for r in rows if r.get(key) not in (None, ""))
+    return values[len(values) // 2] if values else ""
 
 
 def run_analysis(
@@ -384,10 +535,22 @@ def run_analysis(
         sp = stock_logs_dir.parent / "full_scalar_summary.csv"
         stock_csv = load_csv_verdicts(sp)
 
+    coverage_by_task = {
+        task: classify_coverage(
+            tasks_root / task,
+            (
+                (logs_dir / f"{task}.log").read_text(errors="replace")
+                if logs_dir and (logs_dir / f"{task}.log").is_file()
+                else ""
+            ),
+        )
+        for task in tasks
+    }
+
     # --- context_budget.csv ---
     budget_rows: list[dict] = []
     for task in tasks:
-        for row in load_jsonl(tasks_root / task / "llm_rounds.jsonl"):
+        for row in load_jsonl_state(tasks_root / task / "llm_rounds.jsonl")[0]:
             usage = row.get("usage") or {}
             details_p = usage.get("prompt_tokens_details") or {}
             details_c = usage.get("completion_tokens_details") or {}
@@ -402,19 +565,19 @@ def run_analysis(
                     "prompt_kind": row.get("prompt_kind"),
                     "prompt_profile": row.get("prompt_profile", ""),
                     "dual_prompt_mode": row.get("dual_prompt_mode", ""),
-                    "prompt_tokens": usage.get("prompt_tokens", 0),
-                    "completion_tokens": usage.get("completion_tokens", 0),
-                    "total_tokens": usage.get("total_tokens", 0),
-                    "prompt_cache_hit_tokens": usage.get("prompt_cache_hit_tokens", 0),
-                    "prompt_cache_miss_tokens": usage.get("prompt_cache_miss_tokens", 0),
-                    "reasoning_tokens": details_c.get("reasoning_tokens", 0),
-                    "latency_ms": row.get("latency_ms", 0),
-                    "prompt_chars": row.get("prompt_chars", 0),
-                    "chars_source": comps.get("source", 0),
-                    "chars_contract": comps.get("contract", 0),
-                    "chars_ce_summary": comps.get("ce_summary", comps.get("trace", 0)),
-                    "chars_rules": comps.get("rules", 0),
-                    "chars_loop_heads": comps.get("loop_heads", 0),
+                    "prompt_tokens": usage.get("prompt_tokens", ""),
+                    "completion_tokens": usage.get("completion_tokens", ""),
+                    "total_tokens": usage.get("total_tokens", ""),
+                    "prompt_cache_hit_tokens": usage.get("prompt_cache_hit_tokens", ""),
+                    "prompt_cache_miss_tokens": usage.get("prompt_cache_miss_tokens", ""),
+                    "reasoning_tokens": details_c.get("reasoning_tokens", ""),
+                    "latency_ms": row.get("latency_ms", ""),
+                    "prompt_chars": row.get("prompt_chars", ""),
+                    "chars_source": comps.get("source", ""),
+                    "chars_contract": comps.get("contract", ""),
+                    "chars_ce_summary": comps.get("ce_summary", comps.get("trace", "")),
+                    "chars_rules": comps.get("rules", ""),
+                    "chars_loop_heads": comps.get("loop_heads", ""),
                 }
             )
     write_csv(
@@ -451,26 +614,28 @@ def run_analysis(
         by_task[r["task"]].append(r)
     for task in tasks:
         rows = by_task.get(task, [])
-        meta = task_meta(task, tasks_root / task, analysis_csv, stock_csv)
+        meta = task_meta(task, tasks_root / task, analysis_csv, stock_csv, coverage_by_task[task])
+        llm_rounds_path = tasks_root / task / "llm_rounds.jsonl"
+        known_zero = meta["coverage_status"] in {"no_spurious_ce", "llm_not_scheduled"}
         budget_task_rows.append(
             {
                 **meta,
-                "api_calls": len(rows),
-                "prompt_tokens_sum": sum(int(r["prompt_tokens"]) for r in rows),
-                "completion_tokens_sum": sum(int(r["completion_tokens"]) for r in rows),
-                "total_tokens_sum": sum(int(r["total_tokens"]) for r in rows),
-                "latency_ms_sum": sum(int(r["latency_ms"]) for r in rows),
-                "prompt_tokens_median": sorted(int(r["prompt_tokens"]) for r in rows)[
-                    len(rows) // 2
-                ]
-                if rows
-                else 0,
+                "api_calls": 0 if known_zero else len(rows) if llm_rounds_path.is_file() else "",
+                "prompt_tokens_sum": 0 if known_zero else sum_known(rows, "prompt_tokens"),
+                "completion_tokens_sum": 0 if known_zero else sum_known(rows, "completion_tokens"),
+                "total_tokens_sum": 0 if known_zero else sum_known(rows, "total_tokens"),
+                "latency_ms_sum": 0 if known_zero else sum_known(rows, "latency_ms"),
+                "prompt_tokens_median": 0 if known_zero else median_known(rows, "prompt_tokens"),
             }
         )
     write_csv(
         out_dir / "context_budget_per_task.csv",
         [
             "task",
+            "coverage_status",
+            "coverage_reason",
+            "dump_status",
+            "coverage_evidence",
             "verdict",
             "stock_verdict",
             "incomplete",
@@ -499,14 +664,17 @@ def run_analysis(
 
     for task in tasks:
         task_dir = tasks_root / task
-        meta = task_meta(task, task_dir, analysis_csv, stock_csv)
+        meta = task_meta(task, task_dir, analysis_csv, stock_csv, coverage_by_task[task])
         precision_final = (load_json(task_dir / "task_summary.json") or {}).get(
             "precision_final", {}
         )
-        solved = meta["verdict"] in ("TRUE", "FALSE")
+        solved = (
+            meta["coverage_status"] in {"complete", "no_spurious_ce", "llm_not_scheduled"}
+            and meta["verdict"] in ("TRUE", "FALSE")
+        )
         had_llm = False
 
-        for ref in load_jsonl(task_dir / "refinements.jsonl"):
+        for ref in load_jsonl_state(task_dir / "refinements.jsonl")[0]:
             if not ref.get("llm_called"):
                 continue
             had_llm = True
@@ -540,6 +708,8 @@ def run_analysis(
                 pcs_rows.append(
                     {
                         "task": task,
+                        "coverage_status": meta["coverage_status"],
+                        "coverage_reason": meta["coverage_reason"],
                         "verdict": meta["verdict"],
                         "stock_verdict": meta["stock_verdict"],
                         "refinement_index": ref.get("refinement_index"),
@@ -570,6 +740,8 @@ def run_analysis(
         out_dir / "pcs_per_predicate.csv",
         [
             "task",
+            "coverage_status",
+            "coverage_reason",
             "verdict",
             "stock_verdict",
             "refinement_index",
@@ -601,26 +773,35 @@ def run_analysis(
 
     overlap_summary_rows: list[dict] = []
     for task in tasks:
-        meta = task_meta(task, tasks_root / task, analysis_csv, stock_csv)
+        meta = task_meta(task, tasks_root / task, analysis_csv, stock_csv, coverage_by_task[task])
         oc = overlap_task.get(task, Counter())
         total_p = sum(oc.values())
+        metrics_known = meta["coverage_status"] in {
+            "complete",
+            "no_spurious_ce",
+            "llm_not_scheduled",
+        }
         overlap_summary_rows.append(
             {
                 "task": task,
+                "coverage_status": meta["coverage_status"],
+                "coverage_reason": meta["coverage_reason"],
                 "verdict": meta["verdict"],
                 "stock_verdict": meta["stock_verdict"],
-                "llm_predicates": total_p,
-                "redundant": oc.get("Redundant", 0),
-                "novel": oc.get("Novel", 0),
-                "orthogonal": oc.get("Orthogonal", 0),
-                "vacuous": oc.get("Vacuous", 0),
-                "pct_novel": round(100.0 * oc.get("Novel", 0) / total_p, 1) if total_p else 0,
+                "llm_predicates": total_p if metrics_known else "",
+                "redundant": oc.get("Redundant", 0) if metrics_known else "",
+                "novel": oc.get("Novel", 0) if metrics_known else "",
+                "orthogonal": oc.get("Orthogonal", 0) if metrics_known else "",
+                "vacuous": oc.get("Vacuous", 0) if metrics_known else "",
+                "pct_novel": round(100.0 * oc.get("Novel", 0) / total_p, 1) if total_p else (0 if metrics_known else ""),
             }
         )
     write_csv(
         out_dir / "overlap_summary.csv",
         [
             "task",
+            "coverage_status",
+            "coverage_reason",
             "verdict",
             "stock_verdict",
             "llm_predicates",
@@ -634,13 +815,16 @@ def run_analysis(
     )
 
     # --- analysis_report.md ---
-    prompt_tokens = [int(r["prompt_tokens"]) for r in budget_rows if int(r["prompt_tokens"]) > 0]
+    prompt_tokens = [int(r["prompt_tokens"]) for r in budget_rows if r["prompt_tokens"] not in (None, "") and int(r["prompt_tokens"]) > 0]
     pt_sorted = sorted(prompt_tokens)
     verdict_counts = Counter(m["verdict"] for m in budget_task_rows)
+    coverage_counts = Counter(m["coverage_status"] for m in budget_task_rows)
     stock_rescued = sum(
         1
         for m in budget_task_rows
-        if m["stock_verdict"] == "UNKNOWN" and m["verdict"] in ("TRUE", "FALSE")
+        if m["coverage_status"] == "complete"
+        and m["stock_verdict"] == "UNKNOWN"
+        and m["verdict"] in ("TRUE", "FALSE")
     )
 
     report_lines = [
@@ -652,6 +836,7 @@ def run_analysis(
         "## Headline",
         "",
         f"- Verdicts: {dict(verdict_counts)}",
+        f"- Coverage: {dict(coverage_counts)}",
         f"- Tasks with ≥1 LLM round (validated predicates): {tasks_with_llm}",
         f"- Total validated LLM predicates: {preds_total} (injected {preds_injected})",
         f"- Stock UNKNOWN → solved (TRUE/FALSE): {stock_rescued}",
