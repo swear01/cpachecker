@@ -2,9 +2,11 @@
 
 import hashlib
 import json
+import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -590,7 +592,7 @@ def test_capture_preserves_status_when_process_exits_before_sigkill(
 ):
     from types import SimpleNamespace
 
-    waits = iter([False, False, True])
+    waits = iter([False, True])
 
     def wait(timeout=None):
         if not next(waits):
@@ -604,9 +606,209 @@ def test_capture_preserves_status_when_process_exits_before_sigkill(
     proc = SimpleNamespace(pid=12345, returncode=0, wait=wait)
     monkeypatch.setattr(records.subprocess, "Popen", lambda *args, **kwargs: proc)
     monkeypatch.setattr(records.os, "killpg", killpg)
-    outcome = records.capture_run(["fixture"], tmp_path / "log", tmp_path / "status", 1)
+    outcome = records.capture_run(
+        ["fixture"], tmp_path / "log", tmp_path / "status", 1, termination_grace=0
+    )
     assert outcome["termination_reason"] == "wall_timeout" and outcome["exit_code"] == 0
     assert json.loads((tmp_path / "status").read_text()) == outcome
+
+
+def test_capture_waits_for_nested_capture_after_outer_leader_exits(tmp_path):
+    inner_log = tmp_path / "inner.log"
+    inner_status = tmp_path / "inner.json"
+    leaf_ready = tmp_path / "leaf.pid"
+    records_script = Path(records.__file__).resolve()
+    leaf_code = f"""
+import os, signal, time
+from pathlib import Path
+Path({str(leaf_ready)!r}).write_text(str(os.getpid()))
+def stop(*_):
+    time.sleep(0.25)
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, stop)
+time.sleep(60)
+"""
+    inner_command = [
+        sys.executable,
+        str(records_script),
+        "capture",
+        "--log",
+        str(inner_log),
+        "--status",
+        str(inner_status),
+        "--wall-limit",
+        "60",
+        "--termination-grace",
+        "0.5",
+        "--",
+        sys.executable,
+        "-c",
+        leaf_code,
+    ]
+    launcher_code = f"import subprocess; subprocess.run({inner_command!r}, check=False)"
+    outer_log = tmp_path / "outer.log"
+    outer_status = tmp_path / "outer.json"
+    outer = subprocess.Popen(
+        [
+            sys.executable,
+            str(records_script),
+            "capture",
+            "--log",
+            str(outer_log),
+            "--status",
+            str(outer_status),
+            "--wall-limit",
+            "60",
+            "--termination-grace",
+            "0.8",
+            "--",
+            sys.executable,
+            "-c",
+            launcher_code,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while not leaf_ready.exists() and time.monotonic() < deadline:
+            assert outer.poll() is None
+            time.sleep(0.01)
+        assert leaf_ready.exists()
+        outer.send_signal(signal.SIGINT)
+        assert outer.wait(timeout=20) == -signal.SIGINT
+        assert json.loads(outer_status.read_text())["termination_reason"] == "interrupted"
+        assert json.loads(inner_status.read_text())["termination_reason"] == "interrupted"
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(leaf_ready.read_text()), 0)
+    finally:
+        if outer.poll() is None:
+            outer.send_signal(signal.SIGTERM)
+            try:
+                outer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                outer.kill()
+        outer.wait(timeout=5)
+        if leaf_ready.exists():
+            try:
+                os.kill(int(leaf_ready.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def test_nested_capture_setup_failure_does_not_leave_launcher_running(tmp_path):
+    records_script = Path(records.__file__).resolve()
+    inner_log = tmp_path / "inner.log"
+    inner_status = tmp_path / "inner.json"
+    inner_command = [
+        sys.executable,
+        str(records_script),
+        "capture",
+        "--log",
+        str(inner_log),
+        "--status",
+        str(inner_status),
+        "--wall-limit",
+        "60",
+        "--",
+        sys.executable,
+        "-c",
+        "raise SystemExit(1)",
+    ]
+    launcher_code = f"import subprocess; subprocess.run({inner_command!r}, check=False)"
+    outer_log = tmp_path / "outer.log"
+    outer_status = tmp_path / "outer.json"
+    outer = subprocess.Popen(
+        [
+            sys.executable,
+            str(records_script),
+            "capture",
+            "--log",
+            str(outer_log),
+            "--status",
+            str(outer_status),
+            "--wall-limit",
+            "5",
+            "--termination-grace",
+            "0.2",
+            "--",
+            sys.executable,
+            "-c",
+            launcher_code,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        assert outer.wait(timeout=5) == 0
+        assert json.loads(outer_status.read_text())["termination_reason"] == "exit"
+        assert json.loads(inner_status.read_text())["exit_code"] == 1
+    finally:
+        if outer.poll() is None:
+            outer.send_signal(signal.SIGTERM)
+            try:
+                outer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                outer.kill()
+        outer.wait(timeout=5)
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [
+        ("--wall-limit", "nan"),
+        ("--wall-limit", "inf"),
+        ("--wall-limit", "-inf"),
+        ("--termination-grace", "nan"),
+        ("--termination-grace", "inf"),
+        ("--termination-grace", "-inf"),
+    ],
+)
+def test_capture_rejects_nonfinite_limits(tmp_path, option, value):
+    wall_limit = "1" if option != "--wall-limit" else value
+    termination_grace = "1" if option != "--termination-grace" else value
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(records.__file__).resolve()),
+            "capture",
+            "--log",
+            str(tmp_path / "log"),
+            "--status",
+            str(tmp_path / "status"),
+            f"--wall-limit={wall_limit}",
+            f"--termination-grace={termination_grace}",
+            "--",
+            sys.executable,
+            "-c",
+            "pass",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "finite" in result.stderr or "positive wall limit" in result.stderr
+
+
+def test_capture_bounds_uncooperative_group_without_unrelated_signal(tmp_path):
+    unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(5)"])
+    try:
+        code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(5)"
+        outcome = records.capture_run(
+            [sys.executable, "-c", code],
+            tmp_path / "log",
+            tmp_path / "status",
+            1,
+            termination_grace=0.05,
+        )
+        assert outcome["termination_reason"] == "wall_timeout"
+        assert outcome["signal"] == signal.SIGKILL
+        assert unrelated.poll() is None
+    finally:
+        unrelated.terminate()
+        unrelated.wait(timeout=5)
 
 
 def test_missing_execution_sidecar_is_an_integrity_error(tmp_path):

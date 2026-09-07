@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -182,7 +183,13 @@ def runtime_identity(repo: Path) -> dict:
     }
 
 
-def capture_run(command: list[str], log: Path, status: Path, wall_limit: float) -> dict:
+def capture_run(
+    command: list[str],
+    log: Path,
+    status: Path,
+    wall_limit: float,
+    termination_grace: float = 10,
+) -> dict:
     """Capture raw output; reap interrupted groups before propagating their signal."""
     if status.exists():
         raise FileExistsError(status)
@@ -208,14 +215,14 @@ def capture_run(command: list[str], log: Path, status: Path, wall_limit: float) 
     def terminate_group():
         nonlocal cleaning_up
         cleaning_up = True
+        deadline = time.monotonic() + termination_grace
         try:
             os.killpg(proc.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            pass
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(remaining)
         # The leader may have exited while other group members are still running.
         try:
             os.killpg(proc.pid, signal.SIGKILL)
@@ -594,6 +601,12 @@ def main() -> int:
     p_capture.add_argument("--log", required=True, type=Path)
     p_capture.add_argument("--status", required=True, type=Path)
     p_capture.add_argument("--wall-limit", required=True, type=float)
+    p_capture.add_argument(
+        "--termination-grace",
+        type=float,
+        default=10,
+        help="seconds between group TERM and KILL (default: 10)",
+    )
     p_capture.add_argument("command", nargs=argparse.REMAINDER)
     p_runtime = sub.add_parser("runtime", help="hash the existing isolated runtime")
     p_runtime.add_argument("--repo", required=True, type=Path)
@@ -604,9 +617,24 @@ def main() -> int:
 
     if args.cmd == "capture":
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
-        if not command or args.wall_limit <= 0:
-            ap.error("capture needs a command and positive wall limit")
-        capture_run(command, args.log, args.status, args.wall_limit)
+        if (
+            not command
+            or args.wall_limit <= 0
+            or not math.isfinite(args.wall_limit)
+            or args.termination_grace < 0
+            or not math.isfinite(args.termination_grace)
+        ):
+            ap.error(
+                "capture needs a command, positive wall limit, "
+                "and non-negative termination grace"
+            )
+        capture_run(
+            command,
+            args.log,
+            args.status,
+            args.wall_limit,
+            args.termination_grace,
+        )
         return 0
 
     if args.cmd == "tasks":
