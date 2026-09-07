@@ -617,12 +617,16 @@ def test_capture_waits_for_nested_capture_after_outer_leader_exits(tmp_path):
     inner_status = tmp_path / "inner.json"
     leaf_ready = tmp_path / "leaf.pid"
     records_script = Path(records.__file__).resolve()
-    leaf_code = (
-        "import os, signal, time; from pathlib import Path; "
-        f"Path({str(leaf_ready)!r}).write_text(str(os.getpid())); "
-        "signal.signal(signal.SIGTERM, lambda *_: time.sleep(0.25)); "
-        "time.sleep(60)"
-    )
+    leaf_code = f"""
+import os, signal, time
+from pathlib import Path
+Path({str(leaf_ready)!r}).write_text(str(os.getpid()))
+def stop(*_):
+    time.sleep(0.25)
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, stop)
+time.sleep(60)
+"""
     inner_command = [
         sys.executable,
         str(records_script),
@@ -641,28 +645,78 @@ def test_capture_waits_for_nested_capture_after_outer_leader_exits(tmp_path):
         leaf_code,
     ]
     launcher_code = f"""
-import os, signal, subprocess, time
+import subprocess, time
 from pathlib import Path
-inner = subprocess.Popen({inner_command!r}, start_new_session=True)
-def stop(*_):
-    os.kill(inner.pid, signal.SIGTERM)
-    raise SystemExit(0)
-signal.signal(signal.SIGTERM, stop)
+subprocess.run({inner_command!r}, check=False)
 while not Path({str(leaf_ready)!r}).exists():
     time.sleep(0.01)
 time.sleep(60)
 """
-    outcome = records.capture_run(
-        [sys.executable, "-c", launcher_code],
-        tmp_path / "outer.log",
-        tmp_path / "outer.json",
-        5,
-        termination_grace=0.8,
+    try:
+        outcome = records.capture_run(
+            [sys.executable, "-c", launcher_code],
+            tmp_path / "outer.log",
+            tmp_path / "outer.json",
+            5,
+            termination_grace=0.8,
+        )
+        assert outcome["termination_reason"] == "wall_timeout"
+        assert json.loads(inner_status.read_text())["termination_reason"] == "interrupted"
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(leaf_ready.read_text()), 0)
+    finally:
+        if leaf_ready.exists():
+            try:
+                os.kill(int(leaf_ready.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [
+        ("--wall-limit", "nan"),
+        ("--wall-limit", "inf"),
+        ("--wall-limit", "-inf"),
+        ("--termination-grace", "nan"),
+        ("--termination-grace", "inf"),
+        ("--termination-grace", "-inf"),
+    ],
+)
+def test_capture_rejects_nonfinite_limits(tmp_path, option, value):
+    wall_limit = "1" if option != "--wall-limit" else value
+    termination_grace = "1" if option != "--termination-grace" else value
+    wall_args = (
+        ["--wall-limit=-inf"]
+        if option == "--wall-limit" and value == "-inf"
+        else ["--wall-limit", wall_limit]
     )
-    assert outcome["termination_reason"] == "wall_timeout"
-    assert json.loads(inner_status.read_text())["termination_reason"] == "interrupted"
-    with pytest.raises(ProcessLookupError):
-        os.kill(int(leaf_ready.read_text()), 0)
+    termination_args = (
+        ["--termination-grace=-inf"]
+        if value == "-inf"
+        else ["--termination-grace", termination_grace]
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(records.__file__).resolve()),
+            "capture",
+            "--log",
+            str(tmp_path / "log"),
+            "--status",
+            str(tmp_path / "status"),
+            *wall_args,
+            *termination_args,
+            "--",
+            sys.executable,
+            "-c",
+            "pass",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "finite" in result.stderr or "positive wall limit" in result.stderr
 
 
 def test_capture_bounds_uncooperative_group_without_unrelated_signal(tmp_path):

@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -619,7 +620,9 @@ def main() -> int:
         if (
             not command
             or args.wall_limit <= 0
+            or not math.isfinite(args.wall_limit)
             or args.termination_grace < 0
+            or not math.isfinite(args.termination_grace)
         ):
             ap.error(
                 "capture needs a command, positive wall limit, "
