@@ -219,10 +219,6 @@ def capture_run(
             os.killpg(proc.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-        try:
-            proc.wait(timeout=max(0, deadline - time.monotonic()))
-        except subprocess.TimeoutExpired:
-            pass
         remaining = deadline - time.monotonic()
         if remaining > 0:
             time.sleep(remaining)

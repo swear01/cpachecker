@@ -591,7 +591,7 @@ def test_capture_preserves_status_when_process_exits_before_sigkill(
 ):
     from types import SimpleNamespace
 
-    waits = iter([False, False, True])
+    waits = iter([False, True])
 
     def wait(timeout=None):
         if not next(waits):
