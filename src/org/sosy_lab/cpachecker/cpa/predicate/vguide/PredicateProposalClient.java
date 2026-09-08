@@ -198,9 +198,11 @@ public final class PredicateProposalClient {
       throw e;
     }
     LlmProposalResult streamed;
+    LlmProposalResult.TerminalEvidence terminalEvidence = null;
     boolean parsed = false;
     try (InputStream bodyStream = response.body()) {
       streamed = parseStreamingResponse(bodyStream);
+      terminalEvidence = streamed.terminalEvidence();
       parsed = true;
     } catch (IOException e) {
       String outcome =
@@ -218,7 +220,9 @@ public final class PredicateProposalClient {
           outcome,
           200,
           false,
-          e instanceof StreamParseException spe ? spe.evidence().withHttpStatus(200) : null);
+          parsed
+              ? Objects.requireNonNull(terminalEvidence).withHttpStatus(200)
+              : e instanceof StreamParseException spe ? spe.evidence().withHttpStatus(200) : null);
       logOutcome(logicalRequestId, requestHash, outcome);
       throw e;
     }

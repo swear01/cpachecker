@@ -314,7 +314,10 @@ public class PredicateProposalClientTest {
   public void recordsStreamCloseFailureBeforeSuccess() throws Exception {
     List<String> logs = new ArrayList<>();
     byte[] response =
-        "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"
+        ("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n"
+                + "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],"
+                + "\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2}}\n\n"
+                + "data: [DONE]\n\n")
             .getBytes(StandardCharsets.UTF_8);
     var client =
         new PredicateProposalClient(
@@ -329,6 +332,12 @@ public class PredicateProposalClientTest {
     assertThat(logs).hasSize(3);
     assertThat(JSON.readTree(logs.get(1)).path("outcome").asText())
         .isEqualTo("stream_close_failure");
+    JsonNode terminal = JSON.readTree(logs.get(1));
+    assertThat(terminal.path("stream_state").asText()).isEqualTo("done");
+    assertThat(terminal.path("content_length").asInt()).isEqualTo(2);
+    assertThat(terminal.path("content_hash").asText()).isNotEmpty();
+    assertThat(terminal.path("finish_reason").asText()).isEqualTo("stop");
+    assertThat(terminal.path("usage").path("prompt_tokens").asInt()).isEqualTo(4);
     assertThat(logs.toString()).doesNotContain("success");
   }
 
