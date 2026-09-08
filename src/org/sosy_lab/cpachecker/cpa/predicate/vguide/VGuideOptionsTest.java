@@ -7,7 +7,9 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
+import java.util.List;
 import org.junit.Test;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.configuration.InvalidConfigurationException;
@@ -78,5 +80,14 @@ public class VGuideOptionsTest {
 
     assertThat(opts.isPrecisionCompilerEnabled()).isTrue();
     assertThat(opts.needsLlmClient()).isFalse();
+  }
+
+  @Test
+  public void interventionRequiresReplay() {
+    assertThrows(
+        InvalidConfigurationException.class,
+        () ->
+            VGuideOptions.validateReplayInjectionMode(
+                VGuideOptions.ReplayInjectionMode.SUPPRESS_ALL, List.of(), false));
   }
 }

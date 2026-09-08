@@ -163,6 +163,9 @@ public final class VGuideAnalysisDumper {
     row.put("bridge_index", bridgeIndex);
     row.put("refinement_index", refinementIndex);
     row.put("llm_called", llmCalled);
+    row.put("replay_injection_mode", options.getReplayInjectionMode().name());
+    row.put("replay_injection_selector_fingerprint", options.replayInjectionSelectorFingerprint());
+    row.set("replay_injection_selectors", stringArray(options.replayInjectionSelectors()));
     if (!llmCalled && llmSkipReason != null) {
       row.put("llm_skip_reason", llmSkipReason);
     }
@@ -428,6 +431,10 @@ public final class VGuideAnalysisDumper {
       manifest.put("predicate_usefulness_gate_enabled", options.isPredicateUsefulnessGateEnabled());
       manifest.put("predicate_usefulness_gate_rule", PredicateUsefulnessGate.RULE_VERSION);
       manifest.put("precision_compiler_enabled", options.isPrecisionCompilerEnabled());
+      manifest.put("replay_injection_mode", options.getReplayInjectionMode().name());
+      manifest.put(
+          "replay_injection_selector_fingerprint", options.replayInjectionSelectorFingerprint());
+      manifest.set("replay_injection_selectors", stringArray(options.replayInjectionSelectors()));
       manifest.put("first_bridge_index", bridgeIndex);
       manifest.put(
           "bridge_task_name_policy", "first bridge keeps base name; later bridges use __bN");

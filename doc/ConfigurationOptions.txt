@@ -6032,6 +6032,15 @@ vguide.refinementOutcomeContext = false
 # (Issue #8)
 vguide.replaceLlmPredicates = false
 
+# Newline-separated exact selectors for EXCLUDE, each
+# head=N<number>;formula=<SMT>;provenance=<profile>
+vguide.replayInjectionExclusions = ""
+
+# Replay-only post-validation injection policy: FULL, SUPPRESS_ALL, or
+# EXCLUDE
+vguide.replayInjectionMode = FULL
+  enum:     [FULL, SUPPRESS_ALL, EXCLUDE]
+
 # Fire LLM before any CEGAR round using source-code only (no CE context).
 # Predicates injected into initial precision. Replaces first-spurious
 # trigger.

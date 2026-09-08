@@ -1,5 +1,13 @@
 # Notes
 
+- **Replay-only post-validation injection control (#226).** `vguide.replayInjectionMode=FULL`
+  preserves default behavior; `SUPPRESS_ALL` and exact `EXCLUDE` selectors are accepted only with
+  recorded-response replay. Selection occurs after validation and before the shared dynamic
+  injection point, so native/compiler predicates remain active. Dumps keep `validated_predicates`
+  separate from `precision_injected` and record the selector fingerprint.
+  The control applies only to dynamic post-validation injection; source-prior/initial-precision
+  injection is outside its scope.
+
 > Tacit knowledge an agent can't infer from reading code.
 
 ## Gotchas
