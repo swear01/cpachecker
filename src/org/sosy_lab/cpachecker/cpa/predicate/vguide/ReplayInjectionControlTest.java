@@ -9,6 +9,7 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
@@ -116,8 +117,10 @@ public class ReplayInjectionControlTest extends SolverViewBasedTest0 {
 
     VGuideRefinementBridge full = bridge(VGuideOptions.ReplayInjectionMode.FULL, ImmutableSet.of());
     setValidation(full, ImmutableList.of(first, second), ImmutableMap.of(first, "first-raw", second, "second-raw"));
-    full.onSpuriousAfterRefinement(1, mock(ARGReachedSet.class));
+    setPendingDump(full, 1);
+    full.onSpuriousAfterRefinement(1, mock(ARGReachedSet.class, RETURNS_DEEP_STUBS));
     assertInjected(full, ImmutableList.of(first, second));
+    assertOutcome(full, "validated=2 injected=2");
 
     VGuideRefinementBridge suppressed =
         bridge(VGuideOptions.ReplayInjectionMode.SUPPRESS_ALL, ImmutableSet.of());
@@ -125,17 +128,22 @@ public class ReplayInjectionControlTest extends SolverViewBasedTest0 {
         suppressed,
         ImmutableList.of(first, second),
         ImmutableMap.of(first, "first-raw", second, "second-raw"));
-    suppressed.onSpuriousAfterRefinement(1, mock(ARGReachedSet.class));
+    setPendingDump(suppressed, 1);
+    suppressed.onSpuriousAfterRefinement(1, mock(ARGReachedSet.class, RETURNS_DEEP_STUBS));
     assertInjected(suppressed, ImmutableList.of());
+    assertOutcome(suppressed, "validated=2 injected=0");
 
     VGuideRefinementBridge subset =
         bridge(VGuideOptions.ReplayInjectionMode.EXCLUDE, ImmutableSet.of(firstSelector));
     setValidation(subset, ImmutableList.of(first), ImmutableMap.of(first, "first-raw"));
-    subset.onSpuriousAfterRefinement(1, mock(ARGReachedSet.class));
+    setPendingDump(subset, 1);
+    subset.onSpuriousAfterRefinement(1, mock(ARGReachedSet.class, RETURNS_DEEP_STUBS));
     setValidation(subset, ImmutableList.of(second), ImmutableMap.of(second, "second-raw"));
-    subset.onSpuriousAfterRefinement(2, mock(ARGReachedSet.class));
+    setPendingDump(subset, 2);
+    subset.onSpuriousAfterRefinement(2, mock(ARGReachedSet.class, RETURNS_DEEP_STUBS));
     subset.onAnalysisEnd(2, org.sosy_lab.cpachecker.core.CPAcheckerResult.Result.TRUE, null);
     assertInjected(subset, ImmutableList.of(), ImmutableList.of(second));
+    assertOutcome(subset, "validated=1 injected=1");
   }
 
   @Test
@@ -206,6 +214,25 @@ public class ReplayInjectionControlTest extends SolverViewBasedTest0 {
     set(bridge, "lastValidation", new ValidationResult(predicates));
     set(bridge, "lastRawStrings", rawStrings);
     set(bridge, "lastProfiles", ImmutableMap.of("first-raw", "SAFE", "second-raw", "SAFE"));
+  }
+
+  private void setPendingDump(VGuideRefinementBridge bridge, int refinementIndex) throws Exception {
+    Class<?> dumpClass =
+        Class.forName(
+            "org.sosy_lab.cpachecker.cpa.predicate.vguide.VGuideRefinementBridge$PendingRefinementDump");
+    Constructor<?> dumpConstructor = dumpClass.getDeclaredConstructor();
+    dumpConstructor.setAccessible(true);
+    Object dump = dumpConstructor.newInstance();
+    set(dump, "refinementIndex", refinementIndex);
+    set(dump, "precisionBeforeSnapshot", ImmutableSet.of());
+    set(bridge, "pendingDump", dump);
+    RefinementOutcomeStore store = (RefinementOutcomeStore) get(bridge, "refinementOutcomeStore");
+    store.recordStarted(refinementIndex, 0, 0, 0);
+  }
+
+  private void assertOutcome(VGuideRefinementBridge bridge, String expected) throws Exception {
+    RefinementOutcomeStore store = (RefinementOutcomeStore) get(bridge, "refinementOutcomeStore");
+    assertThat(store.buildContext()).contains(expected);
   }
 
   @SuppressWarnings("unchecked")
