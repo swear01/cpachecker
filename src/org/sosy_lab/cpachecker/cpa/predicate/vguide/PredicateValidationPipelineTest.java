@@ -275,6 +275,36 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
   }
 
   @Test
+  public void unsupportedCStyleArrayAccessRejectedBeforeScalarScopeCheck() {
+    makeHeads();
+    BooleanFormula block = parse("(= x (_ bv1 32))", ENCODED_F1_X);
+    PredicateValidationPipeline pipeline =
+        new PredicateValidationPipeline(LOGGER, solver, mgrv, false);
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(ENCODED_F1_X, block),
+            ImmutableList.of(
+                candidate(headA.label(), "(= a[9] (_ bv9 32))"),
+                candidate(headA.label(), "(= a[i] i)"),
+                candidate(headA.label(), "(= a[0] (_ bv0 32))"),
+                candidate(headA.label(), "(= |a[9]| (_ bv9 32))")),
+            trace(headA.node()));
+
+    assertThat(outcome.validation().validated()).isEmpty();
+    assertThat(outcome.rejections()).hasSize(4);
+    assertThat(outcome.rejections().subList(0, 3).stream().map(CandidateRejection::reason))
+        .containsExactly(
+            PredicateValidationPipeline.REASON_UNSUPPORTED_ARRAY_ACCESS,
+            PredicateValidationPipeline.REASON_UNSUPPORTED_ARRAY_ACCESS,
+            PredicateValidationPipeline.REASON_UNSUPPORTED_ARRAY_ACCESS);
+    assertThat(outcome.rejections().get(0).detail())
+        .contains("no proven trace translation template");
+    assertThat(outcome.rejections().get(3).reason())
+        .isNotEqualTo(PredicateValidationPipeline.REASON_UNSUPPORTED_ARRAY_ACCESS);
+  }
+
+  @Test
   public void variableFromOtherFunctionRejectedAtHead() {
     makeHeads();
     // x only exists in function f2; the named head is in f1.

@@ -51,6 +51,7 @@ public final class PredicateValidationPipeline {
   public static final String REASON_NO_SSA_MAP = "no_ssa_map";
   public static final String REASON_CONTRACT_VIOLATION = "contract_violation";
   public static final String REASON_VARIABLE_NOT_IN_SCOPE = "variable_not_in_scope";
+  public static final String REASON_UNSUPPORTED_ARRAY_ACCESS = "unsupported_array_access";
 
   private static final String ROLE_INITIATION = "initiation";
   private static final String ROLE_SUPPORTING = "supporting";
@@ -149,6 +150,16 @@ public final class PredicateValidationPipeline {
         continue;
       }
       boolean arrayCandidate = arrayTranslator.hasArrayAccess(candidate.predicate());
+      if (!arrayCandidate && arrayTranslator.hasCStyleArrayAccess(candidate.predicate())) {
+        rejections.add(
+            new CandidateRejection(
+                candidate.toString(),
+                heads.get(0).label(),
+                candidate.predicate(),
+                REASON_UNSUPPORTED_ARRAY_ACCESS,
+                "C-style array access has no proven trace translation template"));
+        continue;
+      }
       BooleanFormula parsed = null;
       Set<String> freeVars = null;
       String formulaText = null;

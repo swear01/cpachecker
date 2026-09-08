@@ -195,13 +195,33 @@ final class ArrayTermTranslator {
         return true;
       }
     }
-    Matcher cm = C_ARRAY_ACCESS.matcher(predicateText);
+    Matcher cm = C_ARRAY_ACCESS.matcher(maskQuotedSymbols(predicateText));
     while (cm.find()) {
       if (templates.containsKey(cm.group(1))) {
         return true;
       }
     }
     return false;
+  }
+
+  /** Whether the predicate contains C-style array syntax outside quoted SMT symbols. */
+  boolean hasCStyleArrayAccess(String predicateText) {
+    return C_ARRAY_ACCESS.matcher(maskQuotedSymbols(predicateText)).find();
+  }
+
+  private static String maskQuotedSymbols(String text) {
+    StringBuilder masked = new StringBuilder(text.length());
+    boolean quoted = false;
+    for (int i = 0; i < text.length(); i++) {
+      char c = text.charAt(i);
+      if (c == '|') {
+        quoted = !quoted;
+        masked.append(' ');
+      } else {
+        masked.append(quoted ? ' ' : c);
+      }
+    }
+    return masked.toString();
   }
 
   /**

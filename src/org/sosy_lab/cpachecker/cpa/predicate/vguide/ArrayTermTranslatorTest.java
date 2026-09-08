@@ -189,6 +189,13 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
   }
 
   @Test
+  public void quotedSmtIdentifierWithBracketsIsNotArrayAccess() {
+    ArrayTermTranslator translator =
+        new ArrayTermTranslator(com.google.common.collect.ImmutableMap.of());
+    assertThat(translator.hasCStyleArrayAccess("(= |a[9]| (_ bv9 32))")).isFalse();
+  }
+
+  @Test
   public void stripsSsaVersionsInScalarPredicates() {
     Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
     Map<String, Integer> bits = new LinkedHashMap<>();
