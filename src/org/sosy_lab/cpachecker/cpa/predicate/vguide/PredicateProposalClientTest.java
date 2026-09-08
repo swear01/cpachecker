@@ -128,6 +128,72 @@ public class PredicateProposalClientTest {
     assertThat(result.reasoningContent()).isEqualTo("think more");
     assertThat(result.usage().path("prompt_tokens").asInt()).isEqualTo(10);
     assertThat(result.usage().path("completion_tokens").asInt()).isEqualTo(20);
+    assertThat(result.terminalEvidence().streamState()).isEqualTo("done");
+    assertThat(result.terminalEvidence().finishReason()).isNull();
+    assertThat(result.terminalEvidence().contentLength()).isEqualTo(17);
+  }
+
+  @Test
+  public void terminalEvidenceKeepsFinishReasonAndIncompleteContentAfterDone() throws Exception {
+    String response =
+        "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"candidates\\\":\"}}]}\n\n"
+            + "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}],"
+            + "\"usage\":{\"prompt_tokens\":3}}\n\n"
+            + "data: [DONE]\n\n";
+    List<String> logs = new ArrayList<>();
+    var client =
+        new PredicateProposalClient(
+            new RecordingLogManager(logs),
+            URI.create("http://loopback/"),
+            new MockHttpClient(
+                ImmutableList.of(
+                    new MockHttpResponse(
+                        200, new ByteArrayInputStream(response.getBytes(StandardCharsets.UTF_8))))),
+            0,
+            0);
+
+    LlmProposalResult result = client.proposeWithUsage(PROMPT);
+
+    assertThat(result.content()).isEqualTo("{\"candidates\":");
+    assertThat(
+            LoopHeadCandidateParser.parseWithRejects(result.content())
+                .rejected()
+                .getFirst()
+                .reason())
+        .isEqualTo(LoopHeadCandidateParser.REASON_INVALID_JSON);
+    assertThat(result.terminalEvidence().streamState()).isEqualTo("done");
+    assertThat(result.terminalEvidence().finishReason()).isEqualTo("length");
+    assertThat(result.terminalEvidence().observedUsage().path("prompt_tokens").asInt())
+        .isEqualTo(3);
+    JsonNode terminal = JSON.readTree(logs.get(1));
+    assertThat(terminal.path("content_length").asInt()).isEqualTo(result.content().length());
+    assertThat(terminal.path("content_hash").asText()).isNotEmpty();
+  }
+
+  @Test
+  public void emptyDoneStreamLogsTerminalEvidenceAndPreservesUnknowns() throws Exception {
+    List<String> logs = new ArrayList<>();
+    var client =
+        new PredicateProposalClient(
+            new RecordingLogManager(logs),
+            URI.create("http://loopback/"),
+            new MockHttpClient(
+                ImmutableList.of(
+                    new MockHttpResponse(
+                        200,
+                        new ByteArrayInputStream(
+                            "data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8))))),
+            0,
+            0);
+
+    assertThrows(IOException.class, () -> client.proposeWithUsage(PROMPT));
+
+    JsonNode terminal = JSON.readTree(logs.get(1));
+    assertThat(terminal.path("outcome").asText()).isEqualTo("stream_parse_failure");
+    assertThat(terminal.path("stream_state").asText()).isEqualTo("done");
+    assertThat(terminal.path("content_length").asInt()).isEqualTo(0);
+    assertThat(terminal.path("finish_reason").isNull()).isTrue();
+    assertThat(terminal.path("usage").isNull()).isTrue();
   }
 
   @Test(expected = IOException.class)
@@ -248,7 +314,10 @@ public class PredicateProposalClientTest {
   public void recordsStreamCloseFailureBeforeSuccess() throws Exception {
     List<String> logs = new ArrayList<>();
     byte[] response =
-        "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"
+        ("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n"
+                + "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],"
+                + "\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2}}\n\n"
+                + "data: [DONE]\n\n")
             .getBytes(StandardCharsets.UTF_8);
     var client =
         new PredicateProposalClient(
@@ -263,7 +332,38 @@ public class PredicateProposalClientTest {
     assertThat(logs).hasSize(3);
     assertThat(JSON.readTree(logs.get(1)).path("outcome").asText())
         .isEqualTo("stream_close_failure");
+    JsonNode terminal = JSON.readTree(logs.get(1));
+    assertThat(terminal.path("stream_state").asText()).isEqualTo("done");
+    assertThat(terminal.path("content_length").asInt()).isEqualTo(2);
+    assertThat(terminal.path("content_hash").asText()).isNotEmpty();
+    assertThat(terminal.path("finish_reason").asText()).isEqualTo("stop");
+    assertThat(terminal.path("usage").path("prompt_tokens").asInt()).isEqualTo(4);
     assertThat(logs.toString()).doesNotContain("success");
+  }
+
+  @Test
+  public void eofBeforeDoneLogsPartialContentEvidence() throws Exception {
+    List<String> logs = new ArrayList<>();
+    var client =
+        new PredicateProposalClient(
+            new RecordingLogManager(logs),
+            URI.create("http://loopback/"),
+            new MockHttpClient(
+                ImmutableList.of(
+                    new MockHttpResponse(
+                        200,
+                        new ByteArrayInputStream(
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n"
+                                .getBytes(StandardCharsets.UTF_8))))),
+            0,
+            0);
+
+    assertThrows(IOException.class, () -> client.proposeWithUsage(PROMPT));
+
+    JsonNode terminal = JSON.readTree(logs.get(1));
+    assertThat(terminal.path("stream_state").asText()).isEqualTo("eof");
+    assertThat(terminal.path("content_length").asInt()).isEqualTo(7);
+    assertThat(terminal.path("usage").isNull()).isTrue();
   }
 
   private static final class MockHttpClient extends HttpClient {

@@ -101,6 +101,41 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
             "",
             "");
 
+    String incomplete = "{\"candidates\":";
+    dumper.recordLlmApiCall(
+        1,
+        1,
+        "safe_primary",
+        "safe",
+        new PromptMessages("system", "user"),
+        pack,
+        PromptProfile.SAFE,
+        new LlmProposalResult(
+            incomplete,
+            "",
+            null,
+            1,
+            2,
+            "request",
+            "live",
+            new LlmProposalResult.TerminalEvidence(
+                200, "done", "length", "hash", incomplete.length(), null)),
+        ImmutableList.of(),
+        null);
+    JsonNode call =
+        JSON.readTree(
+            Files.readAllLines(
+                    tmp.getRoot()
+                        .toPath()
+                        .resolve("tasks")
+                        .resolve("task")
+                        .resolve("llm_rounds.jsonl"))
+                .getFirst());
+    assertThat(call.path("stream_state").asText()).isEqualTo("done");
+    assertThat(call.path("finish_reason").asText()).isEqualTo("length");
+    assertThat(call.path("response_parse_reason").asText())
+        .isEqualTo(LoopHeadCandidateParser.REASON_INVALID_JSON);
+
     dumper.recordRefinement(
         1,
         true,

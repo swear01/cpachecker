@@ -266,6 +266,22 @@ public final class VGuideAnalysisDumper {
     row.put("prompt_hash", hashUtf8(prompt));
     row.put("request_hash", api.requestHash());
     row.put("response_hash", hashUtf8(api.content()));
+    var terminal = api.terminalEvidence();
+    if (terminal != null) {
+      if (terminal.httpStatus() == null) {
+        row.putNull("http_status");
+      } else {
+        row.put("http_status", terminal.httpStatus());
+      }
+      row.put("stream_state", terminal.streamState());
+      if (terminal.finishReason() == null) {
+        row.putNull("finish_reason");
+      } else {
+        row.put("finish_reason", terminal.finishReason());
+      }
+      row.put("content_length", terminal.contentLength());
+      row.put("content_hash", terminal.contentHash());
+    }
     row.put("response_source", api.responseSource());
     row.set("prompt_components", promptComponents(pack));
     row.set(
@@ -280,6 +296,11 @@ public final class VGuideAnalysisDumper {
     row.put("response_raw", api.content());
     var parse = LoopHeadCandidateParser.parseWithRejects(api.content());
     row.put("response_parse_ok", !parse.accepted().isEmpty());
+    row.put(
+        "response_parse_reason",
+        parse.accepted().isEmpty()
+            ? parse.rejected().isEmpty() ? "empty_response" : parse.rejected().getFirst().reason()
+            : "accepted");
     row.set(
         "predicates_raw",
         stringArray(parse.accepted().stream().map(LoopHeadCandidate::predicate).toList()));
