@@ -740,13 +740,6 @@ public final class VGuideRefinementBridge {
               pack, validationOutcome.rawStrings(), lastValidation, abstractionStatesTrace,
               profileByRaw);
       dump.rejections = validationOutcome.rejections();
-      if (lastValidation != null) {
-        refinementOutcomeStore.recordLlmOutcome(
-            refinementIndex,
-            lastValidation.validated().size(),
-            lastValidation.precisionOnly().size(),
-            validationOutcome.rejections().size());
-      }
       if (options.isPredicateUsefulnessGateEnabled()) {
         PredicateUsefulnessGate.Decision usefulnessDecision =
             PredicateUsefulnessGate.evaluate(loopHeadVisits, lastValidation, fmgr);
@@ -787,8 +780,6 @@ public final class VGuideRefinementBridge {
   public void onSpuriousAfterRefinement(int refinementIndex, ARGReachedSet reached) {
     if (pendingDump != null && pendingDump.refinementIndex == refinementIndex) {
       int nativeDelta = nativePrecisionDelta(pendingDump.precisionBeforeSnapshot, reached);
-      refinementOutcomeStore.recordCompleted(refinementIndex, nativeDelta);
-      pendingDump.refinementOutcomeLine = refinementOutcomeStore.completedLineFor(refinementIndex);
       if (pendingDump.precisionCompilerResult != null) {
         precisionInjector.inject(
             reached, pendingDump.precisionCompilerResult.validatedPredicates());
@@ -799,6 +790,11 @@ public final class VGuideRefinementBridge {
             suppressCurrentPrecisionInjection
                 ? ImmutableList.of()
                 : selectReplayPredicates(lastValidation, lastRawStrings);
+        refinementOutcomeStore.recordLlmOutcome(
+            refinementIndex,
+            lastValidation.validated().size(),
+            toInject.size(),
+            pendingDump.rejections.size());
         injected = markInjected(pendingDump.validated, toInject);
         if (!suppressCurrentPrecisionInjection) {
           if (options.isReplaceLlmPredicates()) {
@@ -816,6 +812,8 @@ public final class VGuideRefinementBridge {
           }
         }
       }
+      refinementOutcomeStore.recordCompleted(refinementIndex, nativeDelta);
+      pendingDump.refinementOutcomeLine = refinementOutcomeStore.completedLineFor(refinementIndex);
       if (analysisDumper != null) {
         analysisDumper.recordRefinement(
             refinementIndex,
