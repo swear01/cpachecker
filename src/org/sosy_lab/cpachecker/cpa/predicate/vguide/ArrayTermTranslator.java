@@ -11,10 +11,10 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -31,10 +31,10 @@ import org.sosy_lab.java_smt.api.FormulaType;
  *
  * <p>The CEGAR encoding has no array-value symbols: a C array is an address bitvector and an
  * element read is {@code (select *heap@N (+ addr@N (bvshl idx@K size)))}, usually wrapped in
- * let-defs. The LLM only knows source names, so its element-wise candidates could never be
- * parsed. Templates are extracted from the trace's own block formulas (select + bvadd + bvshl
- * shape, let-defs resolved); versions are applied later via {@link FormulaManagerView#instantiate}
- * with the target loop head's SSAMap — never guessed from text.
+ * let-defs. The LLM only knows source names, so its element-wise candidates could never be parsed.
+ * Templates are extracted from the trace's own block formulas (select + bvadd + bvshl shape,
+ * let-defs resolved); versions are applied later via {@link FormulaManagerView#instantiate} with
+ * the target loop head's SSAMap — never guessed from text.
  */
 final class ArrayTermTranslator {
 
@@ -62,22 +62,50 @@ final class ArrayTermTranslator {
 
   private static final Pattern ARRAY_ACCESS =
       Pattern.compile("\\(\\s*([A-Za-z_]\\w*)\\s+([A-Za-z_]\\w*)\\s*\\)");
-  private static final Pattern C_ARRAY_ACCESS =
-      Pattern.compile("([A-Za-z_]\\w*)\\[([^\\]]+)\\]");
+  private static final Pattern C_ARRAY_ACCESS = Pattern.compile("([A-Za-z_]\\w*)\\[([^\\]]+)\\]");
   private static final Pattern CONST_WIDTH_0 = Pattern.compile("\\(_ bv(\\d+) 0\\)");
 
   /** SMT-LIB keywords/operators that must never be treated as bare identifiers. */
   private static final Set<String> SMT_KEYWORDS =
       Set.of(
-          "select", "store", "bvadd", "bvsub", "bvmul", "bvshl", "bvlshr", "bvashr",
-          "bvneg", "bvurem", "extract", "and", "or", "not", "=", ">", "<", ">=", "<=",
-          "bvslt", "bvsgt", "bvsle", "bvsge", "+", "-", "*", "mod", "_", "bv", "declare-fun");
+          "select",
+          "store",
+          "bvadd",
+          "bvsub",
+          "bvmul",
+          "bvshl",
+          "bvlshr",
+          "bvashr",
+          "bvneg",
+          "bvurem",
+          "extract",
+          "and",
+          "or",
+          "not",
+          "=",
+          ">",
+          "<",
+          ">=",
+          "<=",
+          "bvslt",
+          "bvsgt",
+          "bvsle",
+          "bvsge",
+          "+",
+          "-",
+          "*",
+          "mod",
+          "_",
+          "bv",
+          "declare-fun");
+
   private static final Pattern DECLARE_BV =
       Pattern.compile("\\(declare-fun\\s+([^ )]+)\\s+\\(\\)\\s+\\(_ BitVec\\s+(\\d+)\\)\\)");
 
   private static final Pattern DECLARE_ARRAY =
       Pattern.compile(
-          "\\(declare-fun\\s+([^ )]+)\\s+\\(\\)\\s+\\(Array \\(_ BitVec\\s+(\\d+)\\) \\(_ BitVec\\s+(\\d+)\\)\\)");
+          "\\(declare-fun\\s+([^ )]+)\\s+\\(\\)\\s+\\(Array \\(_ BitVec\\s+(\\d+)\\) \\(_"
+              + " BitVec\\s+(\\d+)\\)\\)");
   private final ImmutableMap<String, AccessTemplate> templates; // source array name -> template
   private final ImmutableMap<String, Integer> varBits; // "main::i" -> 64 (unversioned)
   private final ImmutableMap<String, Integer> arrayIndexBits; // heap -> declared index width
@@ -101,7 +129,8 @@ final class ArrayTermTranslator {
       if (encoded.isEmpty()) {
         continue;
       }
-      String bare = encoded.contains("::") ? encoded.substring(encoded.lastIndexOf("::") + 2) : encoded;
+      String bare =
+          encoded.contains("::") ? encoded.substring(encoded.lastIndexOf("::") + 2) : encoded;
       if (!bare.isEmpty() && !SMT_KEYWORDS.contains(bare) && seenKeys.add(bare)) {
         keys.add(bare);
       }
@@ -115,7 +144,9 @@ final class ArrayTermTranslator {
       alt.append(Pattern.quote(k));
     }
     this.bareIdentifierPattern =
-        keys.isEmpty() ? null : Pattern.compile("(?<![A-Za-z0-9_@|:])(" + alt + ")(?![A-Za-z0-9_@|])");
+        keys.isEmpty()
+            ? null
+            : Pattern.compile("(?<![A-Za-z0-9_@|:])(" + alt + ")(?![A-Za-z0-9_@|])");
   }
 
   /** Test convenience constructor (no declared-variable maps). */
@@ -195,13 +226,33 @@ final class ArrayTermTranslator {
         return true;
       }
     }
-    Matcher cm = C_ARRAY_ACCESS.matcher(predicateText);
+    Matcher cm = C_ARRAY_ACCESS.matcher(maskQuotedSymbols(predicateText));
     while (cm.find()) {
       if (templates.containsKey(cm.group(1))) {
         return true;
       }
     }
     return false;
+  }
+
+  /** Whether the predicate contains C-style array syntax outside quoted SMT symbols. */
+  boolean hasCStyleArrayAccess(String predicateText) {
+    return C_ARRAY_ACCESS.matcher(maskQuotedSymbols(predicateText)).find();
+  }
+
+  private static String maskQuotedSymbols(String text) {
+    StringBuilder masked = new StringBuilder(text.length());
+    boolean quoted = false;
+    for (int i = 0; i < text.length(); i++) {
+      char c = text.charAt(i);
+      if (c == '|') {
+        quoted = !quoted;
+        masked.append(' ');
+      } else {
+        masked.append(quoted ? ' ' : c);
+      }
+    }
+    return masked.toString();
   }
 
   /**
@@ -350,11 +401,7 @@ final class ArrayTermTranslator {
 
   /** Appends the heap-select term for an array read with the given index SMT. */
   private void appendSelect(
-      StringBuilder out,
-      AccessTemplate t,
-      String indexSmt,
-      int indexWidth,
-      int indexVarWidth) {
+      StringBuilder out, AccessTemplate t, String indexSmt, int indexWidth, int indexVarWidth) {
     out.append("(select ");
     out.append(t.heapVar());
     out.append(" (bvadd ").append(t.addrVar());
@@ -380,18 +427,14 @@ final class ArrayTermTranslator {
       // Not narrowed: the shift operand keeps the expression width.
       shiftConstWidth = indexWidth;
     }
-    out.append(" (_ bv")
-        .append(t.shiftBits())
-        .append(" ")
-        .append(shiftConstWidth)
-        .append("))))");
+    out.append(" (_ bv").append(t.shiftBits()).append(" ").append(shiftConstWidth).append("))))");
   }
 
   private record IndexExpr(String smt, int width, int varWidth) {}
 
   /**
-   * Parses a C index expression ({@code i}, {@code 0}, {@code 4*j+1}, ...) into SMT
-   * with the width of its first identifier (default 32).
+   * Parses a C index expression ({@code i}, {@code 0}, {@code 4*j+1}, ...) into SMT with the width
+   * of its first identifier (default 32).
    */
   private @Nullable IndexExpr parseIndexExpr(String expr, String functionName) {
     int[] pos = {0};
@@ -557,7 +600,8 @@ final class ArrayTermTranslator {
   /** Parses a C integer literal (dec/hex, optional u/l/ll suffixes) or null. */
   private static Long cIntegerLiteral(String token) {
     String t = token;
-    while (!t.isEmpty() && (t.endsWith("u") || t.endsWith("U") || t.endsWith("l") || t.endsWith("L"))) {
+    while (!t.isEmpty()
+        && (t.endsWith("u") || t.endsWith("U") || t.endsWith("l") || t.endsWith("L"))) {
       t = t.substring(0, t.length() - 1);
     }
     try {
@@ -582,8 +626,8 @@ final class ArrayTermTranslator {
   }
 
   /**
-   * Aligns an operand to {@code targetWidth}: constants are rewidthed, narrower
-   * variables are sign-extended (C integer promotion; gemini-review #69).
+   * Aligns an operand to {@code targetWidth}: constants are rewidthed, narrower variables are
+   * sign-extended (C integer promotion; gemini-review #69).
    */
   private static String alignOperand(String smt, int operandWidth, int targetWidth) {
     if (smt.startsWith("(_ bv")) {
@@ -692,7 +736,9 @@ final class ArrayTermTranslator {
   private static ExtractInfo unwrapExtractInfo(Node n, Map<String, Node> defs) {
     Node cur = resolve(n, defs);
     try {
-      if (cur.isList("_") && cur.children.size() >= 4 && cur.children.get(1).isAtom()
+      if (cur.isList("_")
+          && cur.children.size() >= 4
+          && cur.children.get(1).isAtom()
           && cur.children.get(1).atom.equals("extract")
           && cur.children.get(2).isAtom()
           && cur.children.get(3).isAtom()) {
@@ -770,7 +816,9 @@ final class ArrayTermTranslator {
   /** Unwraps extract wrappers used for 64-to-32-bit index narrowing. */
   private static Node unwrapExtract(Node n) {
     // Flat SMT-LIB form: (_ extract 31 0 VAR) — the variable is the last child.
-    if (n.isList("_") && n.children.size() >= 5 && n.children.get(1).isAtom()
+    if (n.isList("_")
+        && n.children.size() >= 5
+        && n.children.get(1).isAtom()
         && n.children.get(1).atom.equals("extract")) {
       return n.children.get(4);
     }
@@ -787,7 +835,9 @@ final class ArrayTermTranslator {
   }
 
   private static Integer bvConstantValue(Node n) {
-    if (n.isList("_") && n.children.size() >= 2 && n.children.get(1).isAtom()
+    if (n.isList("_")
+        && n.children.size() >= 2
+        && n.children.get(1).isAtom()
         && n.children.get(1).atom.startsWith("bv")) {
       try {
         return Integer.parseInt(n.children.get(1).atom.substring(2));
@@ -816,7 +866,9 @@ final class ArrayTermTranslator {
     }
 
     boolean isList(String op) {
-      return children != null && children.size() > 0 && children.get(0).isAtom()
+      return children != null
+          && children.size() > 0
+          && children.get(0).isAtom()
           && children.get(0).atom.equals(op);
     }
 
@@ -929,7 +981,8 @@ final class ArrayTermTranslator {
     private void collectOwnDefs(Map<String, Node> defs) {
       if (isList("let") && children.size() >= 2 && children.get(1).children != null) {
         for (Node binding : children.get(1).children) {
-          if (binding.children != null && binding.children.size() >= 2
+          if (binding.children != null
+              && binding.children.size() >= 2
               && binding.children.get(0).isAtom()) {
             defs.putIfAbsent(binding.children.get(0).atom, binding.children.get(1));
           }
