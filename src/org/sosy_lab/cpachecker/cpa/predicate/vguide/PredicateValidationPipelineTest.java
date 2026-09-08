@@ -112,7 +112,8 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
             trace(headA.node(), headB.node()));
 
     assertThat(outcome.validation().validated()).hasSize(2);
-    assertThat(outcome.validation().validated().stream().map(v -> v.loopHeadNode()).toList())
+    assertThat(
+            outcome.validation().validated().stream().map(v -> v.loopHeadNode()).toList())
         .containsExactly(headA.node(), headB.node());
     assertThat(outcome.rejections()).isEmpty();
   }
@@ -247,7 +248,8 @@ public class PredicateValidationPipelineTest extends SolverViewBasedTest0 {
 
     // (headA, formula) proposed twice but validated once; (headB, formula) once.
     assertThat(outcome.validation().validated()).hasSize(2);
-    assertThat(outcome.validation().validated().stream().map(v -> v.loopHeadNode()).toList())
+    assertThat(
+            outcome.validation().validated().stream().map(v -> v.loopHeadNode()).toList())
         .containsExactly(headA.node(), headB.node());
     assertThat(outcome.rejections()).isEmpty();
   }

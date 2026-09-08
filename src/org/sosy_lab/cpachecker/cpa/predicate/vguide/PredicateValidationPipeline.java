@@ -6,9 +6,6 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
-import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
-import static org.sosy_lab.cpachecker.util.AbstractStates.extractStateByType;
-
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
@@ -20,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import org.sosy_lab.common.log.LogManager;
+
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractState;
@@ -32,6 +30,8 @@ import org.sosy_lab.java_smt.api.BooleanFormulaManager;
 import org.sosy_lab.java_smt.api.ProverEnvironment;
 import org.sosy_lab.java_smt.api.SolverContext.ProverOptions;
 import org.sosy_lab.java_smt.api.SolverException;
+import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
+import static org.sosy_lab.cpachecker.util.AbstractStates.extractStateByType;
 
 /**
  * L1 contract + L2 parse + scope check + L3 SMT entailment per named loop head.
@@ -81,9 +81,7 @@ public final class PredicateValidationPipeline {
       ImmutableMap<ValidatedPredicate, String> rawStrings) {}
 
   public CandidateValidationOutcome validateCandidates(
-      ContextPack pack,
-      List<LoopHeadCandidate> candidates,
-      List<? extends AbstractState> absTrace) {
+      ContextPack pack, List<LoopHeadCandidate> candidates, List<? extends AbstractState> absTrace) {
     BooleanFormulaManager bfmgr = fmgr.getBooleanFormulaManager();
     Map<CFANode, BooleanFormula> blockByNode =
         LoopHeadBlockFormulaIndex.fromTrace(pack.blockFormulas(), absTrace);
@@ -168,11 +166,7 @@ public final class PredicateValidationPipeline {
       if (!arrayCandidate) {
         parsed =
             VocabularyGuide.parsePredicate(
-                candidate.predicate(),
-                fmgr,
-                pack.encodedVars(),
-                ImmutableMap.of(),
-                arrayTranslator.varBits());
+                candidate.predicate(), fmgr, pack.encodedVars(), ImmutableMap.of(), arrayTranslator.varBits());
         if (parsed == null) {
           rejections.add(
               new CandidateRejection(
@@ -213,16 +207,11 @@ public final class PredicateValidationPipeline {
             // (e.g. overSpecific cases) still resolve via the full encoded vocabulary.
             Set<String> parseVars =
                 new LinkedHashSet<>(
-                    blockVarsCache.computeIfAbsent(
-                        head.node(), node -> fmgr.extractVariableNames(block)));
+                    blockVarsCache.computeIfAbsent(head.node(), node -> fmgr.extractVariableNames(block)));
             parseVars.addAll(pack.encodedVars());
             headParsed =
                 VocabularyGuide.parsePredicate(
-                    candidate.predicate(),
-                    fmgr,
-                    parseVars,
-                    ImmutableMap.of(),
-                    arrayTranslator.varBits());
+                    candidate.predicate(), fmgr, parseVars, ImmutableMap.of(), arrayTranslator.varBits());
             if (headParsed == null) {
               rejections.add(
                   new CandidateRejection(
@@ -427,10 +416,7 @@ public final class PredicateValidationPipeline {
    * globals) are treated as visible everywhere.
    */
   private static boolean isVisibleAt(
-      String varName,
-      LoopHeadInfo head,
-      Set<String> encodedVars,
-      Set<String> unversionedEncodedVars) {
+      String varName, LoopHeadInfo head, Set<String> encodedVars, Set<String> unversionedEncodedVars) {
     // Accept both unversioned ("main::i") and versioned ("main::i@3" / "|main::i@3|") names.
     String bare = varName;
     if (bare.length() >= 2 && bare.startsWith("|") && bare.endsWith("|")) {
