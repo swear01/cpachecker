@@ -81,6 +81,9 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
     VGuideAnalysisDumper.DumpValidatedPredicate dumpPred =
         new VGuideAnalysisDumper.DumpValidatedPredicate(
             1, "(bvsge x (_ bv0 32))", vp, bmgrv.makeTrue(), true, true, true, "SAFE");
+    VGuideAnalysisDumper.DumpValidatedPredicate suppressedPred =
+        new VGuideAnalysisDumper.DumpValidatedPredicate(
+            2, "(bvsge x (_ bv0 32))", vp, bmgrv.makeTrue(), true, true, false, "SAFE");
     CandidateRejection rejection =
         new CandidateRejection(
             "{\"loop_head\":\"N1\"}",
@@ -148,8 +151,8 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         CounterexampleTraceInfo.infeasible(ImmutableList.of(formula)),
         null,
         null,
-        ImmutableList.of(dumpPred),
-        ImmutableList.of(dumpPred),
+        ImmutableList.of(dumpPred, suppressedPred),
+        ImmutableList.of(dumpPred, suppressedPred),
         ImmutableList.of(rejection),
         null,
         null,
@@ -173,6 +176,10 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
         .isEqualTo(PredicateValidationPipeline.REASON_VARIABLE_NOT_IN_SCOPE);
     assertThat(rejected.path("detail").asText()).contains("N1");
     assertThat(rejected.path("predicate").asText()).isEqualTo("(bvslt w n)");
+    assertThat(row.path("validated_predicates").size()).isEqualTo(2);
+    assertThat(row.path("validated_predicates").get(0).path("injected").asBoolean()).isTrue();
+    assertThat(row.path("validated_predicates").get(1).path("injected").asBoolean()).isFalse();
+    assertThat(row.path("precision_injected").size()).isEqualTo(1);
 
     JsonNode manifest = JSON.readTree(tmp.getRoot().toPath().resolve("run_manifest.json").toFile());
     assertThat(manifest.path("schema_version").asText()).isEqualTo("12");

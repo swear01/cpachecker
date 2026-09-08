@@ -6,7 +6,14 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.Hashing;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.configuration.FileOption;
 import org.sosy_lab.common.configuration.IntegerOption;
@@ -202,6 +209,27 @@ public class VGuideOptions {
   @IntegerOption(min = 256)
   private int llmMaxCompletionTokens = 1024;
 
+  @Option(
+      secure = true,
+      description =
+          "Replay-only post-validation injection policy: FULL, SUPPRESS_ALL, or EXCLUDE")
+  private ReplayInjectionMode replayInjectionMode = ReplayInjectionMode.FULL;
+
+  @Option(
+      secure = true,
+      description =
+          "Newline-separated exact selectors for EXCLUDE, each head=N<number>;formula=<SMT>;provenance=<profile>")
+  private String replayInjectionExclusions = "";
+  private ImmutableList<String> parsedReplayInjectionSelectors = ImmutableList.of();
+  private ImmutableSet<String> replayInjectionSelectorSet = ImmutableSet.of();
+  private String replayInjectionSelectorFingerprint = "";
+
+  public enum ReplayInjectionMode {
+    FULL,
+    SUPPRESS_ALL,
+    EXCLUDE
+  }
+
   private LlmCallSchedule parsedSchedule = LlmCallSchedule.FIRST_SPURIOUS;
 
   public VGuideOptions(Configuration config) throws InvalidConfigurationException {
@@ -215,6 +243,36 @@ public class VGuideOptions {
               + ")");
     }
     parsedSchedule = LlmCallSchedule.fromConfig(llmCallSchedule);
+    parsedReplayInjectionSelectors =
+        ImmutableList.copyOf(
+            Arrays.stream(replayInjectionExclusions.split("\\R"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList());
+    replayInjectionSelectorSet = ImmutableSet.copyOf(parsedReplayInjectionSelectors);
+    replayInjectionSelectorFingerprint =
+        Hashing.sha256()
+            .hashString(
+                String.join("\n", replayInjectionSelectorSet.stream().sorted(Comparator.naturalOrder()).toList()),
+                StandardCharsets.UTF_8)
+            .toString();
+    validateReplayInjectionMode(
+        replayInjectionMode,
+        replayInjectionSelectors(),
+        !java.util.Objects.toString(System.getenv("VGUIDE_LLM_REPLAY_DIR"), "").isBlank());
+  }
+
+  static void validateReplayInjectionMode(
+      ReplayInjectionMode mode, List<String> selectors, boolean replay)
+      throws InvalidConfigurationException {
+    if (mode != ReplayInjectionMode.FULL && !replay) {
+      throw new InvalidConfigurationException(
+          "vguide replay injection control requires VGUIDE_LLM_REPLAY_DIR");
+    }
+    if (mode != ReplayInjectionMode.EXCLUDE && !selectors.isEmpty()) {
+      throw new InvalidConfigurationException(
+          "vguide.replayInjectionExclusions requires replayInjectionMode=EXCLUDE");
+    }
   }
 
   public boolean isEnable() {
@@ -338,5 +396,21 @@ public class VGuideOptions {
 
   public boolean isEnableL3Entailment() {
     return enableL3Entailment;
+  }
+
+  public ReplayInjectionMode getReplayInjectionMode() {
+    return replayInjectionMode;
+  }
+
+  public List<String> replayInjectionSelectors() {
+    return parsedReplayInjectionSelectors;
+  }
+
+  public String replayInjectionSelectorFingerprint() {
+    return replayInjectionSelectorFingerprint;
+  }
+
+  public ImmutableSet<String> replayInjectionSelectorSet() {
+    return replayInjectionSelectorSet;
   }
 }

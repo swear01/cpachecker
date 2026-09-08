@@ -88,10 +88,95 @@ public final class VGuideRefinementBridge {
   private volatile @Nullable ARGReachedSet trackedReached;
 
   private @Nullable ValidationResult lastValidation;
+  private Map<ValidatedPredicate, String> lastRawStrings = Map.of();
+  private Map<String, String> lastProfiles = Map.of();
   private @Nullable PendingRefinementDump pendingDump;
   private VGuideOutcome outcome = VGuideOutcome.NO_SPURIOUS_GIVE_UP;
   private @Nullable List<ValidatedPredicate> preCegarValidated = null;
   private boolean suppressCurrentPrecisionInjection = false;
+  private final Set<String> replayMatchedSelectors =
+      java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private boolean replaySelectionAttempted = false;
+
+  private ImmutableList<ValidatedPredicate> selectReplayPredicates(
+      ValidationResult validation, Map<ValidatedPredicate, String> rawStrings) {
+    if (options.getReplayInjectionMode() == VGuideOptions.ReplayInjectionMode.EXCLUDE) {
+      replaySelectionAttempted = true;
+    }
+    return selectReplayPredicates(
+        options.getReplayInjectionMode(),
+        options.replayInjectionSelectorSet(),
+        validation,
+        rawStrings,
+        lastProfiles,
+        this::canonical,
+        replayMatchedSelectors,
+        false);
+  }
+
+  static ImmutableList<ValidatedPredicate> selectReplayPredicates(
+      VGuideOptions.ReplayInjectionMode mode,
+      Set<String> selectors,
+      ValidationResult validation,
+      Map<ValidatedPredicate, String> rawStrings,
+      Map<String, String> profiles,
+      Function<BooleanFormula, String> canonicalizer) {
+    return selectReplayPredicates(
+        mode,
+        selectors,
+        validation,
+        rawStrings,
+        profiles,
+        canonicalizer,
+        new HashSet<>(),
+        true);
+  }
+
+  private static ImmutableList<ValidatedPredicate> selectReplayPredicates(
+      VGuideOptions.ReplayInjectionMode mode,
+      Set<String> selectors,
+      ValidationResult validation,
+      Map<ValidatedPredicate, String> rawStrings,
+      Map<String, String> profiles,
+      Function<BooleanFormula, String> canonicalizer,
+      Set<String> matchedSelectors,
+      boolean rejectUnknown) {
+    if (mode == VGuideOptions.ReplayInjectionMode.FULL) {
+      return validation.precisionOnly();
+    }
+    if (mode == VGuideOptions.ReplayInjectionMode.SUPPRESS_ALL) {
+      return ImmutableList.of();
+    }
+    List<ValidatedPredicate> selected = new ArrayList<>();
+    for (ValidatedPredicate predicate : validation.precisionOnly()) {
+      String raw = rawStrings.get(predicate);
+      if (raw == null) {
+        throw new IllegalStateException("Missing raw predicate attribution for replay selection");
+      }
+      String profile = profiles.getOrDefault(raw, "");
+      String selector =
+          "head=N"
+              + requireLoopHead(predicate).getNodeNumber()
+              + ";formula="
+              + canonicalizer.apply(predicate.formula())
+              + ";provenance="
+              + profile;
+      if (mode == VGuideOptions.ReplayInjectionMode.EXCLUDE
+          && selectors.contains(selector)) {
+        matchedSelectors.add(selector);
+      } else {
+        selected.add(predicate);
+      }
+    }
+    if (rejectUnknown && mode == VGuideOptions.ReplayInjectionMode.EXCLUDE) {
+      Set<String> unknown = new LinkedHashSet<>(selectors);
+      unknown.removeAll(matchedSelectors);
+      if (!unknown.isEmpty()) {
+        throw new IllegalStateException("Unknown replay injection selector(s): " + unknown);
+      }
+    }
+    return ImmutableList.copyOf(selected);
+  }
 
   private static final AtomicInteger BRIDGE_SEQUENCE = new AtomicInteger();
 
@@ -379,6 +464,8 @@ public final class VGuideRefinementBridge {
       ARGReachedSet reachedBefore)
       throws InterruptedException {
     lastValidation = null;
+    lastRawStrings = Map.of();
+    lastProfiles = Map.of();
     pendingDump = null;
     suppressCurrentPrecisionInjection = false;
 
@@ -636,6 +723,8 @@ public final class VGuideRefinementBridge {
       PredicateValidationPipeline.CandidateValidationOutcome validationOutcome =
           validationPipeline.validateCandidates(pack, mergedCandidates, abstractionStatesTrace);
       lastValidation = validationOutcome.validation();
+      lastRawStrings = validationOutcome.rawStrings();
+      lastProfiles = profileByRaw;
       for (CandidateRejection rejection : validationOutcome.rejections()) {
         logger.log(
             Level.FINE,
@@ -707,7 +796,9 @@ public final class VGuideRefinementBridge {
       List<VGuideAnalysisDumper.DumpValidatedPredicate> injected = ImmutableList.of();
       if (lastValidation != null) {
         ImmutableList<ValidatedPredicate> toInject =
-            suppressCurrentPrecisionInjection ? ImmutableList.of() : lastValidation.precisionOnly();
+            suppressCurrentPrecisionInjection
+                ? ImmutableList.of()
+                : selectReplayPredicates(lastValidation, lastRawStrings);
         injected = markInjected(pendingDump.validated, toInject);
         if (!suppressCurrentPrecisionInjection) {
           if (options.isReplaceLlmPredicates()) {
@@ -753,7 +844,9 @@ public final class VGuideRefinementBridge {
       pendingDump = null;
     } else if (lastValidation != null) {
       if (!suppressCurrentPrecisionInjection) {
-        precisionInjector.inject(reached, lastValidation.precisionOnly());
+        // The fallback has no dump row, but uses the same post-validation policy point.
+        precisionInjector.inject(
+            reached, selectReplayPredicates(lastValidation, lastRawStrings));
       }
     }
     lastValidation = null;
@@ -769,6 +862,7 @@ public final class VGuideRefinementBridge {
    * path needs injection into the initial predicate precision before analysis starts.
    */
   public void onAnalysisEnd(int refinementCount, Result result, @Nullable ARGReachedSet reached) {
+    rejectUnknownReplaySelectors();
     if (refinementCount == 0 && reached != null && outcome != VGuideOutcome.SOURCE_PRIOR_LLM) {
       String benchmark = benchmarkBaseName();
       Optional<ImmutableList<String>> frozen = frozenLoader.loadForBenchmark(benchmark);
@@ -787,6 +881,22 @@ public final class VGuideRefinementBridge {
       analysisDumper.finishTask(refinementCount, result, wallS, outcome, reached);
       removeShutdownHook();
     }
+  }
+
+  private void rejectUnknownReplaySelectors() {
+    if (options.getReplayInjectionMode() != VGuideOptions.ReplayInjectionMode.EXCLUDE
+        || !replaySelectionAttempted) {
+      return;
+    }
+    Set<String> unknown = new LinkedHashSet<>(options.replayInjectionSelectorSet());
+    unknown.removeAll(replayMatchedSelectors);
+    if (!unknown.isEmpty()) {
+      throw new IllegalStateException("Unknown replay injection selector(s): " + unknown);
+    }
+  }
+
+  private static CFANode requireLoopHead(ValidatedPredicate predicate) {
+    return Objects.requireNonNull(predicate.loopHeadNode(), "Missing loop-head attribution");
   }
 
   public VGuideOutcome getOutcome() {
