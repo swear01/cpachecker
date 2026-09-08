@@ -7,12 +7,13 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * LLM HTTP response body text plus API usage statistics.
  *
- * <p>{@code startEpochMs} is the wall-clock epoch (ms) at which the HTTP call started; together with
- * {@code latencyMs} it lets offline tooling reconstruct inter-call intervals (e.g. to validate
+ * <p>{@code startEpochMs} is the wall-clock epoch (ms) at which the HTTP call started; together
+ * with {@code latencyMs} it lets offline tooling reconstruct inter-call intervals (e.g. to validate
  * {@code vguide.llmMinIntervalSec} under the svcomp portfolio). {@code requestHash} identifies the
  * exact serialized API request, and {@code responseSource} distinguishes live, recorded-live, and
  * replayed results.
@@ -24,9 +25,43 @@ public record LlmProposalResult(
     long latencyMs,
     long startEpochMs,
     String requestHash,
-    String responseSource) {
+    String responseSource,
+    @Nullable TerminalEvidence terminalEvidence) {
+
+  public LlmProposalResult(
+      String content,
+      String reasoningContent,
+      JsonNode usage,
+      long latencyMs,
+      long startEpochMs,
+      String requestHash,
+      String responseSource) {
+    this(
+        content,
+        reasoningContent,
+        usage,
+        latencyMs,
+        startEpochMs,
+        requestHash,
+        responseSource,
+        null);
+  }
 
   public boolean hasUsage() {
     return usage != null && !usage.isMissingNode();
+  }
+
+  public record TerminalEvidence(
+      @Nullable Integer httpStatus,
+      String streamState,
+      @Nullable String finishReason,
+      String contentHash,
+      int contentLength,
+      @Nullable JsonNode observedUsage) {
+
+    TerminalEvidence withHttpStatus(int status) {
+      return new TerminalEvidence(
+          status, streamState, finishReason, contentHash, contentLength, observedUsage);
+    }
   }
 }

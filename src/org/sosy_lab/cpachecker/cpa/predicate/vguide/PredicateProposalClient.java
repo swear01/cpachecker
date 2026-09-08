@@ -8,6 +8,7 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.hash.Hashing;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -205,7 +206,9 @@ public final class PredicateProposalClient {
       String outcome =
           Thread.currentThread().isInterrupted()
               ? "interrupted"
-              : parsed ? "stream_close_failure" : "stream_parse_failure";
+              : e instanceof StreamCloseException || parsed
+                  ? "stream_close_failure"
+                  : "stream_parse_failure";
       logAttempt(
           logicalRequestId,
           requestHash,
@@ -214,7 +217,8 @@ public final class PredicateProposalClient {
           "terminal",
           outcome,
           200,
-          false);
+          false,
+          e instanceof StreamParseException spe ? spe.evidence().withHttpStatus(200) : null);
       logOutcome(logicalRequestId, requestHash, outcome);
       throw e;
     }
@@ -226,7 +230,8 @@ public final class PredicateProposalClient {
         "terminal",
         "stream_success",
         200,
-        false);
+        false,
+        Objects.requireNonNull(streamed.terminalEvidence()).withHttpStatus(200));
     logOutcome(logicalRequestId, requestHash, "success");
     JsonNode usage = streamed.usage();
     long latency = System.currentTimeMillis() - t0;
@@ -247,7 +252,8 @@ public final class PredicateProposalClient {
             latency,
             t0,
             cachedRequest == null ? requestHash(body) : cachedRequest.requestHash(),
-            responseCache == null ? "live" : "live_recorded");
+            responseCache == null ? "live" : "live_recorded",
+            Objects.requireNonNull(streamed.terminalEvidence()).withHttpStatus(200));
     if (responseCache != null) {
       try {
         responseCache.record(Objects.requireNonNull(cachedRequest), result);
@@ -430,6 +436,28 @@ public final class PredicateProposalClient {
       String outcome,
       @Nullable Integer status,
       boolean retryable) {
+    logAttempt(
+        logicalRequestId,
+        requestHash,
+        attempt,
+        maxAttempts,
+        phase,
+        outcome,
+        status,
+        retryable,
+        null);
+  }
+
+  private void logAttempt(
+      String logicalRequestId,
+      String requestHash,
+      int attempt,
+      int maxAttempts,
+      String phase,
+      String outcome,
+      @Nullable Integer status,
+      boolean retryable,
+      LlmProposalResult.TerminalEvidence evidence) {
     var event = JSON.createObjectNode();
     event.put("schema", "vguide-http-attempt-v1");
     event.put("event", "llm_http_attempt");
@@ -445,6 +473,21 @@ public final class PredicateProposalClient {
       event.putNull("http_status");
     } else {
       event.put("http_status", status);
+    }
+    if (evidence != null) {
+      event.put("stream_state", evidence.streamState());
+      if (evidence.finishReason() == null) {
+        event.putNull("finish_reason");
+      } else {
+        event.put("finish_reason", evidence.finishReason());
+      }
+      event.put("content_length", evidence.contentLength());
+      event.put("content_hash", evidence.contentHash());
+      if (evidence.observedUsage() == null) {
+        event.putNull("usage");
+      } else {
+        event.set("usage", evidence.observedUsage());
+      }
     }
     logger.log(Level.INFO, "VGuide LLM HTTP evidence: ", event.toString());
   }
@@ -464,6 +507,7 @@ public final class PredicateProposalClient {
     StringBuilder content = new StringBuilder();
     StringBuilder reasoning = new StringBuilder();
     JsonNode usage = null;
+    String finishReason = null;
     boolean done = false;
     try (var reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
       for (String line; (line = reader.readLine()) != null; ) {
@@ -498,15 +542,73 @@ public final class PredicateProposalClient {
         if (chunk.path("usage").isObject()) {
           usage = chunk.path("usage");
         }
+        JsonNode observedFinishReason = chunk.at("/choices/0/finish_reason");
+        if (observedFinishReason.isTextual()) {
+          finishReason = observedFinishReason.asText();
+        }
       }
+    } catch (IOException e) {
+      if (done) {
+        throw new StreamCloseException(
+            e.getMessage() == null ? "LLM SSE stream close failed" : e.getMessage(),
+            terminalEvidence(content, "done", finishReason, usage));
+      }
+      throw new StreamParseException(
+          e.getMessage() == null ? "LLM SSE stream error" : e.getMessage(),
+          terminalEvidence(content, "error", finishReason, usage));
     }
+    var evidence = terminalEvidence(content, "eof", finishReason, usage);
     if (!done) {
-      throw new IOException("LLM SSE response ended before [DONE]");
+      throw new StreamParseException("LLM SSE response ended before [DONE]", evidence);
     }
     if (content.isEmpty()) {
-      throw new IOException("No text content in LLM response");
+      throw new StreamParseException(
+          "No text content in LLM response",
+          terminalEvidence(content, "done", finishReason, usage));
     }
-    return new LlmProposalResult(content.toString(), reasoning.toString(), usage, 0, 0, "", "");
+    return new LlmProposalResult(
+        content.toString(),
+        reasoning.toString(),
+        usage,
+        0,
+        0,
+        "",
+        "",
+        terminalEvidence(content, "done", finishReason, usage));
+  }
+
+  private static LlmProposalResult.TerminalEvidence terminalEvidence(
+      StringBuilder content,
+      String streamState,
+      @Nullable String finishReason,
+      @Nullable JsonNode usage) {
+    return new LlmProposalResult.TerminalEvidence(
+        null,
+        streamState,
+        finishReason,
+        Hashing.sha256().hashString(content, StandardCharsets.UTF_8).toString(),
+        content.toString().getBytes(StandardCharsets.UTF_8).length,
+        usage);
+  }
+
+  private static class StreamParseException extends IOException {
+    private final LlmProposalResult.TerminalEvidence evidence;
+
+    StreamParseException(String message, LlmProposalResult.TerminalEvidence pEvidence) {
+      super(message);
+      evidence = pEvidence;
+    }
+
+    LlmProposalResult.TerminalEvidence evidence() {
+      return evidence;
+    }
+  }
+
+  private static final class StreamCloseException extends StreamParseException {
+
+    StreamCloseException(String message, LlmProposalResult.TerminalEvidence pEvidence) {
+      super(message, pEvidence);
+    }
   }
 
   private String buildRequestBody(PromptMessages prompt) throws IOException {
