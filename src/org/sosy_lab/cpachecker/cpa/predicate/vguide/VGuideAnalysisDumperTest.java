@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
@@ -57,6 +58,44 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
   public void resetManifestFlag() {
     // run_manifest.json is written once per JVM (static); each test gets its own run root.
     VGuideAnalysisDumper.MANIFEST_WRITTEN.set(false);
+  }
+
+  @Test
+  public void appendJsonLinesStreamRowsAndPreservesPreviousRowsOnFailure() throws Exception {
+    VGuideAnalysisDumper dumper =
+        new VGuideAnalysisDumper(
+            LOGGER,
+            tmp.getRoot().toPath(),
+            "task",
+            "task",
+            0,
+            false,
+            false,
+            mgrv,
+            new VGuideOptions(Configuration.builder().build()));
+    Path rows = tmp.getRoot().toPath().resolve("rows.jsonl");
+    String large = "x".repeat(1_000_000);
+    dumper.appendJsonLine(
+        rows, JSON.createObjectNode().put("row", 1).put("text", "quotes \" and newline\n漢字"));
+    dumper.appendJsonLine(rows, JSON.createObjectNode().put("row", 2).put("text", large));
+
+    assertThat(Files.readAllLines(rows, StandardCharsets.UTF_8)).hasSize(2);
+    assertThat(Files.readString(rows, StandardCharsets.UTF_8)).endsWith("\n");
+    assertThat(
+            JSON.readTree(Files.readAllLines(rows, StandardCharsets.UTF_8).get(0))
+                .path("text")
+                .asText())
+        .isEqualTo("quotes \" and newline\n漢字");
+    assertThat(
+            JSON.readTree(Files.readAllLines(rows, StandardCharsets.UTF_8).get(1))
+                .path("text")
+                .asText())
+        .isEqualTo(large);
+
+    Path failure = tmp.getRoot().toPath().resolve("not-a-file");
+    Files.createDirectory(failure);
+    dumper.appendJsonLine(failure, JSON.createObjectNode().put("row", 3));
+    assertThat(Files.readAllLines(rows, StandardCharsets.UTF_8)).hasSize(2);
   }
 
   @Test

@@ -8,6 +8,7 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
 
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -16,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -867,14 +869,15 @@ public final class VGuideAnalysisDumper {
     };
   }
 
-  private void appendJsonLine(Path file, ObjectNode row) {
-    try {
-      Files.writeString(
-          file,
-          JSON.writeValueAsString(row) + "\n",
-          StandardCharsets.UTF_8,
-          java.nio.file.StandardOpenOption.CREATE,
-          java.nio.file.StandardOpenOption.APPEND);
+  void appendJsonLine(Path file, ObjectNode row) {
+    try (BufferedWriter writer =
+        Files.newBufferedWriter(
+            file,
+            StandardCharsets.UTF_8,
+            java.nio.file.StandardOpenOption.CREATE,
+            java.nio.file.StandardOpenOption.APPEND)) {
+      JSON.writer().without(JsonGenerator.Feature.AUTO_CLOSE_TARGET).writeValue(writer, row);
+      writer.write('\n');
     } catch (IOException e) {
       logger.logDebugException(e, "Failed to append analysis dump line to " + file);
     }
