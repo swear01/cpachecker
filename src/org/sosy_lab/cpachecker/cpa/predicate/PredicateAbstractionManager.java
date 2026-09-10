@@ -1194,6 +1194,7 @@ public final class PredicateAbstractionManager {
       BooleanFormula lemma = a.getSymbolicAtom();
       Region r = a.getAbstractVariable();
       infoBuilder.put(lemma, r);
+      logVGuidePredicateDisposition(a, "passed");
       // BooleanFormula negated = bfmgr.not(lemma);
       // info.put(negated, rmgr.makeNot(r));
     }
