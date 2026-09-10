@@ -124,6 +124,7 @@ public final class ProposalPromptBuilder {
     if (minimalPrompt) {
       return "You help a CEGAR verifier. Propose SMT-LIB2 predicates (prefix notation, each starts with '(').\n"
           + "Source vars only. Prefer bv ops: bvsge/bvslt/bvsle/bvsgt/bvadd/bvsub.\n"
+          + "Scope: the contract names encodable variables globally; the named loop head and source declarations/control flow establish which are in scope there. CE relations are hints, not scope proof.\n"
           + "No select/store, no |main::|, no @suffix, no .def_N, no quantifiers, no bvshl/lshr/ashr; arrays as a[i].\n"
           + buildJsonContract(budget);
     }

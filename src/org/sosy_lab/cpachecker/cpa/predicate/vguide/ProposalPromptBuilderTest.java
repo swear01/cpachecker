@@ -109,8 +109,36 @@ public class ProposalPromptBuilderTest {
 
     assertThat(repair.system()).contains("Return at most 12 candidates");
     assertThat(repair.system()).contains("logical negations are the same split");
+    assertThat(repair.system())
+        .contains(
+            "the named loop head and source declarations/control flow establish which are in scope there");
     assertThat(repair.fullText()).doesNotContain("Between 8 and 12");
     assertThat(repair.user()).doesNotContain("PREDICATE BUDGET");
+  }
+
+  @Test
+  public void fullPromptKeepsScopeRuleOutOfDefaultArm() {
+    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "int i,n; while (i<n) { i++; }\n",
+            "i",
+            ImmutableList.of(),
+            ImmutableMap.of("i", ImmutableSet.of("main::i@1")),
+            ImmutableSet.of("main::i@1"),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "L@N1: (= i 0)\n",
+            "");
+
+    PromptMessages prompt =
+        builder.buildPrompt(pack, new PredicateBudget(4, 8), PromptProfile.SAFE, 1);
+
+    assertThat(prompt.system()).doesNotContain("CE relations are hints, not scope proof");
+    assertThat(prompt.user()).contains("Variable contract (use LEFT names in predicates)");
+    assertThat(prompt.user()).contains("L@N1:");
   }
 
   @Test
