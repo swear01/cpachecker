@@ -777,9 +777,7 @@ public final class VGuideRefinementBridge {
       int nativeDelta = nativePrecisionDelta(pendingDump.precisionBeforeSnapshot, reached);
       if (pendingDump.precisionCompilerResult != null) {
         precisionInjector.inject(
-            reached,
-            pendingDump.precisionCompilerResult.validatedPredicates(),
-            analysisDumper != null);
+            reached, pendingDump.precisionCompilerResult.validatedPredicates(), false);
       }
       List<VGuideAnalysisDumper.DumpValidatedPredicate> injected = ImmutableList.of();
       if (lastValidation != null) {
@@ -841,9 +839,7 @@ public final class VGuideRefinementBridge {
       if (!suppressCurrentPrecisionInjection) {
         // The fallback has no dump row, but uses the same post-validation policy point.
         precisionInjector.inject(
-            reached,
-            selectReplayPredicates(lastValidation, lastRawStrings),
-            analysisDumper != null);
+            reached, selectReplayPredicates(lastValidation, lastRawStrings), false);
       }
     }
     lastValidation = null;

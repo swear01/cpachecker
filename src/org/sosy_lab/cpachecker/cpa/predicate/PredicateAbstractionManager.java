@@ -105,9 +105,6 @@ public final class PredicateAbstractionManager {
         return ImmutableSet.of();
       }
       ImmutableSet<String> available = pending;
-      if (available == null) {
-        return ImmutableSet.of();
-      }
       ImmutableSet<String> matching =
           pPredicates.stream()
               .map(VGuideDiagnosticState::key)
@@ -439,13 +436,17 @@ public final class PredicateAbstractionManager {
   }
 
   private void logVGuidePredicateDisposition(AbstractionPredicate pPredicate, String pDisposition) {
-    if (vguideDiagnosticState.consume(vguidePredicateKey(pPredicate))) {
+    if (vguideDiagnosticState.active().isEmpty()) {
+      return;
+    }
+    String predicateVariable = vguidePredicateKey(pPredicate);
+    if (vguideDiagnosticState.consume(predicateVariable)) {
       logger.log(
           Level.INFO,
           "VGuide predicate identity diagnostic disposition=",
           pDisposition,
           " predicateVariable=",
-          vguidePredicateKey(pPredicate));
+          predicateVariable);
     }
   }
 
