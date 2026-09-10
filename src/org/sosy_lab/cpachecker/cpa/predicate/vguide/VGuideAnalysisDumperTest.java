@@ -8,6 +8,9 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.sosy_lab.cpachecker.cfa.model.CFANode.newDummyCFANode;
 
@@ -43,6 +46,7 @@ import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
 import org.sosy_lab.cpachecker.util.predicates.pathformula.PathFormula;
 import org.sosy_lab.cpachecker.util.predicates.regions.SymbolicRegionManager;
+import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.SolverViewBasedTest0;
 import org.sosy_lab.java_smt.api.BooleanFormula;
 
@@ -96,6 +100,150 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
     Files.createDirectory(failure);
     dumper.appendJsonLine(failure, JSON.createObjectNode().put("row", 3));
     assertThat(Files.readAllLines(rows, StandardCharsets.UTF_8)).hasSize(2);
+  }
+
+  @Test
+  public void cachesOnlyIdenticalBlockObjectsWithinOneRow() throws Exception {
+    FormulaManagerView formulaManager = spy(mgrv);
+    VGuideAnalysisDumper dumper =
+        new VGuideAnalysisDumper(
+            LOGGER,
+            tmp.getRoot().toPath(),
+            "task",
+            "task",
+            0,
+            false,
+            false,
+            formulaManager,
+            new VGuideOptions(Configuration.builder().build()));
+    CFANode node = newDummyCFANode("f1");
+    BooleanFormula blockOne = bmgrv.makeTrue();
+    BooleanFormula blockTwo = bmgrv.makeFalse();
+    BooleanFormula candidateOne =
+        VocabularyGuide.parsePredicate("(= x (_ bv1 32))", mgrv, ImmutableSet.of());
+    BooleanFormula candidateTwo =
+        VocabularyGuide.parsePredicate("(= x (_ bv2 32))", mgrv, ImmutableSet.of());
+    BooleanFormula candidateThree =
+        VocabularyGuide.parsePredicate("(= x (_ bv3 32))", mgrv, ImmutableSet.of());
+    ValidatedPredicate vpOne =
+        new ValidatedPredicate(
+            candidateOne,
+            node,
+            ValidatedPredicate.Classification.PRECISION_ONLY,
+            "",
+            ImmutableList.of(),
+            false,
+            false);
+    ValidatedPredicate vpTwo =
+        new ValidatedPredicate(
+            candidateTwo,
+            node,
+            ValidatedPredicate.Classification.PRECISION_ONLY,
+            "",
+            ImmutableList.of(),
+            false,
+            false);
+    ValidatedPredicate vpThree =
+        new ValidatedPredicate(
+            candidateThree,
+            node,
+            ValidatedPredicate.Classification.PRECISION_ONLY,
+            "",
+            ImmutableList.of(),
+            false,
+            false);
+    VGuideAnalysisDumper.DumpValidatedPredicate dumpOne =
+        new VGuideAnalysisDumper.DumpValidatedPredicate(
+            1, "one", vpOne, blockOne, true, true, false, "");
+    VGuideAnalysisDumper.DumpValidatedPredicate dumpTwo =
+        new VGuideAnalysisDumper.DumpValidatedPredicate(
+            2, "two", vpTwo, blockOne, true, true, false, "");
+    VGuideAnalysisDumper.DumpValidatedPredicate dumpThree =
+        new VGuideAnalysisDumper.DumpValidatedPredicate(
+            3, "three", vpThree, blockTwo, true, true, false, "");
+    BlockFormulas firstBlocks = new BlockFormulas(ImmutableList.of(blockOne, blockTwo));
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "",
+            "",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            firstBlocks,
+            ImmutableList.of(),
+            "",
+            "");
+
+    dumper.recordRefinement(
+        1,
+        true,
+        null,
+        1,
+        null,
+        pack,
+        ImmutableList.of(),
+        firstBlocks,
+        CounterexampleTraceInfo.infeasible(ImmutableList.of()),
+        null,
+        null,
+        ImmutableList.of(dumpOne, dumpTwo, dumpThree),
+        ImmutableList.of(),
+        ImmutableList.of(),
+        null,
+        null,
+        null,
+        -1,
+        -1,
+        false,
+        null,
+        null);
+
+    verify(formulaManager, times(2)).dumpFormula(blockOne);
+    verify(formulaManager, times(2)).dumpFormula(blockTwo);
+
+    BlockFormulas secondBlocks = new BlockFormulas(ImmutableList.of(blockOne));
+    dumper.recordRefinement(
+        2,
+        true,
+        null,
+        2,
+        null,
+        pack,
+        ImmutableList.of(),
+        secondBlocks,
+        CounterexampleTraceInfo.infeasible(ImmutableList.of()),
+        null,
+        null,
+        ImmutableList.of(dumpOne),
+        ImmutableList.of(),
+        ImmutableList.of(),
+        null,
+        null,
+        null,
+        -1,
+        -1,
+        false,
+        null,
+        null);
+
+    verify(formulaManager, times(4)).dumpFormula(blockOne);
+    Path rowFile = tmp.getRoot().toPath().resolve("tasks/task/refinements.jsonl");
+    var rows = Files.readAllLines(rowFile, StandardCharsets.UTF_8);
+    JsonNode firstRow = JSON.readTree(rows.get(0));
+    JsonNode secondRow = JSON.readTree(rows.get(1));
+    assertThat(firstRow.path("validated_predicates").get(0).path("block_formula_smt").asText())
+        .isEqualTo(firstRow.path("block_formulas").get(0).path("smt").asText());
+    assertThat(firstRow.path("validated_predicates").get(1).path("block_formula_smt").asText())
+        .isEqualTo(firstRow.path("block_formulas").get(0).path("smt").asText());
+    assertThat(firstRow.path("validated_predicates").get(2).path("block_formula_smt").asText())
+        .isEqualTo(firstRow.path("block_formulas").get(1).path("smt").asText());
+    assertThat(firstRow.path("block_formulas")).hasSize(2);
+    assertThat(
+            firstRow.path("block_formulas").get(0).path("smt").asText())
+        .isNotEqualTo(firstRow.path("block_formulas").get(1).path("smt").asText());
+    assertThat(secondRow.path("validated_predicates").get(0).path("block_formula_smt").asText())
+        .isEqualTo(secondRow.path("block_formulas").get(0).path("smt").asText());
   }
 
   @Test
