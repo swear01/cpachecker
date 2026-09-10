@@ -82,6 +82,55 @@ import org.sosy_lab.java_smt.api.SolverException;
 @Options(prefix = "cpa.predicate")
 public final class PredicateAbstractionManager {
 
+  static final class VGuideDiagnosticState {
+
+    private @Nullable ImmutableMap<String, AbstractionPredicate> pending;
+    private @Nullable ImmutableSet<String> active;
+
+    void arm(Collection<AbstractionPredicate> pPredicates) {
+      if (pPredicates.isEmpty()) {
+        clear();
+        return;
+      }
+      ImmutableMap.Builder<String, AbstractionPredicate> builder = ImmutableMap.builder();
+      for (AbstractionPredicate predicate : pPredicates) {
+        builder.put(key(predicate), predicate);
+      }
+      pending = builder.buildOrThrow();
+      active = null;
+    }
+
+    ImmutableSet<String> match(Collection<AbstractionPredicate> pPredicates) {
+      active = null;
+      if (pending == null) {
+        return ImmutableSet.of();
+      }
+      ImmutableSet<String> matching =
+          pPredicates.stream()
+              .map(VGuideDiagnosticState::key)
+              .filter(pending::containsKey)
+              .collect(ImmutableSet.toImmutableSet());
+      if (!matching.isEmpty()) {
+        pending = null;
+        active = matching;
+      }
+      return matching;
+    }
+
+    ImmutableSet<String> active() {
+      return active == null ? ImmutableSet.of() : active;
+    }
+
+    void clear() {
+      pending = null;
+      active = null;
+    }
+
+    private static String key(AbstractionPredicate pPredicate) {
+      return pPredicate.getSymbolicVariable().toString();
+    }
+  }
+
   static class Stats {
 
     final AtomicInteger numCallsAbstraction = new AtomicInteger(0); // total calls
@@ -189,7 +238,7 @@ public final class PredicateAbstractionManager {
   private final FormulaManagerView fmgr;
   private final BooleanFormulaManagerView bfmgr;
   private final PredicateAbstractionsStorage abstractionStorage;
-  private @Nullable ImmutableSet<AbstractionPredicate> vguideDiagnosticPredicates;
+  private final VGuideDiagnosticState vguideDiagnosticState = new VGuideDiagnosticState();
   private final AbstractionManager amgr;
   private final RegionCreator rmgr;
   private final PathFormulaManager pfmgr;
@@ -321,19 +370,27 @@ public final class PredicateAbstractionManager {
 
   /** Arms one bounded identity observation for predicates injected by VGuide. */
   public void enableVGuidePredicateDiagnostics(Collection<AbstractionPredicate> pPredicates) {
-    vguideDiagnosticPredicates =
-        pPredicates.isEmpty() ? null : ImmutableSet.copyOf(pPredicates);
+    for (AbstractionPredicate predicate : pPredicates) {
+      logger.log(
+          Level.INFO,
+          "VGuide predicate identity diagnostic injection predicateVariable=",
+          vguidePredicateKey(predicate),
+          " predicateIdentity=",
+          System.identityHashCode(predicate),
+          " regionIdentity=",
+          System.identityHashCode(predicate.getAbstractVariable()));
+    }
+    vguideDiagnosticState.arm(pPredicates);
   }
 
   private void logVGuidePredicateDiagnostic(
       int pAbstractionId,
       Collection<CFANode> pLocations,
       Collection<AbstractionPredicate> pPredicates) {
-    ImmutableSet<AbstractionPredicate> diagnosticPredicates = vguideDiagnosticPredicates;
-    if (diagnosticPredicates == null) {
+    ImmutableSet<String> matchingPredicates = vguideDiagnosticState.match(pPredicates);
+    if (matchingPredicates.isEmpty()) {
       return;
     }
-    vguideDiagnosticPredicates = null;
     logger.log(
         Level.INFO,
         "VGuide predicate identity diagnostic abstractionId=",
@@ -343,7 +400,7 @@ public final class PredicateAbstractionManager {
         " candidateCount=",
         pPredicates.size());
     for (AbstractionPredicate predicate : pPredicates) {
-      if (diagnosticPredicates.contains(predicate)) {
+      if (matchingPredicates.contains(vguidePredicateKey(predicate))) {
         logger.log(
             Level.INFO,
             "VGuide predicate identity diagnostic predicateIdentity=",
@@ -356,7 +413,37 @@ public final class PredicateAbstractionManager {
     }
   }
 
+  private String vguidePredicateKey(AbstractionPredicate pPredicate) {
+    return VGuideDiagnosticState.key(pPredicate);
+  }
+
+  private void logVGuidePredicateDisposition(
+      AbstractionPredicate pPredicate, String pDisposition) {
+    ImmutableSet<String> active = vguideDiagnosticState.active();
+    if (active != null && active.contains(vguidePredicateKey(pPredicate))) {
+      logger.log(
+          Level.INFO,
+          "VGuide predicate identity diagnostic disposition=",
+          pDisposition,
+          " predicateVariable=",
+          vguidePredicateKey(pPredicate));
+    }
+  }
+
+  private void logVGuideDiagnosticUnobserved() {
+    ImmutableSet<String> active = vguideDiagnosticState.active();
+    if (active != null) {
+      for (String predicateVariable : active) {
+        logger.log(
+            Level.INFO,
+            "VGuide predicate identity diagnostic disposition=unobserved predicateVariable=",
+            predicateVariable);
+      }
+    }
+  }
+
   public void clear() {
+    vguideDiagnosticState.clear();
     if (useCache) {
       abstractionCache.clear();
       unsatisfiabilityCache.clear();
@@ -409,6 +496,7 @@ public final class PredicateAbstractionManager {
           reuseAbstractionIfPossible(
               abstractionFormula, pathFormula, primaryFormula, Iterables.getOnlyElement(locations));
       if (reused != null) {
+        logVGuideDiagnosticUnobserved();
         return reused;
       }
     }
@@ -416,6 +504,7 @@ public final class PredicateAbstractionManager {
     // Shortcut if the precision is empty
     if (pPredicates.isEmpty() && (abstractionType != AbstractionType.ELIMINATION)) {
       logger.log(Level.FINEST, "Abstraction", currentAbstractionId, "with empty precision is true");
+      logVGuideDiagnosticUnobserved();
       stats.numSymbolicAbstractions.incrementAndGet();
       return makeTrueAbstractionFormula(pathFormula);
     }
@@ -464,6 +553,7 @@ public final class PredicateAbstractionManager {
                 result.getIdsOfStoredAbstractionReused());
         logger.log(Level.FINEST, "Abstraction", currentAbstractionId, "was cached");
         logger.log(Level.ALL, "Abstraction result is", result.asFormula());
+        logVGuideDiagnosticUnobserved();
         stats.numCallsAbstractionCached.incrementAndGet();
         return result;
       }
@@ -477,6 +567,7 @@ public final class PredicateAbstractionManager {
             "Block feasibility of abstraction",
             currentAbstractionId,
             "was cached and is false.");
+        logVGuideDiagnosticUnobserved();
         stats.numCallsAbstractionCached.incrementAndGet();
         return new AbstractionFormula(
             fmgr,
@@ -746,6 +837,7 @@ public final class PredicateAbstractionManager {
       if (bfmgr.isFalse(predicateTerm)) {
         // Ignore predicate "false", it means "check for satisfiability".
         // We do this implicitly.
+        logVGuidePredicateDisposition(predicate, "ignored");
         logger.log(Level.FINEST, "Ignoring predicate 'false'");
         continue;
       }
@@ -759,6 +851,7 @@ public final class PredicateAbstractionManager {
         relevantPredicates.add(predicate);
 
       } else {
+        logVGuidePredicateDisposition(predicate, "ignored");
         logger.log(Level.FINEST, "Ignoring predicate about variables", predVariables);
       }
     }
@@ -814,6 +907,7 @@ public final class PredicateAbstractionManager {
           region = regionCreator.makeAnd(region, predicateVar);
           predicateIt.remove(); // mark predicate as handled
           stats.numTrivialPredicates.incrementAndGet();
+          logVGuidePredicateDisposition(predicate, "trivial_true");
           logger.log(
               Level.FINEST,
               "Predicate",
@@ -828,6 +922,7 @@ public final class PredicateAbstractionManager {
             region = regionCreator.makeAnd(region, negatedPredicateVar);
             predicateIt.remove(); // mark predicate as handled
             stats.numTrivialPredicates.incrementAndGet();
+            logVGuidePredicateDisposition(predicate, "trivial_false");
             logger.log(
                 Level.FINEST,
                 "Negation of predicate",
@@ -867,6 +962,10 @@ public final class PredicateAbstractionManager {
       final Function<BooleanFormula, BooleanFormula> instantiator)
       throws SolverException, InterruptedException {
     Region abs = rmgr.makeTrue();
+
+    for (AbstractionPredicate predicate : remainingPredicates) {
+      logVGuidePredicateDisposition(predicate, "passed");
+    }
 
     try (ProverEnvironment thmProver =
         solver.newProverEnvironment(ProverOptions.GENERATE_ALL_SAT)) {

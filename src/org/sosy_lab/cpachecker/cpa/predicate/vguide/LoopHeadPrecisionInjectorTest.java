@@ -87,9 +87,18 @@ public class LoopHeadPrecisionInjectorTest extends SolverViewBasedTest0 {
             ImmutableList.of(),
             false,
             false);
+    ValidatedPredicate nonPrecisionCandidate =
+        new ValidatedPredicate(
+            formula,
+            head,
+            ValidatedPredicate.Classification.ENTAILED,
+            "",
+            ImmutableList.of(),
+            false,
+            false);
 
     new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), abstractionManager)
-        .armVGuidePredicateDiagnostics(ImmutableList.of(candidate));
+        .armVGuidePredicateDiagnostics(ImmutableList.of(candidate, nonPrecisionCandidate));
 
     verify(abstractionManager).enableVGuidePredicateDiagnostics(ImmutableList.of(predicate));
   }
