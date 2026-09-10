@@ -138,6 +138,7 @@ public final class PredicatePrecisionBootstrapper {
   private final PredicateAbstractionManager predicateAbstractionManager;
 
   private final InitialPredicatesOptions options;
+  private boolean parsedPlainPredicateMap = false;
 
   public PredicatePrecisionBootstrapper(
       Configuration config,
@@ -214,7 +215,9 @@ public final class PredicatePrecisionBootstrapper {
                       parseInvariantsFromCorrectnessWitnessAsPredicates(predicatesFile));
             }
           } else {
-            result = result.mergeWith(parser.parsePredicates(predicatesFile));
+            PredicatePrecision parsed = parser.parsePredicates(predicatesFile);
+            parsedPlainPredicateMap |= !parsed.isEmpty();
+            result = result.mergeWith(parsed);
           }
 
         } catch (IOException e) {
@@ -227,6 +230,11 @@ public final class PredicatePrecisionBootstrapper {
     }
 
     return result;
+  }
+
+  /** Returns whether a non-empty plain predicate map was parsed; witness inputs are excluded. */
+  boolean hasParsedPlainPredicateMap() {
+    return parsedPlainPredicateMap;
   }
 
   private PredicatePrecision parseInvariantFromYMLCorrectnessWitnessNonLocally(
