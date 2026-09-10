@@ -30,6 +30,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -84,62 +85,52 @@ public final class PredicateAbstractionManager {
 
   static final class VGuideDiagnosticState {
 
-    private @Nullable ImmutableSet<String> pending;
-    private @Nullable ImmutableSet<String> active;
+    private final Set<String> pending = new LinkedHashSet<>();
+    private final Set<String> active = new LinkedHashSet<>();
 
     void arm(Collection<AbstractionPredicate> pPredicates) {
+      pending.clear();
+      active.clear();
       if (pPredicates.isEmpty()) {
-        clear();
         return;
       }
-      pending =
-          pPredicates.stream()
-              .map(VGuideDiagnosticState::key)
-              .collect(ImmutableSet.toImmutableSet());
-      active = null;
+      for (AbstractionPredicate predicate : pPredicates) {
+        pending.add(key(predicate));
+      }
     }
 
     ImmutableSet<String> match(Collection<AbstractionPredicate> pPredicates) {
-      active = null;
-      if (pending == null || pending.isEmpty()) {
+      active.clear();
+      if (pending.isEmpty()) {
         return ImmutableSet.of();
       }
-      ImmutableSet<String> available = pending;
-      ImmutableSet<String> matching =
-          pPredicates.stream()
-              .map(VGuideDiagnosticState::key)
-              .filter(available::contains)
-              .collect(ImmutableSet.toImmutableSet());
-      if (!matching.isEmpty()) {
-        pending =
-            available.stream()
-                .filter(key -> !matching.contains(key))
-                .collect(ImmutableSet.toImmutableSet());
-        active = matching;
+      ImmutableSet.Builder<String> matching = ImmutableSet.builder();
+      for (AbstractionPredicate predicate : pPredicates) {
+        String key = key(predicate);
+        if (pending.remove(key)) {
+          matching.add(key);
+        }
       }
-      return matching;
+      ImmutableSet<String> result = matching.build();
+      active.addAll(result);
+      return result;
     }
 
     boolean consume(String pKey) {
-      if (active == null || !active.contains(pKey)) {
-        return false;
-      }
-      active =
-          active.stream().filter(key -> !key.equals(pKey)).collect(ImmutableSet.toImmutableSet());
-      return true;
+      return active.remove(pKey);
     }
 
     ImmutableSet<String> active() {
-      return active == null ? ImmutableSet.of() : active;
+      return ImmutableSet.copyOf(active);
     }
 
     void clear() {
-      pending = null;
-      active = null;
+      pending.clear();
+      active.clear();
     }
 
     void end() {
-      active = null;
+      active.clear();
     }
 
     private static String key(AbstractionPredicate pPredicate) {

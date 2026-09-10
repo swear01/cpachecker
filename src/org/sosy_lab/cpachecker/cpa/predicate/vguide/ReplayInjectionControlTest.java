@@ -250,7 +250,7 @@ public class ReplayInjectionControlTest extends SolverViewBasedTest0 {
         ArgumentCaptor.forClass(ImmutableList.class);
     verify(injector, org.mockito.Mockito.times(2))
         .inject(org.mockito.Mockito.any(), captor.capture(), org.mockito.Mockito.anyBoolean());
-    assertThat(captor.getAllValues().get(0)).containsExactlyElementsIn(firstExpected);
+    assertThat(captor.getAllValues().getFirst()).containsExactlyElementsIn(firstExpected);
     assertThat(captor.getAllValues().get(1)).containsExactlyElementsIn(secondExpected);
     verifyNoMoreInteractions(injector);
   }
