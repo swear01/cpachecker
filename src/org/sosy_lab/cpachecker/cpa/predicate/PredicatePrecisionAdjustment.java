@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import org.sosy_lab.common.collect.PersistentMap;
 import org.sosy_lab.common.log.LogManager;
@@ -58,6 +59,8 @@ final class PredicatePrecisionAdjustment implements PrecisionAdjustment {
   int numTargetAbstractions = 0;
   int numAbstractionsFalse = 0;
   final StatInt blockSize = new StatInt(StatKind.AVG, "Avg ABE block size");
+  private final boolean observePlainPredicateMapUse;
+  private final AtomicBoolean loggedPlainPredicateMapUse = new AtomicBoolean();
 
   PredicatePrecisionAdjustment(
       LogManager pLogger,
@@ -66,7 +69,8 @@ final class PredicatePrecisionAdjustment implements PrecisionAdjustment {
       BlockOperator pBlk,
       PredicateAbstractionManager pPredAbsManager,
       PredicateCPAInvariantsManager pInvariantSupplier,
-      PredicateProvider pPredicateProvider) {
+      PredicateProvider pPredicateProvider,
+      boolean pObservePlainPredicateMapUse) {
     logger = pLogger;
     fmgr = pFmgr;
     pathFormulaManager = pPfmgr;
@@ -75,6 +79,7 @@ final class PredicatePrecisionAdjustment implements PrecisionAdjustment {
 
     invariants = pInvariantSupplier;
     predicateProvider = pPredicateProvider;
+    observePlainPredicateMapUse = pObservePlainPredicateMapUse;
   }
 
   @Override
@@ -171,7 +176,6 @@ final class PredicatePrecisionAdjustment implements PrecisionAdjustment {
 
     // get additional predicates
     Set<AbstractionPredicate> additionalPredicates = predicateProvider.getPredicates(fullState);
-
     AbstractionFormula newAbstractionFormula = null;
 
     // compute new abstraction
@@ -179,7 +183,22 @@ final class PredicatePrecisionAdjustment implements PrecisionAdjustment {
     try {
       for (CFANode loc : pLocations) {
         Integer newLocInstance = abstractionLocations.getOrDefault(loc, 0) + 1;
-        additionalPredicates.addAll(precision.getPredicates(loc, newLocInstance));
+        Collection<AbstractionPredicate> selected = precision.getPredicates(loc, newLocInstance);
+        if (observePlainPredicateMapUse && loggedPlainPredicateMapUse.compareAndSet(false, true)) {
+          logger.log(
+              Level.INFO,
+              "First plain predicate-map precision lookup/handoff: selected=",
+              selected.size(),
+              " predicates for ",
+              loc,
+              ", precision-global=",
+              precision.getGlobalPredicates().size(),
+              ", precision-function=",
+              precision.getFunctionPredicates().size(),
+              ", precision-local=",
+              precision.getLocalPredicates().size());
+        }
+        additionalPredicates.addAll(selected);
         // update abstraction locations map
         abstractionLocations = abstractionLocations.putAndCopy(loc, newLocInstance);
       }

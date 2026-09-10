@@ -231,7 +231,8 @@ public class PredicateCPA
             blk,
             predAbsManager,
             invariantsManager,
-            predicateProvider);
+            predicateProvider,
+            precisionBootstraper.hasParsedPlainPredicateMap());
     stop =
         switch (stopType) {
           case "SEP" -> new PredicateStopOperator(domain);
