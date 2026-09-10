@@ -84,7 +84,7 @@ public final class PredicateAbstractionManager {
 
   static final class VGuideDiagnosticState {
 
-    private @Nullable ImmutableMap<String, AbstractionPredicate> pending;
+    private @Nullable ImmutableSet<String> pending;
     private @Nullable ImmutableSet<String> active;
 
     void arm(Collection<AbstractionPredicate> pPredicates) {
@@ -92,11 +92,10 @@ public final class PredicateAbstractionManager {
         clear();
         return;
       }
-      ImmutableMap.Builder<String, AbstractionPredicate> builder = ImmutableMap.builder();
-      for (AbstractionPredicate predicate : pPredicates) {
-        builder.put(key(predicate), predicate);
-      }
-      pending = builder.buildOrThrow();
+      pending =
+          pPredicates.stream()
+              .map(VGuideDiagnosticState::key)
+              .collect(ImmutableSet.toImmutableSet());
       active = null;
     }
 
@@ -105,16 +104,34 @@ public final class PredicateAbstractionManager {
       if (pending == null) {
         return ImmutableSet.of();
       }
+      ImmutableSet<String> available = pending;
+      if (available == null) {
+        return ImmutableSet.of();
+      }
       ImmutableSet<String> matching =
           pPredicates.stream()
               .map(VGuideDiagnosticState::key)
-              .filter(pending::containsKey)
+              .filter(available::contains)
               .collect(ImmutableSet.toImmutableSet());
       if (!matching.isEmpty()) {
-        pending = null;
+        pending =
+            available.stream()
+                .filter(key -> !matching.contains(key))
+                .collect(ImmutableSet.toImmutableSet());
         active = matching;
       }
       return matching;
+    }
+
+    boolean consume(String pKey) {
+      if (active == null || !active.contains(pKey)) {
+        return false;
+      }
+      active =
+          active.stream()
+              .filter(key -> !key.equals(pKey))
+              .collect(ImmutableSet.toImmutableSet());
+      return true;
     }
 
     ImmutableSet<String> active() {
@@ -123,6 +140,10 @@ public final class PredicateAbstractionManager {
 
     void clear() {
       pending = null;
+      active = null;
+    }
+
+    void end() {
       active = null;
     }
 
@@ -407,6 +428,8 @@ public final class PredicateAbstractionManager {
             System.identityHashCode(predicate),
             " regionIdentity=",
             System.identityHashCode(predicate.getAbstractVariable()),
+            " predicateVariable=",
+            vguidePredicateKey(predicate),
             " atom=",
             predicate.getSymbolicAtom());
       }
@@ -419,8 +442,7 @@ public final class PredicateAbstractionManager {
 
   private void logVGuidePredicateDisposition(
       AbstractionPredicate pPredicate, String pDisposition) {
-    ImmutableSet<String> active = vguideDiagnosticState.active();
-    if (active != null && active.contains(vguidePredicateKey(pPredicate))) {
+    if (vguideDiagnosticState.consume(vguidePredicateKey(pPredicate))) {
       logger.log(
           Level.INFO,
           "VGuide predicate identity diagnostic disposition=",
@@ -432,8 +454,8 @@ public final class PredicateAbstractionManager {
 
   private void logVGuideDiagnosticUnobserved() {
     ImmutableSet<String> active = vguideDiagnosticState.active();
-    if (active != null) {
-      for (String predicateVariable : active) {
+    for (String predicateVariable : active) {
+      if (vguideDiagnosticState.consume(predicateVariable)) {
         logger.log(
             Level.INFO,
             "VGuide predicate identity diagnostic disposition=unobserved predicateVariable=",
@@ -482,6 +504,8 @@ public final class PredicateAbstractionManager {
     logger.log(Level.ALL, "Old abstraction:", abstractionFormula.asFormula());
     logger.log(Level.ALL, "Path formula:", pathFormula);
     logger.log(Level.ALL, "Predicates:", pPredicates);
+
+    try {
 
     final BooleanFormula absFormula = abstractionFormula.asInstantiatedFormula();
     final BooleanFormula symbFormula = getFormulaFromPathFormula(pathFormula);
@@ -650,6 +674,9 @@ public final class PredicateAbstractionManager {
     }
 
     return result;
+    } finally {
+      vguideDiagnosticState.end();
+    }
   }
 
   /**
