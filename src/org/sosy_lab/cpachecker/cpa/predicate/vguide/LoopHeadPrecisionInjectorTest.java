@@ -71,6 +71,29 @@ public class LoopHeadPrecisionInjectorTest extends SolverViewBasedTest0 {
     assertThat(updated.getLocalPredicates().get(compilerHead)).contains(compilerPredicate);
   }
 
+  @Test
+  public void armsIdentityDiagnosticThroughExplicitVGuideHook() throws Exception {
+    CFANode head = newDummyCFANode("head");
+    BooleanFormula formula = bmgrv.makeVariable("main::x");
+    PredicateAbstractionManager abstractionManager = mock(PredicateAbstractionManager.class);
+    AbstractionPredicate predicate = mock(AbstractionPredicate.class);
+    when(abstractionManager.getPredicateFor(formula)).thenReturn(predicate);
+    ValidatedPredicate candidate =
+        new ValidatedPredicate(
+            formula,
+            head,
+            ValidatedPredicate.Classification.PRECISION_ONLY,
+            "",
+            ImmutableList.of(),
+            false,
+            false);
+
+    new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), abstractionManager)
+        .armVGuidePredicateDiagnostics(ImmutableList.of(candidate));
+
+    verify(abstractionManager).enableVGuidePredicateDiagnostics(ImmutableList.of(predicate));
+  }
+
   private static PredicatePrecision precision(CFANode head, AbstractionPredicate predicate) {
     return new PredicatePrecision(
         ImmutableSetMultimap.of(),

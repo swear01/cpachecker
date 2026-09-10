@@ -99,6 +99,20 @@ public final class LoopHeadPrecisionInjector {
     return true;
   }
 
+  public void armVGuidePredicateDiagnostics(List<ValidatedPredicate> precisionPredicates) {
+    if (predAbsManager == null) {
+      return;
+    }
+    List<AbstractionPredicate> predicates = new ArrayList<>();
+    for (ValidatedPredicate vp : precisionPredicates) {
+      if (vp.classification() != ValidatedPredicate.Classification.PRECISION_ONLY) {
+        continue;
+      }
+      predicates.add(predAbsManager.getPredicateFor(vp.formula()));
+    }
+    predAbsManager.enableVGuidePredicateDiagnostics(predicates);
+  }
+
   public void injectFrozen(
       ARGReachedSet reached,
       List<LoopHeadInfo> loopHeads,

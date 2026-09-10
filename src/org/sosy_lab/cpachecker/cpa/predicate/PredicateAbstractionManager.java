@@ -189,6 +189,7 @@ public final class PredicateAbstractionManager {
   private final FormulaManagerView fmgr;
   private final BooleanFormulaManagerView bfmgr;
   private final PredicateAbstractionsStorage abstractionStorage;
+  private @Nullable ImmutableSet<AbstractionPredicate> vguideDiagnosticPredicates;
   private final AbstractionManager amgr;
   private final RegionCreator rmgr;
   private final PathFormulaManager pfmgr;
@@ -318,6 +319,43 @@ public final class PredicateAbstractionManager {
         noAbstractionReuse);
   }
 
+  /** Arms one bounded identity observation for predicates injected by VGuide. */
+  public void enableVGuidePredicateDiagnostics(Collection<AbstractionPredicate> pPredicates) {
+    vguideDiagnosticPredicates =
+        pPredicates.isEmpty() ? null : ImmutableSet.copyOf(pPredicates);
+  }
+
+  private void logVGuidePredicateDiagnostic(
+      int pAbstractionId,
+      Collection<CFANode> pLocations,
+      Collection<AbstractionPredicate> pPredicates) {
+    ImmutableSet<AbstractionPredicate> diagnosticPredicates = vguideDiagnosticPredicates;
+    if (diagnosticPredicates == null) {
+      return;
+    }
+    vguideDiagnosticPredicates = null;
+    logger.log(
+        Level.INFO,
+        "VGuide predicate identity diagnostic abstractionId=",
+        pAbstractionId,
+        " locations=",
+        pLocations.stream().map(CFANode::getNodeNumber).limit(8).toList(),
+        " candidateCount=",
+        pPredicates.size());
+    for (AbstractionPredicate predicate : pPredicates) {
+      if (diagnosticPredicates.contains(predicate)) {
+        logger.log(
+            Level.INFO,
+            "VGuide predicate identity diagnostic predicateIdentity=",
+            System.identityHashCode(predicate),
+            " regionIdentity=",
+            System.identityHashCode(predicate.getAbstractVariable()),
+            " atom=",
+            predicate.getSymbolicAtom());
+      }
+    }
+  }
+
   public void clear() {
     if (useCache) {
       abstractionCache.clear();
@@ -345,6 +383,7 @@ public final class PredicateAbstractionManager {
       throws SolverException, InterruptedException {
 
     int currentAbstractionId = stats.numCallsAbstraction.getAndIncrement();
+    logVGuidePredicateDiagnostic(currentAbstractionId, locations, pPredicates);
 
     logger.log(
         Level.FINEST,

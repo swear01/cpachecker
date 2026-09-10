@@ -803,7 +803,10 @@ public final class VGuideRefinementBridge {
             pendingDump.llmPrecisionRetained = counts.retained();
             llmOwnedKeys.clear();
           }
-          precisionInjector.inject(reached, toInject);
+          boolean injectionApplied = precisionInjector.inject(reached, toInject);
+          if (injectionApplied && analysisDumper != null) {
+            precisionInjector.armVGuidePredicateDiagnostics(toInject);
+          }
           for (ValidatedPredicate vp : toInject) {
             if (vp != null && vp.loopHeadNode() != null && vp.formula() != null) {
               llmOwnedKeys.add(
