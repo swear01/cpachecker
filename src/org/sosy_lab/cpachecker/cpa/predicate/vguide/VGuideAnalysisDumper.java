@@ -25,8 +25,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -615,13 +617,15 @@ public final class VGuideAnalysisDumper {
 
   private ArrayNode validatedPredicatesJson(List<DumpValidatedPredicate> preds) {
     ArrayNode arr = JSON.createArrayNode();
+    Map<BooleanFormula, String> blockFormulaDumps = new IdentityHashMap<>();
     for (DumpValidatedPredicate p : preds) {
-      arr.add(validatedPredicateJson(p));
+      arr.add(validatedPredicateJson(p, blockFormulaDumps));
     }
     return arr;
   }
 
-  private ObjectNode validatedPredicateJson(DumpValidatedPredicate p) {
+  private ObjectNode validatedPredicateJson(
+      DumpValidatedPredicate p, Map<BooleanFormula, String> blockFormulaDumps) {
     ObjectNode o = JSON.createObjectNode();
     o.put("predicate_id", p.predicateId());
     o.put("raw_string", p.rawString());
@@ -639,7 +643,9 @@ public final class VGuideAnalysisDumper {
     }
     o.put("over_specific", p.validated().overSpecific());
     o.put("group_conflict", p.validated().groupConflict());
-    o.put("block_formula_smt", dumpFormula(p.blockFormula()));
+    o.put(
+        "block_formula_smt",
+        blockFormulaDumps.computeIfAbsent(p.blockFormula(), this::dumpFormula));
     if (!p.sourceProfile().isEmpty()) {
       o.put("source_profile", p.sourceProfile());
     }
