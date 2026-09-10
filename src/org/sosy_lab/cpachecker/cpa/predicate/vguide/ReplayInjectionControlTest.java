@@ -8,8 +8,8 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
@@ -106,7 +106,7 @@ public class ReplayInjectionControlTest extends SolverViewBasedTest0 {
                 validation,
                 raw,
                 profiles,
-            this::canonical));
+                this::canonical));
   }
 
   @Test
@@ -116,7 +116,10 @@ public class ReplayInjectionControlTest extends SolverViewBasedTest0 {
     String firstSelector = selector(first, "SAFE");
 
     VGuideRefinementBridge full = bridge(VGuideOptions.ReplayInjectionMode.FULL, ImmutableSet.of());
-    setValidation(full, ImmutableList.of(first, second), ImmutableMap.of(first, "first-raw", second, "second-raw"));
+    setValidation(
+        full,
+        ImmutableList.of(first, second),
+        ImmutableMap.of(first, "first-raw", second, "second-raw"));
     setPendingDump(full, 1);
     full.onSpuriousAfterRefinement(1, mock(ARGReachedSet.class, RETURNS_DEEP_STUBS));
     assertInjected(full, ImmutableList.of(first, second));
@@ -241,20 +244,26 @@ public class ReplayInjectionControlTest extends SolverViewBasedTest0 {
       ImmutableList<ValidatedPredicate> firstExpected,
       ImmutableList<ValidatedPredicate> secondExpected)
       throws Exception {
-    LoopHeadPrecisionInjector injector = (LoopHeadPrecisionInjector) get(bridge, "precisionInjector");
-    ArgumentCaptor<ImmutableList<ValidatedPredicate>> captor = ArgumentCaptor.forClass(ImmutableList.class);
-    verify(injector, org.mockito.Mockito.times(2)).inject(org.mockito.Mockito.any(), captor.capture());
+    LoopHeadPrecisionInjector injector =
+        (LoopHeadPrecisionInjector) get(bridge, "precisionInjector");
+    ArgumentCaptor<ImmutableList<ValidatedPredicate>> captor =
+        ArgumentCaptor.forClass(ImmutableList.class);
+    verify(injector, org.mockito.Mockito.times(2))
+        .inject(org.mockito.Mockito.any(), captor.capture(), org.mockito.Mockito.anyBoolean());
     assertThat(captor.getAllValues().get(0)).containsExactlyElementsIn(firstExpected);
     assertThat(captor.getAllValues().get(1)).containsExactlyElementsIn(secondExpected);
     verifyNoMoreInteractions(injector);
   }
 
   @SuppressWarnings("unchecked")
-  private void assertInjected(VGuideRefinementBridge bridge, ImmutableList<ValidatedPredicate> expected)
-      throws Exception {
-    LoopHeadPrecisionInjector injector = (LoopHeadPrecisionInjector) get(bridge, "precisionInjector");
-    ArgumentCaptor<ImmutableList<ValidatedPredicate>> captor = ArgumentCaptor.forClass(ImmutableList.class);
-    verify(injector).inject(org.mockito.Mockito.any(), captor.capture());
+  private void assertInjected(
+      VGuideRefinementBridge bridge, ImmutableList<ValidatedPredicate> expected) throws Exception {
+    LoopHeadPrecisionInjector injector =
+        (LoopHeadPrecisionInjector) get(bridge, "precisionInjector");
+    ArgumentCaptor<ImmutableList<ValidatedPredicate>> captor =
+        ArgumentCaptor.forClass(ImmutableList.class);
+    verify(injector)
+        .inject(org.mockito.Mockito.any(), captor.capture(), org.mockito.Mockito.anyBoolean());
     assertThat(captor.getValue()).containsExactlyElementsIn(expected);
     verifyNoMoreInteractions(injector);
   }

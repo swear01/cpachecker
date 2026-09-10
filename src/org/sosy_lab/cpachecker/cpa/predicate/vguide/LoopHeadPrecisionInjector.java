@@ -64,7 +64,10 @@ public final class LoopHeadPrecisionInjector {
     return merged;
   }
 
-  public boolean inject(ARGReachedSet reached, List<ValidatedPredicate> precisionPredicates) {
+  public boolean inject(
+      ARGReachedSet reached,
+      List<ValidatedPredicate> precisionPredicates,
+      boolean enableDiagnostics) {
     if (precisionPredicates.isEmpty() || predAbsManager == null) {
       return false;
     }
@@ -95,22 +98,12 @@ public final class LoopHeadPrecisionInjector {
 
     PredicatePrecision newPredPrec = currentPredPrec.addLocalPredicates(entries);
     reached.updatePrecisionGlobally(newPredPrec, Predicates.instanceOf(PredicatePrecision.class));
+    if (enableDiagnostics) {
+      predAbsManager.enableVGuidePredicateDiagnostics(
+          entries.stream().map(Map.Entry::getValue).toList());
+    }
     logger.log(Level.INFO, "VGuide precision-injected ", entries.size(), " local predicates");
     return true;
-  }
-
-  public void armVGuidePredicateDiagnostics(List<ValidatedPredicate> precisionPredicates) {
-    if (predAbsManager == null) {
-      return;
-    }
-    List<AbstractionPredicate> predicates = new ArrayList<>();
-    for (ValidatedPredicate vp : precisionPredicates) {
-      if (vp.classification() != ValidatedPredicate.Classification.PRECISION_ONLY) {
-        continue;
-      }
-      predicates.add(predAbsManager.getPredicateFor(vp.formula()));
-    }
-    predAbsManager.enableVGuidePredicateDiagnostics(predicates);
   }
 
   public void injectFrozen(
