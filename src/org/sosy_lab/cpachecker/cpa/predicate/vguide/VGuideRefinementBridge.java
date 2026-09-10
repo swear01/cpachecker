@@ -122,14 +122,7 @@ public final class VGuideRefinementBridge {
       Map<String, String> profiles,
       Function<BooleanFormula, String> canonicalizer) {
     return selectReplayPredicates(
-        mode,
-        selectors,
-        validation,
-        rawStrings,
-        profiles,
-        canonicalizer,
-        new HashSet<>(),
-        true);
+        mode, selectors, validation, rawStrings, profiles, canonicalizer, new HashSet<>(), true);
   }
 
   private static ImmutableList<ValidatedPredicate> selectReplayPredicates(
@@ -161,8 +154,7 @@ public final class VGuideRefinementBridge {
               + canonicalizer.apply(predicate.formula())
               + ";provenance="
               + profile;
-      if (mode == VGuideOptions.ReplayInjectionMode.EXCLUDE
-          && selectors.contains(selector)) {
+      if (mode == VGuideOptions.ReplayInjectionMode.EXCLUDE && selectors.contains(selector)) {
         matchedSelectors.add(selector);
       } else {
         selected.add(predicate);
@@ -737,7 +729,10 @@ public final class VGuideRefinementBridge {
       }
       dump.validated =
           buildValidatedDump(
-              pack, validationOutcome.rawStrings(), lastValidation, abstractionStatesTrace,
+              pack,
+              validationOutcome.rawStrings(),
+              lastValidation,
+              abstractionStatesTrace,
               profileByRaw);
       dump.rejections = validationOutcome.rejections();
       if (options.isPredicateUsefulnessGateEnabled()) {
@@ -782,7 +777,7 @@ public final class VGuideRefinementBridge {
       int nativeDelta = nativePrecisionDelta(pendingDump.precisionBeforeSnapshot, reached);
       if (pendingDump.precisionCompilerResult != null) {
         precisionInjector.inject(
-            reached, pendingDump.precisionCompilerResult.validatedPredicates());
+            reached, pendingDump.precisionCompilerResult.validatedPredicates(), false);
       }
       List<VGuideAnalysisDumper.DumpValidatedPredicate> injected = ImmutableList.of();
       if (lastValidation != null) {
@@ -803,7 +798,7 @@ public final class VGuideRefinementBridge {
             pendingDump.llmPrecisionRetained = counts.retained();
             llmOwnedKeys.clear();
           }
-          precisionInjector.inject(reached, toInject);
+          precisionInjector.inject(reached, toInject, analysisDumper != null);
           for (ValidatedPredicate vp : toInject) {
             if (vp != null && vp.loopHeadNode() != null && vp.formula() != null) {
               llmOwnedKeys.add(
@@ -844,7 +839,7 @@ public final class VGuideRefinementBridge {
       if (!suppressCurrentPrecisionInjection) {
         // The fallback has no dump row, but uses the same post-validation policy point.
         precisionInjector.inject(
-            reached, selectReplayPredicates(lastValidation, lastRawStrings));
+            reached, selectReplayPredicates(lastValidation, lastRawStrings), false);
       }
     }
     lastValidation = null;

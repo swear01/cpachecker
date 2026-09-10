@@ -60,7 +60,7 @@ public class LoopHeadPrecisionInjectorTest extends SolverViewBasedTest0 {
 
     assertThat(
             new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), abstractionManager)
-                .inject(reached, ImmutableList.of(candidate)))
+                .inject(reached, ImmutableList.of(candidate), false))
         .isTrue();
 
     ArgumentCaptor<Precision> precision = ArgumentCaptor.forClass(Precision.class);
@@ -69,6 +69,87 @@ public class LoopHeadPrecisionInjectorTest extends SolverViewBasedTest0 {
     assertThat(updated.getLocalPredicates().get(oldHead)).contains(oldPredicate);
     assertThat(updated.getLocalPredicates().get(refinedHead)).contains(refinedPredicate);
     assertThat(updated.getLocalPredicates().get(compilerHead)).contains(compilerPredicate);
+  }
+
+  @Test
+  public void armsIdentityDiagnosticFromResolvedInjectionEntries() throws Exception {
+    CFANode head = newDummyCFANode("head");
+    BooleanFormula formula = bmgrv.makeVariable("main::x");
+    PredicateAbstractionManager abstractionManager = mock(PredicateAbstractionManager.class);
+    AbstractionPredicate predicate = mock(AbstractionPredicate.class);
+    when(abstractionManager.getPredicateFor(formula)).thenReturn(predicate);
+    ValidatedPredicate candidate =
+        new ValidatedPredicate(
+            formula,
+            head,
+            ValidatedPredicate.Classification.PRECISION_ONLY,
+            "",
+            ImmutableList.of(),
+            false,
+            false);
+    ValidatedPredicate nonPrecisionCandidate =
+        new ValidatedPredicate(
+            formula,
+            head,
+            ValidatedPredicate.Classification.ENTAILED,
+            "",
+            ImmutableList.of(),
+            false,
+            false);
+
+    UnmodifiableReachedSet view = mock(UnmodifiableReachedSet.class);
+    when(view.getPrecisions()).thenReturn(ImmutableList.of());
+    ARGReachedSet reached = mock(ARGReachedSet.class);
+    when(reached.asReachedSet()).thenReturn(view);
+
+    assertThat(
+            new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), abstractionManager)
+                .inject(reached, ImmutableList.of(candidate, nonPrecisionCandidate), true))
+        .isTrue();
+
+    verify(abstractionManager).enableVGuidePredicateDiagnostics(ImmutableList.of(predicate));
+  }
+
+  @Test
+  public void doesNotReResolveFailedCandidateForDiagnostics() throws Exception {
+    CFANode head = newDummyCFANode("head");
+    BooleanFormula successfulFormula = bmgrv.makeVariable("main::x");
+    BooleanFormula failedFormula = bmgrv.makeVariable("main::y");
+    PredicateAbstractionManager abstractionManager = mock(PredicateAbstractionManager.class);
+    AbstractionPredicate successfulPredicate = mock(AbstractionPredicate.class);
+    when(abstractionManager.getPredicateFor(successfulFormula)).thenReturn(successfulPredicate);
+    when(abstractionManager.getPredicateFor(failedFormula))
+        .thenThrow(new IllegalArgumentException());
+    ValidatedPredicate successful =
+        new ValidatedPredicate(
+            successfulFormula,
+            head,
+            ValidatedPredicate.Classification.PRECISION_ONLY,
+            "",
+            ImmutableList.of(),
+            false,
+            false);
+    ValidatedPredicate failed =
+        new ValidatedPredicate(
+            failedFormula,
+            head,
+            ValidatedPredicate.Classification.PRECISION_ONLY,
+            "",
+            ImmutableList.of(),
+            false,
+            false);
+    UnmodifiableReachedSet view = mock(UnmodifiableReachedSet.class);
+    when(view.getPrecisions()).thenReturn(ImmutableList.of());
+    ARGReachedSet reached = mock(ARGReachedSet.class);
+    when(reached.asReachedSet()).thenReturn(view);
+
+    assertThat(
+            new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), abstractionManager)
+                .inject(reached, ImmutableList.of(successful, failed), true))
+        .isTrue();
+
+    verify(abstractionManager)
+        .enableVGuidePredicateDiagnostics(ImmutableList.of(successfulPredicate));
   }
 
   private static PredicatePrecision precision(CFANode head, AbstractionPredicate predicate) {
