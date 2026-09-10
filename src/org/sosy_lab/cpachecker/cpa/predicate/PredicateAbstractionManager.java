@@ -101,7 +101,7 @@ public final class PredicateAbstractionManager {
 
     ImmutableSet<String> match(Collection<AbstractionPredicate> pPredicates) {
       active = null;
-      if (pending == null) {
+      if (pending == null || pending.isEmpty()) {
         return ImmutableSet.of();
       }
       ImmutableSet<String> available = pending;
@@ -520,7 +520,6 @@ public final class PredicateAbstractionManager {
                 primaryFormula,
                 Iterables.getOnlyElement(locations));
         if (reused != null) {
-          logVGuideDiagnosticUnobserved();
           return reused;
         }
       }
@@ -529,7 +528,6 @@ public final class PredicateAbstractionManager {
       if (pPredicates.isEmpty() && (abstractionType != AbstractionType.ELIMINATION)) {
         logger.log(
             Level.FINEST, "Abstraction", currentAbstractionId, "with empty precision is true");
-        logVGuideDiagnosticUnobserved();
         stats.numSymbolicAbstractions.incrementAndGet();
         return makeTrueAbstractionFormula(pathFormula);
       }
@@ -578,7 +576,6 @@ public final class PredicateAbstractionManager {
                   result.getIdsOfStoredAbstractionReused());
           logger.log(Level.FINEST, "Abstraction", currentAbstractionId, "was cached");
           logger.log(Level.ALL, "Abstraction result is", result.asFormula());
-          logVGuideDiagnosticUnobserved();
           stats.numCallsAbstractionCached.incrementAndGet();
           return result;
         }
@@ -592,7 +589,6 @@ public final class PredicateAbstractionManager {
               "Block feasibility of abstraction",
               currentAbstractionId,
               "was cached and is false.");
-          logVGuideDiagnosticUnobserved();
           stats.numCallsAbstractionCached.incrementAndGet();
           return new AbstractionFormula(
               fmgr,
