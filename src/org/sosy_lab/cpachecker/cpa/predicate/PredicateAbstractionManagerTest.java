@@ -82,11 +82,11 @@ public class PredicateAbstractionManagerTest extends SolverViewBasedTest0 {
     state.arm(ImmutableList.of(predicate));
     state.match(ImmutableList.of(predicate));
     state.end();
-    for (int callId = 0; callId < 8; callId++) {
+    for (int callId = 0; callId < 64; callId++) {
       assertThat(state.beginDownstreamCall(callId)).isTrue();
       state.endDownstreamCall();
     }
-    assertThat(state.beginDownstreamCall(9)).isFalse();
+    assertThat(state.beginDownstreamCall(64)).isFalse();
   }
 
   @Test

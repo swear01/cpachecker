@@ -86,7 +86,7 @@ public final class PredicateAbstractionManager {
 
   static final class VGuideDiagnosticState {
 
-    private static final int MAX_DOWNSTREAM_CALLS = 8;
+    private static final int MAX_DOWNSTREAM_CALLS = 64;
 
     private final Set<String> pending = new LinkedHashSet<>();
     private final Set<String> active = new LinkedHashSet<>();
@@ -95,6 +95,7 @@ public final class PredicateAbstractionManager {
     private boolean observingDownstreamCall;
     private int downstreamCallId = -1;
     private boolean budgetMarkerLogged;
+    private long downstreamCallStartNanos;
 
     void arm(Collection<AbstractionPredicate> pPredicates) {
       pending.clear();
@@ -104,6 +105,7 @@ public final class PredicateAbstractionManager {
       observingDownstreamCall = false;
       downstreamCallId = -1;
       budgetMarkerLogged = false;
+      downstreamCallStartNanos = 0;
       if (pPredicates.isEmpty()) {
         return;
       }
@@ -149,6 +151,7 @@ public final class PredicateAbstractionManager {
       observingDownstreamCall = false;
       downstreamCallId = -1;
       budgetMarkerLogged = false;
+      downstreamCallStartNanos = 0;
     }
 
     void end() {
@@ -157,6 +160,7 @@ public final class PredicateAbstractionManager {
       observingDownstreamCall = false;
       downstreamCallId = -1;
       budgetMarkerLogged = false;
+      downstreamCallStartNanos = 0;
     }
 
     boolean observing() {
@@ -170,6 +174,7 @@ public final class PredicateAbstractionManager {
       }
       observingDownstreamCall = true;
       downstreamCallId = pCallId;
+      downstreamCallStartNanos = System.nanoTime();
       if (downstreamCallsRemaining > 0) {
         downstreamCallsRemaining--;
       }
@@ -196,6 +201,12 @@ public final class PredicateAbstractionManager {
 
     int downstreamCallId() {
       return downstreamCallId;
+    }
+
+    long downstreamCallElapsedNanos() {
+      return observingDownstreamCall
+          ? Math.max(0, System.nanoTime() - downstreamCallStartNanos)
+          : 0;
     }
 
     private static String key(AbstractionPredicate pPredicate) {
@@ -521,6 +532,7 @@ public final class PredicateAbstractionManager {
             + pAbstractionId
             + " callId="
             + pAbstractionId
+            + " elapsedNanos=0"
             + " locations="
             + pLocations.stream().map(CFANode::getNodeNumber).limit(8).toList()
             + " mode="
@@ -551,6 +563,8 @@ public final class PredicateAbstractionManager {
               + instantiated.hashCode()
               + " atomText=unavailable"
               + " atomTextComplete=false"
+              + " elapsedNanos="
+              + vguideDiagnosticState.downstreamCallElapsedNanos()
               + " atomReplayable=false");
     }
   }
@@ -560,7 +574,9 @@ public final class PredicateAbstractionManager {
       logger.log(
           Level.INFO,
           formatVGuideBooleanAbstractionEvent(
-              vguideDiagnosticState.downstreamCallId(), pEvent, pValues));
+              vguideDiagnosticState.downstreamCallId(), pEvent, pValues)
+              + " elapsedNanos="
+              + vguideDiagnosticState.downstreamCallElapsedNanos());
     }
   }
 
@@ -609,7 +625,9 @@ public final class PredicateAbstractionManager {
               "text=",
               "unavailable",
               "truncated=",
-              true));
+              true)
+              + " elapsedNanos="
+              + vguideDiagnosticState.downstreamCallElapsedNanos());
     }
   }
 
