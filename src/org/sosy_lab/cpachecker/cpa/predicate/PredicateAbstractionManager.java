@@ -1401,10 +1401,10 @@ public final class PredicateAbstractionManager {
     try {
       thmProver.push(predDef);
       logVGuideBooleanAbstractionEvent(
-          "push", "status=returned", "predicateVariableCount=", predVars.size());
+          "push", "status=", "returned", "predicateVariableCount=", predVars.size());
     } catch (RuntimeException e) {
       logVGuideBooleanAbstractionEvent(
-          "push", "status=exception", "type=", e.getClass().getName());
+          "push", "status=", "exception", "type=", e.getClass().getName());
       throw e;
     }
     AllSatCallbackImpl callback = new AllSatCallbackImpl();
@@ -1412,7 +1412,7 @@ public final class PredicateAbstractionManager {
     try {
       result = thmProver.allSat(callback, predVars);
       logVGuideBooleanAbstractionEvent(
-          "return", "status=returned", "callbackCount=", callback.getCount());
+          "return", "status=", "returned", "callbackCount=", callback.getCount());
     } catch (RuntimeException | SolverException | InterruptedException e) {
       logVGuideBooleanAbstractionEvent(
           "exception", "type=", e.getClass().getName(), "callbackCount=", callback.getCount());
