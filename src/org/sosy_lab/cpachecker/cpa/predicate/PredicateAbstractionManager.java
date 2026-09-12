@@ -14,6 +14,7 @@ import static com.google.common.base.Predicates.equalTo;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -85,12 +86,26 @@ public final class PredicateAbstractionManager {
 
   static final class VGuideDiagnosticState {
 
+    private static final int MAX_DOWNSTREAM_CALLS = 64;
+
     private final Set<String> pending = new LinkedHashSet<>();
     private final Set<String> active = new LinkedHashSet<>();
+    private boolean matched;
+    private int downstreamCallsRemaining;
+    private boolean observingDownstreamCall;
+    private int downstreamCallId = -1;
+    private boolean budgetMarkerLogged;
+    private long downstreamCallStartNanos;
 
     void arm(Collection<AbstractionPredicate> pPredicates) {
       pending.clear();
       active.clear();
+      matched = false;
+      downstreamCallsRemaining = 0;
+      observingDownstreamCall = false;
+      downstreamCallId = -1;
+      budgetMarkerLogged = false;
+      downstreamCallStartNanos = 0;
       if (pPredicates.isEmpty()) {
         return;
       }
@@ -112,6 +127,10 @@ public final class PredicateAbstractionManager {
         }
       }
       ImmutableSet<String> result = matching.build();
+      if (!result.isEmpty()) {
+        matched = true;
+        downstreamCallsRemaining = MAX_DOWNSTREAM_CALLS;
+      }
       active.addAll(result);
       return result;
     }
@@ -127,10 +146,67 @@ public final class PredicateAbstractionManager {
     void clear() {
       pending.clear();
       active.clear();
+      matched = false;
+      downstreamCallsRemaining = 0;
+      observingDownstreamCall = false;
+      downstreamCallId = -1;
+      budgetMarkerLogged = false;
+      downstreamCallStartNanos = 0;
     }
 
     void end() {
       active.clear();
+      matched = false;
+      observingDownstreamCall = false;
+      downstreamCallId = -1;
+      budgetMarkerLogged = false;
+      downstreamCallStartNanos = 0;
+    }
+
+    boolean observing() {
+      return matched;
+    }
+
+    boolean beginDownstreamCall(int pCallId) {
+      if (!matched && downstreamCallsRemaining == 0) {
+        observingDownstreamCall = false;
+        return false;
+      }
+      observingDownstreamCall = true;
+      downstreamCallId = pCallId;
+      downstreamCallStartNanos = System.nanoTime();
+      if (downstreamCallsRemaining > 0) {
+        downstreamCallsRemaining--;
+      }
+      return true;
+    }
+
+    boolean consumeBudgetMarker() {
+      if (observingDownstreamCall && downstreamCallsRemaining == 0 && !budgetMarkerLogged) {
+        budgetMarkerLogged = true;
+        return true;
+      }
+      return false;
+    }
+
+    void endDownstreamCall() {
+      observingDownstreamCall = false;
+      downstreamCallId = -1;
+      matched = false;
+    }
+
+    boolean observingDownstreamCall() {
+      return observingDownstreamCall;
+    }
+
+    int downstreamCallId() {
+      return downstreamCallId;
+    }
+
+    long downstreamCallElapsedNanos() {
+      return observingDownstreamCall
+          ? Math.max(0, System.nanoTime() - downstreamCallStartNanos)
+          : 0;
     }
 
     private static String key(AbstractionPredicate pPredicate) {
@@ -422,6 +498,88 @@ public final class PredicateAbstractionManager {
     }
   }
 
+  private boolean isVGuideDiagnosticEnabled() {
+    return vguideDiagnosticState.observingDownstreamCall();
+  }
+
+  static String formatVGuideBooleanAbstractionEvent(
+      int pCallId, String pEvent, Object... pKeyValues) {
+    StringBuilder message =
+        new StringBuilder("VGuide downstream boolean abstraction event=")
+            .append(pEvent)
+            .append(" callId=")
+            .append(pCallId);
+    for (int i = 0; i + 1 < pKeyValues.length; i += 2) {
+      message.append(' ').append(pKeyValues[i]).append(pKeyValues[i + 1]);
+    }
+    if (pKeyValues.length % 2 != 0) {
+      message.append(" malformedKeyValueCount=").append(pKeyValues.length);
+    }
+    return message.toString();
+  }
+
+  private void logVGuideBooleanAbstractionStart(
+      int pAbstractionId,
+      Collection<CFANode> pLocations,
+      BooleanFormula pInput,
+      int pPredicateCount) {
+    if (!vguideDiagnosticState.beginDownstreamCall(pAbstractionId)) {
+      return;
+    }
+    logger.log(
+        Level.INFO,
+        "VGuide downstream boolean abstraction start abstractionId="
+            + pAbstractionId
+            + " callId="
+            + pAbstractionId
+            + " elapsedNanos=0"
+            + " locations="
+            + pLocations.stream().map(CFANode::getNodeNumber).limit(8).toList()
+            + " mode="
+            + abstractionType
+            + " inputHashCodeWithinRun="
+            + pInput.hashCode()
+            + " inputText=unavailable"
+            + " inputTextComplete=false"
+            + " inputReplayable=false"
+            + " orderedPredicateCount="
+            + pPredicateCount);
+  }
+
+  private void logVGuidePredicateBindings(
+      Collection<AbstractionPredicate> pPredicates, List<BooleanFormula> pInstantiatedAtoms) {
+    int index = 0;
+    for (AbstractionPredicate predicate : pPredicates) {
+      BooleanFormula instantiated = pInstantiatedAtoms.get(index);
+      logger.log(
+          Level.INFO,
+          "VGuide downstream boolean abstraction predicate callId="
+              + vguideDiagnosticState.downstreamCallId()
+              + " index="
+              + index++
+              + " symbolicVariable="
+              + predicate.getSymbolicVariable()
+              + " instantiatedAtomHashCodeWithinRun="
+              + instantiated.hashCode()
+              + " atomText=unavailable"
+              + " atomTextComplete=false"
+              + " elapsedNanos="
+              + vguideDiagnosticState.downstreamCallElapsedNanos()
+              + " atomReplayable=false");
+    }
+  }
+
+  private void logVGuideBooleanAbstractionEvent(String pEvent, Object... pValues) {
+    if (isVGuideDiagnosticEnabled()) {
+      logger.log(
+          Level.INFO,
+          formatVGuideBooleanAbstractionEvent(
+              vguideDiagnosticState.downstreamCallId(), pEvent, pValues)
+              + " elapsedNanos="
+              + vguideDiagnosticState.downstreamCallElapsedNanos());
+    }
+  }
+
   private String vguidePredicateKey(AbstractionPredicate pPredicate) {
     return VGuideDiagnosticState.key(pPredicate);
   }
@@ -450,6 +608,26 @@ public final class PredicateAbstractionManager {
             "VGuide predicate identity diagnostic disposition=unobserved predicateVariable=",
             predicateVariable);
       }
+    }
+  }
+
+  private void logVGuideDiagnosticBudgetBoundary() {
+    if (vguideDiagnosticState.consumeBudgetMarker()) {
+      logger.log(
+          Level.INFO,
+          formatVGuideBooleanAbstractionEvent(
+              vguideDiagnosticState.downstreamCallId(),
+              "budget",
+              "status=",
+              "exhausted",
+              "remaining=",
+              0,
+              "text=",
+              "unavailable",
+              "truncated=",
+              true)
+              + " elapsedNanos="
+              + vguideDiagnosticState.downstreamCallElapsedNanos());
     }
   }
 
@@ -635,7 +813,11 @@ public final class PredicateAbstractionManager {
                 rmgr.makeAnd(
                     abs, buildCartesianAbstractionUsingWeakening(f, ssa, remainingPredicates));
 
-            default -> rmgr.makeAnd(abs, computeAbstraction(f, remainingPredicates, instantiator));
+            default ->
+                rmgr.makeAnd(
+                    abs,
+                    computeAbstraction(
+                        currentAbstractionId, locations, f, remainingPredicates, instantiator));
           };
 
       AbstractionFormula result = makeAbstractionFormula(abs, ssa, pathFormula);
@@ -664,6 +846,8 @@ public final class PredicateAbstractionManager {
       return result;
     } finally {
       logVGuideDiagnosticUnobserved();
+      logVGuideDiagnosticBudgetBoundary();
+      vguideDiagnosticState.endDownstreamCall();
       vguideDiagnosticState.end();
     }
   }
@@ -700,7 +884,15 @@ public final class PredicateAbstractionManager {
     final Collection<AbstractionPredicate> predicates =
         getRelevantPredicates(pPredicates, pF, dummyInstantiator);
 
-    Region abs = computeAbstraction(pF, predicates, dummyInstantiator);
+    Region abs;
+    try {
+      abs = computeAbstraction(-1, ImmutableList.of(), pF, predicates, dummyInstantiator);
+    } finally {
+      logVGuideDiagnosticUnobserved();
+      logVGuideDiagnosticBudgetBoundary();
+      vguideDiagnosticState.endDownstreamCall();
+      vguideDiagnosticState.end();
+    }
 
     BooleanFormula symbolicAbs = amgr.convertRegionToFormula(abs);
 
@@ -973,19 +1165,39 @@ public final class PredicateAbstractionManager {
    * @return An over-approximation of f using the predicates from remainingPredicates.
    */
   private Region computeAbstraction(
+      final int pAbstractionId,
+      final Collection<CFANode> pLocations,
       final BooleanFormula f,
       final Collection<AbstractionPredicate> remainingPredicates,
       final Function<BooleanFormula, BooleanFormula> instantiator)
       throws SolverException, InterruptedException {
     Region abs = rmgr.makeTrue();
 
+    logVGuideBooleanAbstractionStart(pAbstractionId, pLocations, f, remainingPredicates.size());
+
     for (AbstractionPredicate predicate : remainingPredicates) {
       logVGuidePredicateDisposition(predicate, "passed");
     }
 
-    try (ProverEnvironment thmProver =
-        solver.newProverEnvironment(ProverOptions.GENERATE_ALL_SAT)) {
-      thmProver.push(f);
+    ProverEnvironment proverEnvironment;
+    try {
+      proverEnvironment = solver.newProverEnvironment(ProverOptions.GENERATE_ALL_SAT);
+    } catch (RuntimeException e) {
+      logVGuideBooleanAbstractionEvent(
+          "proverEnvironment", "status=", "exception", "type=", e.getClass().getName());
+      throw e;
+    }
+    logVGuideBooleanAbstractionEvent("proverEnvironment", "status=", "returned");
+    try (ProverEnvironment thmProver = proverEnvironment) {
+      try {
+        logVGuideBooleanAbstractionEvent("inputPush", "status=", "enter");
+        thmProver.push(f);
+        logVGuideBooleanAbstractionEvent("inputPush", "status=", "returned");
+      } catch (RuntimeException | InterruptedException e) {
+        logVGuideBooleanAbstractionEvent(
+            "inputPush", "status=", "exception", "type=", e.getClass().getName());
+        throw e;
+      }
 
       if (remainingPredicates.isEmpty()) {
         stats.numSatCheckAbstractions.incrementAndGet();
@@ -1023,7 +1235,11 @@ public final class PredicateAbstractionManager {
           try {
             abs =
                 rmgr.makeAnd(
-                    abs, computeBooleanAbstraction(thmProver, remainingPredicates, instantiator));
+                    abs,
+                    computeBooleanAbstraction(
+                        thmProver,
+                        remainingPredicates,
+                        instantiator));
           } finally {
             stats.booleanAbstractionTime.stop();
           }
@@ -1231,6 +1447,8 @@ public final class PredicateAbstractionManager {
     // variables we want to have the satisfying assignments
     BooleanFormula predDef = bfmgr.makeTrue();
     List<BooleanFormula> predVars = new ArrayList<>(predicates.size());
+    List<BooleanFormula> instantiatedAtoms =
+        isVGuideDiagnosticEnabled() ? new ArrayList<>(predicates.size()) : null;
 
     for (AbstractionPredicate p : predicates) {
       // get propositional variable and definition of predicate
@@ -1243,12 +1461,44 @@ public final class PredicateAbstractionManager {
       predDef = bfmgr.and(predDef, equiv);
 
       predVars.add(var);
+      if (instantiatedAtoms != null) {
+        instantiatedAtoms.add(def);
+      }
+    }
+    if (instantiatedAtoms != null) {
+      logVGuidePredicateBindings(predicates, instantiatedAtoms);
     }
 
     // the formula is (abstractionFormula & pathFormula & predDef)
-    thmProver.push(predDef);
+    try {
+      logVGuideBooleanAbstractionEvent("definitionPush", "status=", "enter");
+      thmProver.push(predDef);
+      logVGuideBooleanAbstractionEvent(
+          "definitionPush", "status=", "returned", "predicateVariableCount=", predVars.size());
+    } catch (RuntimeException | InterruptedException e) {
+      logVGuideBooleanAbstractionEvent(
+          "definitionPush", "status=", "exception", "type=", e.getClass().getName());
+      throw e;
+    }
     AllSatCallbackImpl callback = new AllSatCallbackImpl();
-    Region result = thmProver.allSat(callback, predVars);
+    Region result;
+    try {
+      logVGuideBooleanAbstractionEvent(
+          "allSat", "status=", "enter", "predicateVariableCount=", predVars.size());
+      result = thmProver.allSat(callback, predVars);
+      logVGuideBooleanAbstractionEvent(
+          "return", "status=", "returned", "callbackCount=", callback.getCount());
+    } catch (RuntimeException | SolverException | InterruptedException e) {
+      logVGuideBooleanAbstractionEvent(
+          "exception",
+          "status=",
+          "exception",
+          "type=",
+          e.getClass().getName(),
+          "callbackCount=",
+          callback.getCount());
+      throw e;
+    }
 
     // pop() is actually costly sometimes, and we delete the environment anyway
     // thmProver.pop();
@@ -1271,7 +1521,6 @@ public final class PredicateAbstractionManager {
     private final RegionBuilder builder;
 
     private int count = 0;
-
     private Region formula;
 
     private AllSatCallbackImpl() {
@@ -1282,6 +1531,10 @@ public final class PredicateAbstractionManager {
     @Override
     public void apply(List<BooleanFormula> model) {
       if (count == 0) {
+        logVGuideBooleanAbstractionEvent(
+            "firstCallback",
+            "modelAtomCount=",
+            model.size());
         stats.abstractionSolveTime.stop();
         stats.abstractionModelEnumTime.start();
       }
