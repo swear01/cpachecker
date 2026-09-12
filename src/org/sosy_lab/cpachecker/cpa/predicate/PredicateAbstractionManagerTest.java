@@ -47,4 +47,38 @@ public class PredicateAbstractionManagerTest extends SolverViewBasedTest0 {
     state.clear();
     assertThat(state.match(ImmutableList.of(target))).isEmpty();
   }
+
+  @Test
+  public void formatsEventsWithCallIdentityAndFinitePostMatchBudget() {
+    String push =
+        PredicateAbstractionManager.formatVGuideBooleanAbstractionEvent(
+            7, "push", "status=", "returned", "predicateVariableCount=", 3);
+    assertThat(push).contains("callId=7");
+    assertThat(push).contains("predicateVariableCount=3");
+    assertThat(
+            PredicateAbstractionManager.formatVGuideBooleanAbstractionEvent(
+                7, "return", "status=", "returned", "callbackCount=", 3))
+        .isEqualTo(
+            "VGuide downstream boolean abstraction event=return callId=7"
+                + " status=returned callbackCount=3");
+    String malformed =
+        PredicateAbstractionManager.formatVGuideBooleanAbstractionEvent(
+            7, "exception", "type=", "SolverException", "partialCount=", 2, "dangling");
+    assertThat(malformed).contains("callId=7");
+    assertThat(malformed).contains("malformedKeyValueCount=5");
+
+    PredicateAbstractionManager.VGuideDiagnosticState state =
+        new PredicateAbstractionManager.VGuideDiagnosticState();
+    assertThat(state.beginDownstreamCall(1)).isFalse();
+    AbstractionPredicate predicate = mock(AbstractionPredicate.class);
+    when(predicate.getSymbolicVariable()).thenReturn(bmgrv.makeVariable("PRED0"));
+    state.arm(ImmutableList.of(predicate));
+    state.match(ImmutableList.of(predicate));
+    state.end();
+    for (int callId = 0; callId < 8; callId++) {
+      assertThat(state.beginDownstreamCall(callId)).isTrue();
+      state.endDownstreamCall();
+    }
+    assertThat(state.beginDownstreamCall(9)).isFalse();
+  }
 }

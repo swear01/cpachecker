@@ -86,14 +86,22 @@ public final class PredicateAbstractionManager {
 
   static final class VGuideDiagnosticState {
 
+    private static final int MAX_DOWNSTREAM_CALLS = 8;
+
     private final Set<String> pending = new LinkedHashSet<>();
     private final Set<String> active = new LinkedHashSet<>();
     private boolean matched;
+    private int downstreamCallsRemaining;
+    private boolean observingDownstreamCall;
+    private int downstreamCallId = -1;
 
     void arm(Collection<AbstractionPredicate> pPredicates) {
       pending.clear();
       active.clear();
       matched = false;
+      downstreamCallsRemaining = 0;
+      observingDownstreamCall = false;
+      downstreamCallId = -1;
       if (pPredicates.isEmpty()) {
         return;
       }
@@ -115,7 +123,10 @@ public final class PredicateAbstractionManager {
         }
       }
       ImmutableSet<String> result = matching.build();
-      matched |= !result.isEmpty();
+      if (!result.isEmpty()) {
+        matched = true;
+        downstreamCallsRemaining = MAX_DOWNSTREAM_CALLS;
+      }
       active.addAll(result);
       return result;
     }
@@ -132,15 +143,47 @@ public final class PredicateAbstractionManager {
       pending.clear();
       active.clear();
       matched = false;
+      downstreamCallsRemaining = 0;
+      observingDownstreamCall = false;
+      downstreamCallId = -1;
     }
 
     void end() {
       active.clear();
       matched = false;
+      observingDownstreamCall = false;
+      downstreamCallId = -1;
     }
 
     boolean observing() {
       return matched;
+    }
+
+    boolean beginDownstreamCall(int pCallId) {
+      if (!matched && downstreamCallsRemaining == 0) {
+        observingDownstreamCall = false;
+        return false;
+      }
+      observingDownstreamCall = true;
+      downstreamCallId = pCallId;
+      if (downstreamCallsRemaining > 0) {
+        downstreamCallsRemaining--;
+      }
+      return true;
+    }
+
+    void endDownstreamCall() {
+      observingDownstreamCall = false;
+      downstreamCallId = -1;
+      matched = false;
+    }
+
+    boolean observingDownstreamCall() {
+      return observingDownstreamCall;
+    }
+
+    int downstreamCallId() {
+      return downstreamCallId;
     }
 
     private static String key(AbstractionPredicate pPredicate) {
@@ -433,15 +476,23 @@ public final class PredicateAbstractionManager {
   }
 
   private boolean isVGuideDiagnosticEnabled() {
-    return vguideDiagnosticState.observing();
+    return vguideDiagnosticState.observingDownstreamCall();
   }
 
-  private static String boundedDiagnosticValue(Object pValue) {
-    final int maxLength = 512;
-    String value = String.valueOf(pValue);
-    return value.length() <= maxLength
-        ? value
-        : value.substring(0, maxLength) + "...(truncated; reconstructable=false)";
+  static String formatVGuideBooleanAbstractionEvent(
+      int pCallId, String pEvent, Object... pKeyValues) {
+    StringBuilder message =
+        new StringBuilder("VGuide downstream boolean abstraction event=")
+            .append(pEvent)
+            .append(" callId=")
+            .append(pCallId);
+    for (int i = 0; i + 1 < pKeyValues.length; i += 2) {
+      message.append(' ').append(pKeyValues[i]).append(pKeyValues[i + 1]);
+    }
+    if (pKeyValues.length % 2 != 0) {
+      message.append(" malformedKeyValueCount=").append(pKeyValues.length);
+    }
+    return message.toString();
   }
 
   private void logVGuideBooleanAbstractionStart(
@@ -449,8 +500,8 @@ public final class PredicateAbstractionManager {
       Collection<CFANode> pLocations,
       BooleanFormula pInput,
       Collection<AbstractionPredicate> pPredicates,
-      Function<BooleanFormula, BooleanFormula> pInstantiator) {
-    if (!isVGuideDiagnosticEnabled()) {
+      List<BooleanFormula> pInstantiatedAtoms) {
+    if (!vguideDiagnosticState.beginDownstreamCall(pAbstractionId)) {
       return;
     }
     logger.log(
@@ -463,36 +514,34 @@ public final class PredicateAbstractionManager {
             + abstractionType
             + " inputHashCodeWithinRun="
             + pInput.hashCode()
-            + " input="
-            + boundedDiagnosticValue(pInput)
-            + " inputReconstructable="
-            + boundedDiagnosticValue(pInput).equals(pInput.toString())
+            + " inputText=unavailable"
+            + " inputTextComplete=false"
+            + " inputReplayable=false"
             + " orderedPredicateCount="
             + pPredicates.size());
     int index = 0;
     for (AbstractionPredicate predicate : pPredicates) {
-      BooleanFormula instantiated = pInstantiator.apply(predicate.getSymbolicAtom());
+      BooleanFormula instantiated = pInstantiatedAtoms.get(index);
       logger.log(
           Level.INFO,
           "VGuide downstream boolean abstraction predicate index="
               + index++
               + " symbolicVariable="
-              + boundedDiagnosticValue(predicate.getSymbolicVariable())
-              + " instantiatedAtom="
-              + boundedDiagnosticValue(instantiated)
-              + " atomReconstructable="
-              + boundedDiagnosticValue(instantiated).equals(instantiated.toString()));
+              + predicate.getSymbolicVariable()
+              + " instantiatedAtomHashCodeWithinRun="
+              + instantiated.hashCode()
+              + " atomText=unavailable"
+              + " atomTextComplete=false"
+              + " atomReplayable=false");
     }
   }
 
   private void logVGuideBooleanAbstractionEvent(String pEvent, Object... pValues) {
     if (isVGuideDiagnosticEnabled()) {
-      StringBuilder message =
-          new StringBuilder("VGuide downstream boolean abstraction event=").append(pEvent);
-      for (int i = 0; i < pValues.length; i += 2) {
-        message.append(' ').append(pValues[i]).append(pValues[i + 1]);
-      }
-      logger.log(Level.INFO, message.toString());
+      logger.log(
+          Level.INFO,
+          formatVGuideBooleanAbstractionEvent(
+              vguideDiagnosticState.downstreamCallId(), pEvent, pValues));
     }
   }
 
@@ -742,6 +791,7 @@ public final class PredicateAbstractionManager {
       return result;
     } finally {
       logVGuideDiagnosticUnobserved();
+      vguideDiagnosticState.endDownstreamCall();
       vguideDiagnosticState.end();
     }
   }
@@ -1319,10 +1369,9 @@ public final class PredicateAbstractionManager {
     // build the definition of the predicates, and instantiate them
     // also collect all predicate variables so that the solver knows for which
     // variables we want to have the satisfying assignments
-    logVGuideBooleanAbstractionStart(
-        pAbstractionId, pLocations, pInput, predicates, instantiator);
     BooleanFormula predDef = bfmgr.makeTrue();
     List<BooleanFormula> predVars = new ArrayList<>(predicates.size());
+    List<BooleanFormula> instantiatedAtoms = new ArrayList<>(predicates.size());
 
     for (AbstractionPredicate p : predicates) {
       // get propositional variable and definition of predicate
@@ -1335,7 +1384,11 @@ public final class PredicateAbstractionManager {
       predDef = bfmgr.and(predDef, equiv);
 
       predVars.add(var);
+      instantiatedAtoms.add(def);
     }
+
+    logVGuideBooleanAbstractionStart(
+        pAbstractionId, pLocations, pInput, predicates, instantiatedAtoms);
 
     // the formula is (abstractionFormula & pathFormula & predDef)
     try {
@@ -1347,7 +1400,7 @@ public final class PredicateAbstractionManager {
           "push", "status=exception", "type=", e.getClass().getName());
       throw e;
     }
-    AllSatCallbackImpl callback = new AllSatCallbackImpl(pAbstractionId, pLocations);
+    AllSatCallbackImpl callback = new AllSatCallbackImpl();
     Region result;
     try {
       result = thmProver.allSat(callback, predVars);
@@ -1380,14 +1433,9 @@ public final class PredicateAbstractionManager {
     private final RegionBuilder builder;
 
     private int count = 0;
-    private final int abstractionId;
-    private final Collection<CFANode> locations;
-
     private Region formula;
 
-    private AllSatCallbackImpl(int pAbstractionId, Collection<CFANode> pLocations) {
-      abstractionId = pAbstractionId;
-      locations = pLocations;
+    private AllSatCallbackImpl() {
       builder = rmgr.builder(shutdownNotifier);
       stats.abstractionSolveTime.start();
     }
@@ -1397,10 +1445,6 @@ public final class PredicateAbstractionManager {
       if (count == 0) {
         logVGuideBooleanAbstractionEvent(
             "firstCallback",
-            "abstractionId=",
-            abstractionId,
-            "locations=",
-            locations.stream().map(CFANode::getNodeNumber).limit(8).toList(),
             "modelAtomCount=",
             model.size());
         stats.abstractionSolveTime.stop();
