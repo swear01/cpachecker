@@ -828,7 +828,14 @@ public final class PredicateAbstractionManager {
     final Collection<AbstractionPredicate> predicates =
         getRelevantPredicates(pPredicates, pF, dummyInstantiator);
 
-    Region abs = computeAbstraction(-1, ImmutableList.of(), pF, predicates, dummyInstantiator);
+    Region abs;
+    try {
+      abs = computeAbstraction(-1, ImmutableList.of(), pF, predicates, dummyInstantiator);
+    } finally {
+      logVGuideDiagnosticUnobserved();
+      vguideDiagnosticState.endDownstreamCall();
+      vguideDiagnosticState.end();
+    }
 
     BooleanFormula symbolicAbs = amgr.convertRegionToFormula(abs);
 
