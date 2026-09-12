@@ -1193,7 +1193,7 @@ public final class PredicateAbstractionManager {
         logVGuideBooleanAbstractionEvent("inputPush", "status=", "enter");
         thmProver.push(f);
         logVGuideBooleanAbstractionEvent("inputPush", "status=", "returned");
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | InterruptedException e) {
         logVGuideBooleanAbstractionEvent(
             "inputPush", "status=", "exception", "type=", e.getClass().getName());
         throw e;
@@ -1475,7 +1475,7 @@ public final class PredicateAbstractionManager {
       thmProver.push(predDef);
       logVGuideBooleanAbstractionEvent(
           "definitionPush", "status=", "returned", "predicateVariableCount=", predVars.size());
-    } catch (RuntimeException e) {
+    } catch (RuntimeException | InterruptedException e) {
       logVGuideBooleanAbstractionEvent(
           "definitionPush", "status=", "exception", "type=", e.getClass().getName());
       throw e;
