@@ -32,13 +32,16 @@ public class PredicateAbstractionManagerTest extends SolverViewBasedTest0 {
 
     state.arm(ImmutableList.of(target, target, second));
     assertThat(state.match(ImmutableList.of(unrelated))).isEmpty();
+    assertThat(state.observing()).isFalse();
     assertThat(state.match(ImmutableList.of(target))).containsExactly(targetKey);
+    assertThat(state.observing()).isTrue();
     assertThat(state.match(ImmutableList.of(target))).isEmpty();
     assertThat(state.match(ImmutableList.of(second))).containsExactly(secondKey);
     assertThat(state.consume(secondKey)).isTrue();
     assertThat(state.consume(secondKey)).isFalse();
     state.end();
     assertThat(state.active()).isEmpty();
+    assertThat(state.observing()).isFalse();
 
     state.arm(ImmutableList.of(target));
     state.clear();

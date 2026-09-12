@@ -14,6 +14,7 @@ import static com.google.common.base.Predicates.equalTo;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -87,10 +88,12 @@ public final class PredicateAbstractionManager {
 
     private final Set<String> pending = new LinkedHashSet<>();
     private final Set<String> active = new LinkedHashSet<>();
+    private boolean matched;
 
     void arm(Collection<AbstractionPredicate> pPredicates) {
       pending.clear();
       active.clear();
+      matched = false;
       if (pPredicates.isEmpty()) {
         return;
       }
@@ -112,6 +115,7 @@ public final class PredicateAbstractionManager {
         }
       }
       ImmutableSet<String> result = matching.build();
+      matched |= !result.isEmpty();
       active.addAll(result);
       return result;
     }
@@ -127,10 +131,16 @@ public final class PredicateAbstractionManager {
     void clear() {
       pending.clear();
       active.clear();
+      matched = false;
     }
 
     void end() {
       active.clear();
+      matched = false;
+    }
+
+    boolean observing() {
+      return matched;
     }
 
     private static String key(AbstractionPredicate pPredicate) {
@@ -422,6 +432,70 @@ public final class PredicateAbstractionManager {
     }
   }
 
+  private boolean isVGuideDiagnosticEnabled() {
+    return vguideDiagnosticState.observing();
+  }
+
+  private static String boundedDiagnosticValue(Object pValue) {
+    final int maxLength = 512;
+    String value = String.valueOf(pValue);
+    return value.length() <= maxLength
+        ? value
+        : value.substring(0, maxLength) + "...(truncated; reconstructable=false)";
+  }
+
+  private void logVGuideBooleanAbstractionStart(
+      int pAbstractionId,
+      Collection<CFANode> pLocations,
+      BooleanFormula pInput,
+      Collection<AbstractionPredicate> pPredicates,
+      Function<BooleanFormula, BooleanFormula> pInstantiator) {
+    if (!isVGuideDiagnosticEnabled()) {
+      return;
+    }
+    logger.log(
+        Level.INFO,
+        "VGuide downstream boolean abstraction start abstractionId="
+            + pAbstractionId
+            + " locations="
+            + pLocations.stream().map(CFANode::getNodeNumber).limit(8).toList()
+            + " mode="
+            + abstractionType
+            + " inputHashCodeWithinRun="
+            + pInput.hashCode()
+            + " input="
+            + boundedDiagnosticValue(pInput)
+            + " inputReconstructable="
+            + boundedDiagnosticValue(pInput).equals(pInput.toString())
+            + " orderedPredicateCount="
+            + pPredicates.size());
+    int index = 0;
+    for (AbstractionPredicate predicate : pPredicates) {
+      BooleanFormula instantiated = pInstantiator.apply(predicate.getSymbolicAtom());
+      logger.log(
+          Level.INFO,
+          "VGuide downstream boolean abstraction predicate index="
+              + index++
+              + " symbolicVariable="
+              + boundedDiagnosticValue(predicate.getSymbolicVariable())
+              + " instantiatedAtom="
+              + boundedDiagnosticValue(instantiated)
+              + " atomReconstructable="
+              + boundedDiagnosticValue(instantiated).equals(instantiated.toString()));
+    }
+  }
+
+  private void logVGuideBooleanAbstractionEvent(String pEvent, Object... pValues) {
+    if (isVGuideDiagnosticEnabled()) {
+      StringBuilder message =
+          new StringBuilder("VGuide downstream boolean abstraction event=").append(pEvent);
+      for (int i = 0; i < pValues.length; i += 2) {
+        message.append(' ').append(pValues[i]).append(pValues[i + 1]);
+      }
+      logger.log(Level.INFO, message.toString());
+    }
+  }
+
   private String vguidePredicateKey(AbstractionPredicate pPredicate) {
     return VGuideDiagnosticState.key(pPredicate);
   }
@@ -635,7 +709,11 @@ public final class PredicateAbstractionManager {
                 rmgr.makeAnd(
                     abs, buildCartesianAbstractionUsingWeakening(f, ssa, remainingPredicates));
 
-            default -> rmgr.makeAnd(abs, computeAbstraction(f, remainingPredicates, instantiator));
+            default ->
+                rmgr.makeAnd(
+                    abs,
+                    computeAbstraction(
+                        currentAbstractionId, locations, f, remainingPredicates, instantiator));
           };
 
       AbstractionFormula result = makeAbstractionFormula(abs, ssa, pathFormula);
@@ -700,7 +778,7 @@ public final class PredicateAbstractionManager {
     final Collection<AbstractionPredicate> predicates =
         getRelevantPredicates(pPredicates, pF, dummyInstantiator);
 
-    Region abs = computeAbstraction(pF, predicates, dummyInstantiator);
+    Region abs = computeAbstraction(-1, ImmutableList.of(), pF, predicates, dummyInstantiator);
 
     BooleanFormula symbolicAbs = amgr.convertRegionToFormula(abs);
 
@@ -973,6 +1051,8 @@ public final class PredicateAbstractionManager {
    * @return An over-approximation of f using the predicates from remainingPredicates.
    */
   private Region computeAbstraction(
+      final int pAbstractionId,
+      final Collection<CFANode> pLocations,
       final BooleanFormula f,
       final Collection<AbstractionPredicate> remainingPredicates,
       final Function<BooleanFormula, BooleanFormula> instantiator)
@@ -1023,7 +1103,14 @@ public final class PredicateAbstractionManager {
           try {
             abs =
                 rmgr.makeAnd(
-                    abs, computeBooleanAbstraction(thmProver, remainingPredicates, instantiator));
+                    abs,
+                    computeBooleanAbstraction(
+                        pAbstractionId,
+                        pLocations,
+                        f,
+                        thmProver,
+                        remainingPredicates,
+                        instantiator));
           } finally {
             stats.booleanAbstractionTime.stop();
           }
@@ -1221,6 +1308,9 @@ public final class PredicateAbstractionManager {
    * @return An over-approximation of f.
    */
   private Region computeBooleanAbstraction(
+      final int pAbstractionId,
+      final Collection<CFANode> pLocations,
+      final BooleanFormula pInput,
       final ProverEnvironment thmProver,
       final Collection<AbstractionPredicate> predicates,
       final Function<BooleanFormula, BooleanFormula> instantiator)
@@ -1229,6 +1319,8 @@ public final class PredicateAbstractionManager {
     // build the definition of the predicates, and instantiate them
     // also collect all predicate variables so that the solver knows for which
     // variables we want to have the satisfying assignments
+    logVGuideBooleanAbstractionStart(
+        pAbstractionId, pLocations, pInput, predicates, instantiator);
     BooleanFormula predDef = bfmgr.makeTrue();
     List<BooleanFormula> predVars = new ArrayList<>(predicates.size());
 
@@ -1246,9 +1338,26 @@ public final class PredicateAbstractionManager {
     }
 
     // the formula is (abstractionFormula & pathFormula & predDef)
-    thmProver.push(predDef);
-    AllSatCallbackImpl callback = new AllSatCallbackImpl();
-    Region result = thmProver.allSat(callback, predVars);
+    try {
+      thmProver.push(predDef);
+      logVGuideBooleanAbstractionEvent(
+          "push", "status=returned", "predicateVariableCount=", predVars.size());
+    } catch (RuntimeException e) {
+      logVGuideBooleanAbstractionEvent(
+          "push", "status=exception", "type=", e.getClass().getName());
+      throw e;
+    }
+    AllSatCallbackImpl callback = new AllSatCallbackImpl(pAbstractionId, pLocations);
+    Region result;
+    try {
+      result = thmProver.allSat(callback, predVars);
+      logVGuideBooleanAbstractionEvent(
+          "return", "status=returned", "callbackCount=", callback.getCount());
+    } catch (RuntimeException | SolverException | InterruptedException e) {
+      logVGuideBooleanAbstractionEvent(
+          "exception", "type=", e.getClass().getName(), "callbackCount=", callback.getCount());
+      throw e;
+    }
 
     // pop() is actually costly sometimes, and we delete the environment anyway
     // thmProver.pop();
@@ -1271,10 +1380,14 @@ public final class PredicateAbstractionManager {
     private final RegionBuilder builder;
 
     private int count = 0;
+    private final int abstractionId;
+    private final Collection<CFANode> locations;
 
     private Region formula;
 
-    private AllSatCallbackImpl() {
+    private AllSatCallbackImpl(int pAbstractionId, Collection<CFANode> pLocations) {
+      abstractionId = pAbstractionId;
+      locations = pLocations;
       builder = rmgr.builder(shutdownNotifier);
       stats.abstractionSolveTime.start();
     }
@@ -1282,6 +1395,14 @@ public final class PredicateAbstractionManager {
     @Override
     public void apply(List<BooleanFormula> model) {
       if (count == 0) {
+        logVGuideBooleanAbstractionEvent(
+            "firstCallback",
+            "abstractionId=",
+            abstractionId,
+            "locations=",
+            locations.stream().map(CFANode::getNodeNumber).limit(8).toList(),
+            "modelAtomCount=",
+            model.size());
         stats.abstractionSolveTime.stop();
         stats.abstractionModelEnumTime.start();
       }
