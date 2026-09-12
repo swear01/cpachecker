@@ -61,11 +61,18 @@ public class PredicateAbstractionManagerTest extends SolverViewBasedTest0 {
         .isEqualTo(
             "VGuide downstream boolean abstraction event=return callId=7"
                 + " status=returned callbackCount=3");
-    String malformed =
+    assertThat(
         PredicateAbstractionManager.formatVGuideBooleanAbstractionEvent(
-            7, "exception", "type=", "SolverException", "partialCount=", 2, "dangling");
-    assertThat(malformed).contains("callId=7");
-    assertThat(malformed).contains("malformedKeyValueCount=5");
+            7, "exception", "status=", "exception", "type=", "SolverException"))
+        .isEqualTo(
+            "VGuide downstream boolean abstraction event=exception callId=7"
+                + " status=exception type=SolverException");
+    assertThat(
+            PredicateAbstractionManager.formatVGuideBooleanAbstractionEvent(
+                7, "firstCallback", "modelAtomCount=", 3))
+        .isEqualTo(
+            "VGuide downstream boolean abstraction event=firstCallback callId=7"
+                + " modelAtomCount=3");
 
     PredicateAbstractionManager.VGuideDiagnosticState state =
         new PredicateAbstractionManager.VGuideDiagnosticState();
@@ -80,5 +87,17 @@ public class PredicateAbstractionManagerTest extends SolverViewBasedTest0 {
       state.endDownstreamCall();
     }
     assertThat(state.beginDownstreamCall(9)).isFalse();
+  }
+
+  @Test
+  public void disabledDiagnosticsDoNotEmitEventPayload() {
+    assertThat(
+            PredicateAbstractionManager.formatVGuideBooleanAbstractionEvent(
+                -1, "push", "status=", "returned", "predicateVariableCount=", 0))
+        .contains("callId=-1");
+    PredicateAbstractionManager.VGuideDiagnosticState state =
+        new PredicateAbstractionManager.VGuideDiagnosticState();
+    assertThat(state.observingDownstreamCall()).isFalse();
+    assertThat(state.beginDownstreamCall(11)).isFalse();
   }
 }
