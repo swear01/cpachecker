@@ -61,6 +61,57 @@ def record(tmp_path, text, code=0, arm="stock", execution=None):
             "timeout",
             "UNKNOWN",
         ),
+        (
+            "VGuide downstream boolean abstraction event=exception "
+            "type=java.lang.InterruptedException (PredicateCPA:callback, INFO)\n"
+            "The CPU-time limit of 10s has elapsed.\nVerification result: UNKNOWN\n",
+            0,
+            "timeout",
+            "UNKNOWN",
+        ),
+        (
+            "VGuide downstream boolean abstraction event=exception "
+            "type=java.lang.InterruptedException (PredicateCPA:callback, INFO)\n"
+            "walltime limit of 10s has elapsed.\nVerification result: UNKNOWN\n",
+            0,
+            "timeout",
+            "UNKNOWN",
+        ),
+        (
+            "VGuide downstream boolean abstraction event=inputPush status=exception "
+            "type=java.lang.InterruptedException (PredicateCPA:callback, INFO)\n"
+            "The CPU-time limit of 10s has elapsed.\nVerification result: UNKNOWN\n",
+            0,
+            "timeout",
+            "UNKNOWN",
+        ),
+        (
+            "The CPU-time limit of 10s has elapsed.\n"
+            "Exception in thread \"main\" java.lang.AssertionError\n",
+            0,
+            "crash",
+            "",
+        ),
+        (
+            "The CPU-time limit of 10s has elapsed.\n*** stack smashing detected ***\n",
+            0,
+            "crash",
+            "",
+        ),
+        (
+            "VGuide downstream event=exception type=java.lang.IllegalStateException "
+            "(PredicateCPA:callback, INFO)\n",
+            0,
+            "crash",
+            "",
+        ),
+        (
+            "Exception in thread \"main\" VGuide downstream event=exception "
+            "type=java.lang.InterruptedException (PredicateCPA:callback, INFO)\n",
+            0,
+            "crash",
+            "",
+        ),
         ("no summary\n", 124, "timeout", ""),
         (
             "VGuide LLM call failed\nVerification result: UNKNOWN\n",

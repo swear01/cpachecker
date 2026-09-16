@@ -28,6 +28,10 @@ import time
 from pathlib import Path
 
 SOLVER_RE = re.compile(r"Using predicate analysis with (\S+) version (\S+)")
+HANDLED_INTERRUPTION_RE = re.compile(
+    r"^VGuide downstream .*\b(?:event=exception|status=exception)\b"
+    r".*\btype=java\.lang\.InterruptedException\b.*\([^)]*,\s*INFO\)\s*$"
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -482,9 +486,9 @@ def record_from_run(
                     or "memory problems (Java heap space)" in line
                 )
                 has_hang |= "forcing immediate termination" in line
-                has_exc |= bool(
-                    "Exception in thread" in line
-                    or re.search(r"java\.lang\.\w*(Exception|Error)\b", line)
+                has_exc |= "Exception in thread" in line or bool(
+                    re.search(r"java\.lang\.\w*(Exception|Error)\b", line)
+                    and not HANDLED_INTERRUPTION_RE.search(line)
                 )
                 has_native |= any(
                     token in line
