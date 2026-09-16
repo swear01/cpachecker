@@ -162,5 +162,52 @@ public class ArraySymbolConflictTest extends SolverViewBasedTest0 {
     mgrv.uninstantiate(formula);
   }
 
+  @Test
+  public void arrayCandidatesPreserveNoSsaAddressMarker() {
+    BooleanFormula block =
+        mgrv.parse(
+            "(declare-fun |main::i@2| () (_ BitVec 32))"
+                + " (declare-fun |__ADDRESS_OF_main::a@| () (_ BitVec 32))"
+                + " (declare-fun *int@1 () (Array (_ BitVec 32) (_ BitVec 32)))"
+                + " (assert (= (select *int@1 (bvadd |__ADDRESS_OF_main::a@|"
+                + " (bvshl |main::i@2| (_ bv2 32)))) (_ bv0 32)))");
+    var ssa = SSAMap.emptySSAMap().builder();
+    ssa.setIndex("main::i", CNumericTypes.INT, 5);
+    ssa.setIndex("*int", CNumericTypes.INT, 2);
+    PathFormula path = mock(PathFormula.class);
+    when(path.getSsa()).thenReturn(ssa.build());
+    PredicateAbstractState pas =
+        PredicateAbstractState.mkAbstractionState(
+            path, mock(AbstractionFormula.class), PathCopyingPersistentTreeMap.of());
+    LoopHeadInfo head = new LoopHeadInfo(newDummyCFANode("main"), "ignored", "main");
+    ContextPack pack =
+        new ContextPack(
+            1,
+            "",
+            "",
+            ImmutableList.of(head),
+            ImmutableMap.of(),
+            ImmutableSet.copyOf(mgrv.extractVariableNames(block)),
+            new BlockFormulas(ImmutableList.of(block)),
+            ImmutableList.of(),
+            "",
+            "");
+    LoopHeadCandidate candidate =
+        new LoopHeadCandidate(
+            ImmutableList.of(head.label()), "(= (a i) (_ bv0 32))", "", ImmutableList.of());
+
+    var outcome =
+        new PredicateValidationPipeline(logger, solver, mgrv, false)
+            .validateCandidates(
+                pack,
+                ImmutableList.of(candidate),
+                ImmutableList.of(new CompositeState(ImmutableList.of(new LocState(head.node()), pas))));
+
+    assertThat(outcome.rejections()).isEmpty();
+    assertThat(outcome.validation().validated()).hasSize(1);
+    assertThat(mgrv.extractVariableNames(outcome.validation().validated().getFirst().formula()))
+        .containsExactly("main::i@5", "__ADDRESS_OF_main::a@", "*int@2");
+  }
+
   private record LocState(CFANode getLocationNode) implements AbstractStateWithLocation {}
 }

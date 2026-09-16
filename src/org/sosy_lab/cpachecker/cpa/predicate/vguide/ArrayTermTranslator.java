@@ -751,12 +751,12 @@ final class ArrayTermTranslator {
   }
 
   private static String unversion(String name) {
-    // Dump text escapes symbols as |name@N|; the solver's own symbols are bar-less.
+    // Dump text escapes symbols as |name@N|; a trailing @ marks a no-SSA symbol.
     if (name.length() >= 2 && name.startsWith("|") && name.endsWith("|")) {
       name = name.substring(1, name.length() - 1);
     }
     int at = name.lastIndexOf('@');
-    return at < 0 ? name : name.substring(0, at);
+    return at < 0 || at == name.length() - 1 ? name : name.substring(0, at);
   }
 
   private static String sourceNameOf(String unversionedName) {
@@ -767,6 +767,9 @@ final class ArrayTermTranslator {
     int scope = name.lastIndexOf("::");
     if (scope >= 0) {
       name = name.substring(scope + 2);
+    }
+    if (name.endsWith("@")) {
+      name = name.substring(0, name.length() - 1);
     }
     return name.strip();
   }

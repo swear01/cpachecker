@@ -93,7 +93,7 @@ public final class PredicateValidationPipeline {
         bare = bare.substring(1, bare.length() - 1);
       }
       int at = bare.lastIndexOf('@');
-      if (at >= 0) {
+      if (at >= 0 && at < bare.length() - 1) {
         bare = bare.substring(0, at);
       }
       unversionedEncodedVars.add(bare);

@@ -84,11 +84,60 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
     ArrayTermTranslator translator =
         new ArrayTermTranslator(com.google.common.collect.ImmutableMap.copyOf(found));
 
-    assertThat(translator.isEncodingVariable("__ADDRESS_OF_main::a")).isTrue();
-    assertThat(translator.isEncodingVariable("|__ADDRESS_OF_main::a@7|")).isTrue();
+    assertThat(translator.isEncodingVariable("__ADDRESS_OF_main::a@")).isTrue();
+    assertThat(translator.isEncodingVariable("|__ADDRESS_OF_main::a@7|")).isFalse();
     assertThat(translator.isEncodingVariable("*int@1")).isTrue();
     assertThat(translator.isEncodingVariable("__ADDRESS_OF_main::other")).isFalse();
     assertThat(translator.isEncodingVariable("main::i@4")).isFalse();
+  }
+
+  @Test
+  public void preservesNoSsaAddressMarkerWhileRemovingNumericVersions() {
+    String dump =
+        "(declare-fun |__ADDRESS_OF_main::a@| () (_ BitVec 32))"
+            + " (declare-fun |main::i@4| () (_ BitVec 32))"
+            + " (declare-fun *int@1 () (Array (_ BitVec 32) (_ BitVec 32)))"
+            + " (= (select *int@1 (bvadd |__ADDRESS_OF_main::a@|"
+            + " (bvshl |main::i@4| (_ bv2 32)))) (_ bv0 32))";
+    Map<String, AccessTemplate> found = collect(dump);
+    Map<String, Integer> bits = new LinkedHashMap<>();
+    ArrayTermTranslator.collectDeclaredVariables(dump, bits);
+    ArrayTermTranslator translator =
+        new ArrayTermTranslator(
+            com.google.common.collect.ImmutableMap.copyOf(found),
+            com.google.common.collect.ImmutableMap.copyOf(bits));
+
+    assertThat(found.get("a").addrVar()).isEqualTo("__ADDRESS_OF_main::a@");
+    assertThat(translator.translate("a[i]", "main"))
+        .isEqualTo(
+            "(select *int (bvadd __ADDRESS_OF_main::a@"
+                + " (bvshl main::i (_ bv2 32))))");
+  }
+
+  @Test
+  public void preservesNoSsaAddressWidthOnWideTrace() {
+    String dump =
+        "(declare-fun |__ADDRESS_OF_main::a@| () (_ BitVec 64))"
+            + " (declare-fun |main::i@4| () (_ BitVec 64))"
+            + " (declare-fun *int@1 () (Array (_ BitVec 64) (_ BitVec 32)))"
+            + " (= (select *int@1 (bvadd |__ADDRESS_OF_main::a@|"
+            + " (bvshl |main::i@4| (_ bv2 64)))) (_ bv0 32))";
+    Map<String, AccessTemplate> found = collect(dump);
+    Map<String, Integer> bits = new LinkedHashMap<>();
+    ArrayTermTranslator.collectDeclaredVariables(dump, bits);
+    ArrayTermTranslator translator =
+        new ArrayTermTranslator(
+            com.google.common.collect.ImmutableMap.copyOf(found),
+            com.google.common.collect.ImmutableMap.copyOf(bits));
+
+    String translated = translator.translate("(= a[i] (_ bv0 32))", "main");
+    var parsed =
+        VocabularyGuide.parsePredicate(
+            translated, mgrv, Set.of(), translator.arrayTypes(), translator.varBits());
+    assertThat(parsed).isNotNull();
+    assertThat(mgrv.extractVariables(parsed).keySet())
+        .containsExactly("__ADDRESS_OF_main::a@", "main::i", "*int");
+    assertThat(translator.varBits().get("__ADDRESS_OF_main::a@")).isEqualTo(64);
   }
 
   @Test
