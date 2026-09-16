@@ -28,6 +28,8 @@ public final class LoopHeadCandidateParser {
   public static final String REASON_MISSING_LOOP_HEAD = "missing_loop_head";
   public static final String REASON_CONTRACT_VIOLATION = "contract_violation";
 
+  static final String L1_CONTRACT_VIOLATION_DETAIL = "L1 contract violation";
+
   private static final ObjectMapper JSON = new ObjectMapper();
 
   private LoopHeadCandidateParser() {}
@@ -144,7 +146,7 @@ public final class LoopHeadCandidateParser {
                 heads.iterator().next(),
                 predicate,
                 REASON_CONTRACT_VIOLATION,
-                "L1 contract violation"));
+                L1_CONTRACT_VIOLATION_DETAIL));
         continue;
       }
       String role = candidate.path("role").asText().strip();
