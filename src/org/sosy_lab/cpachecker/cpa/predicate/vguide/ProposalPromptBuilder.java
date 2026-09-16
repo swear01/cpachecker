@@ -233,13 +233,16 @@ public final class ProposalPromptBuilder {
   private static String buildRepairTail(List<String> rejectedPredicates, PromptProfile profile) {
     String hint =
         profile == PromptProfile.BUG_HUNT
-            ? "Rejected predicates may have been too aligned with proving safe; try failing-state predicates from the CE summary.\n"
+            ? "Rejected predicates may have been too aligned with proving safe; try failing-state"
+                  + " predicates from the CE summary.\n"
             : "";
-    return "\nYour previous reply included REJECTED predicates: "
+    return "\nCandidate rejection feedback (including named head and reason when available): "
         + rejectedPredicates
         + "\n"
         + hint
-        + "Regenerate JSON only. Keep array reads in the a[i] C-syntax form; do not write select/store or SSA names.\n";
+        + "Return replacement candidates only; accepted primary bindings are retained. Do not"
+        + " relocate or broadcast a predicate to another head. Regenerate JSON only. Keep array"
+        + " reads in the a[i] C-syntax form; do not write select/store or SSA names.\n";
   }
 
   private static String syntaxRules() {

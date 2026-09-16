@@ -146,7 +146,7 @@ public final class VGuideRefinementBridge {
       if (raw == null) {
         throw new IllegalStateException("Missing raw predicate attribution for replay selection");
       }
-      String profile = profiles.getOrDefault(raw, "");
+      String profile = predicateProfile(profiles, raw, requireLoopHead(predicate));
       String selector =
           "head=N"
               + requireLoopHead(predicate).getNodeNumber()
@@ -546,8 +546,6 @@ public final class VGuideRefinementBridge {
       List<LlmProposalResult> apiResults = new ArrayList<>();
       ImmutableList<LoopHeadCandidate> mergedCandidates = ImmutableList.of();
       Map<String, String> profileByRaw = new LinkedHashMap<>();
-      boolean safeAccepted = false;
-      boolean bugAccepted = false;
       String ceHistory = "";
       if (options.getCeHistoryMode() != VGuideOptions.CeHistoryMode.OFF) {
         ceHistory = ceHistoryStore.buildContext(options.getCeHistoryMode(), pack.ceSummary());
@@ -580,7 +578,6 @@ public final class VGuideRefinementBridge {
                 refinementOutcomeText,
                 nativeContextText);
         apiResults.addAll(safe.apiResults());
-        safeAccepted = safe.hasAccepted();
         ProfileInvokeResult bug =
             invokeProfileLlm(
                 refinementIndex,
@@ -596,15 +593,10 @@ public final class VGuideRefinementBridge {
                 refinementOutcomeText,
                 nativeContextText);
         apiResults.addAll(bug.apiResults());
-        bugAccepted = bug.hasAccepted();
         mergedCandidates =
             LlmEnsembleMerger.mergeDualUnionCandidates(safe.candidates(), bug.candidates());
-        for (LoopHeadCandidate c : safe.candidates()) {
-          profileByRaw.putIfAbsent(c.predicate(), PromptProfile.SAFE.name());
-        }
-        for (LoopHeadCandidate c : bug.candidates()) {
-          profileByRaw.putIfAbsent(c.predicate(), PromptProfile.BUG_HUNT.name());
-        }
+        recordCandidateProfiles(pack, safe.candidates(), PromptProfile.SAFE, profileByRaw);
+        recordCandidateProfiles(pack, bug.candidates(), PromptProfile.BUG_HUNT, profileByRaw);
       } else {
         ProfileInvokeResult safe =
             invokeProfileLlm(
@@ -621,11 +613,8 @@ public final class VGuideRefinementBridge {
                 refinementOutcomeText,
                 nativeContextText);
         apiResults.addAll(safe.apiResults());
-        safeAccepted = safe.hasAccepted();
         mergedCandidates = safe.candidates();
-        for (LoopHeadCandidate c : safe.candidates()) {
-          profileByRaw.putIfAbsent(c.predicate(), PromptProfile.SAFE.name());
-        }
+        recordCandidateProfiles(pack, safe.candidates(), PromptProfile.SAFE, profileByRaw);
       }
 
       long latency = System.currentTimeMillis() - t0;
@@ -655,35 +644,68 @@ public final class VGuideRefinementBridge {
           " latencyMs=",
           latency);
 
-      List<String> rawPreds = new ArrayList<>();
-      Set<String> seenPreds = new LinkedHashSet<>();
-      for (LoopHeadCandidate c : mergedCandidates) {
-        if (seenPreds.add(c.predicate())) {
-          rawPreds.add(c.predicate());
-        }
+      var primary =
+          validationPipeline.validateCandidates(pack, mergedCandidates, abstractionStatesTrace);
+      ImmutableList.Builder<CandidateRejection> rejections = ImmutableList.builder();
+      for (LlmProposalResult result : apiResults) {
+        rejections.addAll(LoopHeadCandidateParser.parseWithRejects(result.content()).rejected());
       }
+      rejections.addAll(primary.rejections());
+      primary =
+          new PredicateValidationPipeline.CandidateValidationOutcome(
+              primary.validation(), rejections.build(), primary.rawStrings());
+      // Publish primary evidence before repair so failure or interruption cannot erase it.
+      lastValidation = primary.validation();
+      lastRawStrings = primary.rawStrings();
+      profileByRaw
+          .keySet()
+          .retainAll(
+              primary.rawStrings().entrySet().stream()
+                  .map(e -> profileKey(e.getValue(), requireLoopHead(e.getKey())))
+                  .collect(ImmutableSet.toImmutableSet()));
+      lastProfiles = profileByRaw;
+      dump.validated =
+          buildValidatedDump(
+              pack, lastRawStrings, lastValidation, abstractionStatesTrace, profileByRaw);
+      dump.rejections = primary.rejections();
 
-      if (rawPreds.isEmpty() && !safeAccepted && !bugAccepted) {
-        List<String> rejectedForRepair = new ArrayList<>();
-        for (LlmProposalResult r : apiResults) {
-          rejectedForRepair.addAll(rejectedTexts(r.content()));
+      List<String> feedback = repairFeedback(primary.rejections());
+      int repairSlots =
+          repairSlots(pack, mergedCandidates, primary, budget, options.isDualPromptMode());
+      if (!feedback.isEmpty()
+          && repairSlots > 0
+          && !Thread.currentThread().isInterrupted()
+          && wallBudget.hasRemainingForLlm()) {
+        PredicateBudget repairBudget =
+            new PredicateBudget(Math.min(budget.minPerCall(), repairSlots), repairSlots);
+        BudgetResolution repairResolution =
+            new BudgetResolution(repairBudget, budgetRes.tier(), budgetRes.complexityScore());
+        PromptProfile repairProfile =
+            options.isDualPromptMode() ? PromptProfile.BUG_HUNT : PromptProfile.SAFE;
+        PromptMessages repairMessages =
+            promptBuilder.buildRepair(
+                pack,
+                feedback,
+                repairBudget,
+                repairProfile,
+                refinementIndex,
+                ceHistory,
+                refinementOutcomeText,
+                nativeContextText);
+        logger.log(
+            Level.INFO, "VGuide: one validation-feedback repair, candidate slots=", repairSlots);
+        long repairStart = System.currentTimeMillis();
+        LlmProposalResult repair = null;
+        try {
+          repair = requireLlmClient().proposeWithUsage(repairMessages);
+        } catch (IOException e) {
+          dump.llmSkipReason = "repair_failed";
+          logger.logUserException(
+              Level.WARNING, e, "VGuide repair failed; retaining primary predicates");
+        } finally {
+          wallBudget.recordLlmCall(System.currentTimeMillis() - repairStart);
         }
-        rejectedForRepair = rejectedForRepair.stream().distinct().limit(5).toList();
-        if (!rejectedForRepair.isEmpty()) {
-          PromptProfile repairProfile =
-              options.isDualPromptMode() ? PromptProfile.BUG_HUNT : PromptProfile.SAFE;
-          PromptMessages repairMessages =
-              promptBuilder.buildRepair(
-                  pack,
-                  rejectedForRepair,
-                  budget,
-                  repairProfile,
-                  refinementIndex,
-                  ceHistory,
-                  refinementOutcomeText,
-                  nativeContextText);
-          logger.log(Level.INFO, "VGuide: both profiles empty; one repair LLM call");
-          LlmProposalResult repair = requireLlmClient().proposeWithUsage(repairMessages);
+        if (repair != null) {
           if (analysisDumper != null) {
             analysisDumper.recordLlmApiCall(
                 refinementIndex,
@@ -694,30 +716,41 @@ public final class VGuideRefinementBridge {
                 pack,
                 repairProfile,
                 repair,
-                rejectedForRepair,
-                budgetRes);
+                rejectedTexts(repair.content()),
+                repairResolution);
           }
           ImmutableList<LoopHeadCandidate> repairCandidates =
-              LoopHeadCandidateParser.parse(repair.content());
-          if (!repairCandidates.isEmpty()) {
-            mergedCandidates = repairCandidates;
-            rawPreds =
-                repairCandidates.stream().map(LoopHeadCandidate::predicate).distinct().toList();
-            profileByRaw.clear();
-            for (LoopHeadCandidate c : repairCandidates) {
-              profileByRaw.put(c.predicate(), repairProfile.name());
-            }
-            apiResults.add(repair);
-          }
+              repairCandidates(pack, repair.content(), primary, repairBudget);
+          var repaired =
+              validationPipeline.validateCandidates(
+                  pack, repairCandidates, abstractionStatesTrace, primary);
+          var primaryRawStrings = primary.rawStrings();
+          ImmutableList<ValidatedPredicate> added =
+              repaired.validation().validated().stream()
+                  .filter(p -> !primaryRawStrings.containsKey(p))
+                  .collect(ImmutableList.toImmutableList());
+          recordCandidateProfiles(pack, repairCandidates, repairProfile, profileByRaw);
+          lastValidation = repaired.validation();
+          lastRawStrings = repaired.rawStrings();
+          dump.validated =
+              ImmutableList.<VGuideAnalysisDumper.DumpValidatedPredicate>builder()
+                  .addAll(dump.validated)
+                  .addAll(
+                      buildValidatedDump(
+                          pack,
+                          lastRawStrings,
+                          new ValidationResult(added),
+                          abstractionStatesTrace,
+                          profileByRaw))
+                  .build();
+          dump.rejections =
+              ImmutableList.<CandidateRejection>builder()
+                  .addAll(repaired.rejections())
+                  .addAll(LoopHeadCandidateParser.parseWithRejects(repair.content()).rejected())
+                  .build();
         }
       }
-
-      PredicateValidationPipeline.CandidateValidationOutcome validationOutcome =
-          validationPipeline.validateCandidates(pack, mergedCandidates, abstractionStatesTrace);
-      lastValidation = validationOutcome.validation();
-      lastRawStrings = validationOutcome.rawStrings();
-      lastProfiles = profileByRaw;
-      for (CandidateRejection rejection : validationOutcome.rejections()) {
+      for (CandidateRejection rejection : dump.rejections) {
         logger.log(
             Level.FINE,
             "VGuide candidate rejected: ",
@@ -727,14 +760,6 @@ public final class VGuideRefinementBridge {
             " loop_head=",
             rejection.loopHead());
       }
-      dump.validated =
-          buildValidatedDump(
-              pack,
-              validationOutcome.rawStrings(),
-              lastValidation,
-              abstractionStatesTrace,
-              profileByRaw);
-      dump.rejections = validationOutcome.rejections();
       if (options.isPredicateUsefulnessGateEnabled()) {
         PredicateUsefulnessGate.Decision usefulnessDecision =
             PredicateUsefulnessGate.evaluate(loopHeadVisits, lastValidation, fmgr);
@@ -919,9 +944,7 @@ public final class VGuideRefinementBridge {
   }
 
   private record ProfileInvokeResult(
-      List<LlmProposalResult> apiResults,
-      ImmutableList<LoopHeadCandidate> candidates,
-      boolean hasAccepted) {}
+      List<LlmProposalResult> apiResults, ImmutableList<LoopHeadCandidate> candidates) {}
 
   private ProfileInvokeResult invokeProfileLlm(
       int refinementIndex,
@@ -995,7 +1018,7 @@ public final class VGuideRefinementBridge {
     }
     ImmutableList<LoopHeadCandidate> merged =
         LlmEnsembleMerger.mergeCandidates(rawResponses, budget);
-    return new ProfileInvokeResult(results, merged, !merged.isEmpty());
+    return new ProfileInvokeResult(results, merged);
   }
 
   /**
@@ -1205,6 +1228,121 @@ public final class VGuideRefinementBridge {
         .toList();
   }
 
+  static List<String> repairFeedback(List<CandidateRejection> rejections) {
+    return rejections.stream()
+        .filter(
+            r ->
+                switch (r.reason()) {
+                  case "invalid_json",
+                      "wrong_schema",
+                      "missing_loop_head",
+                      "unknown_loop_head",
+                      "head_not_on_trace",
+                      "parse_error",
+                      "variable_not_in_scope" ->
+                      true;
+                  case "contract_violation" -> "L1 contract violation".equals(r.detail());
+                  default -> false;
+                })
+        .map(
+            r ->
+                "reason="
+                    + r.reason()
+                    + "; head="
+                    + boundedFeedback(r.loopHead(), 64)
+                    + "; predicate="
+                    + boundedFeedback(r.predicate(), 512)
+                    + "; detail="
+                    + boundedFeedback(r.detail(), 256))
+        .distinct()
+        .limit(5)
+        .toList();
+  }
+
+  private static String boundedFeedback(String text, int limit) {
+    return text.length() <= limit ? text : text.substring(0, limit) + " [truncated]";
+  }
+
+  static int repairSlots(
+      ContextPack pack,
+      List<LoopHeadCandidate> candidates,
+      PredicateValidationPipeline.CandidateValidationOutcome primary,
+      PredicateBudget budget,
+      boolean dual) {
+    int acceptedCandidates = 0;
+    for (LoopHeadCandidate candidate : candidates) {
+      boolean accepted =
+          candidate.loopHeads().stream()
+              .anyMatch(label -> acceptedBinding(pack, primary, candidate.predicate(), label));
+      if (accepted) {
+        acceptedCandidates++;
+      }
+    }
+    // Dual mode already admits one budget per profile; repair only fills unused slots.
+    return Math.max(
+        0,
+        Math.min(budget.maxPerCall(), (dual ? 2 : 1) * budget.maxPerCall() - acceptedCandidates));
+  }
+
+  static ImmutableList<LoopHeadCandidate> repairCandidates(
+      ContextPack pack,
+      String content,
+      PredicateValidationPipeline.CandidateValidationOutcome primary,
+      PredicateBudget budget) {
+    Map<String, LoopHeadCandidate> additions = new LinkedHashMap<>();
+    for (LoopHeadCandidate candidate : LoopHeadCandidateParser.parse(content)) {
+      ImmutableList<String> heads =
+          candidate.loopHeads().stream()
+              .filter(label -> !acceptedBinding(pack, primary, candidate.predicate(), label))
+              .collect(ImmutableList.toImmutableList());
+      if (!heads.isEmpty()) {
+        LoopHeadCandidate addition =
+            new LoopHeadCandidate(
+                heads, candidate.predicate(), candidate.role(), candidate.variables());
+        additions.putIfAbsent(addition.dedupKey(), addition);
+        if (additions.size() == budget.maxPerCall()) {
+          break;
+        }
+      }
+    }
+    return ImmutableList.copyOf(additions.values());
+  }
+
+  private static boolean acceptedBinding(
+      ContextPack pack,
+      PredicateValidationPipeline.CandidateValidationOutcome primary,
+      String raw,
+      String label) {
+    LoopHeadInfo head = PredicateValidationPipeline.findHead(pack, label);
+    return head != null
+        && primary.rawStrings().entrySet().stream()
+            .anyMatch(
+                e -> raw.equals(e.getValue()) && head.node().equals(e.getKey().loopHeadNode()));
+  }
+
+  private static String profileKey(String raw, CFANode head) {
+    return "N" + head.getNodeNumber() + "\0" + raw;
+  }
+
+  private static String predicateProfile(Map<String, String> profiles, String raw, CFANode head) {
+    return profiles.getOrDefault(profileKey(raw, head), profiles.getOrDefault(raw, ""));
+  }
+
+  private static void recordCandidateProfiles(
+      ContextPack pack,
+      List<LoopHeadCandidate> candidates,
+      PromptProfile profile,
+      Map<String, String> profiles) {
+    for (LoopHeadCandidate candidate : candidates) {
+      for (String label : candidate.loopHeads()) {
+        LoopHeadInfo head = PredicateValidationPipeline.findHead(pack, label);
+        if (head != null) {
+          profiles.putIfAbsent(profileKey(candidate.predicate(), head.node()), profile.name());
+        }
+      }
+    }
+  }
+
   private List<VGuideAnalysisDumper.DumpValidatedPredicate> buildValidatedDump(
       ContextPack pack,
       Map<ValidatedPredicate, String> rawStrings,
@@ -1230,7 +1368,7 @@ public final class VGuideRefinementBridge {
               !raw.isEmpty(),
               !raw.isEmpty(),
               false,
-              profileByRaw.getOrDefault(raw, "")));
+              predicateProfile(profileByRaw, raw, requireLoopHead(vp))));
     }
     return ImmutableList.copyOf(out);
   }
