@@ -133,7 +133,7 @@ public final class PredicateValidationPipeline {
     Set<String> validatedPairs = new HashSet<>();
     for (ValidatedPredicate predicate : primary.validation().validated()) {
       String formulaText = fmgr.dumpFormula(predicate.formula()).toString().replace('\n', ' ');
-      validatedPairs.add(predicate.loopHeadNode().getNodeNumber() + "#" + formulaText);
+      validatedPairs.add(validatedPairKey(predicate.loopHeadNode(), formulaText));
       if (!predicate.groupConflict()) {
         validatedAtHead
             .computeIfAbsent(predicate.loopHeadNode(), node -> new ArrayList<>())
@@ -349,7 +349,7 @@ public final class PredicateValidationPipeline {
           crossCheckDeclaredVariables(candidate, headFreeVars);
           headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
         }
-        String pairKey = head.node().getNodeNumber() + "#" + headFormulaText;
+        String pairKey = validatedPairKey(head.node(), headFormulaText);
         if (!validatedPairs.add(pairKey)) {
           continue;
         }
@@ -422,6 +422,10 @@ public final class PredicateValidationPipeline {
         new ValidationResult(ImmutableList.copyOf(out)),
         ImmutableList.copyOf(rejections),
         ImmutableMap.copyOf(rawStrings));
+  }
+
+  private static String validatedPairKey(CFANode head, String formulaText) {
+    return head.getNodeNumber() + "#" + formulaText.replace('\n', ' ');
   }
 
   /** initiation first, then supporting, then the remaining roles in input order (stable). */

@@ -65,6 +65,24 @@ public class ValidationFeedbackTest {
   }
 
   @Test
+  public void actualParserContractAndMalformedRejectionsRemainActionable() {
+    var contract =
+        LoopHeadCandidateParser.parseWithRejects(
+            "{\"schema_version\":\"loop-head-candidate-v1\",\"candidates\":["
+                + "{\"loop_head\":\"N1\",\"predicate\":\"i >= 0\"}]}");
+    assertThat(contract.accepted()).isEmpty();
+    assertThat(VGuideRefinementBridge.repairFeedback(contract.rejected())).hasSize(1);
+    assertThat(
+            VGuideRefinementBridge.repairFeedback(
+                LoopHeadCandidateParser.parseWithRejects("{").rejected()))
+        .hasSize(1);
+    assertThat(
+            VGuideRefinementBridge.repairFeedback(
+                LoopHeadCandidateParser.parseWithRejects("{}").rejected()))
+        .hasSize(1);
+  }
+
+  @Test
   public void repairSlotsCountsCandidateObjectsAndCapsDualBudget() {
     CFANode first = CFANode.newDummyCFANode("main");
     CFANode second = CFANode.newDummyCFANode("main");

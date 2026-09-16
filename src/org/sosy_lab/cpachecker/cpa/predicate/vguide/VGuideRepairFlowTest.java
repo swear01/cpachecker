@@ -27,6 +27,7 @@ import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -84,6 +85,11 @@ public class VGuideRepairFlowTest {
     verify(f.client, times(2)).proposeWithUsage(any(PromptMessages.class));
     verify(f.scheduler).recordCallCompleted();
     verify(f.wall, times(2)).recordLlmCall(anyLong());
+    ArgumentCaptor<String> failureMessage = ArgumentCaptor.forClass(String.class);
+    verify(f.logger)
+        .logUserException(eq(Level.WARNING), any(IOException.class), failureMessage.capture());
+    // core_only_records counts this stable prefix, including repair failures.
+    assertThat(failureMessage.getValue()).startsWith("VGuide LLM call failed");
   }
 
   @Test
@@ -164,6 +170,7 @@ public class VGuideRepairFlowTest {
   }
 
   private static final class Fixture {
+    final LogManager logger = mock(LogManager.class);
     final PredicateProposalClient client = mock(PredicateProposalClient.class);
     final PredicateValidationPipeline pipeline = mock(PredicateValidationPipeline.class);
     final WallClockBudget wall = mock(WallClockBudget.class);
@@ -247,7 +254,7 @@ public class VGuideRepairFlowTest {
       LoopHeadIndex heads = new LoopHeadIndex(Optional.empty());
       bridge =
           ctor.newInstance(
-              LogManager.createTestLogManager(),
+              logger,
               options,
               client,
               null,

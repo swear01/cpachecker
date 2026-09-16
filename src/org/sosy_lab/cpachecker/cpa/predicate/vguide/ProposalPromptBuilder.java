@@ -240,9 +240,10 @@ public final class ProposalPromptBuilder {
         + rejectedPredicates
         + "\n"
         + hint
-        + "Return replacement candidates only; accepted primary bindings are retained. Do not"
-        + " relocate or broadcast a predicate to another head. Regenerate JSON only. Keep array"
-        + " reads in the a[i] C-syntax form; do not write select/store or SSA names.\n";
+        + "Return replacement candidates only; accepted primary bindings are retained. Name each"
+        + " intended loop head explicitly; never assume a predicate applies at unlisted heads."
+        + " Regenerate JSON only. Keep array reads in the a[i] C-syntax form; do not write"
+        + " select/store or SSA names.\n";
   }
 
   private static String syntaxRules() {

@@ -701,7 +701,9 @@ public final class VGuideRefinementBridge {
         } catch (IOException e) {
           dump.llmSkipReason = "repair_failed";
           logger.logUserException(
-              Level.WARNING, e, "VGuide repair failed; retaining primary predicates");
+              Level.WARNING,
+              e,
+              "VGuide LLM call failed during repair; retaining primary predicates");
         } finally {
           wallBudget.recordLlmCall(System.currentTimeMillis() - repairStart);
         }
@@ -1233,15 +1235,16 @@ public final class VGuideRefinementBridge {
         .filter(
             r ->
                 switch (r.reason()) {
-                  case "invalid_json",
-                      "wrong_schema",
-                      "missing_loop_head",
-                      "unknown_loop_head",
-                      "head_not_on_trace",
-                      "parse_error",
-                      "variable_not_in_scope" ->
+                  case LoopHeadCandidateParser.REASON_INVALID_JSON,
+                      LoopHeadCandidateParser.REASON_WRONG_SCHEMA,
+                      LoopHeadCandidateParser.REASON_MISSING_LOOP_HEAD,
+                      PredicateValidationPipeline.REASON_UNKNOWN_LOOP_HEAD,
+                      PredicateValidationPipeline.REASON_HEAD_NOT_ON_TRACE,
+                      PredicateValidationPipeline.REASON_PARSE_ERROR,
+                      PredicateValidationPipeline.REASON_VARIABLE_NOT_IN_SCOPE ->
                       true;
-                  case "contract_violation" -> "L1 contract violation".equals(r.detail());
+                  case PredicateValidationPipeline.REASON_CONTRACT_VIOLATION ->
+                      LoopHeadCandidateParser.L1_CONTRACT_VIOLATION_DETAIL.equals(r.detail());
                   default -> false;
                 })
         .map(

@@ -107,6 +107,8 @@ public class ProposalPromptBuilderTest {
             PromptProfile.SAFE,
             2);
 
+    assertThat(repair.user()).contains("accepted primary bindings are retained");
+    assertThat(repair.user()).contains("Name each intended loop head explicitly");
     assertThat(repair.system()).contains("Return at most 12 candidates");
     assertThat(repair.system()).contains("logical negations are the same split");
     assertThat(repair.system())
