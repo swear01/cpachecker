@@ -416,7 +416,7 @@ public class VocabularyGuide {
       name = name.substring(1, name.length() - 1);
     }
     int at = name.lastIndexOf('@');
-    return at < 0 ? name : name.substring(0, at);
+    return at < 0 || at == name.length() - 1 ? name : name.substring(0, at);
   }
 
   private static BitvectorFormula parseBvSexp(
