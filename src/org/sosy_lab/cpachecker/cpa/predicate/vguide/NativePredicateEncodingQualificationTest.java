@@ -26,7 +26,9 @@ import org.sosy_lab.common.configuration.ConfigurationBuilder;
 import org.sosy_lab.cpachecker.cfa.CFACreator;
 import org.sosy_lab.cpachecker.cfa.CParser;
 import org.sosy_lab.cpachecker.cfa.CProgramScope;
+import org.sosy_lab.cpachecker.cfa.CfaMetadata;
 import org.sosy_lab.cpachecker.cfa.ImmutableCFA;
+import org.sosy_lab.cpachecker.cfa.Language;
 import org.sosy_lab.cpachecker.cfa.ast.AExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CExpressionStatement;
@@ -335,6 +337,32 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
     var rejection =
         assertThrows(IllegalArgumentException.class, () -> encoder.encode("x<3", head, context));
     assertThat(rejection).hasMessageThat().isEqualTo("native C scope unavailable");
+  }
+
+  @Test
+  public void nonCBridgeDoesNotConstructCEncodingScope() throws Exception {
+    Fixture f = fixture("int main(void){int x=0; if(x<3)return 0; return 1;}");
+    var nonCMetadata =
+        CfaMetadata.forMandatoryAttributes(
+            f.cfa().getMachineModel(),
+            Language.JAVA,
+            Language.JAVA,
+            f.cfa().getFileNames(),
+            f.cfa().getMainFunction(),
+            f.cfa().getMetadata().getConnectedness());
+    var nonC = f.cfa().copyWithMetadata(nonCMetadata);
+    assertThat(
+            VGuideRefinementBridge.create(
+                config,
+                logger,
+                ShutdownNotifier.createDummy(),
+                nonC,
+                nonC.getLoopStructure(),
+                solver,
+                f.pfmgr(),
+                null,
+                null))
+        .isNotNull();
   }
 
   @Test
