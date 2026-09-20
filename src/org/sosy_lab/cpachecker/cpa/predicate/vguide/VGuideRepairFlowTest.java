@@ -89,6 +89,32 @@ public class VGuideRepairFlowTest {
   }
 
   @Test
+  public void primaryFailuresStillExhaustTheScheduledRequestBudget() throws Exception {
+    Fixture f = new Fixture(false);
+    LlmCallScheduler actualScheduler =
+        new LlmCallScheduler(
+            new VGuideOptions(
+                Configuration.builder()
+                    .setOption("vguide.llmCallSchedule", "every_n")
+                    .setOption("vguide.llmEveryNSpuriousRefinements", "1")
+                    .setOption("vguide.maxLlmRoundsPerAnalysis", "4")
+                    .build()),
+            f.logger);
+    Field scheduler = VGuideRefinementBridge.class.getDeclaredField("llmScheduler");
+    scheduler.setAccessible(true);
+    scheduler.set(f.bridge, actualScheduler);
+    when(f.client.proposeWithUsage(any(PromptMessages.class)))
+        .thenThrow(new IOException("offline primary failure"));
+    for (int refinement = 1; refinement <= 6; refinement++) {
+      f.bridge.onSpuriousBeforeRefinement(
+          refinement, f.path, ImmutableList.of(), f.blocks, f.counterexample, null);
+    }
+    verify(f.client, times(4)).proposeWithUsage(any(PromptMessages.class));
+    verify(f.wall, times(4)).recordLlmCall(anyLong());
+    assertThat(actualScheduler.getLlmCallsDone()).isEqualTo(4);
+  }
+
+  @Test
   public void disabledRepairPreservesPrimaryWithoutSpendingAnotherRequest() throws Exception {
     Fixture f = new Fixture(false);
     when(f.client.proposeWithUsage(any(PromptMessages.class)))

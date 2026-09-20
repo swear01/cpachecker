@@ -353,6 +353,8 @@ public final class VGuideRefinementBridge {
           " latencyMs=",
           latency);
     } catch (IOException e) {
+      llmScheduler.recordCallCompleted();
+      wallBudget.recordLlmCall(System.currentTimeMillis() - t0);
       logger.logUserException(Level.WARNING, e, "VGuide source-prior LLM call failed");
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -810,6 +812,8 @@ public final class VGuideRefinementBridge {
     } catch (InterruptedException e) {
       throw e;
     } catch (IOException e) {
+      llmScheduler.recordCallCompleted();
+      wallBudget.recordLlmCall(System.currentTimeMillis() - t0);
       dump.llmSkipReason = "llm_failed";
       logger.logUserException(Level.WARNING, e, "VGuide LLM call failed");
     }
