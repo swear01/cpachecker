@@ -18,6 +18,38 @@ import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 public class ProposalPromptBuilderTest {
 
   @Test
+  public void nativeTraceContractIsSharedByPrimaryRepairAndAccounting() {
+    var block = org.mockito.Mockito.mock(org.sosy_lab.java_smt.api.BooleanFormula.class);
+    var pack =
+        new ContextPack(
+            1,
+            "",
+            "",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of(block)),
+            ImmutableList.of(),
+            "",
+            "");
+    var budget = new PredicateBudget(8, 16);
+    for (boolean minimal : new boolean[] {false, true}) {
+      var builder = new ProposalPromptBuilder(new LoopHeadIndex(Optional.empty()), minimal);
+      var primary = builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
+      var repair =
+          builder.buildRepair(
+              pack, ImmutableList.of("native_c_rejected"), budget, PromptProfile.SAFE, 1);
+      assertThat(primary.system()).contains("prefix c:");
+      assertThat(primary.system()).contains("never mix C array indices with SMT");
+      assertThat(primary.system()).contains("No &&, ||, ?:");
+      assertThat(primary.system()).contains("Untagged SMT-LIB2");
+      assertThat(repair.system()).isEqualTo(primary.system());
+      assertThat(ProposalPromptBuilder.rulesCharCount(budget, minimal, true))
+          .isEqualTo(primary.system().length());
+    }
+  }
+
+  @Test
   public void buildPrompt_usesSingleMaxOnlyMarginalSplitContract() {
     LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
     ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
@@ -41,10 +73,12 @@ public class ProposalPromptBuilderTest {
         .contains("separates proof-relevant concrete or spurious abstract states at that head");
     assertThat(safe.system())
         .contains(
-            "for nested loops, consider inherited outer-guard facts over variables unchanged there");
+            "for nested loops, consider inherited outer-guard facts over variables unchanged"
+                + " there");
     assertThat(safe.system()).doesNotContain("separates a relevant state pair");
     assertThat(safe.system()).contains("Logically equivalent predicates and logical negations");
-    assertThat(safe.system()).contains("algebraic rewrites, swapped operands, and shifted integer bounds");
+    assertThat(safe.system())
+        .contains("algebraic rewrites, swapped operands, and shifted integer bounds");
     assertThat(safe.fullText()).doesNotContain("Return between");
     assertThat(safe.fullText()).doesNotContain("Between 8 and 16 items");
     assertThat(safe.user()).doesNotContain("PREDICATE BUDGET");
@@ -113,7 +147,8 @@ public class ProposalPromptBuilderTest {
     assertThat(repair.system()).contains("logical negations are the same split");
     assertThat(repair.system())
         .contains(
-            "the named loop head and source declarations/control flow establish which are in scope there");
+            "the named loop head and source declarations/control flow establish which are in scope"
+                + " there");
     assertThat(repair.fullText()).doesNotContain("Between 8 and 12");
     assertThat(repair.user()).doesNotContain("PREDICATE BUDGET");
   }
@@ -246,7 +281,8 @@ public class ProposalPromptBuilderTest {
     assertThat(without.user()).doesNotContain("PRIOR CE HISTORY");
 
     PromptMessages with =
-        builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1, "[refinement 1] loop visits: N1 x2\n");
+        builder.buildPrompt(
+            pack, budget, PromptProfile.SAFE, 1, "[refinement 1] loop visits: N1 x2\n");
     assertThat(with.user()).contains("PRIOR CE HISTORY (bounded, read-only)");
     assertThat(with.user()).contains("loop visits: N1 x2");
   }
@@ -274,13 +310,7 @@ public class ProposalPromptBuilderTest {
 
     PromptMessages with =
         builder.buildPrompt(
-            pack,
-            budget,
-            PromptProfile.SAFE,
-            1,
-            "",
-            "",
-            "[local N1 | native] (bvslt i n)\n");
+            pack, budget, PromptProfile.SAFE, 1, "", "", "[local N1 | native] (bvslt i n)\n");
     assertThat(with.user()).contains("NATIVE CEGAR PRECISION (read-only)");
     assertThat(with.user()).contains("[local N1 | native] (bvslt i n)");
   }

@@ -17,6 +17,7 @@ import org.sosy_lab.common.configuration.Option;
 import org.sosy_lab.common.configuration.Options;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.ast.c.CAstNode;
+import org.sosy_lab.cpachecker.cfa.ast.c.CExpression;
 import org.sosy_lab.cpachecker.cfa.parser.Parsers;
 import org.sosy_lab.cpachecker.cfa.parser.Parsers.EclipseCParserOptions;
 import org.sosy_lab.cpachecker.cfa.parser.Scope;
@@ -119,6 +120,14 @@ public interface CParser extends Parser {
    * @throws CParserException If parsing fails.
    */
   CAstNode parseSingleStatement(String code, Scope scope)
+      throws CParserException, InterruptedException;
+
+  /**
+   * Parse one expression without side effects, short-circuit control flow, or auxiliary statements.
+   * Unlike witness statement parsing, this rejects assignments, calls, and temporary-producing
+   * conversions. Callers still need to verify declaration visibility in the supplied scope.
+   */
+  CExpression parsePureExpression(String expression, Scope scope)
       throws CParserException, InterruptedException;
 
   /**

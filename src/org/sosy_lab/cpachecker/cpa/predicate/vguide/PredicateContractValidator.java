@@ -12,14 +12,17 @@ import java.util.regex.Pattern;
 public final class PredicateContractValidator {
 
   private static final Pattern[] FORBIDDEN = {
-    Pattern.compile("\\|[a-z_]\\w+::"),
-    Pattern.compile("\\.def_\\d+"),
+    Pattern.compile("\\|[a-z_]\\w+::"), Pattern.compile("\\.def_\\d+"),
   };
 
   private PredicateContractValidator() {}
 
   public static boolean isValid(String predicateText) {
     String stripped = predicateText.strip();
+    if (stripped.startsWith(NativeCExpressionEncoder.PREFIX)) {
+      // Syntax, purity, declaration identity, and head context are checked by the native path.
+      return !stripped.substring(NativeCExpressionEncoder.PREFIX.length()).isBlank();
+    }
     if (stripped.isEmpty() || !stripped.startsWith("(")) {
       return false;
     }

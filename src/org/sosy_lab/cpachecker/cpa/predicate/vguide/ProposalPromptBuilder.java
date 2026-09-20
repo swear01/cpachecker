@@ -42,8 +42,9 @@ public final class ProposalPromptBuilder {
     };
   }
 
-  static int rulesCharCount(PredicateBudget budget, boolean minimalPrompt) {
-    return buildSystemMessage(budget, minimalPrompt).length();
+  static int rulesCharCount(
+      PredicateBudget budget, boolean minimalPrompt, boolean hasTraceContext) {
+    return buildSystemMessage(budget, minimalPrompt, hasTraceContext).length();
   }
 
   public PromptMessages buildPrompt(
@@ -69,7 +70,7 @@ public final class ProposalPromptBuilder {
       String refinementOutcomes,
       String nativePredicateContext) {
     return new PromptMessages(
-        buildSystemMessage(budget, minimalPrompt),
+        buildSystemMessage(budget, minimalPrompt, pack.blockFormulas().getSize() > 0),
         userComponents(
                 pack,
                 profile,
@@ -99,7 +100,7 @@ public final class ProposalPromptBuilder {
       String refinementOutcomes,
       String nativePredicateContext) {
     return new PromptMessages(
-        buildSystemMessage(budget, minimalPrompt),
+        buildSystemMessage(budget, minimalPrompt, pack.blockFormulas().getSize() > 0),
         userComponents(
                 pack,
                 profile,
@@ -120,12 +121,35 @@ public final class ProposalPromptBuilder {
     return buildPrompt(pack, budget, PromptProfile.SAFE, 2).fullText();
   }
 
-  private static String buildSystemMessage(PredicateBudget budget, boolean minimalPrompt) {
+  private static String buildSystemMessage(
+      PredicateBudget budget, boolean minimalPrompt, boolean hasTraceContext) {
+    if (hasTraceContext) {
+      return "You help a CEGAR verifier. Propose abstraction splits, not assumed invariants.\n"
+          + "Use the predicate string prefix c: followed by ONE side-effect-free C"
+          + " expression.\n"
+          + "Use actual source names visible at each named loop head. The native C encoder"
+          + " handles declared types, integer promotions and array/pointer reads.\n"
+          + "No &&, ||, ?:, assignment, increment/decrement, calls, declarations, preprocessing, or"
+          + " auxiliary statements.\n"
+          + "Write the entire expression in C; never mix C array indices with SMT"
+          + " operators.\n"
+          + "Do not write solver heap/select/store names, qualified internal names or SSA"
+          + " versions.\n"
+          + "Ambiguous scope or unavailable trace memory context is rejected; do not guess"
+          + " aliases.\n"
+          + "Untagged SMT-LIB2 prefix predicates remain supported under the source-variable"
+          + " contract.\n"
+          + buildJsonContract(budget);
+    }
     if (minimalPrompt) {
-      return "You help a CEGAR verifier. Propose SMT-LIB2 predicates (prefix notation, each starts with '(').\n"
+      return "You help a CEGAR verifier. Propose SMT-LIB2 predicates (prefix notation, each starts"
+          + " with '(').\n"
           + "Source vars only. Prefer bv ops: bvsge/bvslt/bvsle/bvsgt/bvadd/bvsub.\n"
-          + "Scope: the contract names encodable variables globally; the named loop head and source declarations/control flow establish which are in scope there. CE relations are hints, not scope proof.\n"
-          + "No select/store, no |main::|, no @suffix, no .def_N, no quantifiers, no bvshl/lshr/ashr; arrays as a[i].\n"
+          + "Scope: the contract names encodable variables globally; the named loop head and"
+          + " source declarations/control flow establish which are in scope there. CE"
+          + " relations are hints, not scope proof.\n"
+          + "No select/store, no |main::|, no @suffix, no .def_N, no quantifiers, no"
+          + " bvshl/lshr/ashr; arrays as a[i].\n"
           + buildJsonContract(budget);
     }
     return "You help a CEGAR-based predicate abstraction verifier.\n"
@@ -234,7 +258,7 @@ public final class ProposalPromptBuilder {
     String hint =
         profile == PromptProfile.BUG_HUNT
             ? "Rejected predicates may have been too aligned with proving safe; try failing-state"
-                  + " predicates from the CE summary.\n"
+                + " predicates from the CE summary.\n"
             : "";
     return "\nCandidate rejection feedback (including named head and reason when available): "
         + rejectedPredicates
@@ -242,7 +266,7 @@ public final class ProposalPromptBuilder {
         + hint
         + "Return replacement candidates only; accepted primary bindings are retained. Name each"
         + " intended loop head explicitly; never assume a predicate applies at unlisted heads."
-        + " Regenerate JSON only. Keep array reads in the a[i] C-syntax form; do not write"
+        + " Regenerate JSON only and follow the system's predicate syntax contract; do not write"
         + " select/store or SSA names.\n";
   }
 

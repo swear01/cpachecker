@@ -30,6 +30,7 @@ import org.sosy_lab.common.io.IO;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.common.time.Timer;
 import org.sosy_lab.cpachecker.cfa.ast.c.CAstNode;
+import org.sosy_lab.cpachecker.cfa.ast.c.CExpression;
 import org.sosy_lab.cpachecker.cfa.parser.Scope;
 import org.sosy_lab.cpachecker.cfa.parser.eclipse.c.BOMParser;
 import org.sosy_lab.cpachecker.exceptions.CParserException;
@@ -241,6 +242,12 @@ public class CParserWithLocationMapper implements CParser {
   public CAstNode parseSingleStatement(String pCode, Scope pScope)
       throws CParserException, InterruptedException {
     return realParser.parseSingleStatement(pCode, pScope);
+  }
+
+  @Override
+  public CExpression parsePureExpression(String expression, Scope scope)
+      throws CParserException, InterruptedException {
+    return realParser.parsePureExpression(expression, scope);
   }
 
   @Override

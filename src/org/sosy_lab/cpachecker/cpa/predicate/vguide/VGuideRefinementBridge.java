@@ -30,10 +30,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.sosy_lab.common.ShutdownNotifier;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.configuration.InvalidConfigurationException;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.CFA;
+import org.sosy_lab.cpachecker.cfa.Language;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.CPAcheckerResult.Result;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
@@ -198,6 +200,7 @@ public final class VGuideRefinementBridge {
   public static VGuideRefinementBridge create(
       Configuration config,
       LogManager logger,
+      ShutdownNotifier shutdownNotifier,
       CFA cfa,
       Optional<LoopStructure> loopStructure,
       Solver solver,
@@ -224,7 +227,14 @@ public final class VGuideRefinementBridge {
         new ContextPackBuilder(cfa, loopHeads, fmgr),
         new ProposalPromptBuilder(loopHeads),
         new PredicateBudgetResolver(),
-        new PredicateValidationPipeline(logger, solver, fmgr, opts.isEnableL3Entailment()),
+        new PredicateValidationPipeline(
+            logger,
+            solver,
+            fmgr,
+            opts.isEnableL3Entailment(),
+            cfa.getLanguage() == Language.C
+                ? new NativeCExpressionEncoder(config, logger, shutdownNotifier, cfa, pfmgr)
+                : null),
         new LoopHeadPrecisionInjector(logger, predAbsManager),
         new FrozenPredicateLoader(logger, opts.getFrozenDir()),
         new WallClockBudget(opts.getWallBudgetSec()),
@@ -367,6 +377,13 @@ public final class VGuideRefinementBridge {
             Level.FINE,
             "VGuide source-prior: drop candidate with unknown loop head(s): ",
             candidate.loopHeads());
+        continue;
+      }
+      if (candidate.predicate().stripLeading().startsWith(NativeCExpressionEncoder.PREFIX)) {
+        logger.log(
+            Level.INFO,
+            "VGuide source-prior native_c_context_unavailable: ",
+            candidate.predicate());
         continue;
       }
       BooleanFormula parsed =
