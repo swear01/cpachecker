@@ -56,6 +56,8 @@ public final class PredicateValidationPipeline {
   public static final String REASON_CONTRACT_VIOLATION = "contract_violation";
   public static final String REASON_VARIABLE_NOT_IN_SCOPE = "variable_not_in_scope";
   public static final String REASON_UNSUPPORTED_ARRAY_ACCESS = "unsupported_array_access";
+  public static final String REASON_NATIVE_CONTEXT_UNAVAILABLE = "native_c_context_unavailable";
+  public static final String REASON_NATIVE_REJECTED = "native_c_rejected";
 
   private static final String ROLE_INITIATION = "initiation";
   private static final String ROLE_SUPPORTING = "supporting";
@@ -390,7 +392,7 @@ public final class PredicateValidationPipeline {
                     candidate.toString(),
                     head.label(),
                     candidate.predicate(),
-                    "native_c_context_unavailable",
+                    REASON_NATIVE_CONTEXT_UNAVAILABLE,
                     "native C requires the selected head occurrence's path formula and CFA scope"));
             continue;
           }
@@ -406,14 +408,14 @@ public final class PredicateValidationPipeline {
           } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             break;
-          } catch (CParserException | CPATransferException | RuntimeException e) {
+          } catch (CParserException | CPATransferException | IllegalArgumentException e) {
             rejections.add(
                 new CandidateRejection(
                     candidate.toString(),
                     head.label(),
                     candidate.predicate(),
-                    "native_c_rejected",
-                    e.getMessage()));
+                    REASON_NATIVE_REJECTED,
+                    e.toString()));
             continue;
           }
           if (bfmgr.isTrue(headParsed) || bfmgr.isFalse(headParsed)) {

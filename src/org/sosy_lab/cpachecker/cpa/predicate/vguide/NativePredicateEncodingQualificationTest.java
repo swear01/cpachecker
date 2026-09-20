@@ -338,6 +338,23 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
   }
 
   @Test
+  public void encoderDefectsAreNotCandidateRejections() throws Exception {
+    Fixture f = fixture("int main(void){int x=0; if(x<3)return 0; return 1;}");
+    var encoder = mock(NativeCExpressionEncoder.class);
+    var defect = new NullPointerException("encoder defect");
+    when(encoder.encode(any(), any(), any())).thenThrow(defect);
+    var pipeline = new PredicateValidationPipeline(logger, solver, mgrv, false, encoder);
+    var context = pack(f, f.prefix());
+    var candidates = response(f, "c: x<3");
+    var trace = List.of(state(f, f.prefix()));
+    assertThat(
+            assertThrows(
+                NullPointerException.class,
+                () -> pipeline.validateCandidates(context, candidates, trace)))
+        .isSameInstanceAs(defect);
+  }
+
+  @Test
   public void nativeFailuresAreObservableAndDoNotDiscardAcceptedPrimary() throws Exception {
     Fixture f = fixture("int main(void){int a[4]; int x=0; a[x]=7; while(x<3){x++;}return 0;}");
     var pipeline = new PredicateValidationPipeline(logger, solver, mgrv, false, nativeEncoder(f));
