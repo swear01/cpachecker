@@ -149,8 +149,13 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
             }
             """);
     var expression = parseExpression(f, "s < u");
-    String localName = f.scope().lookupVariable("s").getQualifiedName();
+    var declaration = f.scope().lookupVariable("s");
+    assertThat(declaration).isNotNull();
+    String localName = declaration.getQualifiedName();
     assertThat(localName).startsWith("main::s");
+    for (var id : CFAUtils.getIdExpressionsOfExpression(expression)) {
+      assertThat(id.getDeclaration()).isNotNull();
+    }
     assertThat(
             CFAUtils.getIdExpressionsOfExpression(expression)
                 .transform(id -> id.getDeclaration().getQualifiedName()))
@@ -180,7 +185,9 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
             """);
     BooleanFormula candidate = encode(f, "c < 255");
     assertMatchesCfa(f, candidate);
-    assertThat(mgrv.getFormulaType(mgrv.extractVariables(candidate).get("main::c")))
+    var variables = mgrv.extractVariables(candidate);
+    assertThat(variables).containsKey("main::c");
+    assertThat(mgrv.getFormulaType(variables.get("main::c")))
         .isEqualTo(FormulaType.getBitvectorTypeWithSize(8));
     var c = bvmgr.makeVariable(8, "main::c");
     assertThat(solver.isUnsat(bmgrv.and(candidate, bvmgr.equal(c, bvmgr.makeBitvector(8, 255)))))
