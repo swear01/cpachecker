@@ -28,7 +28,8 @@ public class LlmEnsembleMergerTest {
         {"schema_version":"loop-head-candidate-v1","candidates":[{"loop_head":"N12","predicate":"(bvslt i n)"},{"loop_head":"N12","predicate":"(bvsge i (_ bv0 32))"}]}
         """;
 
-    assertThat(LlmEnsembleMerger.mergeCandidates(ImmutableList.of(a, b), new PredicateBudget(1, 16)))
+    assertThat(
+            LlmEnsembleMerger.mergeCandidates(ImmutableList.of(a, b), new PredicateBudget(1, 16)))
         .containsExactly(candidate("N12", "(bvslt i n)"), candidate("N12", "(bvsge i (_ bv0 32))"));
   }
 
@@ -62,13 +63,40 @@ public class LlmEnsembleMergerTest {
   }
 
   @Test
+  public void capsEachDrawBeforeUnionWithoutDiscardingLaterDraws() {
+    String first =
+        """
+        {"schema_version":"loop-head-candidate-v1","candidates":[
+          {"loop_head":"N12","predicate":"(= x (_ bv0 32))"},
+          {"loop_head":"N12","predicate":"(= x (_ bv0 32))"},
+          {"loop_head":"N12","predicate":"(= x (_ bv1 32))"},
+          {"loop_head":"N12","predicate":"(= x (_ bv3 32))"}
+        ]}
+        """;
+    String second =
+        """
+        {"schema_version":"loop-head-candidate-v1","candidates":[
+          {"loop_head":"N12","predicate":"(= x (_ bv1 32))"},
+          {"loop_head":"N12","predicate":"(= x (_ bv2 32))"},
+          {"loop_head":"N12","predicate":"(= x (_ bv3 32))"}
+        ]}
+        """;
+    assertThat(
+            LlmEnsembleMerger.mergeCandidates(
+                ImmutableList.of(first, second), new PredicateBudget(1, 2)))
+        .containsExactly(
+            candidate("N12", "(= x (_ bv0 32))"),
+            candidate("N12", "(= x (_ bv1 32))"),
+            candidate("N12", "(= x (_ bv2 32))"))
+        .inOrder();
+  }
+
+  @Test
   public void mergeDualUnionCandidates_safeWinsOnEqualKeys() {
     var safe =
-        ImmutableList.of(
-            candidate("N12", "(bvslt i n)"), candidate("N12", "(bvsge i (_ bv0 32))"));
+        ImmutableList.of(candidate("N12", "(bvslt i n)"), candidate("N12", "(bvsge i (_ bv0 32))"));
     var bug =
-        ImmutableList.of(
-            candidate("N12", "(bvslt i n)"), candidate("N12", "(bvslt i (_ bv0 32))"));
+        ImmutableList.of(candidate("N12", "(bvslt i n)"), candidate("N12", "(bvslt i (_ bv0 32))"));
 
     assertThat(LlmEnsembleMerger.mergeDualUnionCandidates(safe, bug))
         .containsExactly(

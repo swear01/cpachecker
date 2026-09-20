@@ -72,6 +72,37 @@ public class VGuideRepairFlowTest {
   }
 
   @Test
+  public void firstSafeRoundRequestsConfiguredExtrasAndRetainsTheirCandidates() throws Exception {
+    Fixture f = new Fixture(false, 2);
+    when(f.client.proposeWithUsage(any(PromptMessages.class)))
+        .thenReturn(f.response(f.primaryJson()));
+    when(f.client.proposeParallelExtrasWithUsage(any(PromptMessages.class), eq(1), anyInt()))
+        .thenReturn(List.of(f.response(f.json("(= x (_ bv1 32))"))));
+    f.run();
+
+    verify(f.client, times(1)).proposeWithUsage(any(PromptMessages.class));
+    verify(f.client).proposeParallelExtrasWithUsage(any(PromptMessages.class), eq(1), anyInt());
+    ArgumentCaptor<List<LoopHeadCandidate>> candidates = candidateCaptor();
+    verify(f.pipeline).validateCandidates(eq(f.pack), candidates.capture(), anyList());
+    assertThat(candidates.getValue()).hasSize(3);
+    assertThat(candidates.getValue().get(2).predicate()).isEqualTo("(= x (_ bv1 32))");
+  }
+
+  @Test
+  public void disabledRepairPreservesPrimaryWithoutSpendingAnotherRequest() throws Exception {
+    Fixture f = new Fixture(false);
+    when(f.client.proposeWithUsage(any(PromptMessages.class)))
+        .thenReturn(f.response(f.primaryJson()));
+    f.run();
+
+    verify(f.client, times(1)).proposeWithUsage(any(PromptMessages.class));
+    verify(f.wall, times(1)).recordLlmCall(anyLong());
+    assertThat(field(f.bridge, "lastValidation")).isEqualTo(f.primary.validation());
+    assertThat(field(field(f.bridge, "pendingDump"), "rejections"))
+        .isEqualTo(f.primary.rejections());
+  }
+
+  @Test
   public void repairFailureRetainsPrimaryAndDoesNotRetryRound() throws Exception {
     Fixture f = new Fixture();
     when(f.client.proposeWithUsage(any(PromptMessages.class)))
@@ -209,6 +240,14 @@ public class VGuideRepairFlowTest {
         CounterexampleTraceInfo.infeasible(ImmutableList.of(formula));
 
     Fixture() throws Exception {
+      this(true);
+    }
+
+    Fixture(boolean repairEnabled) throws Exception {
+      this(repairEnabled, 1);
+    }
+
+    Fixture(boolean repairEnabled, int samples) throws Exception {
       ContextPackBuilder context = mock(ContextPackBuilder.class);
       when(context.build(anyInt(), any(), any(), anyList(), anyList())).thenReturn(pack);
       when(path.asStatesList()).thenReturn(ImmutableList.<ARGState>of());
@@ -229,6 +268,9 @@ public class VGuideRepairFlowTest {
       VGuideOptions options =
           new VGuideOptions(
               Configuration.builder()
+                  .setOption(
+                      "vguide.enableValidationFeedbackRepair", Boolean.toString(repairEnabled))
+                  .setOption("vguide.llmSamplesPerCall", Integer.toString(samples))
                   .setOption("vguide.minPredicatesPerCall", "1")
                   .setOption("vguide.maxPredicatesPerCall", "2")
                   .build());

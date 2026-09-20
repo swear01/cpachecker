@@ -6,14 +6,14 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.Hashing;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.hash.Hashing;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.configuration.FileOption;
 import org.sosy_lab.common.configuration.IntegerOption;
@@ -74,6 +74,11 @@ public class VGuideOptions {
 
   @Option(
       secure = true,
+      description = "Allow one validation-feedback repair request after each scheduled round")
+  private boolean enableValidationFeedbackRepair = true;
+
+  @Option(
+      secure = true,
       description =
           "Legacy lower-bound metadata for fixed/adaptive budget records. The production prompt"
               + " has no minimum candidate count.")
@@ -88,10 +93,7 @@ public class VGuideOptions {
   @IntegerOption(min = 1)
   private int maxPredicatesPerCall = 12;
 
-  @Option(
-      secure = true,
-      description =
-          "Max parallel API calls for the (K-1) ensemble extras (refinement #1 never parallel).")
+  @Option(secure = true, description = "Max parallel API calls for the (K-1) ensemble extras.")
   @IntegerOption(min = 1)
   private int llmSampleParallelism = 4;
 
@@ -211,15 +213,16 @@ public class VGuideOptions {
 
   @Option(
       secure = true,
-      description =
-          "Replay-only post-validation injection policy: FULL, SUPPRESS_ALL, or EXCLUDE")
+      description = "Replay-only post-validation injection policy: FULL, SUPPRESS_ALL, or EXCLUDE")
   private ReplayInjectionMode replayInjectionMode = ReplayInjectionMode.FULL;
 
   @Option(
       secure = true,
       description =
-          "Newline-separated exact selectors for EXCLUDE, each head=N<number>;formula=<SMT>;provenance=<profile>")
+          "Newline-separated exact selectors for EXCLUDE, each"
+              + " head=N<number>;formula=<SMT>;provenance=<profile>")
   private String replayInjectionExclusions = "";
+
   private ImmutableList<String> parsedReplayInjectionSelectors = ImmutableList.of();
   private ImmutableSet<String> replayInjectionSelectorSet = ImmutableSet.of();
   private String replayInjectionSelectorFingerprint = "";
@@ -253,7 +256,9 @@ public class VGuideOptions {
     replayInjectionSelectorFingerprint =
         Hashing.sha256()
             .hashString(
-                String.join("\n", replayInjectionSelectorSet.stream().sorted(Comparator.naturalOrder()).toList()),
+                String.join(
+                    "\n",
+                    replayInjectionSelectorSet.stream().sorted(Comparator.naturalOrder()).toList()),
                 StandardCharsets.UTF_8)
             .toString();
     validateReplayInjectionMode(
@@ -307,6 +312,10 @@ public class VGuideOptions {
     return dualPromptMode;
   }
 
+  public boolean isValidationFeedbackRepairEnabled() {
+    return enableValidationFeedbackRepair;
+  }
+
   public int getLlmSampleParallelism() {
     return llmSampleParallelism;
   }
@@ -336,14 +345,6 @@ public class VGuideOptions {
 
   public int getLlmMaxCompletionTokens() {
     return llmMaxCompletionTokens;
-  }
-
-  /** Draws per profile for this spurious round. */
-  public int getLlmSamplesForRefinement(int refinementIndex) {
-    if (dualPromptMode) {
-      return Math.max(1, llmSamplesPerCall);
-    }
-    return refinementIndex == 1 ? 1 : Math.max(1, llmSamplesPerCall);
   }
 
   public LlmCallSchedule getLlmCallSchedule() {
