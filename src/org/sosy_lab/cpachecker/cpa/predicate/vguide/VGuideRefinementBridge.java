@@ -353,6 +353,8 @@ public final class VGuideRefinementBridge {
           " latencyMs=",
           latency);
     } catch (IOException e) {
+      llmScheduler.recordCallCompleted();
+      wallBudget.recordLlmCall(System.currentTimeMillis() - t0);
       logger.logUserException(Level.WARNING, e, "VGuide source-prior LLM call failed");
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -558,7 +560,7 @@ public final class VGuideRefinementBridge {
     String promptKindBase = refinementIndex == 1 ? "first" : "later";
     long t0 = System.currentTimeMillis();
     try {
-      int samplesPerProfile = options.getLlmSamplesForRefinement(refinementIndex);
+      int samplesPerProfile = options.getLlmSamplesPerCall();
       List<String> rejectedAll = new ArrayList<>();
       List<LlmProposalResult> apiResults = new ArrayList<>();
       ImmutableList<LoopHeadCandidate> mergedCandidates = ImmutableList.of();
@@ -689,7 +691,8 @@ public final class VGuideRefinementBridge {
       List<String> feedback = repairFeedback(primary.rejections());
       int repairSlots =
           repairSlots(pack, mergedCandidates, primary, budget, options.isDualPromptMode());
-      if (!feedback.isEmpty()
+      if (options.isValidationFeedbackRepairEnabled()
+          && !feedback.isEmpty()
           && repairSlots > 0
           && !Thread.currentThread().isInterrupted()
           && wallBudget.hasRemainingForLlm()) {
@@ -809,6 +812,8 @@ public final class VGuideRefinementBridge {
     } catch (InterruptedException e) {
       throw e;
     } catch (IOException e) {
+      llmScheduler.recordCallCompleted();
+      wallBudget.recordLlmCall(System.currentTimeMillis() - t0);
       dump.llmSkipReason = "llm_failed";
       logger.logUserException(Level.WARNING, e, "VGuide LLM call failed");
     }

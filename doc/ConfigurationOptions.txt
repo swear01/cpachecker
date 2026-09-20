@@ -5968,6 +5968,9 @@ vguide.enablePrecisionCompiler = false
 # precision batches
 vguide.enablePredicateUsefulnessGate = false
 
+# Allow one validation-feedback repair request after each scheduled round
+vguide.enableValidationFeedbackRepair = true
+
 # Directory containing predicate_sets/<benchmark>.md or .json for NO_SPURIOUS
 # exception path
 vguide.frozenDir = "docs/vguided-cegar/predicate_sets"
@@ -5987,8 +5990,7 @@ vguide.llmMaxCompletionTokens = 1024
 # (0 = no wait except refinement #1)
 vguide.llmMinIntervalSec = 0
 
-# Max parallel API calls for the (K-1) ensemble extras (refinement #1 never
-# parallel).
+# Max parallel API calls for the (K-1) ensemble extras.
 vguide.llmSampleParallelism = 4
 
 # API draws per prompt profile per scheduled LLM round (SAFE and BUG each use

@@ -31,20 +31,19 @@ public class VGuideOptionsTest {
                 .setOption("vguide.dualPromptMode", "true")
                 .setOption("vguide.llmSamplesPerCall", "3")
                 .build());
-    assertThat(opts.getLlmSamplesForRefinement(1)).isEqualTo(3);
+    assertThat(opts.getLlmSamplesPerCall()).isEqualTo(3);
     assertThat(opts.isDualPromptMode()).isTrue();
   }
 
   @Test
-  public void singleModeKeepsFirstRefinementOneDraw() throws InvalidConfigurationException {
+  public void singleModeHonorsSamplesOnFirstRefinement() throws InvalidConfigurationException {
     VGuideOptions opts =
         new VGuideOptions(
             Configuration.builder()
                 .setOption("vguide.dualPromptMode", "false")
                 .setOption("vguide.llmSamplesPerCall", "3")
                 .build());
-    assertThat(opts.getLlmSamplesForRefinement(1)).isEqualTo(1);
-    assertThat(opts.getLlmSamplesForRefinement(2)).isEqualTo(3);
+    assertThat(opts.getLlmSamplesPerCall()).isEqualTo(3);
   }
 
   @Test
