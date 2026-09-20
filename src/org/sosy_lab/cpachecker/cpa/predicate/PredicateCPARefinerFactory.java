@@ -211,7 +211,15 @@ public final class PredicateCPARefinerFactory {
 
       VGuideRefinementBridge bridge =
           VGuideRefinementBridge.create(
-              config, logger, cfa, loopStructure, solver, pfmgr, predAbsManager, llmClient);
+              config,
+              logger,
+              shutdownNotifier,
+              cfa,
+              loopStructure,
+              solver,
+              pfmgr,
+              predAbsManager,
+              llmClient);
       if (bridge == null) {
         throw new InvalidConfigurationException(
             "useVocabularyGuide=true but vguide.enable=false; enable vguide or turn off"

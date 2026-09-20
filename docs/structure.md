@@ -49,6 +49,22 @@ timeout but no total inference deadline. Standard output is one JSON object cont
 `response_source`. Invalid arguments, missing files, configuration failures, HTTP failures, and
 malformed or incomplete provider streams terminate nonzero; there is no fallback transport.
 
+## VGuide predicate strings
+
+With a spurious-trace context, primary and repair prompts request `c:` followed by one
+C expression, for example `c: a[i] <= a[i + 1]`. The existing candidate JSON schema and
+explicit loop-head labels stay the same. Untagged SMT-LIB2 candidates retain their existing
+parser; rejected `c:` candidates never fall back to it.
+
+`NativeCExpressionEncoder` uses the configured C parser and path-formula manager with the
+last aligned occurrence of the named head. It checks actual CFA declarations and preserves
+SSA and pointer-target context. Unknown, expired, foreign or ambiguous local declarations,
+state introduced outside that context, side effects, calls, preprocessing, and expressions
+requiring auxiliary statements are rejected. This bounded path excludes `&&`, `||` and `?:`;
+return separate split candidates instead. Source-prior mode has no trace context and retains
+its SMT contract. Accepted candidates still go through the existing classification and local
+precision injection; acceptance does not establish an invariant or a solve improvement.
+
 ## Module Boundaries
 
 - VGuide code (`src/.../vguide/`) is the only place LLM integration lives. Do not add LLM calls elsewhere.

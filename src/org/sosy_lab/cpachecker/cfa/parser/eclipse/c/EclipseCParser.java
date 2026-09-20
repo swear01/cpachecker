@@ -32,13 +32,20 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import org.eclipse.cdt.core.dom.ast.ASTVisitor;
+import org.eclipse.cdt.core.dom.ast.IASTBinaryExpression;
 import org.eclipse.cdt.core.dom.ast.IASTCompoundStatement;
+import org.eclipse.cdt.core.dom.ast.IASTConditionalExpression;
 import org.eclipse.cdt.core.dom.ast.IASTDeclaration;
+import org.eclipse.cdt.core.dom.ast.IASTExpression;
+import org.eclipse.cdt.core.dom.ast.IASTExpressionStatement;
+import org.eclipse.cdt.core.dom.ast.IASTFunctionCallExpression;
 import org.eclipse.cdt.core.dom.ast.IASTFunctionDefinition;
 import org.eclipse.cdt.core.dom.ast.IASTPreprocessorIncludeStatement;
 import org.eclipse.cdt.core.dom.ast.IASTProblem;
 import org.eclipse.cdt.core.dom.ast.IASTStatement;
 import org.eclipse.cdt.core.dom.ast.IASTTranslationUnit;
+import org.eclipse.cdt.core.dom.ast.IASTUnaryExpression;
 import org.eclipse.cdt.core.parser.FileContent;
 import org.eclipse.core.runtime.CoreException;
 import org.sosy_lab.common.ShutdownNotifier;
@@ -51,6 +58,8 @@ import org.sosy_lab.cpachecker.cfa.CSourceOriginMapping;
 import org.sosy_lab.cpachecker.cfa.ParseResult;
 import org.sosy_lab.cpachecker.cfa.ast.AVariableDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.c.CAstNode;
+import org.sosy_lab.cpachecker.cfa.ast.c.CExpression;
+import org.sosy_lab.cpachecker.cfa.ast.c.CExpressionStatement;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.cfa.parser.Parsers.EclipseCParserOptions;
 import org.sosy_lab.cpachecker.cfa.parser.Scope;
@@ -183,6 +192,10 @@ class EclipseCParser implements CParser {
     // parse
     IASTTranslationUnit ast = parse(wrapCode(Path.of("fragment"), pCode), ParseContext.dummy());
 
+    return extractFragmentBody(ast);
+  }
+
+  private IASTStatement[] extractFragmentBody(IASTTranslationUnit ast) throws CParserException {
     // strip wrapping function header
     IASTDeclaration[] declarations = ast.getDeclarations();
     if (declarations == null
@@ -206,7 +219,10 @@ class EclipseCParser implements CParser {
   private ASTConverter prepareTemporaryConverter(Scope scope) {
     Sideassignments sa = new Sideassignments();
     sa.enterBlock();
+    return prepareTemporaryConverter(scope, sa);
+  }
 
+  private ASTConverter prepareTemporaryConverter(Scope scope, Sideassignments sa) {
     return new ASTConverter(
         options,
         scope,
@@ -216,6 +232,100 @@ class EclipseCParser implements CParser {
         "",
         sa,
         ImmutableSet.of());
+  }
+
+  @Override
+  public CExpression parsePureExpression(String expression, Scope scope)
+      throws CParserException, InterruptedException {
+    IASTTranslationUnit ast;
+    try {
+      ast =
+          eclipseCdt.getASTTranslationUnitWithoutIncludes(
+              wrapCode(
+                  Path.of("fragment"),
+                  "void __CPAchecker_predicate(void) { (" + expression + "); }"));
+    } catch (CFAGenerationRuntimeException | CoreException e) {
+      throw new CParserException(e);
+    }
+    if (ast.getAllPreprocessorStatements().length != 0
+        || ast.getPreprocessorProblems().length != 0) {
+      throw new CParserException("Preprocessing is not allowed in a predicate expression");
+    }
+    IASTStatement[] statements = extractFragmentBody(ast);
+    if (statements.length != 1 || !(statements[0] instanceof IASTExpressionStatement statement)) {
+      throw new CParserException("Not exactly one predicate expression");
+    }
+    ASTVisitor purityCheck =
+        new ASTVisitor() {
+          {
+            shouldVisitExpressions = true;
+            shouldVisitStatements = true;
+          }
+
+          @Override
+          public int visit(IASTStatement nestedStatement) {
+            return PROCESS_ABORT;
+          }
+
+          @Override
+          public int visit(IASTExpression node) {
+            if (node instanceof IASTFunctionCallExpression
+                || node instanceof IASTConditionalExpression) {
+              return PROCESS_ABORT;
+            }
+            if (node instanceof IASTUnaryExpression unary
+                && switch (unary.getOperator()) {
+                  case IASTUnaryExpression.op_prefixIncr,
+                      IASTUnaryExpression.op_prefixDecr,
+                      IASTUnaryExpression.op_postFixIncr,
+                      IASTUnaryExpression.op_postFixDecr ->
+                      true;
+                  default -> false;
+                }) {
+              return PROCESS_ABORT;
+            }
+            if (node instanceof IASTBinaryExpression binary
+                && switch (binary.getOperator()) {
+                  case IASTBinaryExpression.op_logicalAnd,
+                      IASTBinaryExpression.op_logicalOr,
+                      IASTBinaryExpression.op_assign,
+                      IASTBinaryExpression.op_multiplyAssign,
+                      IASTBinaryExpression.op_divideAssign,
+                      IASTBinaryExpression.op_moduloAssign,
+                      IASTBinaryExpression.op_plusAssign,
+                      IASTBinaryExpression.op_minusAssign,
+                      IASTBinaryExpression.op_shiftLeftAssign,
+                      IASTBinaryExpression.op_shiftRightAssign,
+                      IASTBinaryExpression.op_binaryAndAssign,
+                      IASTBinaryExpression.op_binaryXorAssign,
+                      IASTBinaryExpression.op_binaryOrAssign ->
+                      true;
+                  default -> false;
+                }) {
+              return PROCESS_ABORT;
+            }
+            return PROCESS_CONTINUE;
+          }
+        };
+    if (!statement.getExpression().accept(purityCheck)) {
+      throw new CParserException(
+          "Side effects, calls, or nested statements in predicate expression");
+    }
+    Sideassignments sideassignments = new Sideassignments();
+    sideassignments.enterBlock();
+    try {
+      CAstNode result = prepareTemporaryConverter(scope, sideassignments).convert(statement);
+      if (!(result instanceof CExpressionStatement converted)
+          || sideassignments.hasPreSideAssignments()
+          || sideassignments.hasPostSideAssignments()
+          || sideassignments.hasConditionalExpression()) {
+        throw new CParserException(
+            "Predicate expression requires unsupported auxiliary statements");
+      }
+      return converted.getExpression();
+    } catch (CFAGenerationRuntimeException e) {
+      throw new CParserException(e);
+    }
   }
 
   @Override

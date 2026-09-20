@@ -776,7 +776,8 @@ public final class VGuideAnalysisDumper {
         "unverified: model tokenizer and context limit unavailable; chars are not tokens");
     accounting.put(
         "api_usage_scope",
-        "provider-reported; framing/schema accounting is provider-specific, not attributable to text components");
+        "provider-reported; framing/schema accounting is provider-specific, not attributable to"
+            + " text components");
     return accounting;
   }
 
@@ -834,7 +835,10 @@ public final class VGuideAnalysisDumper {
     o.put("loop_heads", formatLoopHeadsChars(pack.loopHeads()));
     o.put(
         "rules",
-        ProposalPromptBuilder.rulesCharCount(options.getPredicateBudgetForDump(), minimalPrompt));
+        ProposalPromptBuilder.rulesCharCount(
+            options.getPredicateBudgetForDump(),
+            minimalPrompt,
+            pack.blockFormulas().getSize() > 0));
     o.put("ce_summary", pack.ceSummary().length());
     o.put("trace", 0);
     return o;

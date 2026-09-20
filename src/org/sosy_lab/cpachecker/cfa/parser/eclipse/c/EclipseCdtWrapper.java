@@ -23,6 +23,7 @@ import org.eclipse.cdt.core.model.ILanguage;
 import org.eclipse.cdt.core.parser.FileContent;
 import org.eclipse.cdt.core.parser.IParserLogService;
 import org.eclipse.cdt.core.parser.IScannerInfo;
+import org.eclipse.cdt.core.parser.IncludeFileContentProvider;
 import org.eclipse.cdt.internal.core.parser.IMacroDictionary;
 import org.eclipse.cdt.internal.core.parser.InternalParserUtil;
 import org.eclipse.cdt.internal.core.parser.scanner.InternalFileContent;
@@ -96,9 +97,20 @@ public class EclipseCdtWrapper {
    */
   public IASTTranslationUnit getASTTranslationUnit(final FileContent pCode)
       throws CFAGenerationRuntimeException, CoreException, InterruptedException {
+    return getASTTranslationUnit(pCode, FileContentProvider.instance);
+  }
+
+  IASTTranslationUnit getASTTranslationUnitWithoutIncludes(final FileContent pCode)
+      throws CoreException, InterruptedException {
+    return getASTTranslationUnit(pCode, IncludeFileContentProvider.getEmptyFilesProvider());
+  }
+
+  private IASTTranslationUnit getASTTranslationUnit(
+      FileContent pCode, IncludeFileContentProvider includes)
+      throws CoreException, InterruptedException {
     try {
       return language.getASTTranslationUnit(
-          pCode, scannerInfo, FileContentProvider.instance, null, PARSER_OPTIONS, parserLog);
+          pCode, scannerInfo, includes, null, PARSER_OPTIONS, parserLog);
     } finally {
       shutdownNotifier.shutdownIfNecessary();
     }

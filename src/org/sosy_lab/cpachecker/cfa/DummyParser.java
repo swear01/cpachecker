@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.List;
 import org.sosy_lab.common.time.Timer;
 import org.sosy_lab.cpachecker.cfa.ast.c.CAstNode;
+import org.sosy_lab.cpachecker.cfa.ast.c.CExpression;
 import org.sosy_lab.cpachecker.cfa.parser.Scope;
 import org.sosy_lab.cpachecker.cpa.automaton.AutomatonParser;
 
@@ -58,6 +59,11 @@ public class DummyParser implements CParser {
 
   @Override
   public CAstNode parseSingleStatement(String pCode, Scope pScope) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public CExpression parsePureExpression(String expression, Scope scope) {
     throw new UnsupportedOperationException();
   }
 

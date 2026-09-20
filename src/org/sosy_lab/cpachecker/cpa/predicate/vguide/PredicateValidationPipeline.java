@@ -19,11 +19,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractState;
 import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
+import org.sosy_lab.cpachecker.exceptions.CPATransferException;
+import org.sosy_lab.cpachecker.exceptions.CParserException;
+import org.sosy_lab.cpachecker.util.predicates.pathformula.PathFormula;
 import org.sosy_lab.cpachecker.util.predicates.pathformula.SSAMap;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
@@ -60,9 +64,20 @@ public final class PredicateValidationPipeline {
   private final Solver solver;
   private final FormulaManagerView fmgr;
   private final boolean enableL3Entailment;
+  private final @Nullable NativeCExpressionEncoder nativeEncoder;
 
   public PredicateValidationPipeline(
       LogManager logger, Solver solver, FormulaManagerView fmgr, boolean enableL3Entailment) {
+    this(logger, solver, fmgr, enableL3Entailment, null);
+  }
+
+  PredicateValidationPipeline(
+      LogManager logger,
+      Solver solver,
+      FormulaManagerView fmgr,
+      boolean enableL3Entailment,
+      @Nullable NativeCExpressionEncoder nativeEncoder) {
+    this.nativeEncoder = nativeEncoder;
     this.logger = logger;
     this.solver = solver;
     this.fmgr = fmgr;
@@ -125,6 +140,19 @@ public final class PredicateValidationPipeline {
         ssaByNode.put(node, pas.getPathFormula().getSsa());
       }
     }
+    // Match the same last aligned occurrence as blockByNode, including missing contexts.
+    Map<CFANode, PathFormula> nativeContexts = new HashMap<>();
+    for (int i = 0; i < Math.min(pack.blockFormulas().getSize(), absTrace.size()); i++) {
+      AbstractState state = absTrace.get(i);
+      CFANode node = extractLocation(state);
+      if (node != null) {
+        PredicateAbstractState pas = extractStateByType(state, PredicateAbstractState.class);
+        nativeContexts.remove(node);
+        if (pas != null) {
+          nativeContexts.put(node, pas.getPathFormula());
+        }
+      }
+    }
     Map<CFANode, Set<String>> blockVarsCache = new HashMap<>();
     Map<CFANode, List<BooleanFormula>> validatedAtHead = new HashMap<>();
     List<ValidatedPredicate> out = new ArrayList<>(primary.validation().validated());
@@ -174,8 +202,13 @@ public final class PredicateValidationPipeline {
       if (heads.isEmpty()) {
         continue;
       }
-      boolean arrayCandidate = arrayTranslator.hasArrayAccess(candidate.predicate());
-      if (!arrayCandidate && arrayTranslator.hasCStyleArrayAccess(candidate.predicate())) {
+      boolean nativeCandidate =
+          candidate.predicate().stripLeading().startsWith(NativeCExpressionEncoder.PREFIX);
+      boolean arrayCandidate =
+          !nativeCandidate && arrayTranslator.hasArrayAccess(candidate.predicate());
+      if (!nativeCandidate
+          && !arrayCandidate
+          && arrayTranslator.hasCStyleArrayAccess(candidate.predicate())) {
         rejections.add(
             new CandidateRejection(
                 candidate.toString(),
@@ -188,7 +221,7 @@ public final class PredicateValidationPipeline {
       BooleanFormula parsed = null;
       Set<String> freeVars = null;
       String formulaText = null;
-      if (!arrayCandidate) {
+      if (!nativeCandidate && !arrayCandidate) {
         parsed =
             VocabularyGuide.parsePredicate(
                 candidate.predicate(),
@@ -226,7 +259,7 @@ public final class PredicateValidationPipeline {
         BooleanFormula headParsed = parsed;
         Set<String> headFreeVars = freeVars;
         String headFormulaText = formulaText;
-        if (!arrayCandidate) {
+        if (!nativeCandidate && !arrayCandidate) {
           // Preserve both the native symbol width and the head's SSA version. Instantiation
           // only renames symbols; C integer promotions belong on terms, not declarations.
           BooleanFormula block = blockByNode.get(head.node());
@@ -349,6 +382,54 @@ public final class PredicateValidationPipeline {
           crossCheckDeclaredVariables(candidate, headFreeVars);
           headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
         }
+        if (nativeCandidate) {
+          PathFormula context = nativeContexts.get(head.node());
+          if (nativeEncoder == null || context == null) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    "native_c_context_unavailable",
+                    "native C requires the selected head occurrence's path formula and CFA scope"));
+            continue;
+          }
+          try {
+            headParsed =
+                nativeEncoder.encode(
+                    candidate
+                        .predicate()
+                        .stripLeading()
+                        .substring(NativeCExpressionEncoder.PREFIX.length()),
+                    head.node(),
+                    context);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            break;
+          } catch (CParserException | CPATransferException | RuntimeException e) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    "native_c_rejected",
+                    e.getMessage()));
+            continue;
+          }
+          if (bfmgr.isTrue(headParsed) || bfmgr.isFalse(headParsed)) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_CONTRACT_VIOLATION,
+                    "trivially true or false"));
+            continue;
+          }
+          headFreeVars = fmgr.extractVariableNames(headParsed);
+          crossCheckDeclaredVariables(candidate, headFreeVars);
+          headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
+        }
         String pairKey = validatedPairKey(head.node(), headFormulaText);
         if (!validatedPairs.add(pairKey)) {
           continue;
@@ -356,7 +437,8 @@ public final class PredicateValidationPipeline {
         lastFormulaText = headFormulaText;
         List<String> outOfScope = new ArrayList<>();
         for (String v : headFreeVars) {
-          if (!(arrayCandidate && arrayTranslator.isEncodingVariable(v))
+          if (!nativeCandidate
+              && !(arrayCandidate && arrayTranslator.isEncodingVariable(v))
               && !isVisibleAt(v, head, pack.encodedVars(), unversionedEncodedVars)) {
             outOfScope.add(v);
           }
