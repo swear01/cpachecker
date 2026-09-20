@@ -23,10 +23,10 @@ import org.mockito.ArgumentCaptor;
 import org.sosy_lab.common.ShutdownNotifier;
 import org.sosy_lab.common.collect.PathCopyingPersistentTreeMap;
 import org.sosy_lab.common.configuration.ConfigurationBuilder;
-import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.CFACreator;
 import org.sosy_lab.cpachecker.cfa.CParser;
 import org.sosy_lab.cpachecker.cfa.CProgramScope;
+import org.sosy_lab.cpachecker.cfa.ImmutableCFA;
 import org.sosy_lab.cpachecker.cfa.ast.AExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CExpressionStatement;
@@ -66,7 +66,7 @@ import org.sosy_lab.java_smt.api.FormulaType;
 public final class NativePredicateEncodingQualificationTest extends SolverViewBasedTest0 {
 
   private record Fixture(
-      CFA cfa,
+      ImmutableCFA cfa,
       CParser parser,
       CProgramScope scope,
       PathFormulaManager pfmgr,
@@ -321,6 +321,20 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
       assertThrows(
           text, CParserException.class, () -> f.parser().parsePureExpression(text, f.scope()));
     }
+  }
+
+  @Test
+  public void absentAstScopeIsAnExplicitRejection() throws Exception {
+    Fixture f = fixture("int main(void){int x=0; if(x<3)return 0; return 1;}");
+    var withoutScope = f.cfa().copyWithMetadata(f.cfa().getMetadata().withAstCfaRelation(null));
+    var encoder =
+        new NativeCExpressionEncoder(
+            config, logger, ShutdownNotifier.createDummy(), withoutScope, f.pfmgr());
+    var head = f.condition().getPredecessor();
+    var context = f.prefix();
+    var rejection =
+        assertThrows(IllegalArgumentException.class, () -> encoder.encode("x<3", head, context));
+    assertThat(rejection).hasMessageThat().isEqualTo("native C scope unavailable");
   }
 
   @Test

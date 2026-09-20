@@ -50,8 +50,12 @@ final class NativeCExpressionEncoder {
 
   BooleanFormula encode(String text, CFANode head, PathFormula context)
       throws CParserException, CPATransferException, InterruptedException {
+    var relation = cfa.getAstCfaRelation();
+    if (relation == null) {
+      throw new IllegalArgumentException("native C scope unavailable");
+    }
     var visible =
-        cfa.getAstCfaRelation()
+        relation
             .getVariablesAndParametersInScope(head)
             .orElseThrow(() -> new IllegalArgumentException("native C scope unavailable"));
     var expression =
