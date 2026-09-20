@@ -162,14 +162,15 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
         .containsExactly(localName, "main::u");
     BooleanFormula candidate = encode(f, "s < u");
     assertMatchesCfa(f, candidate);
-    var s = bvmgr.makeVariable(32, localName);
-    var u = bvmgr.makeVariable(32, "main::u");
+    var bitvectors = mgrv.getBitvectorFormulaManager();
+    var s = bitvectors.makeVariable(32, localName);
+    var u = bitvectors.makeVariable(32, "main::u");
     BooleanFormula values =
         bmgrv.and(
-            bvmgr.equal(s, bvmgr.makeBitvector(32, -1)),
-            bvmgr.equal(u, bvmgr.makeBitvector(32, 1)));
+            bitvectors.equal(s, bitvectors.makeBitvector(32, -1)),
+            bitvectors.equal(u, bitvectors.makeBitvector(32, 1)));
     assertThat(solver.isUnsat(bmgrv.and(values, candidate))).isTrue();
-    assertThat(solver.isUnsat(bmgrv.and(values, bvmgr.lessThan(s, u, true)))).isFalse();
+    assertThat(solver.isUnsat(bmgrv.and(values, bitvectors.lessThan(s, u, true)))).isFalse();
   }
 
   @Test
@@ -189,10 +190,15 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
     assertThat(variables).containsKey("main::c");
     assertThat(mgrv.getFormulaType(variables.get("main::c")))
         .isEqualTo(FormulaType.getBitvectorTypeWithSize(8));
-    var c = bvmgr.makeVariable(8, "main::c");
-    assertThat(solver.isUnsat(bmgrv.and(candidate, bvmgr.equal(c, bvmgr.makeBitvector(8, 255)))))
+    var bitvectors = mgrv.getBitvectorFormulaManager();
+    var c = bitvectors.makeVariable(8, "main::c");
+    assertThat(
+            solver.isUnsat(
+                bmgrv.and(candidate, bitvectors.equal(c, bitvectors.makeBitvector(8, 255)))))
         .isTrue();
-    assertThat(solver.isUnsat(bmgrv.and(candidate, bvmgr.equal(c, bvmgr.makeBitvector(8, 128)))))
+    assertThat(
+            solver.isUnsat(
+                bmgrv.and(candidate, bitvectors.equal(c, bitvectors.makeBitvector(8, 128)))))
         .isFalse();
   }
 
