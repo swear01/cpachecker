@@ -42,7 +42,8 @@ public class LoopHeadCandidateParserTest {
 
     assertThat(outcome.accepted())
         .containsExactly(
-            new LoopHeadCandidate(ImmutableList.of("N12", "N15"), "(= i k)", "bound", ImmutableList.of()));
+            new LoopHeadCandidate(
+                ImmutableList.of("N12", "N15"), "(= i k)", "bound", ImmutableList.of()));
   }
 
   @Test
@@ -57,7 +58,8 @@ public class LoopHeadCandidateParserTest {
 
     assertThat(outcome.accepted())
         .containsExactly(
-            new LoopHeadCandidate(ImmutableList.of("N12", "N15"), "(= i k)", "", ImmutableList.of()));
+            new LoopHeadCandidate(
+                ImmutableList.of("N12", "N15"), "(= i k)", "", ImmutableList.of()));
   }
 
   @Test
@@ -170,7 +172,33 @@ public class LoopHeadCandidateParserTest {
 
     assertThat(outcome.accepted())
         .containsExactly(
-            new LoopHeadCandidate(ImmutableList.of("N12"), "(bvslt i n)", "mystery", ImmutableList.of()));
+            new LoopHeadCandidate(
+                ImmutableList.of("N12"), "(bvslt i n)", "mystery", ImmutableList.of()));
     assertThat(outcome.rejected()).isEmpty();
+  }
+
+  @Test
+  public void acceptsQuotedBracesAndEscapesWithoutTruncatingJson() throws Exception {
+    var json = new com.fasterxml.jackson.databind.ObjectMapper();
+    for (String role : java.util.List.of("}", "{", "\"}", "\\}", "{\\\"}")) {
+      var root =
+          json.createObjectNode().put("schema_version", LoopHeadCandidateParser.SCHEMA_VERSION);
+      root.putArray("candidates")
+          .addObject()
+          .put("loop_head", "N12")
+          .put("predicate", "c: i < n")
+          .put("role", role);
+      String response = "Here is the result:\n```json\n" + root + "\n``` trailing prose";
+      var parsed = LoopHeadCandidateParser.parseWithRejects(response);
+      assertThat(parsed.accepted()).hasSize(1);
+      assertThat(parsed.accepted().getFirst().role()).isEqualTo(role);
+      assertThat(parsed.rejected()).isEmpty();
+      var truncated =
+          LoopHeadCandidateParser.parseWithRejects(
+              root.toString().substring(0, root.toString().length() - 1));
+      assertThat(truncated.accepted()).isEmpty();
+      assertThat(truncated.rejected().getFirst().reason())
+          .isEqualTo(LoopHeadCandidateParser.REASON_INVALID_JSON);
+    }
   }
 }

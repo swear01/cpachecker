@@ -302,12 +302,16 @@ public final class VGuideAnalysisDumper {
     }
     row.put("response_raw", api.content());
     var parse = LoopHeadCandidateParser.parseWithRejects(api.content());
-    row.put("response_parse_ok", !parse.accepted().isEmpty());
+    row.put("response_parse_ok", !parse.accepted().isEmpty() || parse.validEmptyResponse());
     row.put(
         "response_parse_reason",
-        parse.accepted().isEmpty()
-            ? parse.rejected().isEmpty() ? "empty_response" : parse.rejected().getFirst().reason()
-            : "accepted");
+        parse.validEmptyResponse()
+            ? "empty_candidates"
+            : parse.accepted().isEmpty()
+                ? parse.rejected().isEmpty()
+                    ? "empty_response"
+                    : parse.rejected().getFirst().reason()
+                : "accepted");
     row.set(
         "predicates_raw",
         stringArray(parse.accepted().stream().map(LoopHeadCandidate::predicate).toList()));

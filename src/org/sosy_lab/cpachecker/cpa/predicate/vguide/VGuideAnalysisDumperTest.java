@@ -65,6 +65,61 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
   }
 
   @Test
+  public void distinguishesValidEmptyCandidatesFromBlankAndMalformedResponses() throws Exception {
+    var dumper =
+        new VGuideAnalysisDumper(
+            LOGGER,
+            tmp.getRoot().toPath(),
+            "task",
+            "task",
+            0,
+            false,
+            false,
+            mgrv,
+            new VGuideOptions(Configuration.defaultConfiguration()));
+    var pack =
+        new ContextPack(
+            1,
+            "",
+            "",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "",
+            "");
+    var responses =
+        ImmutableList.of(
+            "{\"schema_version\":\"loop-head-candidate-v1\",\"candidates\":[]}",
+            "",
+            "{\"schema_version\":\"loop-head-candidate-v1\",\"candidates\":[",
+            "{\"schema_version\":\"wrong\",\"candidates\":[]}");
+    for (String response : responses) {
+      dumper.recordLlmApiCall(
+          1,
+          1,
+          "safe_primary",
+          "safe",
+          new PromptMessages("system", "user"),
+          pack,
+          PromptProfile.SAFE,
+          new LlmProposalResult(response, "", null, 1, 2, "request", "replay", null),
+          ImmutableList.of(),
+          null);
+    }
+    var lines = Files.readAllLines(tmp.getRoot().toPath().resolve("tasks/task/llm_rounds.jsonl"));
+    assertThat(lines).hasSize(4);
+    var reasons =
+        ImmutableList.of("empty_candidates", "empty_response", "invalid_json", "wrong_schema");
+    for (int i = 0; i < lines.size(); i++) {
+      var row = JSON.readTree(lines.get(i));
+      assertThat(row.path("response_parse_ok").asBoolean()).isEqualTo(i == 0);
+      assertThat(row.path("response_parse_reason").asText()).isEqualTo(reasons.get(i));
+    }
+  }
+
+  @Test
   public void appendJsonLinesStreamRowsAndPreservesPreviousRowsOnFailure() throws Exception {
     VGuideAnalysisDumper dumper =
         new VGuideAnalysisDumper(
@@ -239,8 +294,7 @@ public class VGuideAnalysisDumperTest extends SolverViewBasedTest0 {
     assertThat(firstRow.path("validated_predicates").get(2).path("block_formula_smt").asText())
         .isEqualTo(firstRow.path("block_formulas").get(1).path("smt").asText());
     assertThat(firstRow.path("block_formulas")).hasSize(2);
-    assertThat(
-            firstRow.path("block_formulas").get(0).path("smt").asText())
+    assertThat(firstRow.path("block_formulas").get(0).path("smt").asText())
         .isNotEqualTo(firstRow.path("block_formulas").get(1).path("smt").asText());
     assertThat(secondRow.path("validated_predicates").get(0).path("block_formula_smt").asText())
         .isEqualTo(secondRow.path("block_formulas").get(0).path("smt").asText());

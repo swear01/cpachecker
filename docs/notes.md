@@ -22,6 +22,11 @@
   or missing operands instead of silently truncating the expression. Existing mixed-width
   promotion conventions and the JSON + `c:` output contract are unchanged.
 
+- **Candidate response boundary (#273).** Jackson determines the JSON object boundary after
+  surrounding prose/fences; quoted braces and escapes do not truncate a response. A valid v1
+  `candidates: []` is `response_parse_ok=true` with reason `empty_candidates`. Blank responses
+  remain `empty_response`; malformed and wrong-schema responses remain failures.
+
 - **HTTP-attempt evidence (#210).** `PredicateProposalClient` emits structured `vguide-http-attempt-v1`
   events in the CPA log for each live attempt start and terminal result, keyed by request hash and
   task-local request ordinal. IDs are scoped to one client instance / CPA log-run; extraction must
