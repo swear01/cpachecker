@@ -21,13 +21,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.log.LogManager;
-import org.sosy_lab.cpachecker.util.predicates.smt.BooleanFormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.BitvectorFormulaManagerView;
+import org.sosy_lab.cpachecker.util.predicates.smt.BooleanFormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
-import org.sosy_lab.java_smt.api.BooleanFormula;
 import org.sosy_lab.java_smt.api.ArrayFormula;
 import org.sosy_lab.java_smt.api.BitvectorFormula;
+import org.sosy_lab.java_smt.api.BooleanFormula;
 import org.sosy_lab.java_smt.api.FormulaType;
 
 /**
@@ -307,66 +307,116 @@ public class VocabularyGuide {
 
     BooleanFormulaManagerView bfmgr = fmgr.getBooleanFormulaManager();
     BitvectorFormulaManagerView bvmgr = fmgr.getBitvectorFormulaManager();
+    int minimum = op.equals("not") ? 1 : 2;
+    boolean variadic = Set.of("and", "or", "=").contains(op);
+    if (args.size() < minimum || (!variadic && args.size() != minimum)) {
+      return null;
+    }
 
     return switch (op) {
       case "and" -> {
-        BooleanFormula result = parseSexpArg(args.get(0), fmgr, encodedVariableNames, arrayTypes, varBits);
+        BooleanFormula result =
+            parseSexpArg(args.get(0), fmgr, encodedVariableNames, arrayTypes, varBits);
         if (result == null) yield null;
         for (int i = 1; i < args.size(); i++) {
-          BooleanFormula next = parseSexpArg(args.get(i), fmgr, encodedVariableNames, arrayTypes, varBits);
+          BooleanFormula next =
+              parseSexpArg(args.get(i), fmgr, encodedVariableNames, arrayTypes, varBits);
           if (next == null) yield null;
           result = bfmgr.and(result, next);
         }
         yield result;
       }
       case "or" -> {
-        BooleanFormula result = parseSexpArg(args.get(0), fmgr, encodedVariableNames, arrayTypes, varBits);
+        BooleanFormula result =
+            parseSexpArg(args.get(0), fmgr, encodedVariableNames, arrayTypes, varBits);
         if (result == null) yield null;
         for (int i = 1; i < args.size(); i++) {
-          BooleanFormula next = parseSexpArg(args.get(i), fmgr, encodedVariableNames, arrayTypes, varBits);
+          BooleanFormula next =
+              parseSexpArg(args.get(i), fmgr, encodedVariableNames, arrayTypes, varBits);
           if (next == null) yield null;
           result = bfmgr.or(result, next);
         }
         yield result;
       }
       case "not" -> {
-        BooleanFormula arg = parseSexpArg(args.get(0), fmgr, encodedVariableNames, arrayTypes, varBits);
+        BooleanFormula arg =
+            parseSexpArg(args.get(0), fmgr, encodedVariableNames, arrayTypes, varBits);
         yield arg != null ? bfmgr.not(arg) : null;
       }
       case "=" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
-        yield aligned != null ? bvmgr.equal(aligned[0], aligned[1]) : null;
+        BooleanFormula result = bfmgr.makeTrue();
+        BitvectorFormula left =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        for (int i = 1; i < args.size(); i++) {
+          BitvectorFormula right =
+              parseBvExpr(args.get(i), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+          BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
+          if (aligned == null) yield null;
+          result = bfmgr.and(result, bvmgr.equal(aligned[0], aligned[1]));
+          left = right;
+        }
+        yield result;
       }
       case ">=" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula left =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right =
+            parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.greaterOrEquals(aligned[0], aligned[1], true) : null;
       }
       case "<=" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula left =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right =
+            parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.lessOrEquals(aligned[0], aligned[1], true) : null;
       }
       case ">" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula left =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right =
+            parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.greaterThan(aligned[0], aligned[1], true) : null;
       }
       case "<" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula left =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right =
+            parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.lessThan(aligned[0], aligned[1], true) : null;
       }
-      case "bvslt" -> parseSexp("(< " + args.get(0) + " " + args.get(1) + ")", fmgr, encodedVariableNames, arrayTypes, varBits);
-      case "bvsgt" -> parseSexp("(> " + args.get(0) + " " + args.get(1) + ")", fmgr, encodedVariableNames, arrayTypes, varBits);
-      case "bvsle" -> parseSexp("(<= " + args.get(0) + " " + args.get(1) + ")", fmgr, encodedVariableNames, arrayTypes, varBits);
-      case "bvsge" -> parseSexp("(>= " + args.get(0) + " " + args.get(1) + ")", fmgr, encodedVariableNames, arrayTypes, varBits);
+      case "bvslt" ->
+          parseSexp(
+              "(< " + args.get(0) + " " + args.get(1) + ")",
+              fmgr,
+              encodedVariableNames,
+              arrayTypes,
+              varBits);
+      case "bvsgt" ->
+          parseSexp(
+              "(> " + args.get(0) + " " + args.get(1) + ")",
+              fmgr,
+              encodedVariableNames,
+              arrayTypes,
+              varBits);
+      case "bvsle" ->
+          parseSexp(
+              "(<= " + args.get(0) + " " + args.get(1) + ")",
+              fmgr,
+              encodedVariableNames,
+              arrayTypes,
+              varBits);
+      case "bvsge" ->
+          parseSexp(
+              "(>= " + args.get(0) + " " + args.get(1) + ")",
+              fmgr,
+              encodedVariableNames,
+              arrayTypes,
+              varBits);
       default -> null;
     };
   }
@@ -440,7 +490,7 @@ public class VocabularyGuide {
 
     Matcher extractOp = EXTRACT_OP.matcher(op);
     if (extractOp.matches()) {
-      if (args.size() < 1) {
+      if (args.size() != 1) {
         return null;
       }
       BitvectorFormula extracted =
@@ -455,7 +505,7 @@ public class VocabularyGuide {
 
     Matcher signExtendOp = SIGN_EXTEND_OP.matcher(op);
     if (signExtendOp.matches()) {
-      if (args.size() < 1) {
+      if (args.size() != 1) {
         return null;
       }
       BitvectorFormula operand =
@@ -466,52 +516,100 @@ public class VocabularyGuide {
       return bvmgr.extend(operand, Integer.parseInt(signExtendOp.group(1)), true);
     }
 
-    return switch (op) {
-      case "+" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
-        yield aligned != null ? bvmgr.add(aligned[0], aligned[1]) : null;
+    if (Set.of("+", "*", "bvadd", "bvmul").contains(op)) {
+      if (args.size() < 2) {
+        return null;
       }
+      BitvectorFormula result =
+          parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+      for (int i = 1; i < args.size(); i++) {
+        BitvectorFormula next =
+            parseBvExpr(args.get(i), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula[] aligned = signExtendToMatch(result, next, bvmgr);
+        if (aligned == null) return null;
+        result =
+            op.equals("+") || op.equals("bvadd")
+                ? bvmgr.add(aligned[0], aligned[1])
+                : bvmgr.multiply(aligned[0], aligned[1]);
+      }
+      return result;
+    }
+    if (args.size() != (op.equals("bvneg") ? 1 : 2)) {
+      return null;
+    }
+
+    return switch (op) {
       case "-" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula left =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right =
+            parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.subtract(aligned[0], aligned[1]) : null;
       }
-      case "*" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
-        yield aligned != null ? bvmgr.multiply(aligned[0], aligned[1]) : null;
-      }
       case "div" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula left =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right =
+            parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.divide(aligned[0], aligned[1], true) : null;
       }
       case "udiv" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula left =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right =
+            parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         // Unsigned operands align by ZERO extension (sign extension corrupts values).
         BitvectorFormula[] aligned = zeroExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.divide(aligned[0], aligned[1], false) : null;
       }
       case "mod" -> {
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula left =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right =
+            parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         // Unsigned remainder aligns by ZERO extension (sign extension corrupts values).
         BitvectorFormula[] aligned = zeroExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.remainder(aligned[0], aligned[1], false) : null;
       }
-      case "bvadd" -> parseBvSexp("(+ " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-      case "bvmul" -> parseBvSexp("(* " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-      case "bvsub" -> parseBvSexp("(- " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-      case "bvurem" -> parseBvSexp("(mod " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-      case "bvudiv" -> parseBvSexp("(udiv " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-      case "bvsdiv" -> parseBvSexp("(div " + args.get(0) + " " + args.get(1) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-      case "bvneg" -> parseBvSexp("(- 0 " + args.get(0) + ")", fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+      case "bvsub" ->
+          parseBvSexp(
+              "(- " + args.get(0) + " " + args.get(1) + ")",
+              fmgr,
+              bvmgr,
+              encodedVariableNames,
+              arrayTypes,
+              varBits);
+      case "bvurem" ->
+          parseBvSexp(
+              "(mod " + args.get(0) + " " + args.get(1) + ")",
+              fmgr,
+              bvmgr,
+              encodedVariableNames,
+              arrayTypes,
+              varBits);
+      case "bvudiv" ->
+          parseBvSexp(
+              "(udiv " + args.get(0) + " " + args.get(1) + ")",
+              fmgr,
+              bvmgr,
+              encodedVariableNames,
+              arrayTypes,
+              varBits);
+      case "bvsdiv" ->
+          parseBvSexp(
+              "(div " + args.get(0) + " " + args.get(1) + ")",
+              fmgr,
+              bvmgr,
+              encodedVariableNames,
+              arrayTypes,
+              varBits);
+      case "bvneg" -> {
+        BitvectorFormula operand =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        yield operand == null ? null : bvmgr.negate(operand);
+      }
       case "_" -> {
         // (_ bvK W): bitvector constant with the declared width.
         if (args.size() == 2 && args.get(0).startsWith("bv")) {
@@ -528,16 +626,18 @@ public class VocabularyGuide {
         yield null;
       }
       case "bvshl" -> {
-        if (args.size() < 2) {
+        if (args.size() != 2) {
           yield null;
         }
-        BitvectorFormula left = parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
-        BitvectorFormula right = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula left =
+            parseBvExpr(args.get(0), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula right =
+            parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         BitvectorFormula[] aligned = signExtendToMatch(left, right, bvmgr);
         yield aligned != null ? bvmgr.shiftLeft(aligned[0], aligned[1]) : null;
       }
       case "select" -> {
-        if (args.size() < 2) {
+        if (args.size() != 2) {
           yield null;
         }
         String heapName = resolveVariableName(args.get(0), encodedVariableNames);
@@ -545,7 +645,8 @@ public class VocabularyGuide {
         if (arrayType == null) {
           yield null;
         }
-        BitvectorFormula index = parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
+        BitvectorFormula index =
+            parseBvExpr(args.get(1), fmgr, bvmgr, encodedVariableNames, arrayTypes, varBits);
         if (index == null) {
           yield null;
         }

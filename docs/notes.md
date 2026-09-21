@@ -12,6 +12,11 @@
 
 ## Gotchas
 
+- **Legacy SMT semantics (#273).** Equality chains and associative addition/multiplication retain
+  every operand. Bitvector negation preserves operand width; fixed-arity operations reject extra
+  or missing operands instead of silently truncating the expression. Existing mixed-width
+  promotion conventions and the JSON + `c:` output contract are unchanged.
+
 - **HTTP-attempt evidence (#210).** `PredicateProposalClient` emits structured `vguide-http-attempt-v1`
   events in the CPA log for each live attempt start and terminal result, keyed by request hash and
   task-local request ordinal. IDs are scoped to one client instance / CPA log-run; extraction must
