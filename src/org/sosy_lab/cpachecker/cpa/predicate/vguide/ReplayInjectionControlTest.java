@@ -8,10 +8,13 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -165,6 +168,67 @@ public class ReplayInjectionControlTest extends SolverViewBasedTest0 {
                 1, org.sosy_lab.cpachecker.core.CPAcheckerResult.Result.TRUE, null));
   }
 
+  @Test
+  public void failedInjectionIsNeitherCountedNorOwned() throws Exception {
+    VGuideRefinementBridge bridge =
+        bridge(VGuideOptions.ReplayInjectionMode.FULL, ImmutableSet.of());
+    LoopHeadPrecisionInjector injector =
+        (LoopHeadPrecisionInjector) get(bridge, "precisionInjector");
+    when(injector.inject(any(), any(), anyBoolean())).thenReturn(ImmutableList.of());
+    ValidatedPredicate first = predicate("failed");
+    setValidation(bridge, ImmutableList.of(first), ImmutableMap.of(first, "failed-raw"));
+    setPendingDump(bridge, 1);
+    bridge.onSpuriousAfterRefinement(1, mock(ARGReachedSet.class, RETURNS_DEEP_STUBS));
+    assertOutcome(bridge, "validated=1 injected=0");
+    assertThat((java.util.Set<?>) get(bridge, "llmOwnedKeys")).isEmpty();
+  }
+
+  @Test
+  public void partialInjectionCountsOwnsAndMarksOnlySuccessfulBindings() throws Exception {
+    VGuideRefinementBridge bridge =
+        bridge(VGuideOptions.ReplayInjectionMode.FULL, ImmutableSet.of());
+    ValidatedPredicate successful = predicate("successful");
+    ValidatedPredicate failed = predicate("failed");
+    LoopHeadPrecisionInjector injector =
+        (LoopHeadPrecisionInjector) get(bridge, "precisionInjector");
+    when(injector.inject(any(), any(), anyBoolean())).thenReturn(ImmutableList.of(successful));
+    setValidation(
+        bridge,
+        ImmutableList.of(successful, failed),
+        ImmutableMap.of(successful, "successful-raw", failed, "failed-raw"));
+    setPendingDump(bridge, 1);
+    var rows =
+        ImmutableList.of(
+            new VGuideAnalysisDumper.DumpValidatedPredicate(
+                1, "successful-raw", successful, bmgrv.makeTrue(), true, true, false, "SAFE"),
+            new VGuideAnalysisDumper.DumpValidatedPredicate(
+                2, "failed-raw", failed, bmgrv.makeTrue(), true, true, false, "SAFE"));
+    Object dump = get(bridge, "pendingDump");
+    set(dump, "validated", rows);
+    set(dump, "llmCalled", true);
+    VGuideAnalysisDumper dumper =
+        mock(
+            VGuideAnalysisDumper.class,
+            call -> {
+              if (call.getMethod().getName().equals("recordRefinement")) {
+                java.util.List<VGuideAnalysisDumper.DumpValidatedPredicate> injected =
+                    call.getArgument(12);
+                assertThat(injected).hasSize(2);
+                assertThat(injected.get(0).injected()).isTrue();
+                assertThat(injected.get(1).injected()).isFalse();
+              }
+              return null;
+            });
+    set(bridge, "analysisDumper", dumper);
+    bridge.onSpuriousAfterRefinement(1, mock(ARGReachedSet.class, RETURNS_DEEP_STUBS));
+    assertOutcome(bridge, "validated=2 injected=1");
+    assertThat((java.util.Set<?>) get(bridge, "llmOwnedKeys"))
+        .containsExactly(
+            VGuideRefinementBridge.llmOwnedKey(
+                successful.loopHeadNode().getNodeNumber(), canonical(successful.formula())));
+    assertThat(org.mockito.Mockito.mockingDetails(dumper).getInvocations()).hasSize(1);
+  }
+
   private VGuideRefinementBridge bridge(
       VGuideOptions.ReplayInjectionMode mode, ImmutableSet<String> selectors) throws Exception {
     VGuideOptions options = new VGuideOptions(Configuration.defaultConfiguration());
@@ -190,6 +254,8 @@ public class ReplayInjectionControlTest extends SolverViewBasedTest0 {
             CfaPrecisionCompiler.class,
             VGuideAnalysisDumper.class);
     constructor.setAccessible(true);
+    LoopHeadPrecisionInjector injector = mock(LoopHeadPrecisionInjector.class);
+    when(injector.inject(any(), any(), anyBoolean())).thenAnswer(call -> call.getArgument(1));
     return constructor.newInstance(
         LogManager.createTestLogManager(),
         options,
@@ -201,7 +267,7 @@ public class ReplayInjectionControlTest extends SolverViewBasedTest0 {
         mock(ProposalPromptBuilder.class),
         mock(PredicateBudgetResolver.class),
         mock(PredicateValidationPipeline.class),
-        mock(LoopHeadPrecisionInjector.class),
+        injector,
         mock(FrozenPredicateLoader.class),
         mock(WallClockBudget.class),
         mock(LlmCallScheduler.class),

@@ -438,7 +438,7 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
     assertThat(
             new LoopHeadPrecisionInjector(logger, predmgr)
                 .inject(reached, outcome.validation().validated(), false))
-        .isTrue();
+        .containsExactlyElementsIn(outcome.validation().validated());
     ArgumentCaptor<Precision> precision = ArgumentCaptor.forClass(Precision.class);
     verify(reached).updatePrecisionGlobally(precision.capture(), any());
     var inserted =

@@ -7,6 +7,7 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.google.common.base.Predicates;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import org.sosy_lab.common.log.LogManager;
+import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractionManager;
 import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision;
@@ -38,11 +40,10 @@ public final class LoopHeadPrecisionInjector {
     if (preds.isEmpty() || predAbsManager == null) {
       return base;
     }
-    List<Map.Entry<org.sosy_lab.cpachecker.cfa.model.CFANode, AbstractionPredicate>> entries =
-        new ArrayList<>();
-    Set<String> seen = new LinkedHashSet<>();
+    List<Map.Entry<CFANode, AbstractionPredicate>> entries = new ArrayList<>();
+    Set<Map.Entry<CFANode, BooleanFormula>> seen = new LinkedHashSet<>();
     for (ValidatedPredicate vp : preds) {
-      String key = vp.loopHeadNode().getNodeNumber() + ":" + vp.formula().hashCode();
+      var key = Map.entry(vp.loopHeadNode(), vp.formula());
       if (!seen.add(key)) {
         continue;
       }
@@ -64,38 +65,38 @@ public final class LoopHeadPrecisionInjector {
     return merged;
   }
 
-  public boolean inject(
+  public ImmutableList<ValidatedPredicate> inject(
       ARGReachedSet reached,
       List<ValidatedPredicate> precisionPredicates,
       boolean enableDiagnostics) {
     if (precisionPredicates.isEmpty() || predAbsManager == null) {
-      return false;
+      return ImmutableList.of();
     }
-    PredicatePrecision currentPredPrec =
-        PredicatePrecision.unionOf(ImmutableSet.copyOf(reached.asReachedSet().getPrecisions()));
-
-    List<Map.Entry<org.sosy_lab.cpachecker.cfa.model.CFANode, AbstractionPredicate>> entries =
-        new ArrayList<>();
-    Set<String> seen = new LinkedHashSet<>();
+    List<Map.Entry<CFANode, AbstractionPredicate>> entries = new ArrayList<>();
+    Set<Map.Entry<CFANode, BooleanFormula>> seen = new LinkedHashSet<>();
+    ImmutableList.Builder<ValidatedPredicate> injected = ImmutableList.builder();
     for (ValidatedPredicate vp : precisionPredicates) {
       if (vp.classification() != ValidatedPredicate.Classification.PRECISION_ONLY) {
         continue;
       }
-      String key = vp.loopHeadNode().getNodeNumber() + ":" + vp.formula().hashCode();
+      var key = Map.entry(vp.loopHeadNode(), vp.formula());
       if (!seen.add(key)) {
         continue;
       }
       try {
         entries.add(Map.entry(vp.loopHeadNode(), predAbsManager.getPredicateFor(vp.formula())));
+        injected.add(vp);
       } catch (Exception e) {
         logger.logDebugException(e, "VGuide AbstractionPredicate failed");
       }
     }
 
     if (entries.isEmpty()) {
-      return false;
+      return ImmutableList.of();
     }
 
+    PredicatePrecision currentPredPrec =
+        PredicatePrecision.unionOf(ImmutableSet.copyOf(reached.asReachedSet().getPrecisions()));
     PredicatePrecision newPredPrec = currentPredPrec.addLocalPredicates(entries);
     reached.updatePrecisionGlobally(newPredPrec, Predicates.instanceOf(PredicatePrecision.class));
     if (enableDiagnostics) {
@@ -103,7 +104,7 @@ public final class LoopHeadPrecisionInjector {
           entries.stream().map(Map.Entry::getValue).toList());
     }
     logger.log(Level.INFO, "VGuide precision-injected ", entries.size(), " local predicates");
-    return true;
+    return injected.build();
   }
 
   public void injectFrozen(
@@ -114,8 +115,7 @@ public final class LoopHeadPrecisionInjector {
     if (predAbsManager == null || loopHeads.isEmpty() || predicateTexts.isEmpty()) {
       return;
     }
-    List<Map.Entry<org.sosy_lab.cpachecker.cfa.model.CFANode, AbstractionPredicate>> entries =
-        new ArrayList<>();
+    List<Map.Entry<CFANode, AbstractionPredicate>> entries = new ArrayList<>();
     for (LoopHeadInfo head : loopHeads) {
       for (String text : predicateTexts) {
         BooleanFormula f = VocabularyGuide.parsePredicate(text, fmgr, ImmutableSet.of());

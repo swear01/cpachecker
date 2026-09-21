@@ -61,7 +61,7 @@ public class LoopHeadPrecisionInjectorTest extends SolverViewBasedTest0 {
     assertThat(
             new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), abstractionManager)
                 .inject(reached, ImmutableList.of(candidate), false))
-        .isTrue();
+        .containsExactly(candidate);
 
     ArgumentCaptor<Precision> precision = ArgumentCaptor.forClass(Precision.class);
     verify(reached).updatePrecisionGlobally(precision.capture(), any());
@@ -105,7 +105,7 @@ public class LoopHeadPrecisionInjectorTest extends SolverViewBasedTest0 {
     assertThat(
             new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), abstractionManager)
                 .inject(reached, ImmutableList.of(candidate, nonPrecisionCandidate), true))
-        .isTrue();
+        .containsExactly(candidate);
 
     verify(abstractionManager).enableVGuidePredicateDiagnostics(ImmutableList.of(predicate));
   }
@@ -146,10 +146,87 @@ public class LoopHeadPrecisionInjectorTest extends SolverViewBasedTest0 {
     assertThat(
             new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), abstractionManager)
                 .inject(reached, ImmutableList.of(successful, failed), true))
-        .isTrue();
+        .containsExactly(successful);
 
     verify(abstractionManager)
         .enableVGuidePredicateDiagnostics(ImmutableList.of(successfulPredicate));
+  }
+
+  @Test
+  public void failedBatchDoesNotReadOrRewriteReachedPrecision() throws Exception {
+    CFANode head = newDummyCFANode("main");
+    BooleanFormula formula = bmgrv.makeVariable("failed");
+    PredicateAbstractionManager manager = mock(PredicateAbstractionManager.class);
+    when(manager.getPredicateFor(formula)).thenThrow(new IllegalArgumentException());
+    ARGReachedSet reached = mock(ARGReachedSet.class);
+    assertThat(
+            new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), manager)
+                .inject(reached, ImmutableList.of(candidate(formula, head)), true))
+        .isEmpty();
+    org.mockito.Mockito.verifyNoInteractions(reached);
+    verify(manager).getPredicateFor(formula);
+    org.mockito.Mockito.verifyNoMoreInteractions(manager);
+  }
+
+  private record CollisionFormula(String id) implements BooleanFormula {
+    @Override
+    public int hashCode() {
+      return 7;
+    }
+  }
+
+  @Test
+  public void preservesHashCollisionsInInitialPrecision() throws Exception {
+    checkHashCollisions(true);
+  }
+
+  @Test
+  public void preservesHashCollisionsInRefinementPrecision() throws Exception {
+    checkHashCollisions(false);
+  }
+
+  private void checkHashCollisions(boolean initial) throws Exception {
+    CFANode head = newDummyCFANode("main");
+    BooleanFormula firstFormula = new CollisionFormula("first");
+    BooleanFormula secondFormula = new CollisionFormula("second");
+    AbstractionPredicate first = mock(AbstractionPredicate.class);
+    AbstractionPredicate second = mock(AbstractionPredicate.class);
+    PredicateAbstractionManager manager = mock(PredicateAbstractionManager.class);
+    when(manager.getPredicateFor(firstFormula)).thenReturn(first);
+    when(manager.getPredicateFor(secondFormula)).thenReturn(second);
+    var candidates =
+        ImmutableList.of(
+            candidate(firstFormula, head),
+            candidate(secondFormula, head),
+            candidate(firstFormula, head));
+    var injector = new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), manager);
+    PredicatePrecision updated;
+    if (initial) {
+      updated = injector.mergePreCegarInto(PredicatePrecision.empty(), candidates);
+    } else {
+      UnmodifiableReachedSet view = mock(UnmodifiableReachedSet.class);
+      when(view.getPrecisions()).thenReturn(ImmutableList.of());
+      ARGReachedSet reached = mock(ARGReachedSet.class);
+      when(reached.asReachedSet()).thenReturn(view);
+      injector.inject(reached, candidates, false);
+      ArgumentCaptor<Precision> captured = ArgumentCaptor.forClass(Precision.class);
+      verify(reached).updatePrecisionGlobally(captured.capture(), any());
+      updated = (PredicatePrecision) captured.getValue();
+    }
+    assertThat(updated.getLocalPredicates().get(head)).containsExactly(first, second);
+    verify(manager).getPredicateFor(firstFormula);
+    verify(manager).getPredicateFor(secondFormula);
+  }
+
+  private static ValidatedPredicate candidate(BooleanFormula formula, CFANode head) {
+    return new ValidatedPredicate(
+        formula,
+        head,
+        ValidatedPredicate.Classification.PRECISION_ONLY,
+        "",
+        ImmutableList.of(),
+        false,
+        false);
   }
 
   private static PredicatePrecision precision(CFANode head, AbstractionPredicate predicate) {
