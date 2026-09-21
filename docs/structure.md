@@ -58,8 +58,10 @@ parser; rejected `c:` candidates never fall back to it.
 
 `NativeCExpressionEncoder` uses the configured C parser and path-formula manager with the
 last aligned occurrence of the named head. It checks actual CFA declarations and preserves
-SSA and pointer-target context. Unknown, expired, foreign or ambiguous local declarations,
-state introduced outside that context, side effects, calls, preprocessing, and expressions
+SSA and pointer-target context. Variable lookup uses the frontend’s lexical bindings at that
+head, including nested local shadowing and restoration after leaving a block. Visible renamed
+CFA identifiers are also accepted; source names take precedence over these aliases. Unknown,
+expired or foreign declarations, missing scope metadata, state introduced outside that context, side effects, calls, preprocessing, and expressions
 requiring auxiliary statements are rejected. This bounded path excludes `&&`, `||` and `?:`;
 return separate split candidates instead. Source-prior mode has no trace context and retains
 its SMT contract. Accepted candidates still go through the existing classification and local

@@ -190,6 +190,7 @@ public class CProgramScope implements Scope {
   private final String functionName;
 
   private final Predicate<FileLocation> locationDescriptor;
+  private final @Nullable ImmutableMap<String, CSimpleDeclaration> variableBindings;
 
   /** Returns an empty program scope. */
   private CProgramScope() {
@@ -203,6 +204,7 @@ public class CProgramScope implements Scope {
     uses = ImmutableListMultimap.of();
     functionName = null;
     locationDescriptor = Predicates.alwaysTrue();
+    variableBindings = null;
   }
 
   /**
@@ -214,6 +216,14 @@ public class CProgramScope implements Scope {
    */
   private CProgramScope(
       CProgramScope pScope, String pFunctionName, Predicate<FileLocation> pLocationDescriptor) {
+    this(pScope, pFunctionName, pLocationDescriptor, pScope.variableBindings);
+  }
+
+  private CProgramScope(
+      CProgramScope pScope,
+      String pFunctionName,
+      Predicate<FileLocation> pLocationDescriptor,
+      @Nullable ImmutableMap<String, CSimpleDeclaration> pVariableBindings) {
     variableNames = pScope.variableNames;
     simpleDeclarations = pScope.simpleDeclarations;
     functionDeclarations = pScope.functionDeclarations;
@@ -224,6 +234,7 @@ public class CProgramScope implements Scope {
     uses = pScope.uses;
     functionName = pFunctionName;
     locationDescriptor = pLocationDescriptor;
+    variableBindings = pVariableBindings;
   }
 
   /**
@@ -242,6 +253,7 @@ public class CProgramScope implements Scope {
 
     functionName = null;
     locationDescriptor = Predicates.alwaysTrue();
+    variableBindings = null;
 
     /* Get all nodes, get all edges from nodes, get all declarations from edges,
      * assign every declaration its name.
@@ -305,6 +317,9 @@ public class CProgramScope implements Scope {
 
   @Override
   public @Nullable CSimpleDeclaration lookupVariable(String pName) {
+    if (variableBindings != null) {
+      return variableBindings.get(pName);
+    }
 
     List<Supplier<Iterable<CSimpleDeclaration>>> lookups = new ArrayList<>(isGlobalScope() ? 2 : 3);
     if (!isGlobalScope()) {
@@ -462,6 +477,12 @@ public class CProgramScope implements Scope {
   public CProgramScope withLocationDescriptor(
       java.util.function.Predicate<FileLocation> pLocationDescriptor) {
     return new CProgramScope(this, functionName, pLocationDescriptor);
+  }
+
+  /** Restricts variable lookup to the supplied source names and declarations. */
+  public CProgramScope withVariableBindings(Map<String, CSimpleDeclaration> pBindings) {
+    return new CProgramScope(
+        this, functionName, locationDescriptor, ImmutableMap.copyOf(pBindings));
   }
 
   public String getCurrentFunctionName() {

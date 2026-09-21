@@ -19,6 +19,7 @@ import org.sosy_lab.cpachecker.cfa.CSourceOriginMapping;
 import org.sosy_lab.cpachecker.cfa.ast.AParameterDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.AVariableDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
+import org.sosy_lab.cpachecker.cfa.ast.c.CSimpleDeclaration;
 import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.util.ast.AstCfaRelation;
@@ -35,6 +36,7 @@ class AstCfaRelationBuilder {
       List<IASTTranslationUnit> pAsts,
       ImmutableMap<CFANode, Set<AVariableDeclaration>> pCfaNodeToAstLocalVariablesInScope,
       ImmutableMap<CFANode, Set<AParameterDeclaration>> pCfaNodeToAstParametersVariablesInScope,
+      ImmutableMap<CFANode, Map<String, CSimpleDeclaration>> pCfaNodeToCVariableBindings,
       ImmutableSet<AVariableDeclaration> pGlobalVariables) {
     AstLocationClassifier classifier = new AstLocationClassifier(pSourceOriginMapping);
     for (IASTTranslationUnit ast : pAsts) {
@@ -47,6 +49,7 @@ class AstCfaRelationBuilder {
         getStatementStructures(pEdges, classifier),
         pCfaNodeToAstLocalVariablesInScope,
         pCfaNodeToAstParametersVariablesInScope,
+        pCfaNodeToCVariableBindings,
         pGlobalVariables,
         classifier.getExpressionLocations());
   }

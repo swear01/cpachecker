@@ -408,8 +408,8 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
   public void taggedArrayResponseReachesNativePrecisionWithoutTraceTemplate() throws Exception {
     Fixture f =
         fixture(
-            "int main(void) { int a[4]; int x=0; x=x+1; a[x]=7; while(a[x]<=a[x+1]) { x=x+1; }"
-                + " return 0; }");
+            "int main(void) { int a[4]; int x=7; {int x=0; x=x+1; a[x]=7;"
+                + " while(a[x]<=a[x+1]) { x=x+1; }} return 0; }");
     var pipeline = new PredicateValidationPipeline(logger, solver, mgrv, false, nativeEncoder(f));
     var outcome =
         pipeline.validateCandidates(
@@ -450,8 +450,7 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
   }
 
   @Test
-  public void taggedCandidatesRejectUnknownExpiredForeignAndAmbiguousDeclarations()
-      throws Exception {
+  public void taggedCandidatesRejectUnknownExpiredAndForeignDeclarations() throws Exception {
     Fixture f =
         fixture(
             "int other(void){int y=1;return y;} int main(void){{int gone=1;} int x=0; if(x<3)return"
@@ -463,13 +462,6 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
           IllegalArgumentException.class,
           () -> encoder.encode(text, f.condition().getPredecessor(), f.prefix()));
     }
-    Fixture shadow = fixture("int main(void){int x=1; {int x=2; if(x<3)return 0;} return 1;}");
-    var shadowEncoder = nativeEncoder(shadow);
-    var shadowHead = shadow.condition().getPredecessor();
-    var shadowContext = shadow.prefix();
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> shadowEncoder.encode("x<3", shadowHead, shadowContext));
     Fixture global =
         fixture("int s; int main(void){int s=-1; unsigned int u=1; if(s<u)return 0;return 1;}");
     assertMatchesCfa(
@@ -477,6 +469,61 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
         mgrv.uninstantiate(
             nativeEncoder(global)
                 .encode("s<u", global.condition().getPredecessor(), global.prefix())));
+  }
+
+  @Test
+  public void taggedCandidatesUseLexicalShadowingAndRestoreOuterBindings() throws Exception {
+    for (String program :
+        List.of(
+            "int main(void){int x=1; {int x=2; if(x<3)return 0;} return 1;}",
+            "int main(void){int x=1; for(int x=0;x<3;x++){} return 0;}",
+            "int main(int x){ {int x=2; if(x<3)return 0;} return 1;}")) {
+      Fixture f = fixture(program);
+      var encoder = nativeEncoder(f);
+      BooleanFormula formula = encoder.encode("x<3", f.condition().getPredecessor(), f.prefix());
+      assertMatchesCfa(f, mgrv.uninstantiate(formula));
+      assertThat(mgrv.extractVariableNames(formula)).containsExactly("main::x__1@2");
+      assertThat(encoder.encode("x__1<3", f.condition().getPredecessor(), f.prefix()))
+          .isEqualTo(formula);
+    }
+    Fixture outer = fixture("int main(void){int x=1; {int x=2;} if(x<3)return 0; return 1;}");
+    var encoder = nativeEncoder(outer);
+    var outerHead = outer.condition().getPredecessor();
+    var outerContext = outer.prefix();
+    assertThat(
+            outer
+                .cfa()
+                .getAstCfaRelation()
+                .getCVariableBindings(outerHead)
+                .orElseThrow()
+                .get("x")
+                .getQualifiedName())
+        .isEqualTo("main::x");
+    assertMatchesCfa(
+        outer,
+        mgrv.uninstantiate(
+            encoder.encode("x<3", outer.condition().getPredecessor(), outer.prefix())));
+    assertThrows(
+        IllegalArgumentException.class, () -> encoder.encode("x__1<3", outerHead, outerContext));
+  }
+
+  @Test
+  public void taggedCandidatesResolveShadowedNamesAbsentFromHeadCondition() throws Exception {
+    Fixture f =
+        fixture("int main(void){int x=1; int y=0; {int x=2; if(y<3){if(x<5)return 0;}} return 1;}");
+    BooleanFormula formula =
+        nativeEncoder(f).encode("x<3", f.condition().getPredecessor(), f.prefix());
+    assertThat(mgrv.extractVariableNames(formula)).containsExactly("main::x__1@2");
+  }
+
+  @Test
+  public void sourceNamesTakePrecedenceOverRenamedAliases() throws Exception {
+    Fixture f =
+        fixture("int main(void){int x=1; {int x=2; int x__1=4; if(x__1<5)return x;} return 1;}");
+    assertMatchesCfa(
+        f,
+        mgrv.uninstantiate(
+            nativeEncoder(f).encode("x__1<5", f.condition().getPredecessor(), f.prefix())));
   }
 
   @Test

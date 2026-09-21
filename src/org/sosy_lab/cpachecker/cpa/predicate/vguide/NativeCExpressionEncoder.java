@@ -6,7 +6,7 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
-import java.util.List;
+import java.util.HashMap;
 import org.sosy_lab.common.ShutdownNotifier;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.configuration.InvalidConfigurationException;
@@ -14,8 +14,6 @@ import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.CParser;
 import org.sosy_lab.cpachecker.cfa.CProgramScope;
-import org.sosy_lab.cpachecker.cfa.ast.AbstractSimpleDeclaration;
-import org.sosy_lab.cpachecker.cfa.ast.c.CVariableDeclaration;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.exceptions.CPATransferException;
 import org.sosy_lab.cpachecker.exceptions.CParserException;
@@ -58,24 +56,23 @@ final class NativeCExpressionEncoder {
         relation
             .getVariablesAndParametersInScope(head)
             .orElseThrow(() -> new IllegalArgumentException("native C scope unavailable"));
+    var bindings =
+        relation
+            .getCVariableBindings(head)
+            .orElseThrow(() -> new IllegalArgumentException("native C scope unavailable"));
+    var names = new HashMap<>(bindings);
+    for (var declaration : bindings.values()) {
+      names.putIfAbsent(declaration.getName(), declaration);
+    }
     var expression =
-        parser.parsePureExpression(text, scope.withFunctionScope(head.getFunctionName()));
+        parser.parsePureExpression(
+            text, scope.withFunctionScope(head.getFunctionName()).withVariableBindings(names));
     for (var id : CFAUtils.getIdExpressionsOfExpression(expression)) {
       var declaration = id.getDeclaration();
       if (declaration == null || !id.getName().equals(declaration.getName())) {
         throw new IllegalArgumentException("unresolved C identifier: " + id.getName());
       }
-      List<AbstractSimpleDeclaration> matches =
-          visible.stream().filter(d -> d.getOrigName().equals(declaration.getOrigName())).toList();
-      var locals =
-          matches.stream()
-              .filter(d -> !(d instanceof CVariableDeclaration v && v.isGlobal()))
-              .toList();
-      if (!locals.isEmpty()) {
-        matches = locals;
-      }
-      // ponytail: scope snapshots lack shadowing order; reject ambiguous locals rather than guess.
-      if (matches.size() != 1 || !matches.getFirst().equals(declaration)) {
+      if (!visible.contains(declaration)) {
         throw new IllegalArgumentException(
             "C identifier is unavailable or ambiguous at head: " + id.getName());
       }
