@@ -710,13 +710,25 @@ public class VocabularyGuide {
   }
 
   private static String resolveVariableName(String simpleName, Set<String> encodedNames) {
-    if (encodedNames.contains(simpleName)) {
+    if (simpleName.contains("::") && encodedNames.contains(simpleName)) {
       return simpleName;
     }
+    String resolved = null;
     for (String encoded : encodedNames) {
       if (unversioned(encoded).endsWith("::" + simpleName)) {
-        return encoded;
+        if (resolved != null && !unversioned(resolved).equals(unversioned(encoded))) {
+          throw new IllegalArgumentException("Ambiguous variable: " + simpleName);
+        }
+        if (resolved == null) {
+          resolved = encoded;
+        }
       }
+    }
+    if (resolved != null) {
+      return resolved;
+    }
+    if (encodedNames.contains(simpleName)) {
+      return simpleName;
     }
     for (String encoded : encodedNames) {
       if (unversioned(encoded).equals(simpleName)) {
