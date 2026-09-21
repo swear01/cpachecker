@@ -9,12 +9,13 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -77,8 +78,10 @@ final class ArrayTermTranslator {
 
   private static final Pattern DECLARE_ARRAY =
       Pattern.compile(
-          "\\(declare-fun\\s+([^ )]+)\\s+\\(\\)\\s+\\(Array \\(_ BitVec\\s+(\\d+)\\) \\(_ BitVec\\s+(\\d+)\\)\\)");
-  private final ImmutableMap<String, AccessTemplate> templates; // source array name -> template
+          "\\(declare-fun\\s+([^ )]+)\\s+\\(\\)\\s+\\(Array \\(_ BitVec\\s+(\\d+)\\) \\(_"
+              + " BitVec\\s+(\\d+)\\)\\)");
+  private final ImmutableMap<String, AccessTemplate> templates; // encoded array address -> template
+  private final ImmutableSet<String> sourceArrayNames;
   private final ImmutableMap<String, Integer> varBits; // "main::i" -> 64 (unversioned)
   private final ImmutableMap<String, Integer> arrayIndexBits; // heap -> declared index width
   private final Pattern bareIdentifierPattern; // precompiled alternation of bare names
@@ -93,6 +96,10 @@ final class ArrayTermTranslator {
       ImmutableMap<String, Integer> varBits,
       ImmutableMap<String, Integer> arrayIndexBits) {
     this.templates = templates;
+    sourceArrayNames =
+        templates.values().stream()
+            .map(AccessTemplate::addrSourceName)
+            .collect(ImmutableSet.toImmutableSet());
     this.varBits = varBits;
     this.arrayIndexBits = arrayIndexBits;
     Set<String> seenKeys = new HashSet<>();
@@ -101,7 +108,8 @@ final class ArrayTermTranslator {
       if (encoded.isEmpty()) {
         continue;
       }
-      String bare = encoded.contains("::") ? encoded.substring(encoded.lastIndexOf("::") + 2) : encoded;
+      String bare =
+          encoded.contains("::") ? encoded.substring(encoded.lastIndexOf("::") + 2) : encoded;
       if (!bare.isEmpty() && !SMT_KEYWORDS.contains(bare) && seenKeys.add(bare)) {
         keys.add(bare);
       }
@@ -115,7 +123,9 @@ final class ArrayTermTranslator {
       alt.append(Pattern.quote(k));
     }
     this.bareIdentifierPattern =
-        keys.isEmpty() ? null : Pattern.compile("(?<![A-Za-z0-9_@|:])(" + alt + ")(?![A-Za-z0-9_@|])");
+        keys.isEmpty()
+            ? null
+            : Pattern.compile("(?<![A-Za-z0-9_@|:])(" + alt + ")(?![A-Za-z0-9_@|])");
   }
 
   /** Test convenience constructor (no declared-variable maps). */
@@ -168,9 +178,7 @@ final class ArrayTermTranslator {
         Optional<AccessTemplate> t = templateForSelect(sel, defs);
         if (t.isPresent()) {
           AccessTemplate tmpl = t.orElseThrow();
-          if (!found.containsKey(tmpl.addrSourceName())) {
-            found.put(tmpl.addrSourceName(), tmpl);
-          }
+          found.putIfAbsent(tmpl.addrVar(), tmpl);
         }
       }
     }
@@ -191,13 +199,13 @@ final class ArrayTermTranslator {
   boolean hasArrayAccess(String predicateText) {
     Matcher m = ARRAY_ACCESS.matcher(predicateText);
     while (m.find()) {
-      if (templates.containsKey(m.group(1))) {
+      if (sourceArrayNames.contains(m.group(1))) {
         return true;
       }
     }
     Matcher cm = C_ARRAY_ACCESS.matcher(maskQuotedSymbols(predicateText));
     while (cm.find()) {
-      if (templates.containsKey(cm.group(1))) {
+      if (sourceArrayNames.contains(cm.group(1))) {
         return true;
       }
     }
@@ -239,15 +247,29 @@ final class ArrayTermTranslator {
       // resolveVariableName handles scalar variables as before.
       return result;
     }
+    Map<String, AccessTemplate> activeTemplates = new LinkedHashMap<>();
+    for (AccessTemplate template : templates.values()) {
+      if (belongsToFunction(template.addrVar(), functionName)) {
+        String source = template.addrSourceName();
+        AccessTemplate previous = activeTemplates.get(source);
+        if (previous == null
+            || (!previous.addrVar().contains("::") && template.addrVar().contains("::"))) {
+          activeTemplates.put(source, template);
+        } else if (previous.addrVar().contains("::") == template.addrVar().contains("::")
+            && !previous.addrVar().equals(template.addrVar())) {
+          return null;
+        }
+      }
+    }
     // Pass 1: C-syntax array reads a[i] (the LLM's preferred form; issue #68).
     // Returns null when an index expression cannot be translated — the whole
     // candidate is then rejected (gemini-review #69).
-    result = translateCSyntax(result, functionName);
+    result = translateCSyntax(result, functionName, activeTemplates);
     if (result == null) {
       return null;
     }
     // Pass 2: S-expr array reads (c i) (backward compatible).
-    result = translateSexpr(result, functionName);
+    result = translateSexpr(result, functionName, activeTemplates);
     // Pass 3b: rewrite remaining bare identifiers to their scoped unversioned names
     // (e.g. i -> main::i) so the whole predicate can be instantiated with the head SSAMap.
     if (bareIdentifierPattern != null) {
@@ -255,7 +277,7 @@ final class ArrayTermTranslator {
       String prefix = functionName + "::";
       for (String encoded : varBits.keySet()) {
         if (!encoded.contains("::")) {
-          activeVars.put(encoded, encoded);
+          activeVars.putIfAbsent(encoded, encoded);
         } else if (encoded.startsWith(prefix)) {
           activeVars.put(encoded.substring(prefix.length()), encoded);
         }
@@ -276,7 +298,10 @@ final class ArrayTermTranslator {
       }
     }
     // Fallback: index variables of the translated arrays (works without declare-fun dumps).
-    for (AccessTemplate t : templates.values()) {
+    for (AccessTemplate t : activeTemplates.values()) {
+      if (!belongsToFunction(t.idxVar(), functionName)) {
+        continue;
+      }
       String sourceIdx = sourceNameOf(t.idxVar());
       if (!sourceIdx.isEmpty()) {
         result =
@@ -301,8 +326,8 @@ final class ArrayTermTranslator {
       String bare = m.group(3);
       String scoped =
           (scope != null && !scope.isEmpty()) ? scope + bare : functionName + "::" + bare;
-      if (!varBits.containsKey(scoped) && varBits.containsKey(bare)) {
-        scoped = bare; // global variable (also when leaked with a scope prefix)
+      if (scope == null && !varBits.containsKey(scoped) && varBits.containsKey(bare)) {
+        scoped = bare; // unqualified global variable
       }
       m.appendReplacement(sb, Matcher.quoteReplacement(scoped));
     }
@@ -311,12 +336,13 @@ final class ArrayTermTranslator {
   }
 
   /** Translates {@code a[i]} C-syntax array reads (issue #68). */
-  private @Nullable String translateCSyntax(String predicateText, String functionName) {
+  private @Nullable String translateCSyntax(
+      String predicateText, String functionName, Map<String, AccessTemplate> activeTemplates) {
     Matcher m = C_ARRAY_ACCESS.matcher(predicateText);
     StringBuilder out = new StringBuilder();
     int last = 0;
     while (m.find()) {
-      AccessTemplate t = templates.get(m.group(1));
+      AccessTemplate t = activeTemplates.get(m.group(1));
       if (t == null) {
         continue;
       }
@@ -338,12 +364,13 @@ final class ArrayTermTranslator {
   }
 
   /** Translates {@code (c i)} S-expr array reads (backward compatible). */
-  private String translateSexpr(String predicateText, String functionName) {
+  private String translateSexpr(
+      String predicateText, String functionName, Map<String, AccessTemplate> activeTemplates) {
     Matcher m = ARRAY_ACCESS.matcher(predicateText);
     StringBuilder out = new StringBuilder();
     int last = 0;
     while (m.find()) {
-      AccessTemplate t = templates.get(m.group(1));
+      AccessTemplate t = activeTemplates.get(m.group(1));
       if (t == null) {
         continue;
       }
@@ -577,7 +604,8 @@ final class ArrayTermTranslator {
   /** Parses a C integer literal (dec/hex, optional u/l/ll suffixes) or null. */
   private static Long cIntegerLiteral(String token) {
     String t = token;
-    while (!t.isEmpty() && (t.endsWith("u") || t.endsWith("U") || t.endsWith("l") || t.endsWith("L"))) {
+    while (!t.isEmpty()
+        && (t.endsWith("u") || t.endsWith("U") || t.endsWith("l") || t.endsWith("L"))) {
       t = t.substring(0, t.length() - 1);
     }
     try {
@@ -640,14 +668,22 @@ final class ArrayTermTranslator {
     return types;
   }
 
-  boolean isEncodingVariable(String variableName) {
+  boolean isEncodingVariable(String variableName, String functionName) {
     String unversioned = unversion(variableName);
     for (AccessTemplate t : templates.values()) {
-      if (t.heapVar().equals(unversioned) || t.addrVar().equals(unversioned)) {
+      if (t.heapVar().equals(unversioned)
+          || (t.addrVar().equals(unversioned) && belongsToFunction(t.addrVar(), functionName))) {
         return true;
       }
     }
     return false;
+  }
+
+  private static boolean belongsToFunction(String name, String functionName) {
+    String address =
+        name.startsWith("__ADDRESS_OF_") ? name.substring("__ADDRESS_OF_".length()) : name;
+    int scope = address.indexOf("::");
+    return scope < 0 || address.substring(0, scope).equals(functionName);
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -763,6 +799,9 @@ final class ArrayTermTranslator {
     String name = unversionedName;
     if (name.length() >= 2 && name.startsWith("|") && name.endsWith("|")) {
       name = name.substring(1, name.length() - 1);
+    }
+    if (name.startsWith("__ADDRESS_OF_")) {
+      name = name.substring("__ADDRESS_OF_".length());
     }
     int scope = name.lastIndexOf("::");
     if (scope >= 0) {

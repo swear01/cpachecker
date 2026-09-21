@@ -383,6 +383,28 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
   }
 
   @Test
+  public void nativeOnlyBatchesAvoidLegacyBlockSerializationButMixedBatchesStillTranslate()
+      throws Exception {
+    Fixture f = fixture("int main(void){int x=0; while(x<3){x++;}return 0;}");
+    for (boolean mixed : List.of(false, true)) {
+      var manager = org.mockito.Mockito.spy(mgrv);
+      var pipeline =
+          new PredicateValidationPipeline(logger, solver, manager, false, nativeEncoder(f));
+      var candidates = ImmutableList.<LoopHeadCandidate>builder().addAll(response(f, "c: x<3"));
+      if (mixed) {
+        candidates.addAll(response(f, "(bvslt x (_ bv4 32))"));
+      }
+      var outcome =
+          pipeline.validateCandidates(
+              pack(f, f.prefix()), candidates.build(), List.of(state(f, f.prefix())));
+      assertThat(outcome.rejections()).isEmpty();
+      assertThat(outcome.validation().validated()).hasSize(mixed ? 2 : 1);
+      verify(manager, org.mockito.Mockito.times(mixed ? 1 : 0))
+          .dumpFormula(f.prefix().getFormula());
+    }
+  }
+
+  @Test
   public void nativeFailuresAreObservableAndDoNotDiscardAcceptedPrimary() throws Exception {
     Fixture f = fixture("int main(void){int a[4]; int x=0; a[x]=7; while(x<3){x++;}return 0;}");
     var pipeline = new PredicateValidationPipeline(logger, solver, mgrv, false, nativeEncoder(f));

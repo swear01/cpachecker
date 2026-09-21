@@ -27,6 +27,13 @@
   `candidates: []` is `response_parse_ok=true` with reason `empty_candidates`. Blank responses
   remain `empty_response`; malformed and wrong-schema responses remain failures.
 
+- **Legacy predicate context (#273).** Scalar names resolve within the requested head's function;
+  ambiguous function bindings are rejected, and an aligned path context supplies current SSA
+  indices. Array templates retain their encoded address identity, choose the active function's
+  base, and cannot exempt a foreign address from scope checks. Array and native predicates use
+  the same last aligned trace occurrence; a missing final context does not reuse an earlier SSA.
+  Native-only batches skip legacy block serialization/template extraction; mixed batches retain it.
+
 - **HTTP-attempt evidence (#210).** `PredicateProposalClient` emits structured `vguide-http-attempt-v1`
   events in the CPA log for each live attempt start and terminal result, keyed by request hash and
   task-local request ordinal. IDs are scoped to one client instance / CPA log-run; extraction must

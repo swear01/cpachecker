@@ -46,8 +46,8 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
   @Test
   public void extractsTemplateFromLetDefDump() {
     Map<String, AccessTemplate> found = collect(IFCOMP_SHAPED_DUMP);
-    assertThat(found).containsKey("c");
-    AccessTemplate t = found.get("c");
+    assertThat(found).containsKey("main::c");
+    AccessTemplate t = found.get("main::c");
     assertThat(t.heapVar()).isEqualTo("*long_long_int");
     assertThat(t.addrVar()).isEqualTo("main::c");
     assertThat(t.idxVar()).isEqualTo("main::i");
@@ -66,10 +66,10 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
         "(= (select *long_long_int@7 (bvadd |main::c@9| (bvshl |main::i@11| (_ bv3 32))))"
             + " (bvmul |main::i@11| (_ bv5 32)))";
     Map<String, AccessTemplate> found = collect(inline);
-    assertThat(found).containsKey("c");
-    assertThat(found.get("c").heapVar()).isEqualTo("*long_long_int");
-    assertThat(found.get("c").addrVar()).isEqualTo("main::c");
-    assertThat(found.get("c").idxVar()).isEqualTo("main::i");
+    assertThat(found).containsKey("main::c");
+    assertThat(found.get("main::c").heapVar()).isEqualTo("*long_long_int");
+    assertThat(found.get("main::c").addrVar()).isEqualTo("main::c");
+    assertThat(found.get("main::c").idxVar()).isEqualTo("main::i");
   }
 
   @Test
@@ -84,11 +84,12 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
     ArrayTermTranslator translator =
         new ArrayTermTranslator(com.google.common.collect.ImmutableMap.copyOf(found));
 
-    assertThat(translator.isEncodingVariable("__ADDRESS_OF_main::a@")).isTrue();
-    assertThat(translator.isEncodingVariable("|__ADDRESS_OF_main::a@7|")).isFalse();
-    assertThat(translator.isEncodingVariable("*int@1")).isTrue();
-    assertThat(translator.isEncodingVariable("__ADDRESS_OF_main::other")).isFalse();
-    assertThat(translator.isEncodingVariable("main::i@4")).isFalse();
+    assertThat(translator.isEncodingVariable("__ADDRESS_OF_main::a@", "main")).isTrue();
+    assertThat(translator.isEncodingVariable("|__ADDRESS_OF_main::a@7|", "main")).isFalse();
+    assertThat(translator.isEncodingVariable("*int@1", "main")).isTrue();
+    assertThat(translator.isEncodingVariable("__ADDRESS_OF_main::a@", "foreign")).isFalse();
+    assertThat(translator.isEncodingVariable("__ADDRESS_OF_main::other", "main")).isFalse();
+    assertThat(translator.isEncodingVariable("main::i@4", "main")).isFalse();
   }
 
   @Test
@@ -107,7 +108,7 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
             com.google.common.collect.ImmutableMap.copyOf(found),
             com.google.common.collect.ImmutableMap.copyOf(bits));
 
-    assertThat(found.get("a").addrVar()).isEqualTo("__ADDRESS_OF_main::a@");
+    assertThat(found.get("__ADDRESS_OF_main::a@").addrVar()).isEqualTo("__ADDRESS_OF_main::a@");
     assertThat(translator.translate("a[i]", "main"))
         .isEqualTo(
             "(select *int (bvadd __ADDRESS_OF_main::a@"
@@ -163,8 +164,8 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
     String out = translator.translate("(= (c i) (bvmul (bvmul i i) i))", "main");
     assertThat(out)
         .isEqualTo(
-            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3 32))))"
-                + " (bvmul (bvmul main::i main::i) main::i))");
+            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3"
+                + " 32)))) (bvmul (bvmul main::i main::i) main::i))");
   }
 
   @Test
@@ -191,8 +192,8 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
     String out = translator.translate("(= (c j) (bvmul j j))", "main");
     assertThat(out)
         .isEqualTo(
-            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::j) (_ bv3 32))))"
-                + " (bvmul main::j main::j))");
+            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::j) (_ bv3"
+                + " 32)))) (bvmul main::j main::j))");
   }
 
   @Test
@@ -211,8 +212,8 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
     String simple = translator.translate("(= c[i] (bvmul (bvmul i i) i))", "main");
     assertThat(simple)
         .isEqualTo(
-            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3 32))))"
-                + " (bvmul (bvmul main::i main::i) main::i))");
+            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3"
+                + " 32)))) (bvmul (bvmul main::i main::i) main::i))");
 
     // Arithmetic index: c[4*j+1] (j not declared in the test dump -> 32-bit width)
     String arith = translator.translate("(= c[4*j+1] (bvmul j (_ bv2 64)))", "main");
@@ -220,7 +221,8 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
         .isEqualTo(
             "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0)"
                 + " (bvadd (bvmul (_ bv4 32) main::j) (_ bv1 32))) (_ bv3 32))))"
-                + " (bvmul j (_ bv2 64)))"); // j undeclared in the test dump: only the array index is scoped
+                + " (bvmul j (_ bv2 64)))"); // j undeclared in the test dump: only the array index
+                                             // is scoped
 
     // Hex literal index: c[0x10]
     String hex = translator.translate("(bvsge c[0x10] (_ bv0 64))", "main");
@@ -273,8 +275,8 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
     String out = translator.translate("(and (bvslt c[i] N@2) (bvsge i (_ bv0 32)))", "main");
     assertThat(out)
         .isEqualTo(
-            "(and (bvslt (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3 32))))"
-                + " main::N) (bvsge main::i (_ bv0 32)))");
+            "(and (bvslt (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_"
+                + " bv3 32)))) main::N) (bvsge main::i (_ bv0 32)))");
   }
 
   @Test
@@ -289,8 +291,8 @@ public class ArrayTermTranslatorTest extends SolverViewBasedTest0 {
     String translated = translator.translate("(= (c i) (bvmul (bvmul i i) i))", "main");
     assertThat(translated)
         .isEqualTo(
-            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3 32))))"
-                + " (bvmul (bvmul main::i main::i) main::i))");
+            "(= (select *long_long_int (bvadd main::c (bvshl ((_ extract 31 0) main::i) (_ bv3"
+                + " 32)))) (bvmul (bvmul main::i main::i) main::i))");
     // Exercise the same native bitvector/array encoding used by predicate analysis.
     org.sosy_lab.common.configuration.ConfigurationBuilder cb =
         org.sosy_lab.common.configuration.Configuration.builder();

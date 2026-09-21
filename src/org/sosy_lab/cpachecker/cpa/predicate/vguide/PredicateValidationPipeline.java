@@ -118,7 +118,16 @@ public final class PredicateValidationPipeline {
     BooleanFormulaManager bfmgr = fmgr.getBooleanFormulaManager();
     Map<CFANode, BooleanFormula> blockByNode =
         LoopHeadBlockFormulaIndex.fromTrace(pack.blockFormulas(), absTrace);
-    ArrayTermTranslator arrayTranslator = ArrayTermTranslator.extract(pack.blockFormulas(), fmgr);
+    ArrayTermTranslator arrayTranslator =
+        candidates.stream()
+                .anyMatch(
+                    candidate ->
+                        !candidate
+                            .predicate()
+                            .stripLeading()
+                            .startsWith(NativeCExpressionEncoder.PREFIX))
+            ? ArrayTermTranslator.extract(pack.blockFormulas(), fmgr)
+            : new ArrayTermTranslator(ImmutableMap.of());
     Set<String> unversionedEncodedVars = new HashSet<>();
     for (String encoded : pack.encodedVars()) {
       String bare = encoded;
@@ -131,27 +140,16 @@ public final class PredicateValidationPipeline {
       }
       unversionedEncodedVars.add(bare);
     }
-    Map<CFANode, SSAMap> ssaByNode = new HashMap<>();
-    for (AbstractState state : absTrace) {
-      CFANode node = extractLocation(state);
-      if (node == null) {
-        continue;
-      }
-      PredicateAbstractState pas = extractStateByType(state, PredicateAbstractState.class);
-      if (pas != null && !ssaByNode.containsKey(node)) {
-        ssaByNode.put(node, pas.getPathFormula().getSsa());
-      }
-    }
     // Match the same last aligned occurrence as blockByNode, including missing contexts.
-    Map<CFANode, PathFormula> nativeContexts = new HashMap<>();
+    Map<CFANode, PathFormula> contextsByNode = new HashMap<>();
     for (int i = 0; i < Math.min(pack.blockFormulas().getSize(), absTrace.size()); i++) {
       AbstractState state = absTrace.get(i);
       CFANode node = extractLocation(state);
       if (node != null) {
         PredicateAbstractState pas = extractStateByType(state, PredicateAbstractState.class);
-        nativeContexts.remove(node);
+        contextsByNode.remove(node);
         if (pas != null) {
-          nativeContexts.put(node, pas.getPathFormula());
+          contextsByNode.put(node, pas.getPathFormula());
         }
       }
     }
@@ -220,81 +218,69 @@ public final class PredicateValidationPipeline {
                 "C-style array access has no proven trace translation template"));
         continue;
       }
-      BooleanFormula parsed = null;
-      Set<String> freeVars = null;
-      String formulaText = null;
-      if (!nativeCandidate && !arrayCandidate) {
-        parsed =
-            VocabularyGuide.parsePredicate(
-                candidate.predicate(),
-                fmgr,
-                pack.encodedVars(),
-                ImmutableMap.of(),
-                arrayTranslator.varBits());
-        if (parsed == null) {
-          rejections.add(
-              new CandidateRejection(
-                  candidate.toString(),
-                  heads.get(0).label(),
-                  candidate.predicate(),
-                  REASON_PARSE_ERROR,
-                  "SMT-LIB parse failed"));
-          continue;
-        }
-        if (bfmgr.isTrue(parsed) || bfmgr.isFalse(parsed)) {
-          rejections.add(
-              new CandidateRejection(
-                  candidate.toString(),
-                  heads.get(0).label(),
-                  candidate.predicate(),
-                  REASON_CONTRACT_VIOLATION,
-                  "trivially true or false"));
-          continue;
-        }
-        freeVars = fmgr.extractVariableNames(parsed);
-        crossCheckDeclaredVariables(candidate, freeVars);
-        formulaText = fmgr.dumpFormula(parsed).toString().replace('\n', ' ');
-      }
       StringBuilder perHead = new StringBuilder();
-      String lastFormulaText = formulaText;
+      String lastFormulaText = null;
       for (LoopHeadInfo head : heads) {
-        BooleanFormula headParsed = parsed;
-        Set<String> headFreeVars = freeVars;
-        String headFormulaText = formulaText;
+        BooleanFormula headParsed = null;
+        Set<String> headFreeVars = null;
+        String headFormulaText = null;
         if (!nativeCandidate && !arrayCandidate) {
-          // Preserve both the native symbol width and the head's SSA version. Instantiation
-          // only renames symbols; C integer promotions belong on terms, not declarations.
-          BooleanFormula block = blockByNode.get(head.node());
-          if (block != null) {
-            // Block variables first: source names resolve to the head's SSA versions
-            // (width already declared by the block formula); trace-only variables
-            // (e.g. overSpecific cases) still resolve via the full encoded vocabulary.
-            Set<String> parseVars =
-                new LinkedHashSet<>(
-                    blockVarsCache.computeIfAbsent(
-                        head.node(), node -> fmgr.extractVariableNames(block)));
+          PathFormula context = contextsByNode.get(head.node());
+          Set<String> parseVars = new LinkedHashSet<>();
+          if (context == null) {
+            parseVars.addAll(
+                blockVarsCache.computeIfAbsent(
+                    head.node(), node -> fmgr.extractVariableNames(blockByNode.get(node))));
             parseVars.addAll(pack.encodedVars());
-            headParsed =
-                VocabularyGuide.parsePredicate(
+          } else {
+            parseVars.addAll(unversionedEncodedVars);
+          }
+          parseVars.removeIf(
+              v -> !isVisibleAt(v, head, pack.encodedVars(), unversionedEncodedVars));
+          headParsed =
+              VocabularyGuide.parsePredicate(
+                  candidate.predicate(),
+                  fmgr,
+                  parseVars,
+                  ImmutableMap.of(),
+                  arrayTranslator.varBits());
+          if (headParsed == null) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
                     candidate.predicate(),
-                    fmgr,
-                    parseVars,
-                    ImmutableMap.of(),
-                    arrayTranslator.varBits());
-            if (headParsed == null) {
+                    REASON_PARSE_ERROR,
+                    "SMT-LIB parse failed against head variables"));
+            continue;
+          }
+          if (context != null) {
+            try {
+              headParsed = fmgr.instantiate(fmgr.uninstantiate(headParsed), context.getSsa());
+            } catch (RuntimeException e) {
               rejections.add(
                   new CandidateRejection(
                       candidate.toString(),
                       head.label(),
                       candidate.predicate(),
                       REASON_PARSE_ERROR,
-                      "SMT-LIB parse failed against head block variables"));
+                      "SSA instantiate failed at " + head.label() + ": " + e.getMessage()));
               continue;
             }
-            headFreeVars = fmgr.extractVariableNames(headParsed);
-            headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
           }
-          // else: no block formula for this head (test harness) — keep parsed.
+          if (bfmgr.isTrue(headParsed) || bfmgr.isFalse(headParsed)) {
+            rejections.add(
+                new CandidateRejection(
+                    candidate.toString(),
+                    head.label(),
+                    candidate.predicate(),
+                    REASON_CONTRACT_VIOLATION,
+                    "trivially true or false"));
+            continue;
+          }
+          headFreeVars = fmgr.extractVariableNames(headParsed);
+          crossCheckDeclaredVariables(candidate, headFreeVars);
+          headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
         }
         if (arrayCandidate) {
           // Translate source-level array reads (c i) to the heap-select encoding, then
@@ -342,7 +328,7 @@ public final class PredicateValidationPipeline {
           // names from the SSAMap would not match the encoded vocabulary exactly.
           List<String> preOutOfScope = new ArrayList<>();
           for (String v : fmgr.extractVariableNames(headParsed)) {
-            if (!arrayTranslator.isEncodingVariable(v)
+            if (!arrayTranslator.isEncodingVariable(v, head.functionName())
                 && !isVisibleAt(v, head, pack.encodedVars(), unversionedEncodedVars)) {
               preOutOfScope.add(v);
             }
@@ -357,7 +343,8 @@ public final class PredicateValidationPipeline {
                     "variables not visible at " + head.label() + ": " + preOutOfScope));
             continue;
           }
-          SSAMap headSsa = ssaByNode.get(head.node());
+          PathFormula context = contextsByNode.get(head.node());
+          SSAMap headSsa = context == null ? null : context.getSsa();
           if (headSsa == null) {
             rejections.add(
                 new CandidateRejection(
@@ -385,7 +372,7 @@ public final class PredicateValidationPipeline {
           headFormulaText = fmgr.dumpFormula(headParsed).toString().replace('\n', ' ');
         }
         if (nativeCandidate) {
-          PathFormula context = nativeContexts.get(head.node());
+          PathFormula context = contextsByNode.get(head.node());
           if (nativeEncoder == null || context == null) {
             rejections.add(
                 new CandidateRejection(
@@ -440,7 +427,7 @@ public final class PredicateValidationPipeline {
         List<String> outOfScope = new ArrayList<>();
         for (String v : headFreeVars) {
           if (!nativeCandidate
-              && !(arrayCandidate && arrayTranslator.isEncodingVariable(v))
+              && !(arrayCandidate && arrayTranslator.isEncodingVariable(v, head.functionName()))
               && !isVisibleAt(v, head, pack.encodedVars(), unversionedEncodedVars)) {
             outOfScope.add(v);
           }
