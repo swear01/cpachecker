@@ -35,7 +35,9 @@ public final class LoopHeadCandidateParser {
   private LoopHeadCandidateParser() {}
 
   public record ParseOutcome(
-      ImmutableList<LoopHeadCandidate> accepted, ImmutableList<CandidateRejection> rejected) {}
+      ImmutableList<LoopHeadCandidate> accepted,
+      ImmutableList<CandidateRejection> rejected,
+      boolean validEmptyResponse) {}
 
   /** Accepted candidates only (rejections are dropped). */
   public static ImmutableList<LoopHeadCandidate> parse(String response) {
@@ -44,7 +46,7 @@ public final class LoopHeadCandidateParser {
 
   public static ParseOutcome parseWithRejects(String response) {
     if (response == null || response.isBlank()) {
-      return new ParseOutcome(ImmutableList.of(), ImmutableList.of());
+      return new ParseOutcome(ImmutableList.of(), ImmutableList.of(), false);
     }
     JsonNode root;
     try {
@@ -54,7 +56,8 @@ public final class LoopHeadCandidateParser {
           ImmutableList.of(),
           ImmutableList.of(
               new CandidateRejection(
-                  response.strip(), "", "", REASON_INVALID_JSON, "response is not valid JSON")));
+                  response.strip(), "", "", REASON_INVALID_JSON, "response is not valid JSON")),
+          false);
     }
     String schema = root.path("schema_version").asText();
     if (!SCHEMA_VERSION.equals(schema)) {
@@ -72,7 +75,7 @@ public final class LoopHeadCandidateParser {
                     "legacy predicates array has no loop-head location"));
           }
         }
-        return new ParseOutcome(ImmutableList.of(), ImmutableList.copyOf(rejects));
+        return new ParseOutcome(ImmutableList.of(), ImmutableList.copyOf(rejects), false);
       }
       return new ParseOutcome(
           ImmutableList.of(),
@@ -82,7 +85,8 @@ public final class LoopHeadCandidateParser {
                   "",
                   "",
                   REASON_WRONG_SCHEMA,
-                  "expected schema_version " + SCHEMA_VERSION)));
+                  "expected schema_version " + SCHEMA_VERSION)),
+          false);
     }
     JsonNode candidates = root.path("candidates");
     if (!candidates.isArray()) {
@@ -90,7 +94,8 @@ public final class LoopHeadCandidateParser {
           ImmutableList.of(),
           ImmutableList.of(
               new CandidateRejection(
-                  response.strip(), "", "", REASON_WRONG_SCHEMA, "missing candidates array")));
+                  response.strip(), "", "", REASON_WRONG_SCHEMA, "missing candidates array")),
+          false);
     }
     List<LoopHeadCandidate> accepted = new ArrayList<>();
     List<CandidateRejection> rejects = new ArrayList<>();
@@ -163,31 +168,14 @@ public final class LoopHeadCandidateParser {
           new LoopHeadCandidate(
               ImmutableList.copyOf(heads), predicate, role, ImmutableList.copyOf(variables)));
     }
-    return new ParseOutcome(ImmutableList.copyOf(accepted), ImmutableList.copyOf(rejects));
+    return new ParseOutcome(
+        ImmutableList.copyOf(accepted), ImmutableList.copyOf(rejects), candidates.isEmpty());
   }
 
-  /**
-   * Locates the first balanced JSON object in a possibly noisy response (markdown fences,
-   * conversational prose around the JSON). Returns the whole response when no object is found.
-   */
+  /** Locate the first object; Jackson handles its boundary, strings and escapes. */
   private static String extractJson(String response) {
     String trimmed = response.strip();
     int start = trimmed.indexOf('{');
-    if (start < 0) {
-      return trimmed;
-    }
-    int depth = 0;
-    for (int i = start; i < trimmed.length(); i++) {
-      char c = trimmed.charAt(i);
-      if (c == '{') {
-        depth++;
-      } else if (c == '}') {
-        depth--;
-        if (depth == 0) {
-          return trimmed.substring(start, i + 1);
-        }
-      }
-    }
-    return trimmed.substring(start);
+    return start < 0 ? trimmed : trimmed.substring(start);
   }
 }
