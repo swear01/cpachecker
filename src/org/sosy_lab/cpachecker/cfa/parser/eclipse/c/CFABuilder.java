@@ -19,6 +19,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
 import java.util.TreeMap;
@@ -366,6 +367,7 @@ class CFABuilder extends ASTVisitor {
         ImmutableMap.builder();
     ImmutableMap.Builder<CFANode, Set<AParameterDeclaration>> cfaNodeToAstParametersInScope =
         ImmutableMap.builder();
+    Map<CFANode, Map<String, CSimpleDeclaration>> cfaNodeToCVariableBindings = new HashMap<>();
     for (FunctionsOfTranslationUnit functionDeclaration : functionDeclarations) {
       GlobalScope actScope = functionDeclaration.scope();
 
@@ -386,7 +388,8 @@ class CFABuilder extends ASTVisitor {
             actTypeDefs,
             actVars,
             cfaNodeToAstLocalVariablesInScope,
-            cfaNodeToAstParametersInScope);
+            cfaNodeToAstParametersInScope,
+            cfaNodeToCVariableBindings);
       }
     }
 
@@ -420,7 +423,8 @@ class CFABuilder extends ASTVisitor {
             // We want to explicitly throw an error if a
             // key was added more than once, since this would be a bug
             cfaNodeToAstLocalVariablesInScope.buildOrThrow(),
-            cfaNodeToAstParametersInScope.buildOrThrow());
+            cfaNodeToAstParametersInScope.buildOrThrow(),
+            ImmutableMap.copyOf(cfaNodeToCVariableBindings));
 
     return result;
   }
@@ -434,7 +438,8 @@ class CFABuilder extends ASTVisitor {
       ImmutableMap<String, CTypeDefDeclaration> typedefs,
       ImmutableMap<String, CSimpleDeclaration> globalVars,
       ImmutableMap.Builder<CFANode, Set<AVariableDeclaration>> cfaNodeToAstLocalVariablesInScope,
-      ImmutableMap.Builder<CFANode, Set<AParameterDeclaration>> cfaNodeToAstParametersInScope)
+      ImmutableMap.Builder<CFANode, Set<AParameterDeclaration>> cfaNodeToAstParametersInScope,
+      Map<CFANode, Map<String, CSimpleDeclaration>> cfaNodeToCVariableBindings)
       throws InterruptedException {
 
     FunctionScope localScope =
@@ -452,6 +457,7 @@ class CFABuilder extends ASTVisitor {
             checkBinding,
             cfaNodeToAstLocalVariablesInScope,
             cfaNodeToAstParametersInScope,
+            cfaNodeToCVariableBindings,
             unhandledAtomicOccurrences);
 
     declaration.accept(functionBuilder);

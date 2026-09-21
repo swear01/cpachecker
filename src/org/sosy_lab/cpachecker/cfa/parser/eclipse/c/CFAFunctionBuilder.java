@@ -187,6 +187,8 @@ class CFAFunctionBuilder extends ASTVisitor {
   ImmutableMap.Builder<CFANode, Set<AVariableDeclaration>> cfaNodeToAstLocalVariablesInScope;
   ImmutableMap.Builder<CFANode, Set<AParameterDeclaration>> cfaNodeToAstParametersInScope;
 
+  private final Map<CFANode, Map<String, CSimpleDeclaration>> cfaNodeToCVariableBindings;
+
   private boolean encounteredAsm = false;
 
   public CFAFunctionBuilder(
@@ -201,6 +203,7 @@ class CFAFunctionBuilder extends ASTVisitor {
       CheckBindingVisitor pCheckBinding,
       ImmutableMap.Builder<CFANode, Set<AVariableDeclaration>> pCfaNodeToAstLocalVariablesInScope,
       ImmutableMap.Builder<CFANode, Set<AParameterDeclaration>> pCfaNodeToAstParametersInScope,
+      Map<CFANode, Map<String, CSimpleDeclaration>> pCfaNodeToCVariableBindings,
       Set<FileLocation> pUnhandledAtomicOccurrences) {
     options = pOptions;
     logger = pLogger;
@@ -230,6 +233,7 @@ class CFAFunctionBuilder extends ASTVisitor {
     sideAssignmentStack = pSideAssignmentStack;
     cfaNodeToAstLocalVariablesInScope = pCfaNodeToAstLocalVariablesInScope;
     cfaNodeToAstParametersInScope = pCfaNodeToAstParametersInScope;
+    cfaNodeToCVariableBindings = pCfaNodeToCVariableBindings;
   }
 
   FunctionEntryNode getStartNode() {
@@ -994,7 +998,7 @@ class CFAFunctionBuilder extends ASTVisitor {
       }
 
       locStack.peek().addOutOfScopeVariables(scope.getVariablesOfMostLocalScope());
-      scope.leaveBlock();
+      leaveBlock(locStack.peek());
 
     } else if (statement instanceof IASTWhileStatement || statement instanceof IASTDoStatement) {
       CFANode prevNode = locStack.pop();
@@ -1045,9 +1049,15 @@ class CFAFunctionBuilder extends ASTVisitor {
     CFACreationUtils.addEdgeToCFA(edge, logger, options.showDeadCode());
   }
 
+  private void leaveBlock(CFANode pSuccessor) {
+    scope.leaveBlock();
+    cfaNodeToCVariableBindings.put(pSuccessor, scope.getVariableBindings());
+  }
+
   private void trackScopeInformation(CFANode pNode) {
     cfaNodeToAstLocalVariablesInScope.put(pNode, scope.getVariablesInScope());
     cfaNodeToAstParametersInScope.put(pNode, scope.getParameters());
+    cfaNodeToCVariableBindings.put(pNode, scope.getVariableBindings());
   }
 
   /**
@@ -1734,7 +1744,7 @@ class CFAFunctionBuilder extends ASTVisitor {
     }
 
     postLoopNode.addOutOfScopeVariables(scope.getVariablesOfMostLocalScope());
-    scope.leaveBlock();
+    leaveBlock(postLoopNode);
 
     // skip visiting children of loop, because loopbody was handled before
     return PROCESS_SKIP;
@@ -2292,7 +2302,7 @@ class CFAFunctionBuilder extends ASTVisitor {
     if (tempVar == null) {
       lastStatement.accept(this);
       locStack.peek().addOutOfScopeVariables(scope.getVariablesOfMostLocalScope());
-      scope.leaveBlock();
+      leaveBlock(locStack.peek());
       IASTFileLocation location = compoundExp.getFileLocation();
       blocks.add(
           new StatementBlock(
@@ -2347,7 +2357,7 @@ class CFAFunctionBuilder extends ASTVisitor {
             stmt.toASTString(), stmt.getFileLocation(), middleNode, stmt);
 
     lastNode.addOutOfScopeVariables(scope.getVariablesOfMostLocalScope());
-    scope.leaveBlock();
+    leaveBlock(lastNode);
 
     IASTFileLocation location = compoundExp.getFileLocation();
     blocks.add(

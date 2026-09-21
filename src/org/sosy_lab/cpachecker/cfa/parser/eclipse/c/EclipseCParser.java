@@ -466,6 +466,7 @@ class EclipseCParser implements CParser {
                   asts,
                   result.cfaNodeToAstLocalVariablesInScope().orElseThrow(),
                   result.cfaNodeToAstParametersInScope().orElseThrow(),
+                  result.cfaNodeToCVariableBindings().orElseThrow(),
                   FluentIterable.from(result.globalDeclarations())
                       .transform(Pair::getFirst)
                       .filter(AVariableDeclaration.class)

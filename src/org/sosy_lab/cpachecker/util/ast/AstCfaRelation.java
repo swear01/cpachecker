@@ -16,6 +16,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.errorprone.annotations.concurrent.LazyInit;
 import java.util.Comparator;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
@@ -25,6 +26,7 @@ import org.sosy_lab.cpachecker.cfa.ast.AParameterDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.AVariableDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.AbstractSimpleDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
+import org.sosy_lab.cpachecker.cfa.ast.c.CSimpleDeclaration;
 import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 
@@ -69,6 +71,7 @@ public final class AstCfaRelation {
   private final ImmutableMap<CFANode, Set<AVariableDeclaration>> cfaNodeToAstLocalVariablesInScope;
   private final ImmutableMap<CFANode, Set<AParameterDeclaration>> cfaNodeToAstParametersInScope;
   private final ImmutableSet<AVariableDeclaration> globalVariables;
+  private final ImmutableMap<CFANode, Map<String, CSimpleDeclaration>> cfaNodeToCVariableBindings;
 
   public AstCfaRelation(
       ImmutableSet<IfElement> pIfElements,
@@ -77,6 +80,7 @@ public final class AstCfaRelation {
       ImmutableSet<StatementElement> pStatementElements,
       ImmutableMap<CFANode, Set<AVariableDeclaration>> pCfaNodeToAstLocalVariablesInScope,
       ImmutableMap<CFANode, Set<AParameterDeclaration>> pCfaNodeToAstParametersVariablesInScope,
+      ImmutableMap<CFANode, Map<String, CSimpleDeclaration>> pCfaNodeToCVariableBindings,
       ImmutableSet<AVariableDeclaration> pGlobalVariables,
       ImmutableSortedSet<FileLocation> pExpressionLocations) {
     ifElements = pIfElements;
@@ -86,6 +90,7 @@ public final class AstCfaRelation {
     cfaNodeToAstLocalVariablesInScope = pCfaNodeToAstLocalVariablesInScope;
     cfaNodeToAstParametersInScope = pCfaNodeToAstParametersVariablesInScope;
     globalVariables = pGlobalVariables;
+    cfaNodeToCVariableBindings = pCfaNodeToCVariableBindings;
     expressionLocations = pExpressionLocations;
   }
 
@@ -342,6 +347,11 @@ public final class AstCfaRelation {
       }
       return Optional.empty();
     }
+  }
+
+  /** Returns the frontend's source-name bindings, excluding shadowed declarations. */
+  public Optional<Map<String, CSimpleDeclaration>> getCVariableBindings(CFANode pNode) {
+    return Optional.ofNullable(cfaNodeToCVariableBindings.get(pNode));
   }
 
   /**

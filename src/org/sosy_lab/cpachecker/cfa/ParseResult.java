@@ -13,6 +13,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.TreeMultimap;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.Set;
@@ -21,6 +22,7 @@ import org.sosy_lab.cpachecker.cfa.ast.AParameterDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.AVariableDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
 import org.sosy_lab.cpachecker.cfa.ast.acsl.util.SyntacticBlock;
+import org.sosy_lab.cpachecker.cfa.ast.c.CSimpleDeclaration;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.cfa.model.FunctionEntryNode;
 import org.sosy_lab.cpachecker.cfa.model.svlib.SvLibCfaMetadata;
@@ -47,6 +49,7 @@ public record ParseResult(
     Optional<List<SyntacticBlock>> blocks,
     Optional<ImmutableMap<CFANode, Set<AVariableDeclaration>>> cfaNodeToAstLocalVariablesInScope,
     Optional<ImmutableMap<CFANode, Set<AParameterDeclaration>>> cfaNodeToAstParametersInScope,
+    Optional<ImmutableMap<CFANode, Map<String, CSimpleDeclaration>>> cfaNodeToCVariableBindings,
     // Only relevant for SV-LIB scripts
     Optional<SvLibCfaMetadata> svLibCfaMetadata) {
 
@@ -60,6 +63,7 @@ public record ParseResult(
         pCfaNodes,
         pGlobalDeclarations,
         pFileNames,
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -85,6 +89,7 @@ public record ParseResult(
         Optional.of(pBlocks),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -99,6 +104,7 @@ public record ParseResult(
         pCfaNodes,
         pGlobalDeclarations,
         pFileNames,
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -123,12 +129,14 @@ public record ParseResult(
         blocks,
         cfaNodeToAstLocalVariablesInScope,
         cfaNodeToAstParametersInScope,
+        cfaNodeToCVariableBindings,
         svLibCfaMetadata);
   }
 
   public ParseResult withInScopeInformation(
       ImmutableMap<CFANode, Set<AVariableDeclaration>> pCfaNodeToAstLocalVariablesInScope,
-      ImmutableMap<CFANode, Set<AParameterDeclaration>> pCfaNodeToAstParametersInScope) {
+      ImmutableMap<CFANode, Set<AParameterDeclaration>> pCfaNodeToAstParametersInScope,
+      ImmutableMap<CFANode, Map<String, CSimpleDeclaration>> pCfaNodeToCVariableBindings) {
     Verify.verify(cfaNodeToAstLocalVariablesInScope.isEmpty());
     Verify.verify(cfaNodeToAstParametersInScope.isEmpty());
     return new ParseResult(
@@ -141,6 +149,7 @@ public record ParseResult(
         blocks,
         Optional.of(pCfaNodeToAstLocalVariablesInScope),
         Optional.of(pCfaNodeToAstParametersInScope),
+        Optional.of(pCfaNodeToCVariableBindings),
         svLibCfaMetadata);
   }
 
@@ -155,6 +164,7 @@ public record ParseResult(
         blocks,
         cfaNodeToAstLocalVariablesInScope,
         cfaNodeToAstParametersInScope,
+        cfaNodeToCVariableBindings,
         svLibCfaMetadata);
   }
 }

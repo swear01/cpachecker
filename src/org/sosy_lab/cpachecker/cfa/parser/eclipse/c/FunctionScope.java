@@ -28,6 +28,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.sosy_lab.common.collect.PathCopyingPersistentTreeMap;
+import org.sosy_lab.common.collect.PersistentMap;
 import org.sosy_lab.cpachecker.cfa.CProgramScope;
 import org.sosy_lab.cpachecker.cfa.ast.AParameterDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.AVariableDeclaration;
@@ -69,6 +71,8 @@ class FunctionScope extends AbstractScope {
   private ImmutableSet<AParameterDeclaration> parameterDeclarations = ImmutableSet.of();
   private final Deque<PersistentSet<AVariableDeclaration>> localVarsStackWitNewNames =
       new ArrayDeque<>();
+  private final Deque<PersistentMap<String, CSimpleDeclaration>> variableBindings =
+      new ArrayDeque<>();
   private boolean modifiedParameters = true;
 
   private CFunctionDeclaration currentFunction = null;
@@ -94,6 +98,7 @@ class FunctionScope extends AbstractScope {
 
     artificialScope = pArtificialScope;
     localVarsStackWitNewNames.add(PersistentSet.of());
+    variableBindings.add(PathCopyingPersistentTreeMap.copyOf(pGlobalVars));
 
     enterBlock();
   }
@@ -154,6 +159,7 @@ class FunctionScope extends AbstractScope {
     varsListWithNewNames.addLast(varsStackWitNewNames.getLast());
     // Optimizations to keep track of all variables which are in scope
     localVarsStackWitNewNames.addLast(localVarsStackWitNewNames.peekLast());
+    variableBindings.addLast(variableBindings.getLast());
   }
 
   public void leaveBlock() {
@@ -165,6 +171,7 @@ class FunctionScope extends AbstractScope {
     labelsNodeStack.removeLast();
     // Optimizations to keep track of all variables which are in scope
     localVarsStackWitNewNames.removeLast();
+    variableBindings.removeLast();
   }
 
   /** returns only the most local scope, i.e., the scope between the nearest curly brackets. */
@@ -199,6 +206,11 @@ class FunctionScope extends AbstractScope {
   /** returns all variables in the current scopes and caches them for further reuse. */
   public Set<AVariableDeclaration> getVariablesInScope() {
     return localVarsStackWitNewNames.peekLast();
+  }
+
+  /** Returns an immutable snapshot of the source names and their current lexical bindings. */
+  public Map<String, CSimpleDeclaration> getVariableBindings() {
+    return variableBindings.getLast();
   }
 
   /** returns all parameters in the current scopes and caches them for further reuse. */
@@ -317,6 +329,7 @@ class FunctionScope extends AbstractScope {
 
     vars.put(name, declaration);
     varsWithNewNames.put(declaration.getName(), declaration);
+    variableBindings.addLast(variableBindings.removeLast().putAndCopy(name, declaration));
 
     // Optimizations to keep track of all variables which are in scope
     if (declaration instanceof AVariableDeclaration pAVariableDeclaration) {
