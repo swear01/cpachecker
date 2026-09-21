@@ -834,12 +834,7 @@ public final class VGuideRefinementBridge {
             suppressCurrentPrecisionInjection
                 ? ImmutableList.of()
                 : selectReplayPredicates(lastValidation, lastRawStrings);
-        refinementOutcomeStore.recordLlmOutcome(
-            refinementIndex,
-            lastValidation.validated().size(),
-            toInject.size(),
-            pendingDump.rejections.size());
-        injected = markInjected(pendingDump.validated, toInject);
+        ImmutableList<ValidatedPredicate> actuallyInjected = ImmutableList.of();
         if (!suppressCurrentPrecisionInjection) {
           if (options.isReplaceLlmPredicates()) {
             var counts = removeLlmOwnedPrecision(reached);
@@ -847,14 +842,20 @@ public final class VGuideRefinementBridge {
             pendingDump.llmPrecisionRetained = counts.retained();
             llmOwnedKeys.clear();
           }
-          precisionInjector.inject(reached, toInject, analysisDumper != null);
-          for (ValidatedPredicate vp : toInject) {
+          actuallyInjected = precisionInjector.inject(reached, toInject, analysisDumper != null);
+          for (ValidatedPredicate vp : actuallyInjected) {
             if (vp != null && vp.loopHeadNode() != null && vp.formula() != null) {
               llmOwnedKeys.add(
                   llmOwnedKey(vp.loopHeadNode().getNodeNumber(), canonical(vp.formula())));
             }
           }
         }
+        refinementOutcomeStore.recordLlmOutcome(
+            refinementIndex,
+            lastValidation.validated().size(),
+            actuallyInjected.size(),
+            pendingDump.rejections.size());
+        injected = markInjected(pendingDump.validated, actuallyInjected);
       }
       refinementOutcomeStore.recordCompleted(refinementIndex, nativeDelta);
       pendingDump.refinementOutcomeLine = refinementOutcomeStore.completedLineFor(refinementIndex);
@@ -1402,13 +1403,13 @@ public final class VGuideRefinementBridge {
       List<VGuideAnalysisDumper.DumpValidatedPredicate> validated,
       ImmutableList<ValidatedPredicate> toInject) {
     List<VGuideAnalysisDumper.DumpValidatedPredicate> out = new ArrayList<>();
+    Set<Map.Entry<CFANode, BooleanFormula>> injectedKeys = new HashSet<>();
+    for (ValidatedPredicate v : toInject) {
+      injectedKeys.add(Map.entry(v.loopHeadNode(), v.formula()));
+    }
     for (VGuideAnalysisDumper.DumpValidatedPredicate p : validated) {
       boolean injected =
-          toInject.stream()
-              .anyMatch(
-                  v ->
-                      v.formula().equals(p.validated().formula())
-                          && v.loopHeadNode().equals(p.validated().loopHeadNode()));
+          injectedKeys.contains(Map.entry(p.validated().loopHeadNode(), p.validated().formula()));
       out.add(
           new VGuideAnalysisDumper.DumpValidatedPredicate(
               p.predicateId(),

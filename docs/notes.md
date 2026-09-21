@@ -1,5 +1,10 @@
 # Notes
 
+- **Predicate injection integrity (#273).** Initial and refinement precision deduplication uses full
+  loop-head/formula equality. Refinement outcomes, dump injection flags and LLM-owned precision
+  include only candidates whose abstraction predicate was successfully resolved and inserted.
+  Failed or non-precision candidates do not trigger precision merging or diagnostics on their own.
+
 - **Replay-only post-validation injection control (#226).** `vguide.replayInjectionMode=FULL`
   preserves default behavior; `SUPPRESS_ALL` and exact `EXCLUDE` selectors are accepted only with
   recorded-response replay. Selection occurs after validation and before the shared dynamic
