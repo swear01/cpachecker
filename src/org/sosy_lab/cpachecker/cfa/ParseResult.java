@@ -139,6 +139,7 @@ public record ParseResult(
       ImmutableMap<CFANode, Map<String, CSimpleDeclaration>> pCfaNodeToCVariableBindings) {
     Verify.verify(cfaNodeToAstLocalVariablesInScope.isEmpty());
     Verify.verify(cfaNodeToAstParametersInScope.isEmpty());
+    Verify.verify(cfaNodeToCVariableBindings.isEmpty());
     return new ParseResult(
         functions,
         cfaNodes,

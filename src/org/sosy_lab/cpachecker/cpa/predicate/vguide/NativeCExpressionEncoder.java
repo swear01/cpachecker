@@ -72,7 +72,7 @@ final class NativeCExpressionEncoder {
       if (declaration == null || !id.getName().equals(declaration.getName())) {
         throw new IllegalArgumentException("unresolved C identifier: " + id.getName());
       }
-      if (!visible.contains(declaration) || !bindings.containsValue(declaration)) {
+      if (!visible.contains(declaration)) {
         throw new IllegalArgumentException(
             "C identifier is unavailable or ambiguous at head: " + id.getName());
       }
