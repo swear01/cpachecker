@@ -29,6 +29,7 @@ import org.sosy_lab.cpachecker.cfa.CfaMutableNetwork;
 import org.sosy_lab.cpachecker.cfa.ast.AFunctionDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
 import org.sosy_lab.cpachecker.cfa.ast.c.CBinaryExpression;
+import org.sosy_lab.cpachecker.cfa.ast.c.CBinaryExpressionBuilder;
 import org.sosy_lab.cpachecker.cfa.ast.c.CExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CExpressionAssignmentStatement;
 import org.sosy_lab.cpachecker.cfa.ast.c.CIdExpression;
@@ -519,6 +520,13 @@ public class ArrayAbstraction {
 
     return TransformableLoop.findTransformableLoops(pCfa, pLogger).stream()
         .filter(loop -> !getLoopTransformableArrays(loop, transformableArrayMap).isEmpty())
+        .filter(
+            loop ->
+                getTransformableArraySubscriptExpressions(transformableArrayMap, loop)
+                    .asMap()
+                    .values()
+                    .stream()
+                    .allMatch(subscripts -> subscripts.size() == 1))
         .collect(ImmutableSet.toImmutableSet());
   }
 
@@ -619,19 +627,20 @@ public class ArrayAbstraction {
 
         var edgeEndpoints = pGraph.incidentNodes(pEdge);
 
-        if (optSubscriptValue.isPresent()) {
+        if (optSubscriptValue.isPresent()
+            || (pLoop.isEmpty()
+                && pEdge instanceof CStatementEdge statementEdge
+                && statementEdge.getStatement() instanceof CExpressionAssignmentStatement)) {
 
           CIdExpression indexIdExpression =
               new CIdExpression(
                   subscriptExpression.getFileLocation(), transformableArray.getIndexDeclaration());
           CExpression accessCondition =
-              new CBinaryExpression(
-                  subscriptExpression.getFileLocation(),
-                  subscriptExpression.getExpressionType(),
-                  subscriptExpression.getExpressionType(),
-                  subscriptExpression,
-                  indexIdExpression,
-                  CBinaryExpression.BinaryOperator.EQUALS);
+              new CBinaryExpressionBuilder(machineModel, pLogger)
+                  .buildBinaryExpressionUnchecked(
+                      subscriptExpression,
+                      indexIdExpression,
+                      CBinaryExpression.BinaryOperator.EQUALS);
           AFunctionDeclaration function = edgeEndpoints.nodeU().getFunction();
           CFANode newPredecessor = new CFANode(function);
 
