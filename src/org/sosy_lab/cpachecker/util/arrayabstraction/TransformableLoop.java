@@ -20,21 +20,30 @@ import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import org.sosy_lab.common.log.LogManager;
+import org.sosy_lab.common.log.LogManagerWithoutDuplicates;
 import org.sosy_lab.cpachecker.cfa.CFA;
+import org.sosy_lab.cpachecker.cfa.ast.c.CBinaryExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CDeclaration;
+import org.sosy_lab.cpachecker.cfa.ast.c.CIdExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CSimpleDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.c.CVariableDeclaration;
 import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.cfa.model.FunctionSummaryEdge;
+import org.sosy_lab.cpachecker.cfa.model.c.CAssumeEdge;
 import org.sosy_lab.cpachecker.cfa.model.c.CDeclarationEdge;
 import org.sosy_lab.cpachecker.cfa.model.c.CFunctionCallEdge;
 import org.sosy_lab.cpachecker.cfa.model.c.CFunctionEntryNode;
 import org.sosy_lab.cpachecker.cfa.types.MachineModel;
+import org.sosy_lab.cpachecker.cfa.types.c.CNumericTypes;
+import org.sosy_lab.cpachecker.cfa.types.c.CStorageClass;
+import org.sosy_lab.cpachecker.cpa.value.AbstractExpressionValueVisitor;
 import org.sosy_lab.cpachecker.cpa.value.ValueAnalysisState;
+import org.sosy_lab.cpachecker.cpa.value.type.NumericValue;
 import org.sosy_lab.cpachecker.util.CFATraversal;
 import org.sosy_lab.cpachecker.util.CFATraversal.CFAVisitor;
 import org.sosy_lab.cpachecker.util.CFATraversal.TraversalProcess;
+import org.sosy_lab.cpachecker.util.CFAUtils;
 import org.sosy_lab.cpachecker.util.LoopStructure;
 import org.sosy_lab.cpachecker.util.LoopStructure.Loop;
 import org.sosy_lab.cpachecker.util.dependencegraph.EdgeDefUseData;
@@ -265,11 +274,54 @@ final class TransformableLoop {
     MachineModel machineModel = pCfa.getMachineModel();
     ValueAnalysisState emptyValueAnalysisState = new ValueAnalysisState(machineModel);
     String functionName = loopNode.getFunctionName();
+    ValueAnalysisState loopConstants = new ValueAnalysisState(machineModel);
+    if (outgoingEdge instanceof CAssumeEdge assumeEdge
+        && assumeEdge.getExpression() instanceof CBinaryExpression comparison
+        && comparison.getOperand1() instanceof CIdExpression indexExpression
+        && indexExpression
+            .getExpressionType()
+            .getCanonicalType()
+            .equals(CNumericTypes.INT.getCanonicalType())
+        && comparison
+            .getCalculationType()
+            .getCanonicalType()
+            .equals(CNumericTypes.INT.getCanonicalType())) {
+      for (var id : CFAUtils.getIdExpressionsOfExpression(assumeEdge.getExpression())) {
+        if (!(id.getDeclaration() instanceof CVariableDeclaration declaration)
+            || declaration.isGlobal()
+            || declaration.getCStorageClass() != CStorageClass.AUTO
+            || declaration.getType().getCanonicalType().isVolatile()
+            || isAddressed(pCfa, declaration)
+            || countInnerLoopDefs(pLoop, declaration) != 0) {
+          continue;
+        }
+        var definitions = getIncomingDefs(incomingEdge, declaration);
+        if (definitions.size() == 1) {
+          var constant =
+              SpecialOperation.ConstantAssign.forEdge(
+                  definitions.iterator().next(),
+                  functionName,
+                  machineModel,
+                  pLogger,
+                  emptyValueAnalysisState);
+          if (constant.isPresent()) {
+            loopConstants.assignConstant(
+                MemoryLocation.forDeclaration(declaration),
+                AbstractExpressionValueVisitor.castCValue(
+                    new NumericValue(constant.orElseThrow().getValue()),
+                    declaration.getType(),
+                    machineModel,
+                    new LogManagerWithoutDuplicates(pLogger)),
+                declaration.getType());
+          }
+        }
+      }
+    }
 
     // find loop index by looking at the loop condition
     Optional<SpecialOperation.ConstantComparison> optLoopCondition =
         SpecialOperation.ConstantComparison.forEdge(
-            outgoingEdge, functionName, machineModel, pLogger, emptyValueAnalysisState);
+            outgoingEdge, functionName, machineModel, pLogger, loopConstants);
     if (optLoopCondition.isEmpty()) {
       return Optional.empty();
     }
