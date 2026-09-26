@@ -22,7 +22,6 @@ import org.sosy_lab.cpachecker.cfa.ast.c.CExpressionAssignmentStatement;
 import org.sosy_lab.cpachecker.cfa.ast.c.CIdExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CInitializer;
 import org.sosy_lab.cpachecker.cfa.ast.c.CInitializerExpression;
-import org.sosy_lab.cpachecker.cfa.ast.c.CIntegerLiteralExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CLeftHandSide;
 import org.sosy_lab.cpachecker.cfa.ast.c.CSimpleDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.c.CStatement;
@@ -33,6 +32,7 @@ import org.sosy_lab.cpachecker.cfa.model.c.CAssumeEdge;
 import org.sosy_lab.cpachecker.cfa.model.c.CDeclarationEdge;
 import org.sosy_lab.cpachecker.cfa.model.c.CStatementEdge;
 import org.sosy_lab.cpachecker.cfa.types.MachineModel;
+import org.sosy_lab.cpachecker.cfa.types.c.CSimpleType;
 import org.sosy_lab.cpachecker.cpa.value.ExpressionValueVisitor;
 import org.sosy_lab.cpachecker.cpa.value.ValueAnalysisState;
 import org.sosy_lab.cpachecker.cpa.value.type.NumericValue;
@@ -444,24 +444,20 @@ abstract class SpecialOperation {
 
             CExpression valueExpression = binaryExpression.getOperand2();
 
-            if (operator == CBinaryExpression.BinaryOperator.LESS_THAN) {
-              valueExpression =
-                  new CBinaryExpression(
-                      FileLocation.DUMMY,
-                      valueExpression.getExpressionType(),
-                      valueExpression.getExpressionType(),
-                      valueExpression,
-                      CIntegerLiteralExpression.ONE,
-                      CBinaryExpression.BinaryOperator.MINUS);
-            } else if (operator == CBinaryExpression.BinaryOperator.GREATER_THAN) {
-              valueExpression =
-                  new CBinaryExpression(
-                      FileLocation.DUMMY,
-                      valueExpression.getExpressionType(),
-                      valueExpression.getExpressionType(),
-                      valueExpression,
-                      CIntegerLiteralExpression.ONE,
-                      CBinaryExpression.BinaryOperator.PLUS);
+            if (!(binaryExpression.getCalculationType().getCanonicalType()
+                    instanceof CSimpleType calculationType)
+                || !calculationType.getType().isIntegerType()
+                || !(cIdExpression.getExpressionType().getCanonicalType()
+                    instanceof CSimpleType indexType)
+                || !indexType.getType().isIntegerType()) {
+              return Optional.empty();
+            }
+            BigInteger minIndex = pMachineModel.getMinimalIntegerValue(indexType);
+            BigInteger maxIndex = pMachineModel.getMaximalIntegerValue(indexType);
+            BigInteger minCalculation = pMachineModel.getMinimalIntegerValue(calculationType);
+            BigInteger maxCalculation = pMachineModel.getMaximalIntegerValue(calculationType);
+            if (minIndex.compareTo(minCalculation) < 0 || maxIndex.compareTo(maxCalculation) > 0) {
+              return Optional.empty();
             }
 
             Optional<BigInteger> optConstantValue =
@@ -480,6 +476,18 @@ abstract class SpecialOperation {
 
               CSimpleDeclaration variableDeclaration = cIdExpression.getDeclaration();
               BigInteger constantValue = optConstantValue.orElseThrow();
+              if (constantValue.compareTo(minCalculation) < 0
+                  || constantValue.compareTo(maxCalculation) > 0) {
+                return Optional.empty();
+              }
+              if (operator == CBinaryExpression.BinaryOperator.LESS_THAN) {
+                constantValue = constantValue.subtract(BigInteger.ONE);
+              } else if (operator == CBinaryExpression.BinaryOperator.GREATER_THAN) {
+                constantValue = constantValue.add(BigInteger.ONE);
+              }
+              if (constantValue.compareTo(minIndex) < 0 || constantValue.compareTo(maxIndex) > 0) {
+                return Optional.empty();
+              }
 
               return Optional.of(
                   new ConstantComparison(variableDeclaration, operationOperator, constantValue));

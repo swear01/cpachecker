@@ -1,5 +1,15 @@
 # Notes
 
+- **Global array-loop bounds (#281).** Array abstraction can resolve an unaddressed,
+  non-volatile global bound from its constant initializer when the CFA contains no other writes
+  to it, including writes in callees. Unknown returning calls prevent this optimization;
+  external calls are limited to modeled non-returning functions and parameterless
+  `__VERIFIER_nondet_int`. Declaration-type conversion still applies before evaluating the bound.
+  Mutable globals keep the original analysis path. This extends loop eligibility; it does not
+  add quantified predicates or change the LLM output format.
+  Strict comparisons normalize their endpoint with unbounded arithmetic and reject an endpoint
+  outside the index type's range, so `i < INT_MIN` cannot wrap into `i <= INT_MAX`.
+
 - **Predicate injection integrity (#273).** Initial and refinement precision deduplication uses full
   loop-head/formula equality. Refinement outcomes, dump injection flags and LLM-owned precision
   include only candidates whose abstraction predicate was successfully resolved and inserted.
