@@ -27,6 +27,7 @@ import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 import org.junit.Test;
@@ -35,6 +36,7 @@ import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
+import org.sosy_lab.cpachecker.cfa.types.MachineModel;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.arg.path.ARGPath;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
@@ -276,6 +278,8 @@ public class VGuideRepairFlowTest {
     Fixture(boolean repairEnabled, int samples) throws Exception {
       ContextPackBuilder context = mock(ContextPackBuilder.class);
       when(context.build(anyInt(), any(), any(), anyList(), anyList())).thenReturn(pack);
+      when(context.forNativePrompt(eq(pack), anyList())).thenReturn(pack);
+      when(context.forTracePrompt(eq(pack), anyList())).thenReturn(pack);
       when(path.asStatesList()).thenReturn(ImmutableList.<ARGState>of());
       when(wall.hasRemainingForLlm()).thenReturn(true);
       when(scheduler.shouldCall(anyInt(), anyInt())).thenReturn(true);
@@ -329,7 +333,7 @@ public class VGuideRepairFlowTest {
               mock(FormulaManagerView.class),
               heads,
               context,
-              new ProposalPromptBuilder(heads, false),
+              new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false),
               new PredicateBudgetResolver(),
               pipeline,
               mock(LoopHeadPrecisionInjector.class),

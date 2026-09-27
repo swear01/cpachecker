@@ -13,6 +13,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.ShutdownNotifier;
 import org.sosy_lab.common.collect.PathCopyingPersistentTreeMap;
 import org.sosy_lab.common.configuration.Configuration;
@@ -41,6 +42,7 @@ import org.sosy_lab.cpachecker.core.interfaces.StopOperator;
 import org.sosy_lab.cpachecker.core.interfaces.pcc.ProofChecker;
 import org.sosy_lab.cpachecker.core.reachedset.AggregatedReachedSets;
 import org.sosy_lab.cpachecker.core.specification.Specification;
+import org.sosy_lab.cpachecker.cpa.predicate.vguide.VGuideRefinementBridge;
 import org.sosy_lab.cpachecker.exceptions.CPAException;
 import org.sosy_lab.cpachecker.exceptions.CPATransferException;
 import org.sosy_lab.cpachecker.util.blocking.BlockedCFAReducer;
@@ -56,8 +58,6 @@ import org.sosy_lab.cpachecker.util.predicates.regions.RegionManager;
 import org.sosy_lab.cpachecker.util.predicates.regions.SymbolicRegionManager;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.cpachecker.util.predicates.smt.Solver;
-import org.checkerframework.checker.nullness.qual.Nullable;
-import org.sosy_lab.cpachecker.cpa.predicate.vguide.VGuideRefinementBridge;
 import org.sosy_lab.java_smt.api.SolverException;
 
 /** CPA that defines symbolic predicate abstraction. */
@@ -126,6 +126,7 @@ public class PredicateCPA
   private final Solver solver;
   private final PredicateCPAStatistics stats;
   private final CFA cfa;
+  private final Specification specification;
   private final AbstractionManager abstractionManager;
   private final PredicateAbstractionManager predAbsManager;
   private final PredicateCPAInvariantsManager invariantsManager;
@@ -150,6 +151,7 @@ public class PredicateCPA
     shutdownNotifier = pShutdownNotifier;
 
     cfa = pCfa;
+    this.specification = specification;
     blk = pBlk;
 
     if (enableBlockreducer) {
@@ -380,6 +382,10 @@ public class PredicateCPA
     } else {
       return false;
     }
+  }
+
+  Specification getSpecification() {
+    return specification;
   }
 
   public CFA getCfa() {

@@ -25,6 +25,7 @@ import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
 import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.cfa.model.c.CDeclarationEdge;
+import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractStateWithLocation;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
@@ -108,6 +109,44 @@ public final class ContextPackBuilder {
         itps,
         ceSummary,
         "");
+  }
+
+  ContextPack forTracePrompt(ContextPack pack, List<? extends AbstractState> trace) {
+    var blocks = LoopHeadBlockFormulaIndex.fromTrace(pack.blockFormulas(), trace);
+    return withHeads(
+        pack,
+        pack.loopHeads().stream()
+            .filter(head -> blocks.containsKey(head.node()))
+            .collect(ImmutableList.toImmutableList()));
+  }
+
+  ContextPack forNativePrompt(ContextPack pack, List<? extends AbstractState> trace) {
+    var contexts = LoopHeadBlockFormulaIndex.contextsFromTrace(pack.blockFormulas(), trace);
+    var relation = cfa.getAstCfaRelation();
+    ImmutableList<LoopHeadInfo> heads =
+        pack.loopHeads().stream()
+            .filter(head -> contexts.containsKey(head.node()))
+            .filter(
+                head ->
+                    relation != null
+                        && relation.getVariablesAndParametersInScope(head.node()).isPresent()
+                        && relation.getCVariableBindings(head.node()).isPresent())
+            .collect(ImmutableList.toImmutableList());
+    return withHeads(pack, heads);
+  }
+
+  private static ContextPack withHeads(ContextPack pack, ImmutableList<LoopHeadInfo> heads) {
+    return new ContextPack(
+        pack.refinementIndex(),
+        pack.sourceCode(),
+        pack.assertion(),
+        heads,
+        pack.varContract(),
+        pack.encodedVars(),
+        pack.blockFormulas(),
+        pack.interpolants(),
+        pack.ceSummary(),
+        pack.traceSummary());
   }
 
   /** Source-only UTF-16 budget, including file headers, newlines and omission markers. */

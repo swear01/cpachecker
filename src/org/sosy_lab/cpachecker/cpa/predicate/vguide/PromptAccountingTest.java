@@ -17,12 +17,13 @@ import com.google.common.collect.ImmutableSet;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Optional;
+import java.util.Set;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.log.LogManager;
+import org.sosy_lab.cpachecker.cfa.types.MachineModel;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 
@@ -127,7 +128,7 @@ public class PromptAccountingTest {
             "not rendered");
     for (boolean minimal : ImmutableList.of(false, true)) {
       ProposalPromptBuilder builder =
-          new ProposalPromptBuilder(new LoopHeadIndex(Optional.empty()), minimal);
+          new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, minimal);
       for (PromptProfile profile : PromptProfile.values()) {
         PromptMessages messages =
             builder.buildRepair(
@@ -141,6 +142,7 @@ public class PromptAccountingTest {
                 "native\n");
         assertThat(messages.userComponents().keySet())
             .containsExactly(
+                "verification",
                 "loop_heads",
                 "contract",
                 "source_hints",

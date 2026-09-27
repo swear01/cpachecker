@@ -836,7 +836,7 @@ public final class VGuideAnalysisDumper {
     ObjectNode o = JSON.createObjectNode();
     o.put("source", pack.sourceCode().length());
     o.put("contract", VarContractBuilder.formatForPrompt(pack.varContract()).length());
-    o.put("loop_heads", formatLoopHeadsChars(pack.loopHeads()));
+    o.put("loop_heads", LoopHeadIndex.formatForPrompt(pack.loopHeads()).length());
     o.put(
         "rules",
         ProposalPromptBuilder.rulesCharCount(
@@ -846,17 +846,6 @@ public final class VGuideAnalysisDumper {
     o.put("ce_summary", pack.ceSummary().length());
     o.put("trace", 0);
     return o;
-  }
-
-  private static int formatLoopHeadsChars(ImmutableList<LoopHeadInfo> heads) {
-    if (heads.isEmpty()) {
-      return "(no loop heads detected)\n".length();
-    }
-    int n = "LOOP HEADS (inject predicates here — use source variable names only):\n".length();
-    for (LoopHeadInfo h : heads) {
-      n += ("  " + h.label() + " (function " + h.functionName() + " loop head)\n").length();
-    }
-    return n;
   }
 
   public int nextPredicateId() {

@@ -7,6 +7,7 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
+import static org.sosy_lab.cpachecker.util.AbstractStates.extractStateByType;
 
 import java.util.HashMap;
 import java.util.List;
@@ -14,6 +15,8 @@ import java.util.Map;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractState;
+import org.sosy_lab.cpachecker.util.predicates.pathformula.PathFormula;
 import org.sosy_lab.java_smt.api.BooleanFormula;
 
 /**
@@ -35,5 +38,22 @@ final class LoopHeadBlockFormulaIndex {
       }
     }
     return map;
+  }
+
+  static Map<CFANode, PathFormula> contextsFromTrace(
+      BlockFormulas blockFormulas, List<? extends AbstractState> abstractionTrace) {
+    Map<CFANode, PathFormula> contexts = new HashMap<>();
+    for (int i = 0; i < Math.min(blockFormulas.getSize(), abstractionTrace.size()); i++) {
+      AbstractState state = abstractionTrace.get(i);
+      CFANode node = extractLocation(state);
+      if (node != null) {
+        PredicateAbstractState pas = extractStateByType(state, PredicateAbstractState.class);
+        contexts.remove(node);
+        if (pas != null) {
+          contexts.put(node, pas.getPathFormula());
+        }
+      }
+    }
+    return contexts;
   }
 }

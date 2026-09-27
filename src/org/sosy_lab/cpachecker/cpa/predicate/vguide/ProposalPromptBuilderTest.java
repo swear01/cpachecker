@@ -11,8 +11,9 @@ import static com.google.common.truth.Truth.assertThat;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import java.util.Optional;
+import java.util.Set;
 import org.junit.Test;
+import org.sosy_lab.cpachecker.cfa.types.MachineModel;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 
 public class ProposalPromptBuilderTest {
@@ -34,7 +35,7 @@ public class ProposalPromptBuilderTest {
             "");
     var budget = new PredicateBudget(8, 16);
     for (boolean minimal : new boolean[] {false, true}) {
-      var builder = new ProposalPromptBuilder(new LoopHeadIndex(Optional.empty()), minimal);
+      var builder = new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, minimal);
       var primary = builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
       var repair =
           builder.buildRepair(
@@ -51,8 +52,8 @@ public class ProposalPromptBuilderTest {
 
   @Test
   public void buildPrompt_usesSingleMaxOnlyMarginalSplitContract() {
-    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ProposalPromptBuilder builder =
+        new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -91,8 +92,8 @@ public class ProposalPromptBuilderTest {
 
   @Test
   public void buildPrompt_doesNotAnchorTaskSpecificFormulaExamples() {
-    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ProposalPromptBuilder builder =
+        new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -118,8 +119,7 @@ public class ProposalPromptBuilderTest {
 
   @Test
   public void minimalRepairPromptUsesSameCandidatePolicy() {
-    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, true);
+    ProposalPromptBuilder builder = new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, true);
     ContextPack pack =
         new ContextPack(
             1,
@@ -155,8 +155,8 @@ public class ProposalPromptBuilderTest {
 
   @Test
   public void fullPromptKeepsScopeRuleOutOfDefaultArm() {
-    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ProposalPromptBuilder builder =
+        new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -180,8 +180,8 @@ public class ProposalPromptBuilderTest {
 
   @Test
   public void arrayPromptUsesCanonicalSourceSyntax() {
-    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ProposalPromptBuilder builder =
+        new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -206,8 +206,8 @@ public class ProposalPromptBuilderTest {
 
   @Test
   public void cegarPromptUsesSsaContractAsOnlyVariableAuthority() {
-    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ProposalPromptBuilder builder =
+        new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -232,8 +232,8 @@ public class ProposalPromptBuilderTest {
 
   @Test
   public void sourceOnlyPromptScansFirstFunctionBodyDeclaration() {
-    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ProposalPromptBuilder builder =
+        new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false);
     ContextPack pack =
         new ContextPack(
             0,
@@ -261,8 +261,8 @@ public class ProposalPromptBuilderTest {
 
   @Test
   public void historyBlockInsertedWhenProvided() {
-    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ProposalPromptBuilder builder =
+        new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -289,8 +289,8 @@ public class ProposalPromptBuilderTest {
 
   @Test
   public void nativePredicateContextBlockInsertedWhenProvided() {
-    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ProposalPromptBuilder builder =
+        new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -306,19 +306,19 @@ public class ProposalPromptBuilderTest {
     PredicateBudget budget = new PredicateBudget(8, 16);
 
     PromptMessages without = builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
-    assertThat(without.user()).doesNotContain("NATIVE CEGAR PRECISION");
+    assertThat(without.user()).doesNotContain("NATIVE CONTEXT");
 
     PromptMessages with =
         builder.buildPrompt(
             pack, budget, PromptProfile.SAFE, 1, "", "", "[local N1 | native] (bvslt i n)\n");
-    assertThat(with.user()).contains("NATIVE CEGAR PRECISION (read-only)");
+    assertThat(with.user()).contains("NATIVE CONTEXT (read-only)");
     assertThat(with.user()).contains("[local N1 | native] (bvslt i n)");
   }
 
   @Test
   public void safeAndBugShareSourcePrefix() {
-    LoopHeadIndex loopHeads = new LoopHeadIndex(Optional.empty());
-    ProposalPromptBuilder builder = new ProposalPromptBuilder(loopHeads, false);
+    ProposalPromptBuilder builder =
+        new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false);
     ContextPack pack =
         new ContextPack(
             1,
@@ -340,8 +340,52 @@ public class ProposalPromptBuilderTest {
     assertThat(bug.user().indexOf(sourceMarker)).isEqualTo(sourceIdx);
     int sharedEnd = sourceIdx + sourceMarker.length() + pack.sourceCode().length();
     assertThat(safe.user().substring(0, sharedEnd)).isEqualTo(bug.user().substring(0, sharedEnd));
-    assertThat(safe.user()).contains("Target assertion:");
+    assertThat(safe.user()).contains("Source assertion:");
     assertThat(bug.user()).contains("Assertion (may FAIL");
     assertThat(bug.user()).contains("assertion FAILURE");
+  }
+
+  @Test
+  public void activePropertiesAndMachineMetadataAreSharedAndUnknownIsExplicit() {
+    var pack =
+        new ContextPack(
+            1,
+            "void reach_error(void);",
+            "x > 0",
+            ImmutableList.of(),
+            ImmutableMap.of(),
+            ImmutableSet.of(),
+            new BlockFormulas(ImmutableList.of()),
+            ImmutableList.of(),
+            "",
+            "");
+    var budget = new PredicateBudget(1, 16);
+    for (var model : MachineModel.values()) {
+      for (var property :
+          org.sosy_lab.cpachecker.core.specification.Property.CommonVerificationProperty.values()) {
+        var builder = new ProposalPromptBuilder(Set.of(property), model);
+        for (var profile : PromptProfile.values()) {
+          var primary = builder.buildPrompt(pack, budget, profile, 1);
+          var repair = builder.buildRepair(pack, ImmutableList.of("bad"), budget, profile, 2);
+          String expected = "Active verification properties: " + property + "\n";
+          assertThat(primary.user()).contains(expected);
+          assertThat(repair.user()).contains(expected);
+          assertThat(primary.user()).contains("Machine model: " + model);
+          assertThat(primary.user())
+              .contains(
+                  "signed int " + model.getSizeofInt() * model.getSizeofCharInBits() + " bits");
+          assertThat(primary.user())
+              .contains(
+                  "signed long long "
+                      + model.getSizeofLongLongInt() * model.getSizeofCharInBits()
+                      + " bits");
+        }
+      }
+    }
+    var unknown = new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32);
+    assertThat(unknown.buildPrompt(pack, budget, PromptProfile.SAFE, 1).user())
+        .contains("Active verification properties: unknown\n");
+    assertThat(unknown.buildPrompt(pack, budget, PromptProfile.SAFE, 1).system())
+        .doesNotContain("prefix c:");
   }
 }

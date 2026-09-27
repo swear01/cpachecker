@@ -215,6 +215,7 @@ public final class PredicateCPARefinerFactory {
               logger,
               shutdownNotifier,
               cfa,
+              predicateCpa.getSpecification(),
               loopStructure,
               solver,
               pfmgr,
