@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.util.List;
+import java.util.Set;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.sosy_lab.common.ShutdownNotifier;
@@ -40,6 +41,7 @@ import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractStateWithLocation;
 import org.sosy_lab.cpachecker.core.interfaces.Precision;
 import org.sosy_lab.cpachecker.core.reachedset.UnmodifiableReachedSet;
+import org.sosy_lab.cpachecker.core.specification.Specification;
 import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
 import org.sosy_lab.cpachecker.cpa.automaton.InvalidAutomatonException;
 import org.sosy_lab.cpachecker.cpa.composite.CompositeState;
@@ -357,6 +359,7 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
                 logger,
                 ShutdownNotifier.createDummy(),
                 nonC,
+                Specification.alwaysSatisfied(),
                 nonC.getLoopStructure(),
                 solver,
                 f.pfmgr(),
@@ -577,5 +580,76 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
     assertThat(missing.validation().validated()).isEmpty();
     assertThat(getOnlyElement(missing.rejections()).reason())
         .isEqualTo("native_c_context_unavailable");
+  }
+
+  @Test
+  public void promptHeadsUseTheSameLastNativeContextAndSourceScope() throws Exception {
+    Fixture f =
+        fixture("int main(void){int x=1; {int x=2; while(x<5){x++;}} while(x<9){x++;}return 0;}");
+    var heads = new LoopHeadIndex(f.cfa().getLoopStructure());
+    assertThat(heads.getLoopHeads()).hasSize(2);
+    var contextBuilder = new ContextPackBuilder(f.cfa(), heads, mgrv);
+    var base = pack(f, f.prefix(), f.prefix());
+    var full =
+        new ContextPack(
+            base.refinementIndex(),
+            base.sourceCode(),
+            base.assertion(),
+            heads.getLoopHeads(),
+            base.varContract(),
+            base.encodedVars(),
+            base.blockFormulas(),
+            base.interpolants(),
+            base.ceSummary(),
+            base.traceSummary());
+    var trace = List.of(state(f, f.prefix()), state(f, f.prefix()));
+    var prompt = contextBuilder.forNativePrompt(full, trace);
+    assertThat(prompt.loopHeads()).hasSize(1);
+    assertThat(getOnlyElement(prompt.loopHeads()).node()).isEqualTo(f.condition().getPredecessor());
+    assertThat(full.loopHeads()).hasSize(2);
+    var pipeline = new PredicateValidationPipeline(logger, solver, mgrv, false, nativeEncoder(f));
+    var onTrace = getOnlyElement(prompt.loopHeads());
+    var offTrace =
+        heads.getLoopHeads().stream()
+            .filter(h -> h.node() != onTrace.node())
+            .findFirst()
+            .orElseThrow();
+    var candidates =
+        LoopHeadCandidateParser.parse(
+            "{\"schema_version\":\"loop-head-candidate-v1\",\"candidates\":["
+                + "{\"loop_head\":\""
+                + onTrace.label()
+                + "\",\"predicate\":\"c:x<5\"},"
+                + "{\"loop_head\":\""
+                + offTrace.label()
+                + "\",\"predicate\":\"c:x<9\"}]}");
+    assertThat(candidates).hasSize(2);
+    var outcome = pipeline.validateCandidates(full, candidates, trace);
+    assertThat(outcome.validation().validated()).hasSize(1);
+    assertThat(getOnlyElement(outcome.rejections()).reason()).isEqualTo("head_not_on_trace");
+    assertThat(
+            mgrv.extractVariableNames(getOnlyElement(outcome.validation().validated()).formula()))
+        .containsExactly("main::x__1@2");
+    var missing = List.of(state(f, f.prefix()), new LocState(onTrace.node()));
+    assertThat(contextBuilder.forNativePrompt(full, missing).loopHeads()).isEmpty();
+    var rejected = pipeline.validateCandidates(full, candidates.subList(0, 1), missing);
+    assertThat(getOnlyElement(rejected.rejections()).reason())
+        .isEqualTo("native_c_context_unavailable");
+    var withoutScope = f.cfa().copyWithMetadata(f.cfa().getMetadata().withAstCfaRelation(null));
+    assertThat(
+            new ContextPackBuilder(withoutScope, heads, mgrv)
+                .forNativePrompt(full, trace)
+                .loopHeads())
+        .isEmpty();
+    var builder = new ProposalPromptBuilder(Set.of(), f.cfa().getMachineModel());
+    for (var profile : PromptProfile.values()) {
+      var message = builder.buildPrompt(prompt, new PredicateBudget(1, 16), profile, 1);
+      assertThat(message.user()).contains(onTrace.label() + " (function");
+      assertThat(message.user()).doesNotContain(offTrace.label() + " (function");
+      var repair =
+          builder.buildRepair(prompt, List.of("rejected"), new PredicateBudget(1, 16), profile, 1);
+      assertThat(repair.user()).contains(onTrace.label() + " (function");
+      assertThat(repair.user()).doesNotContain(offTrace.label() + " (function");
+    }
   }
 }

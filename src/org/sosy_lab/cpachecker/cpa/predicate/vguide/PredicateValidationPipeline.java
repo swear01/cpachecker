@@ -6,9 +6,6 @@
 
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
-import static org.sosy_lab.cpachecker.util.AbstractStates.extractLocation;
-import static org.sosy_lab.cpachecker.util.AbstractStates.extractStateByType;
-
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
@@ -23,7 +20,6 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
-import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractState;
 import org.sosy_lab.cpachecker.cpa.predicate.VocabularyGuide;
 import org.sosy_lab.cpachecker.exceptions.CPATransferException;
 import org.sosy_lab.cpachecker.exceptions.CParserException;
@@ -140,19 +136,8 @@ public final class PredicateValidationPipeline {
       }
       unversionedEncodedVars.add(bare);
     }
-    // Match the same last aligned occurrence as blockByNode, including missing contexts.
-    Map<CFANode, PathFormula> contextsByNode = new HashMap<>();
-    for (int i = 0; i < Math.min(pack.blockFormulas().getSize(), absTrace.size()); i++) {
-      AbstractState state = absTrace.get(i);
-      CFANode node = extractLocation(state);
-      if (node != null) {
-        PredicateAbstractState pas = extractStateByType(state, PredicateAbstractState.class);
-        contextsByNode.remove(node);
-        if (pas != null) {
-          contextsByNode.put(node, pas.getPathFormula());
-        }
-      }
-    }
+    Map<CFANode, PathFormula> contextsByNode =
+        LoopHeadBlockFormulaIndex.contextsFromTrace(pack.blockFormulas(), absTrace);
     Map<CFANode, Set<String>> blockVarsCache = new HashMap<>();
     Map<CFANode, List<BooleanFormula>> validatedAtHead = new HashMap<>();
     List<ValidatedPredicate> out = new ArrayList<>(primary.validation().validated());

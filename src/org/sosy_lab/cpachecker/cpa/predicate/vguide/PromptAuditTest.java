@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -28,6 +29,7 @@ import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.CFACreator;
 import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
+import org.sosy_lab.cpachecker.cfa.types.MachineModel;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractStateWithLocation;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
@@ -154,7 +156,8 @@ public class PromptAuditTest extends SolverViewBasedTest0 {
                   CounterexampleTraceInfo.infeasible(ImmutableList.of()),
                   argTrace,
                   argTrace);
-      ProposalPromptBuilder builder = new ProposalPromptBuilder(heads, false);
+      ProposalPromptBuilder builder =
+          new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false);
       PromptMessages messages =
           builder.buildRepair(
               pack,

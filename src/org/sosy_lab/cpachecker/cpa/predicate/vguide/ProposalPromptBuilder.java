@@ -9,11 +9,15 @@ package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 import com.google.common.collect.ImmutableMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.sosy_lab.cpachecker.cfa.types.MachineModel;
+import org.sosy_lab.cpachecker.core.specification.Property;
 
 /** Builds LLM prompts for spurious counterexamples (SAFE and BUG_HUNT profiles). */
 public final class ProposalPromptBuilder {
 
-  private final LoopHeadIndex loopHeadIndex;
+  private final String verificationContext;
 
   /**
    * Minimal prompt style (VGUIDE_PROMPT_MINIMAL=1). The minimal branches intentionally paraphrase
@@ -22,12 +26,29 @@ public final class ProposalPromptBuilder {
    */
   private final boolean minimalPrompt;
 
-  public ProposalPromptBuilder(LoopHeadIndex loopHeadIndex) {
-    this(loopHeadIndex, isMinimalPrompt());
+  public ProposalPromptBuilder(Set<Property> properties, MachineModel machineModel) {
+    this(properties, machineModel, isMinimalPrompt());
   }
 
-  ProposalPromptBuilder(LoopHeadIndex loopHeadIndex, boolean minimalPrompt) {
-    this.loopHeadIndex = loopHeadIndex;
+  ProposalPromptBuilder(
+      Set<Property> properties, MachineModel machineModel, boolean minimalPrompt) {
+    verificationContext =
+        "Active verification properties: "
+            + (properties.isEmpty()
+                ? "unknown"
+                : properties.stream()
+                    .map(Property::toString)
+                    .sorted()
+                    .collect(Collectors.joining("; ")))
+            + "\nMachine model: "
+            + machineModel
+            + "; signed int "
+            + machineModel.getSizeofInt() * machineModel.getSizeofCharInBits()
+            + " bits; signed long long "
+            + machineModel.getSizeofLongLongInt() * machineModel.getSizeofCharInBits()
+            + " bits.\n"
+            + "Source assertions are source context, not a replacement for the active"
+            + " properties.\n";
     this.minimalPrompt = minimalPrompt;
   }
 
@@ -166,7 +187,8 @@ public final class ProposalPromptBuilder {
       String refinementOutcomes,
       String nativePredicateContext) {
     return ImmutableMap.<String, String>builder()
-        .put("loop_heads", loopHeadIndex.formatForPrompt() + "\n")
+        .put("verification", verificationContext)
+        .put("loop_heads", LoopHeadIndex.formatForPrompt(pack.loopHeads()) + "\n")
         .put("contract", VarContractBuilder.formatForPrompt(pack.varContract()))
         .put(
             "source_hints",
@@ -192,8 +214,7 @@ public final class ProposalPromptBuilder {
   private String buildProfileBlock(ContextPack pack, PromptProfile profile, int refinementIndex) {
     String assertionLine = formatAssertionLine(pack.assertion(), profile);
     String role = profileRole(profile);
-    String task =
-        refinementIndex == 1 ? profileFirstTask(profile) : profileLaterTask(profile);
+    String task = refinementIndex == 1 ? profileFirstTask(profile) : profileLaterTask(profile);
     return assertionLine + "\n" + role + "\n" + task;
   }
 
@@ -204,7 +225,7 @@ public final class ProposalPromptBuilder {
     if (profile == PromptProfile.BUG_HUNT) {
       return "Assertion (may FAIL on real paths): " + assertion + "\n";
     }
-    return "Target assertion: " + assertion + "\n";
+    return "Source assertion: " + assertion + "\n";
   }
 
   private String profileRole(PromptProfile profile) {
@@ -222,21 +243,23 @@ public final class ProposalPromptBuilder {
   private String profileFirstTask(PromptProfile profile) {
     if (minimalPrompt) {
       return profile == PromptProfile.BUG_HUNT
-          ? "First spurious CE: propose predicates distinguishing states toward assertion FAILURE (not only safe-proofs).\n"
-          : "First spurious CE: propose loop-carried relations, guards, bounds, assertion variables.\n";
+          ? "First spurious CE: propose predicates distinguishing states toward assertion FAILURE"
+              + " (not only safe-proofs).\n"
+          : "First spurious CE: propose loop-carried relations, guards, bounds, assertion"
+              + " variables.\n";
     }
     if (profile == PromptProfile.BUG_HUNT) {
       return """
-          This is the FIRST spurious counterexample in this analysis.
-          Propose predicates that distinguish states that can lead to assertion failure.
-          Do NOT only propose predicates that imply the assertion always holds.
-          """;
+      This is the FIRST spurious counterexample in this analysis.
+      Propose predicates that distinguish states that can lead to assertion failure.
+      Do NOT only propose predicates that imply the assertion always holds.
+      """;
     }
     return """
-        This is the FIRST spurious counterexample in this analysis.
-        Propose abstraction predicates that help split similar spurious paths.
-        Focus on loop-carried relations, guards, bounds, and assertion variables.
-        """;
+    This is the FIRST spurious counterexample in this analysis.
+    Propose abstraction predicates that help split similar spurious paths.
+    Focus on loop-carried relations, guards, bounds, and assertion variables.
+    """;
   }
 
   private String profileLaterTask(PromptProfile profile) {
@@ -247,9 +270,9 @@ public final class ProposalPromptBuilder {
     }
     if (profile == PromptProfile.BUG_HUNT) {
       return """
-          Propose additional predicates toward assertion failure states shown in the CE summary.
-          Do NOT only strengthen predicates that imply the assertion always holds.
-          """;
+      Propose additional predicates toward assertion failure states shown in the CE summary.
+      Do NOT only strengthen predicates that imply the assertion always holds.
+      """;
     }
     return "Propose additional predicates to strengthen abstraction.\n";
   }
@@ -272,37 +295,36 @@ public final class ProposalPromptBuilder {
 
   private static String syntaxRules() {
     return """
-      RULES (violations are discarded automatically):
-      - Use ONLY source variable names from the contract / allowed list.
-      - SMT-LIB2 prefix notation; each predicate must start with '('.
-      - Prefer bitvector ops for 32-bit ints: bvsge, bvslt, bvsle, bvsgt, bvadd, bvsub, = .
-      - Do NOT use: |main::...|, @suffix, .def_N, select, store, quantifiers, bvshl/lshr/ashr.
-      - Arrays: write element reads in C syntax a[i] (a = array name from the contract,
-        i = index expression over source variables, e.g. b[4*j+1]); the system translates
-        them. NEVER write select/store or @versioned names yourself.
-      """;
+    RULES (violations are discarded automatically):
+    - Use ONLY source variable names from the contract / allowed list.
+    - SMT-LIB2 prefix notation; each predicate must start with '('.
+    - Prefer bitvector ops for 32-bit ints: bvsge, bvslt, bvsle, bvsgt, bvadd, bvsub, = .
+    - Do NOT use: |main::...|, @suffix, .def_N, select, store, quantifiers, bvshl/lshr/ashr.
+    - Arrays: write element reads in C syntax a[i] (a = array name from the contract,
+      i = index expression over source variables, e.g. b[4*j+1]); the system translates
+      them. NEVER write select/store or @versioned names yourself.
+    """;
   }
 
   private static String buildJsonContract(PredicateBudget budget) {
     return """
 
-        Output ONLY valid JSON (no markdown, no commentary):
-        {"schema_version":"loop-head-candidate-v1","candidates":[]}
-        - Every candidate MUST name a loop head from the LOOP HEADS list (\"N*\" label).
-        - Use \"loop_heads\":[...] only when the predicate is meaningful at every named head.
-        - Candidates without a loop head are discarded; Java never broadcasts predicates.
-        - role (optional): initiation, supporting, relational, or bound.
-        CANDIDATE POLICY (array order = priority, best first):
-        - Return at most %d candidates; an empty candidates array is valid. Stop when no new grounded split remains.
-        - Add a candidate only if it separates proof-relevant concrete or spurious abstract states at that head;
-          for nested loops, consider inherited outer-guard facts over variables unchanged there.
-        - Logically equivalent predicates and logical negations are the same split, including algebraic rewrites, swapped operands, and shifted integer bounds. Keep only the better-ranked representative.
-        - Do not enumerate syntax, constants, roles, or loop heads. Name multiple heads only when evidence
-          supports the predicate independently at every named head.
-        - A split may be initiation-only, exit-only, threshold, violation-state, or path-specific; it need not
-          hold at every loop-head visit.
-        """
+    Output ONLY valid JSON (no markdown, no commentary):
+    {"schema_version":"loop-head-candidate-v1","candidates":[]}
+    - Every candidate MUST name a loop head from the LOOP HEADS list (\"N*\" label).
+    - Use \"loop_heads\":[...] only when the predicate is meaningful at every named head.
+    - Candidates without a loop head are discarded; Java never broadcasts predicates.
+    - role (optional): initiation, supporting, relational, or bound.
+    CANDIDATE POLICY (array order = priority, best first):
+    - Return at most %d candidates; an empty candidates array is valid. Stop when no new grounded split remains.
+    - Add a candidate only if it separates proof-relevant concrete or spurious abstract states at that head;
+      for nested loops, consider inherited outer-guard facts over variables unchanged there.
+    - Logically equivalent predicates and logical negations are the same split, including algebraic rewrites, swapped operands, and shifted integer bounds. Keep only the better-ranked representative.
+    - Do not enumerate syntax, constants, roles, or loop heads. Name multiple heads only when evidence
+      supports the predicate independently at every named head.
+    - A split may be initiation-only, exit-only, threshold, violation-state, or path-specific; it need not
+      hold at every loop-head visit.
+    """
         .formatted(budget.maxPerCall());
   }
-
 }

@@ -40,6 +40,7 @@ import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.core.CPAcheckerResult.Result;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.core.interfaces.Precision;
+import org.sosy_lab.cpachecker.core.specification.Specification;
 import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
 import org.sosy_lab.cpachecker.cpa.arg.path.ARGPath;
@@ -202,6 +203,7 @@ public final class VGuideRefinementBridge {
       LogManager logger,
       ShutdownNotifier shutdownNotifier,
       CFA cfa,
+      Specification specification,
       Optional<LoopStructure> loopStructure,
       Solver solver,
       PathFormulaManager pfmgr,
@@ -225,7 +227,7 @@ public final class VGuideRefinementBridge {
         fmgr,
         loopHeads,
         new ContextPackBuilder(cfa, loopHeads, fmgr),
-        new ProposalPromptBuilder(loopHeads),
+        new ProposalPromptBuilder(specification.getProperties(), cfa.getMachineModel()),
         new PredicateBudgetResolver(),
         new PredicateValidationPipeline(
             logger,
@@ -556,6 +558,7 @@ public final class VGuideRefinementBridge {
         " max=",
         budget.maxPerCall());
 
+    ContextPack promptPack = contextPackBuilder.forNativePrompt(pack, abstractionStatesTrace);
     dump.ceSummaryInPrompt = pack.ceSummary();
     String promptKindBase = refinementIndex == 1 ? "first" : "later";
     long t0 = System.currentTimeMillis();
@@ -588,7 +591,7 @@ public final class VGuideRefinementBridge {
                 llmScheduler.getLlmCallsDone() + 1,
                 promptKindBase,
                 PromptProfile.SAFE,
-                pack,
+                promptPack,
                 budget,
                 budgetRes,
                 samplesPerProfile,
@@ -603,7 +606,7 @@ public final class VGuideRefinementBridge {
                 llmScheduler.getLlmCallsDone() + 1,
                 promptKindBase,
                 PromptProfile.BUG_HUNT,
-                pack,
+                promptPack,
                 budget,
                 budgetRes,
                 samplesPerProfile,
@@ -623,7 +626,7 @@ public final class VGuideRefinementBridge {
                 llmScheduler.getLlmCallsDone() + 1,
                 promptKindBase,
                 PromptProfile.SAFE,
-                pack,
+                promptPack,
                 budget,
                 budgetRes,
                 samplesPerProfile,
@@ -704,7 +707,7 @@ public final class VGuideRefinementBridge {
             options.isDualPromptMode() ? PromptProfile.BUG_HUNT : PromptProfile.SAFE;
         PromptMessages repairMessages =
             promptBuilder.buildRepair(
-                pack,
+                promptPack,
                 feedback,
                 repairBudget,
                 repairProfile,
@@ -735,7 +738,7 @@ public final class VGuideRefinementBridge {
                 repairProfile.callKindPrefix() + "_repair",
                 promptKindBase + "_repair_" + repairProfile.promptKindSuffix(),
                 repairMessages,
-                pack,
+                promptPack,
                 repairProfile,
                 repair,
                 rejectedTexts(repair.content()),

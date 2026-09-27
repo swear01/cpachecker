@@ -26,8 +26,7 @@ public final class LoopHeadIndex {
       for (Loop loop : loopStructure.orElseThrow().getAllLoops()) {
         for (CFANode head : loop.getLoopHeads()) {
           if (seen.add(head)) {
-            builder.add(
-                new LoopHeadInfo(head, "N" + head.getNodeNumber(), head.getFunctionName()));
+            builder.add(new LoopHeadInfo(head, "N" + head.getNodeNumber(), head.getFunctionName()));
           }
         }
       }
@@ -39,9 +38,9 @@ public final class LoopHeadIndex {
     return loopHeads;
   }
 
-  public String formatForPrompt() {
+  static String formatForPrompt(ImmutableList<LoopHeadInfo> loopHeads) {
     if (loopHeads.isEmpty()) {
-      return "(no loop heads detected)\n";
+      return "(no available loop heads)\n";
     }
     StringBuilder sb = new StringBuilder();
     sb.append("LOOP HEADS (inject predicates here — use source variable names only):\n");
