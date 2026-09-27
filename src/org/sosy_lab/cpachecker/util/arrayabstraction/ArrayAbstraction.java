@@ -51,6 +51,7 @@ import org.sosy_lab.cpachecker.cfa.types.MachineModel;
 import org.sosy_lab.cpachecker.cfa.types.c.CNumericTypes;
 import org.sosy_lab.cpachecker.cfa.types.c.CType;
 import org.sosy_lab.cpachecker.cpa.value.ValueAnalysisState;
+import org.sosy_lab.cpachecker.util.CFAUtils;
 import org.sosy_lab.cpachecker.util.arrayabstraction.ArrayAbstractionResult.Status;
 import org.sosy_lab.cpachecker.util.dependencegraph.EdgeDefUseData;
 import org.sosy_lab.cpachecker.util.states.MemoryLocation;
@@ -754,6 +755,14 @@ public class ArrayAbstraction {
     checkNotNull(pConfiguration);
     checkNotNull(pLogger);
     checkNotNull(pCfa);
+
+    for (CFAEdge edge : CFAUtils.allEdges(pCfa)) {
+      for (ArrayAccess access : ArrayAccess.findArrayAccesses(edge)) {
+        if (!(access.getArrayExpression() instanceof CIdExpression)) {
+          return ArrayAbstractionResult.createUnchanged(pCfa);
+        }
+      }
+    }
 
     CFA simplifiedCfa = createSimplifiedCfa(pConfiguration, pLogger, pCfa);
 
