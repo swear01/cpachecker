@@ -48,12 +48,12 @@ import org.sosy_lab.cpachecker.util.statistics.StatTimer;
  * <p>A delegate analysis is run on the abstracted program which is represented by a transformed CFA
  * that is derived from the specified original CFA.
  */
-@Options(prefix = "arrayAbstraction")
+@Options
 public final class ArrayAbstractionAlgorithm extends NestingAlgorithm {
 
   @Option(
       secure = true,
-      name = "delegateAnalysis",
+      name = "arrayAbstraction.delegateAnalysis",
       description =
           "Configuration file path of the delegate analysis running on the transformed program.")
   @FileOption(FileOption.Type.REQUIRED_INPUT_FILE)
@@ -61,13 +61,13 @@ public final class ArrayAbstractionAlgorithm extends NestingAlgorithm {
 
   @Option(
       secure = true,
-      name = "allowImprecision",
+      name = "arrayAbstraction.allowImprecision",
       description = "Whether to allow imprecise array abstraction that may lead to false alarms.")
   private boolean allowImprecision = false;
 
   @Option(
       secure = true,
-      name = "checkCounterexamples",
+      name = "arrayAbstraction.checkCounterexamples",
       description =
           "Use a second delegate analysis run to check counterexamples on the original program that"
               + " contains (non-abstracted) arrays for imprecise array abstractions.")
@@ -75,29 +75,35 @@ public final class ArrayAbstractionAlgorithm extends NestingAlgorithm {
 
   @Option(
       secure = true,
-      name = "cfa.dot.export",
+      name = "arrayAbstraction.cfa.dot.export",
       description = "Whether to export the CFA with abstracted arrays as DOT file.")
   private boolean exportDotTransformedCfa = true;
 
   @Option(
       secure = true,
-      name = "cfa.dot.file",
+      name = "arrayAbstraction.cfa.dot.file",
       description = "DOT file path for CFA with abstracted arrays.")
   @FileOption(FileOption.Type.OUTPUT_FILE)
   private Path exportDotTransformedCfaFile = Path.of("cfa-abstracted-arrays.dot");
 
   @Option(
       secure = true,
-      name = "cfa.c.export",
+      name = "arrayAbstraction.cfa.c.export",
       description = "Whether to export the CFA with abstracted arrays as C source file.")
   private boolean exportCTransformedCfa = true;
 
   @Option(
       secure = true,
-      name = "cfa.c.file",
+      name = "arrayAbstraction.cfa.c.file",
       description = "C source file path for CFA with abstracted arrays.")
   @FileOption(FileOption.Type.OUTPUT_FILE)
   private Path exportCTransformedCfaFile = Path.of("abstracted-arrays.c");
+
+  @Option(
+      secure = true,
+      name = "analysis.stopAfterError",
+      description = "stop after the first error has been found")
+  private boolean stopAfterError = true;
 
   private final ShutdownManager shutdownManager;
   private final ArrayAbstractionAlgorithmStatistics statistics;
@@ -166,14 +172,19 @@ public final class ArrayAbstractionAlgorithm extends NestingAlgorithm {
     Algorithm algorithm = delegate.algorithm();
     ReachedSet reached = delegate.reached();
 
-    AlgorithmStatus status = algorithm.run(reached);
-
-    while (reached.hasWaitingState()) {
-      status = algorithm.run(reached);
-    }
+    AlgorithmStatus status = runDelegateAlgorithm(algorithm, reached);
 
     pForwardingReachedSet.setDelegate(reached);
 
+    return status;
+  }
+
+  AlgorithmStatus runDelegateAlgorithm(Algorithm pAlgorithm, ReachedSet pReached)
+      throws CPAException, InterruptedException {
+    AlgorithmStatus status = AlgorithmStatus.SOUND_AND_PRECISE;
+    do {
+      status = status.update(pAlgorithm.run(pReached));
+    } while (!stopAfterError && pReached.hasWaitingState());
     return status;
   }
 
