@@ -603,7 +603,9 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
             base.ceSummary(),
             base.traceSummary());
     var trace = List.of(state(f, f.prefix()), state(f, f.prefix()));
-    var prompt = contextBuilder.forNativePrompt(full, trace);
+    var prompt = contextBuilder.forTracePrompt(full, trace);
+    assertThat(contextBuilder.forNativePrompt(full, trace).loopHeads())
+        .containsExactlyElementsIn(prompt.loopHeads());
     assertThat(prompt.loopHeads()).hasSize(1);
     assertThat(getOnlyElement(prompt.loopHeads()).node()).isEqualTo(f.condition().getPredecessor());
     assertThat(full.loopHeads()).hasSize(2);
@@ -650,6 +652,56 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
           builder.buildRepair(prompt, List.of("rejected"), new PredicateBudget(1, 16), profile, 1);
       assertThat(repair.user()).contains(onTrace.label() + " (function");
       assertThat(repair.user()).doesNotContain(offTrace.label() + " (function");
+    }
+  }
+
+  @Test
+  public void missingNativeContextKeepsAdvertisedAndAcceptedSmtHead() throws Exception {
+    Fixture f = fixture("int main(void){int x=0; while(x<3){x++;}return 0;}");
+    var heads = new LoopHeadIndex(f.cfa().getLoopStructure());
+    var contextBuilder = new ContextPackBuilder(f.cfa(), heads, mgrv);
+    var full = pack(f, f.prefix(), f.prefix());
+    var trace = List.of(state(f, f.prefix()), new LocState(f.condition().getPredecessor()));
+    var prompt = contextBuilder.forTracePrompt(full, trace);
+    var nativePack = contextBuilder.forNativePrompt(full, trace);
+    assertThat(prompt.loopHeads()).containsExactlyElementsIn(full.loopHeads());
+    assertThat(nativePack.loopHeads()).isEmpty();
+    var candidates =
+        ImmutableList.<LoopHeadCandidate>builder()
+            .addAll(response(f, "c: x<3"))
+            .addAll(response(f, "(bvslt x (_ bv4 32))"))
+            .build();
+    var outcome =
+        new PredicateValidationPipeline(logger, solver, mgrv, false, nativeEncoder(f))
+            .validateCandidates(full, candidates, trace);
+    assertThat(outcome.validation().validated()).hasSize(1);
+    assertThat(getOnlyElement(outcome.rejections()).reason())
+        .isEqualTo("native_c_context_unavailable");
+    var builder = new ProposalPromptBuilder(Set.of(), f.cfa().getMachineModel());
+    String nativeContext = ProposalPromptBuilder.nativeHeadContext(nativePack);
+    for (var profile : PromptProfile.values()) {
+      var message =
+          builder.buildPrompt(
+              prompt, new PredicateBudget(1, 16), profile, 1, "", "", nativeContext);
+      var repair =
+          builder.buildRepair(
+              prompt,
+              List.of("rejected"),
+              new PredicateBudget(1, 16),
+              profile,
+              1,
+              "",
+              "",
+              nativeContext);
+      for (var generated : List.of(message, repair)) {
+        assertThat(generated.user())
+            .contains(getOnlyElement(prompt.loopHeads()).label() + " (function");
+        assertThat(generated.user()).contains("Native-C eligible loop heads");
+        assertThat(generated.user()).contains("(no available loop heads)");
+        assertThat(generated.user()).contains("use untagged SMT-LIB2");
+        assertThat(generated.system())
+            .contains("only a head in the Native-C eligible loop heads list");
+      }
     }
   }
 }

@@ -306,12 +306,12 @@ public class ProposalPromptBuilderTest {
     PredicateBudget budget = new PredicateBudget(8, 16);
 
     PromptMessages without = builder.buildPrompt(pack, budget, PromptProfile.SAFE, 1);
-    assertThat(without.user()).doesNotContain("NATIVE CEGAR PRECISION");
+    assertThat(without.user()).doesNotContain("NATIVE CONTEXT");
 
     PromptMessages with =
         builder.buildPrompt(
             pack, budget, PromptProfile.SAFE, 1, "", "", "[local N1 | native] (bvslt i n)\n");
-    assertThat(with.user()).contains("NATIVE CEGAR PRECISION (read-only)");
+    assertThat(with.user()).contains("NATIVE CONTEXT (read-only)");
     assertThat(with.user()).contains("[local N1 | native] (bvslt i n)");
   }
 

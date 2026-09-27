@@ -279,6 +279,7 @@ public class VGuideRepairFlowTest {
       ContextPackBuilder context = mock(ContextPackBuilder.class);
       when(context.build(anyInt(), any(), any(), anyList(), anyList())).thenReturn(pack);
       when(context.forNativePrompt(eq(pack), anyList())).thenReturn(pack);
+      when(context.forTracePrompt(eq(pack), anyList())).thenReturn(pack);
       when(path.asStatesList()).thenReturn(ImmutableList.<ARGState>of());
       when(wall.hasRemainingForLlm()).thenReturn(true);
       when(scheduler.shouldCall(anyInt(), anyInt())).thenReturn(true);

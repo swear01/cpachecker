@@ -111,6 +111,15 @@ public final class ContextPackBuilder {
         "");
   }
 
+  ContextPack forTracePrompt(ContextPack pack, List<? extends AbstractState> trace) {
+    var blocks = LoopHeadBlockFormulaIndex.fromTrace(pack.blockFormulas(), trace);
+    return withHeads(
+        pack,
+        pack.loopHeads().stream()
+            .filter(head -> blocks.containsKey(head.node()))
+            .collect(ImmutableList.toImmutableList()));
+  }
+
   ContextPack forNativePrompt(ContextPack pack, List<? extends AbstractState> trace) {
     var contexts = LoopHeadBlockFormulaIndex.contextsFromTrace(pack.blockFormulas(), trace);
     var relation = cfa.getAstCfaRelation();
@@ -123,6 +132,10 @@ public final class ContextPackBuilder {
                         && relation.getVariablesAndParametersInScope(head.node()).isPresent()
                         && relation.getCVariableBindings(head.node()).isPresent())
             .collect(ImmutableList.toImmutableList());
+    return withHeads(pack, heads);
+  }
+
+  private static ContextPack withHeads(ContextPack pack, ImmutableList<LoopHeadInfo> heads) {
     return new ContextPack(
         pack.refinementIndex(),
         pack.sourceCode(),

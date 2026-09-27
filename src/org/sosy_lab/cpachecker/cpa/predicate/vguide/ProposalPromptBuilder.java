@@ -52,6 +52,13 @@ public final class ProposalPromptBuilder {
     this.minimalPrompt = minimalPrompt;
   }
 
+  static String nativeHeadContext(ContextPack nativePack) {
+    return "Native-C eligible loop heads (c: predicates may name only these):\n"
+        + LoopHeadIndex.formatForPrompt(nativePack.loopHeads())
+        + "\nIf no native-C head is available, use untagged SMT-LIB2 predicates at the"
+        + " listed trace heads under the source-variable contract.\n";
+  }
+
   static boolean isMinimalPrompt() {
     String v = System.getenv("VGUIDE_PROMPT_MINIMAL");
     if (v == null) {
@@ -147,7 +154,7 @@ public final class ProposalPromptBuilder {
     if (hasTraceContext) {
       return "You help a CEGAR verifier. Propose abstraction splits, not assumed invariants.\n"
           + "Use the predicate string prefix c: followed by ONE side-effect-free C"
-          + " expression.\n"
+          + " expression, naming only a head in the Native-C eligible loop heads list.\n"
           + "Use actual source names visible at each named loop head. The native C encoder"
           + " handles declared types, integer promotions and array/pointer reads.\n"
           + "No &&, ||, ?:, assignment, increment/decrement, calls, declarations, preprocessing, or"
@@ -204,7 +211,7 @@ public final class ProposalPromptBuilder {
             optionalBlock("\nREFINEMENT PROGRESS (read-only):\n", refinementOutcomes))
         .put(
             "native_precision",
-            optionalBlock("\nNATIVE CEGAR PRECISION (read-only):\n", nativePredicateContext));
+            optionalBlock("\nNATIVE CONTEXT (read-only):\n", nativePredicateContext));
   }
 
   private static String optionalBlock(String heading, String text) {

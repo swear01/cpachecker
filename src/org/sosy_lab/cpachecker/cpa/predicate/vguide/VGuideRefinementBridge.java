@@ -558,7 +558,7 @@ public final class VGuideRefinementBridge {
         " max=",
         budget.maxPerCall());
 
-    ContextPack promptPack = contextPackBuilder.forNativePrompt(pack, abstractionStatesTrace);
+    ContextPack promptPack = contextPackBuilder.forTracePrompt(pack, abstractionStatesTrace);
     dump.ceSummaryInPrompt = pack.ceSummary();
     String promptKindBase = refinementIndex == 1 ? "first" : "later";
     long t0 = System.currentTimeMillis();
@@ -576,11 +576,15 @@ public final class VGuideRefinementBridge {
       }
       String refinementOutcomeText =
           options.isRefinementOutcomeContextEnabled() ? refinementOutcomeStore.buildContext() : "";
-      String nativeContextText = "";
+      String nativeContextText =
+          ProposalPromptBuilder.nativeHeadContext(
+              contextPackBuilder.forNativePrompt(pack, abstractionStatesTrace));
       if (options.isNativePredicateContextEnabled()) {
         dump.nativeContext = buildNativeContext(reachedBefore, pack);
         if (dump.nativeContext != null) {
-          nativeContextText = NativePredicateContextBuilder.format(dump.nativeContext);
+          nativeContextText +=
+              "\nNATIVE CEGAR PRECISION (read-only):\n"
+                  + NativePredicateContextBuilder.format(dump.nativeContext);
         }
       }
 
