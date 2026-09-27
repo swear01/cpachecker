@@ -144,4 +144,60 @@ public class ArrayAbstractionTest {
     assertThat(result.getTransformedLoops()).hasSize(2);
     assertThat(result.getTransformedCfa().getLoopStructure().orElseThrow().getAllLoops()).isEmpty();
   }
+
+  private String globalBoundProgram(String declaration, String before, String body) {
+    return "extern void abort(void); extern int __VERIFIER_nondet_int(void); "
+        + "void check(int v){if(v<0)abort();}"
+        + declaration
+        + "; int main(void){int a[100];int i;"
+        + before
+        + "for(i=0;i<N;i++){a[i]=__VERIFIER_nondet_int();"
+        + body
+        + "}for(i=0;i<N;i++){check(a[i]);}return 0;}";
+  }
+
+  @Test
+  public void recognizesUnchangedGlobalBound() throws Exception {
+    var result = transform(globalBoundProgram("int N=100", "", ""));
+    assertThat(result.getStatus()).isEqualTo(ArrayAbstractionResult.Status.PRECISE);
+    assertThat(result.getTransformedLoops()).hasSize(2);
+  }
+
+  @Test
+  public void doesNotFreezeMutableGlobalBounds() throws Exception {
+    for (String source :
+        new String[] {
+          globalBoundProgram("int N=100", "N=50;", ""),
+          globalBoundProgram("int N=100", "", "N--;"),
+          globalBoundProgram("int N=100;void change(void){N=50;}", "change();", ""),
+          globalBoundProgram("int N=100;void change(void){N=50;}", "", "change();"),
+          globalBoundProgram("int N=100", "int *p=&N;*p=50;", ""),
+          globalBoundProgram("volatile int N=100", "", ""),
+          globalBoundProgram("int N=100;extern void change(void)", "change();", ""),
+          globalBoundProgram("int N=100;extern void change(void)", "", "change();")
+        }) {
+      assertThat(transform(source).getStatus()).isEqualTo(ArrayAbstractionResult.Status.UNCHANGED);
+    }
+  }
+
+  @Test
+  public void preservesNarrowingOfGlobalBound() throws Exception {
+    var result = transform(globalBoundProgram("unsigned char N=260", "", ""));
+    assertThat(result.getStatus()).isEqualTo(ArrayAbstractionResult.Status.PRECISE);
+    assertThat(result.getTransformedLoops()).hasSize(2);
+    for (var loop : result.getTransformedLoops()) {
+      assertThat(loop.getIndex().getComparisonOperation().getValue())
+          .isEqualTo(java.math.BigInteger.valueOf(3));
+    }
+  }
+
+  @Test
+  public void doesNotWrapStrictComparisonBounds() throws Exception {
+    assertThat(transform(globalBoundProgram("int N=(-2147483647-1)", "", "")).getStatus())
+        .isEqualTo(ArrayAbstractionResult.Status.UNCHANGED);
+    assertThat(
+            transform(globalBoundProgram("int N=2147483647", "", "").replace("i<N;i++", "i>N;i--"))
+                .getStatus())
+        .isEqualTo(ArrayAbstractionResult.Status.UNCHANGED);
+  }
 }

@@ -24,6 +24,7 @@ import org.sosy_lab.common.log.LogManagerWithoutDuplicates;
 import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.ast.c.CBinaryExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CDeclaration;
+import org.sosy_lab.cpachecker.cfa.ast.c.CFunctionCall;
 import org.sosy_lab.cpachecker.cfa.ast.c.CIdExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CSimpleDeclaration;
 import org.sosy_lab.cpachecker.cfa.ast.c.CVariableDeclaration;
@@ -34,6 +35,7 @@ import org.sosy_lab.cpachecker.cfa.model.c.CAssumeEdge;
 import org.sosy_lab.cpachecker.cfa.model.c.CDeclarationEdge;
 import org.sosy_lab.cpachecker.cfa.model.c.CFunctionCallEdge;
 import org.sosy_lab.cpachecker.cfa.model.c.CFunctionEntryNode;
+import org.sosy_lab.cpachecker.cfa.model.c.CStatementEdge;
 import org.sosy_lab.cpachecker.cfa.types.MachineModel;
 import org.sosy_lab.cpachecker.cfa.types.c.CNumericTypes;
 import org.sosy_lab.cpachecker.cfa.types.c.CStorageClass;
@@ -248,6 +250,31 @@ final class TransformableLoop {
         .contains(pVariableDeclaration.getQualifiedName());
   }
 
+  private static boolean isUnchangedGlobal(CFA pCfa, CVariableDeclaration pDeclaration) {
+    var location = MemoryLocation.forDeclaration(pDeclaration);
+    var extractor = EdgeDefUseData.createExtractor(false);
+    for (CFAEdge edge : pCfa.edges()) {
+      if (extractor.extract(edge).getDefs().contains(location)
+          && !(edge instanceof CDeclarationEdge declarationEdge
+              && declarationEdge.getDeclaration().equals(pDeclaration))) {
+        return false;
+      }
+      if (edge instanceof CStatementEdge statementEdge
+          && statementEdge.getStatement() instanceof CFunctionCall call) {
+        var expression = call.getFunctionCallExpression();
+        var function = expression.getDeclaration();
+        if (function == null
+            || (!pCfa.getAllFunctionNames().contains(function.getName())
+                && !function.doesNotReturn()
+                && !(function.getName().equals("__VERIFIER_nondet_int")
+                    && expression.getParameterExpressions().isEmpty()))) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   private static Optional<TransformableLoop> forLoop(
       CFA pCfa, LogManager pLogger, LoopStructure.Loop pLoop) {
 
@@ -288,10 +315,10 @@ final class TransformableLoop {
             .equals(CNumericTypes.INT.getCanonicalType())) {
       for (var id : CFAUtils.getIdExpressionsOfExpression(assumeEdge.getExpression())) {
         if (!(id.getDeclaration() instanceof CVariableDeclaration declaration)
-            || declaration.isGlobal()
             || declaration.getCStorageClass() != CStorageClass.AUTO
             || declaration.getType().getCanonicalType().isVolatile()
             || isAddressed(pCfa, declaration)
+            || (declaration.isGlobal() && !isUnchangedGlobal(pCfa, declaration))
             || countInnerLoopDefs(pLoop, declaration) != 0) {
           continue;
         }
