@@ -13,6 +13,8 @@ import static com.google.common.truth.Truth.assertThat;
 import org.junit.Test;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.CFA;
+import org.sosy_lab.cpachecker.cfa.ast.c.CIdExpression;
+import org.sosy_lab.cpachecker.util.CFAUtils;
 import org.sosy_lab.cpachecker.util.arrayabstraction.ArrayAbstractionResult.Status;
 import org.sosy_lab.cpachecker.util.test.TestDataTools;
 
@@ -32,6 +34,29 @@ public class ArrayAbstractionUnsupportedBaseTest {
           "int a[2]; int *p=a; for (int i=0; i<2; i++) { a[i]=0; p[i]=1; }" + " return a[1];",
         }) {
       CFA cfa = TestDataTools.makeCFA("int main() {" + body + "}");
+      ArrayAbstractionResult result = transform(cfa);
+      assertThat(result.getStatus()).isEqualTo(Status.UNCHANGED);
+      assertThat(result.getTransformedCfa()).isSameInstanceAs(cfa);
+      assertThat(result.getTransformedArrays()).isEmpty();
+      assertThat(result.getTransformedLoops()).isEmpty();
+    }
+  }
+
+  @Test
+  public void unresolvedCallsPreserveOriginalCfa() throws Exception {
+    for (String call : new String[] {"unknown(a);", "int x = unknown(a);", "int x = unknown();"}) {
+      CFA cfa =
+          TestDataTools.makeCFA(
+              "int a[2]; int main() { for (int i=0; i<2; i++) { a[i]=0; }"
+                  + call
+                  + "return a[1]; }");
+      assertThat(
+              CFAUtils.allEdges(cfa)
+                  .transformAndConcat(CFAUtils::getAstNodesFromCfaEdge)
+                  .transformAndConcat(CFAUtils::traverseRecursively)
+                  .filter(CIdExpression.class)
+                  .anyMatch(id -> id.getDeclaration() == null))
+          .isTrue();
       ArrayAbstractionResult result = transform(cfa);
       assertThat(result.getStatus()).isEqualTo(Status.UNCHANGED);
       assertThat(result.getTransformedCfa()).isSameInstanceAs(cfa);

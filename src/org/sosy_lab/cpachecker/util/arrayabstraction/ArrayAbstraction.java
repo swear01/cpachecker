@@ -10,6 +10,7 @@ package org.sosy_lab.cpachecker.util.arrayabstraction;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -757,6 +758,12 @@ public class ArrayAbstraction {
     checkNotNull(pCfa);
 
     for (CFAEdge edge : CFAUtils.allEdges(pCfa)) {
+      if (FluentIterable.from(CFAUtils.getAstNodesFromCfaEdge(edge))
+          .transformAndConcat(CFAUtils::traverseRecursively)
+          .filter(CIdExpression.class)
+          .anyMatch(id -> id.getDeclaration() == null)) {
+        return ArrayAbstractionResult.createUnchanged(pCfa);
+      }
       for (ArrayAccess access : ArrayAccess.findArrayAccesses(edge)) {
         if (!(access.getArrayExpression() instanceof CIdExpression)) {
           return ArrayAbstractionResult.createUnchanged(pCfa);
