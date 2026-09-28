@@ -242,3 +242,5 @@
   `bin/cpachecker` launcher classpath), not `build/classes`. Symptom seen
   2026-08-12: augmented arm crashed 167/224 with
   `NoSuchMethodError: VGuideOptions.isShadowPredicateUtilityGateEnabled()`.
+
+- **Native C unary types (Issue #298).** Standalone predicate parsing resolves bitwise-complement integer promotion from the bound operand type, so valid relations such as `(~state_145 & state_59) == 0` no longer retain CDT’s unresolved wrapper type. The native encoder rejects remaining `CProblemType` expressions individually before formula conversion; it preserves scope, SSA and memory-context checks and does not treat rejected candidates as assumptions.
