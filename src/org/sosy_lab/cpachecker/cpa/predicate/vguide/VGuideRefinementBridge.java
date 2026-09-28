@@ -476,6 +476,76 @@ public final class VGuideRefinementBridge {
       CounterexampleTraceInfo counterexample,
       ARGReachedSet reachedBefore)
       throws InterruptedException {
+    return onSpuriousBeforeRefinement(
+        refinementIndex,
+        fullPath,
+        abstractionStatesTrace,
+        formulas,
+        counterexample,
+        reachedBefore,
+        false);
+  }
+
+  public boolean isNativeInterpolationRecoveryEnabled() {
+    return !options.isSourcePriorMode()
+        && options.getMaxLlmRoundsPerAnalysis() > 0
+        && llmClient != null;
+  }
+
+  public boolean recoverFromInterpolationFailure(
+      int refinementIndex,
+      ARGPath fullPath,
+      List<ARGState> abstractionStatesTrace,
+      BlockFormulas formulas,
+      CounterexampleTraceInfo counterexample,
+      ARGReachedSet reached)
+      throws InterruptedException {
+    if (!counterexample.isSpurious()
+        || abstractionStatesTrace.isEmpty()
+        || abstractionStatesTrace.getFirst().getParents().isEmpty()) {
+      return false;
+    }
+    onSpuriousBeforeRefinement(
+        refinementIndex,
+        fullPath,
+        abstractionStatesTrace,
+        formulas,
+        counterexample,
+        reached,
+        true);
+
+    ImmutableList.Builder<ValidatedPredicate> candidates = ImmutableList.builder();
+    if (!suppressCurrentPrecisionInjection && lastValidation != null) {
+      candidates.addAll(selectReplayPredicates(lastValidation, lastRawStrings));
+    }
+    PredicatePrecision current =
+        PredicatePrecision.unionOf(ImmutableSet.copyOf(reached.asReachedSet().getPrecisions()));
+    LoopHeadPrecisionInjector.PreparedInjection prepared =
+        precisionInjector.prepareForRecovery(current, candidates.build());
+    int precisionDelta = prepared.precision().calculateDifferenceTo(current);
+    if (precisionDelta == 0) {
+      finishNativeRecovery(refinementIndex, reached, ImmutableList.of(), 0);
+      return false;
+    }
+
+    reached.removeSubtree(
+        abstractionStatesTrace.getFirst(),
+        prepared.precision(),
+        Predicates.instanceOf(PredicatePrecision.class));
+    precisionInjector.enableDiagnostics(prepared);
+    finishNativeRecovery(refinementIndex, reached, prepared.predicates(), prepared.predicates().size());
+    return true;
+  }
+
+  private CounterexampleTraceInfo onSpuriousBeforeRefinement(
+      int refinementIndex,
+      ARGPath fullPath,
+      List<ARGState> abstractionStatesTrace,
+      BlockFormulas formulas,
+      CounterexampleTraceInfo counterexample,
+      ARGReachedSet reachedBefore,
+      boolean nativeRecovery)
+      throws InterruptedException {
     lastValidation = null;
     lastRawStrings = Map.of();
     lastProfiles = Map.of();
@@ -517,7 +587,7 @@ public final class VGuideRefinementBridge {
     dump.formulas = formulas;
     dump.counterexample = counterexample;
     dump.llmCalled = false;
-    if (counterexample.isSpurious() && precisionCompiler != null) {
+    if (counterexample.isSpurious() && !nativeRecovery && precisionCompiler != null) {
       dump.precisionCompilerResult =
           counterexample.getInterpolants() == null
               ? precisionCompiler.compile(fullPath)
@@ -526,9 +596,13 @@ public final class VGuideRefinementBridge {
     }
     pendingDump = dump;
 
-    if (!counterexample.isSpurious()
-        || counterexample.getInterpolants() == null
-        || counterexample.getInterpolants().isEmpty()) {
+    if (!counterexample.isSpurious()) {
+      dump.llmSkipReason = "no_interpolants";
+      return counterexample;
+    }
+    boolean hasInterpolants =
+        counterexample.getInterpolants() != null && !counterexample.getInterpolants().isEmpty();
+    if (!nativeRecovery && !hasInterpolants) {
       dump.llmSkipReason = "no_interpolants";
       return counterexample;
     }
@@ -813,7 +887,8 @@ public final class VGuideRefinementBridge {
                   + usefulnessDecision.uniqueMultiplicativePredicates());
         }
       }
-      if (!suppressCurrentPrecisionInjection
+      if (hasInterpolants
+          && !suppressCurrentPrecisionInjection
           && options.isAllowInterpolantStrengthen()
           && options.isEnableL3Entailment()) {
         return strengthenInterpolants(
@@ -828,6 +903,60 @@ public final class VGuideRefinementBridge {
       logger.logUserException(Level.WARNING, e, "VGuide LLM call failed");
     }
     return counterexample;
+  }
+
+  private void finishNativeRecovery(
+      int refinementIndex,
+      ARGReachedSet reached,
+      ImmutableList<ValidatedPredicate> injected,
+      int nativeDelta) {
+    if (pendingDump == null || pendingDump.refinementIndex != refinementIndex) {
+      return;
+    }
+    if (lastValidation != null) {
+      refinementOutcomeStore.recordLlmOutcome(
+          refinementIndex,
+          lastValidation.validated().size(),
+          injected.size(),
+          pendingDump.rejections.size());
+    }
+    for (ValidatedPredicate vp : injected) {
+      llmOwnedKeys.add(
+          llmOwnedKey(vp.loopHeadNode().getNodeNumber(), canonical(vp.formula())));
+    }
+    refinementOutcomeStore.recordCompleted(refinementIndex, 0);
+    pendingDump.refinementOutcomeLine = refinementOutcomeStore.completedLineFor(refinementIndex);
+    if (analysisDumper != null) {
+      analysisDumper.recordRefinement(
+          refinementIndex,
+          pendingDump.llmCalled,
+          pendingDump.llmSkipReason,
+          pendingDump.llmRoundIndex,
+          pendingDump.ceSummaryInPrompt,
+          pendingDump.pack,
+          pendingDump.trace,
+          pendingDump.formulas,
+          pendingDump.counterexample,
+          pendingDump.dumpPrecisionBefore,
+          reached,
+          pendingDump.llmCalled ? pendingDump.validated : null,
+          pendingDump.llmCalled ? markInjected(pendingDump.validated, injected) : null,
+          pendingDump.llmCalled ? pendingDump.rejections : null,
+          pendingDump.ceHistorySnapshot,
+          pendingDump.refinementOutcomeLine,
+          pendingDump.llmCalled ? pendingDump.nativeContext : null,
+          pendingDump.llmPrecisionRemoved,
+          pendingDump.llmPrecisionRetained,
+          options.isPredicateUsefulnessGateEnabled(),
+          pendingDump.usefulnessGateDecision,
+          pendingDump.precisionCompilerResult,
+          true,
+          0,
+          nativeDelta);
+    }
+    pendingDump = null;
+    lastValidation = null;
+    suppressCurrentPrecisionInjection = false;
   }
 
   /** Called after {@code strategy.performRefinement} to inject PRECISION_ONLY predicates. */
@@ -892,7 +1021,10 @@ public final class VGuideRefinementBridge {
             pendingDump.llmPrecisionRetained,
             options.isPredicateUsefulnessGateEnabled(),
             pendingDump.usefulnessGateDecision,
-            pendingDump.precisionCompilerResult);
+            pendingDump.precisionCompilerResult,
+            false,
+            nativeDelta,
+            -1);
       }
       pendingDump = null;
     } else if (lastValidation != null) {

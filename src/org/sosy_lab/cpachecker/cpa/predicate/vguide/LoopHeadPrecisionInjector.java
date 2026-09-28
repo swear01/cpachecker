@@ -27,6 +27,16 @@ import org.sosy_lab.java_smt.api.BooleanFormula;
 /** Injects validated predicates as local precision at loop heads only. */
 public final class LoopHeadPrecisionInjector {
 
+  public record PreparedInjection(
+      PredicatePrecision precision,
+      ImmutableList<ValidatedPredicate> predicates,
+      ImmutableList<AbstractionPredicate> abstractions) {}
+
+  private record ResolvedInjection(
+      ImmutableList<Map.Entry<CFANode, AbstractionPredicate>> entries,
+      ImmutableList<ValidatedPredicate> predicates,
+      ImmutableList<AbstractionPredicate> abstractions) {}
+
   private final LogManager logger;
   private final PredicateAbstractionManager predAbsManager;
 
@@ -69,8 +79,66 @@ public final class LoopHeadPrecisionInjector {
       ARGReachedSet reached,
       List<ValidatedPredicate> precisionPredicates,
       boolean enableDiagnostics) {
-    if (precisionPredicates.isEmpty() || predAbsManager == null) {
+    ResolvedInjection resolved = resolve(precisionPredicates);
+    if (resolved.predicates().isEmpty()) {
       return ImmutableList.of();
+    }
+    PredicatePrecision currentPredPrec =
+        PredicatePrecision.unionOf(ImmutableSet.copyOf(reached.asReachedSet().getPrecisions()));
+    PreparedInjection prepared = prepare(currentPredPrec, resolved);
+    reached.updatePrecisionGlobally(
+        prepared.precision(), Predicates.instanceOf(PredicatePrecision.class));
+    if (enableDiagnostics) {
+      predAbsManager.enableVGuidePredicateDiagnostics(prepared.abstractions());
+    }
+    logger.log(
+        Level.INFO, "VGuide precision-injected ", prepared.predicates().size(), " local predicates");
+    return prepared.predicates();
+  }
+
+  /** Prepares only predicates not already available at their recovery head. */
+  public PreparedInjection prepareForRecovery(
+      PredicatePrecision base, List<ValidatedPredicate> precisionPredicates) {
+    ResolvedInjection resolved = resolve(precisionPredicates);
+    if (resolved.predicates().isEmpty()) {
+      return new PreparedInjection(base, ImmutableList.of(), ImmutableList.of());
+    }
+    ImmutableList.Builder<Map.Entry<CFANode, AbstractionPredicate>> entries =
+        ImmutableList.builder();
+    ImmutableList.Builder<ValidatedPredicate> predicates = ImmutableList.builder();
+    ImmutableList.Builder<AbstractionPredicate> abstractions = ImmutableList.builder();
+    for (int i = 0; i < resolved.predicates().size(); i++) {
+      ValidatedPredicate predicate = resolved.predicates().get(i);
+      AbstractionPredicate abstraction = resolved.abstractions().get(i);
+      if (isAvailableAtHead(base, predicate.loopHeadNode(), abstraction)) {
+        continue;
+      }
+      entries.add(resolved.entries().get(i));
+      predicates.add(predicate);
+      abstractions.add(abstraction);
+    }
+    return prepare(
+        base, new ResolvedInjection(entries.build(), predicates.build(), abstractions.build()));
+  }
+
+  private PreparedInjection prepare(PredicatePrecision base, ResolvedInjection resolved) {
+    if (resolved.predicates().isEmpty()) {
+      return new PreparedInjection(base, ImmutableList.of(), ImmutableList.of());
+    }
+    return new PreparedInjection(
+        base.addLocalPredicates(resolved.entries()), resolved.predicates(), resolved.abstractions());
+  }
+
+  private static boolean isAvailableAtHead(
+      PredicatePrecision precision, CFANode head, AbstractionPredicate predicate) {
+    return precision.getGlobalPredicates().contains(predicate)
+        || precision.getFunctionPredicates().get(head.getFunctionName()).contains(predicate)
+        || precision.getLocalPredicates().get(head).contains(predicate);
+  }
+
+  private ResolvedInjection resolve(List<ValidatedPredicate> precisionPredicates) {
+    if (precisionPredicates.isEmpty() || predAbsManager == null) {
+      return new ResolvedInjection(ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
     }
     List<Map.Entry<CFANode, AbstractionPredicate>> entries = new ArrayList<>();
     Set<Map.Entry<CFANode, BooleanFormula>> seen = new LinkedHashSet<>();
@@ -92,19 +160,18 @@ public final class LoopHeadPrecisionInjector {
     }
 
     if (entries.isEmpty()) {
-      return ImmutableList.of();
+      return new ResolvedInjection(ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
     }
+    return new ResolvedInjection(
+        ImmutableList.copyOf(entries),
+        injected.build(),
+        entries.stream().map(Map.Entry::getValue).collect(ImmutableList.toImmutableList()));
+  }
 
-    PredicatePrecision currentPredPrec =
-        PredicatePrecision.unionOf(ImmutableSet.copyOf(reached.asReachedSet().getPrecisions()));
-    PredicatePrecision newPredPrec = currentPredPrec.addLocalPredicates(entries);
-    reached.updatePrecisionGlobally(newPredPrec, Predicates.instanceOf(PredicatePrecision.class));
-    if (enableDiagnostics) {
-      predAbsManager.enableVGuidePredicateDiagnostics(
-          entries.stream().map(Map.Entry::getValue).toList());
+  public void enableDiagnostics(PreparedInjection prepared) {
+    if (predAbsManager != null && !prepared.abstractions().isEmpty()) {
+      predAbsManager.enableVGuidePredicateDiagnostics(prepared.abstractions());
     }
-    logger.log(Level.INFO, "VGuide precision-injected ", entries.size(), " local predicates");
-    return injected.build();
   }
 
   public void injectFrozen(

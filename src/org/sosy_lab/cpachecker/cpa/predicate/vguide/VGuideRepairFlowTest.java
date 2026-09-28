@@ -14,32 +14,42 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSetMultimap;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.sosy_lab.common.Appender;
 import org.sosy_lab.common.configuration.Configuration;
 import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.cfa.types.MachineModel;
+import org.sosy_lab.cpachecker.core.reachedset.UnmodifiableReachedSet;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
+import org.sosy_lab.cpachecker.cpa.arg.ARGReachedSet;
 import org.sosy_lab.cpachecker.cpa.arg.path.ARGPath;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicateAbstractionManager;
+import org.sosy_lab.cpachecker.cpa.predicate.PredicatePrecision;
+import org.sosy_lab.cpachecker.util.predicates.AbstractionPredicate;
 import org.sosy_lab.cpachecker.util.predicates.interpolation.CounterexampleTraceInfo;
 import org.sosy_lab.cpachecker.util.predicates.smt.FormulaManagerView;
 import org.sosy_lab.java_smt.api.BooleanFormula;
@@ -217,6 +227,127 @@ public class VGuideRepairFlowTest {
     assertThat(field(f.bridge, "lastValidation")).isEqualTo(f.primary.validation());
   }
 
+  @Test
+  public void nativeRecoveryReexploresOnlyAfterFreshPrecision() throws Exception {
+    Fixture f = new Fixture(false);
+    when(f.client.proposeWithUsage(any(PromptMessages.class))).thenReturn(f.response(f.primaryJson()));
+    when(f.fmgr.dumpFormula(any())).thenReturn(mock(Appender.class));
+    LoopHeadPrecisionInjector injector = (LoopHeadPrecisionInjector) field(f.bridge, "precisionInjector");
+    ARGState root = mock(ARGState.class);
+    when(root.getParents()).thenReturn(ImmutableList.of(mock(ARGState.class)));
+    ARGReachedSet reached = mock(ARGReachedSet.class);
+    UnmodifiableReachedSet view = mock(UnmodifiableReachedSet.class);
+    when(reached.asReachedSet()).thenReturn(view);
+    when(view.getPrecisions()).thenReturn(ImmutableList.of());
+    PredicatePrecision fresh =
+        PredicatePrecision.empty()
+            .addLocalPredicates(ImmutableList.of(Map.entry(f.head.node(), mock(AbstractionPredicate.class))));
+    when(injector.prepareForRecovery(any(), anyList()))
+        .thenReturn(
+            new LoopHeadPrecisionInjector.PreparedInjection(
+                fresh, ImmutableList.of(f.accepted), ImmutableList.of()));
+
+    assertThat(
+            f.bridge.recoverFromInterpolationFailure(
+                1,
+                f.path,
+                ImmutableList.of(root),
+                f.blocks,
+                CounterexampleTraceInfo.infeasibleNoItp(),
+                reached))
+        .isTrue();
+    verify(reached).removeSubtree(eq(root), eq(fresh), any());
+  }
+
+  @Test
+  public void nativeRecoveryWithoutFreshPrecisionPreservesFailurePath() throws Exception {
+    Fixture f = new Fixture(false);
+    when(f.client.proposeWithUsage(any(PromptMessages.class))).thenReturn(f.response(f.primaryJson()));
+    LoopHeadPrecisionInjector injector = (LoopHeadPrecisionInjector) field(f.bridge, "precisionInjector");
+    ARGState root = mock(ARGState.class);
+    when(root.getParents()).thenReturn(ImmutableList.of(mock(ARGState.class)));
+    ARGReachedSet reached = mock(ARGReachedSet.class);
+    UnmodifiableReachedSet view = mock(UnmodifiableReachedSet.class);
+    when(reached.asReachedSet()).thenReturn(view);
+    when(view.getPrecisions()).thenReturn(ImmutableList.of());
+    when(injector.prepareForRecovery(any(), anyList()))
+        .thenReturn(
+            new LoopHeadPrecisionInjector.PreparedInjection(
+                PredicatePrecision.empty(), ImmutableList.of(), ImmutableList.of()));
+
+    assertThat(
+            f.bridge.recoverFromInterpolationFailure(
+                1,
+                f.path,
+                ImmutableList.of(root),
+                f.blocks,
+                CounterexampleTraceInfo.infeasibleNoItp(),
+                reached))
+        .isFalse();
+    verify(reached, never()).removeSubtree(any(), any(PredicatePrecision.class), any());
+  }
+
+  @Test
+  public void nativeRecoveryWithExistingGlobalPredicateDoesNotMutateSubtree() throws Exception {
+    Fixture f = new Fixture(false);
+    when(f.client.proposeWithUsage(any(PromptMessages.class))).thenReturn(f.response(f.primaryJson()));
+    PredicateAbstractionManager manager = mock(PredicateAbstractionManager.class);
+    AbstractionPredicate global = mock(AbstractionPredicate.class);
+    when(manager.getPredicateFor(f.accepted.formula())).thenReturn(global);
+    setField(
+        f.bridge,
+        "precisionInjector",
+        new LoopHeadPrecisionInjector(LogManager.createTestLogManager(), manager));
+    ARGState root = mock(ARGState.class);
+    when(root.getParents()).thenReturn(ImmutableList.of(mock(ARGState.class)));
+    ARGReachedSet reached = mock(ARGReachedSet.class);
+    UnmodifiableReachedSet view = mock(UnmodifiableReachedSet.class);
+    when(reached.asReachedSet()).thenReturn(view);
+    when(view.getPrecisions())
+        .thenReturn(
+            ImmutableList.of(
+                new PredicatePrecision(
+                    ImmutableSetMultimap.of(),
+                    ImmutableSetMultimap.of(),
+                    ImmutableSetMultimap.of(),
+                    ImmutableSet.of(global))));
+
+    assertThat(
+            f.bridge.recoverFromInterpolationFailure(
+                1,
+                f.path,
+                ImmutableList.of(root),
+                f.blocks,
+                CounterexampleTraceInfo.infeasibleNoItp(),
+                reached))
+        .isFalse();
+    verify(reached, never()).removeSubtree(any(), any(PredicatePrecision.class), any());
+  }
+
+  @Test
+  public void normalNoInterpolantsStillDoesNotRequestCandidates() throws Exception {
+    Fixture f = new Fixture(false);
+
+    f.bridge.onSpuriousBeforeRefinement(
+        1, f.path, ImmutableList.of(), f.blocks, CounterexampleTraceInfo.infeasibleNoItp(), null);
+
+    verifyNoInteractions(f.client);
+  }
+
+  @Test
+  public void sourcePriorDisablesNativeInterpolationRecovery() throws Exception {
+    Fixture f = new Fixture(false, 1, true);
+
+    assertThat(f.bridge.isNativeInterpolationRecoveryEnabled()).isFalse();
+  }
+
+  @Test
+  public void zeroLlmRoundsDisablesNativeInterpolationRecovery() throws Exception {
+    Fixture f = new Fixture(false, 1, false, 0);
+
+    assertThat(f.bridge.isNativeInterpolationRecoveryEnabled()).isFalse();
+  }
+
   @SuppressWarnings("unchecked")
   private static ArgumentCaptor<List<LoopHeadCandidate>> candidateCaptor() {
     return ArgumentCaptor.forClass(List.class);
@@ -228,10 +359,17 @@ public class VGuideRepairFlowTest {
     return field.get(object);
   }
 
+  private static void setField(Object object, String name, Object value) throws Exception {
+    Field field = object.getClass().getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(object, value);
+  }
+
   private static final class Fixture {
     final LogManager logger = mock(LogManager.class);
     final PredicateProposalClient client = mock(PredicateProposalClient.class);
     final PredicateValidationPipeline pipeline = mock(PredicateValidationPipeline.class);
+    final FormulaManagerView fmgr = mock(FormulaManagerView.class);
     final WallClockBudget wall = mock(WallClockBudget.class);
     final LlmCallScheduler scheduler = mock(LlmCallScheduler.class);
     final LoopHeadInfo head = new LoopHeadInfo(CFANode.newDummyCFANode("main"), "", "main");
@@ -276,6 +414,15 @@ public class VGuideRepairFlowTest {
     }
 
     Fixture(boolean repairEnabled, int samples) throws Exception {
+      this(repairEnabled, samples, false);
+    }
+
+    Fixture(boolean repairEnabled, int samples, boolean sourcePriorMode) throws Exception {
+      this(repairEnabled, samples, sourcePriorMode, 1);
+    }
+
+    Fixture(boolean repairEnabled, int samples, boolean sourcePriorMode, int maxLlmRounds)
+        throws Exception {
       ContextPackBuilder context = mock(ContextPackBuilder.class);
       when(context.build(anyInt(), any(), any(), anyList(), anyList())).thenReturn(pack);
       when(context.forNativePrompt(eq(pack), anyList())).thenReturn(pack);
@@ -301,6 +448,8 @@ public class VGuideRepairFlowTest {
                   .setOption(
                       "vguide.enableValidationFeedbackRepair", Boolean.toString(repairEnabled))
                   .setOption("vguide.llmSamplesPerCall", Integer.toString(samples))
+                  .setOption("vguide.sourcePriorMode", Boolean.toString(sourcePriorMode))
+                  .setOption("vguide.maxLlmRoundsPerAnalysis", Integer.toString(maxLlmRounds))
                   .setOption("vguide.minPredicatesPerCall", "1")
                   .setOption("vguide.maxPredicatesPerCall", "2")
                   .build());
@@ -330,7 +479,7 @@ public class VGuideRepairFlowTest {
               options,
               client,
               null,
-              mock(FormulaManagerView.class),
+              fmgr,
               heads,
               context,
               new ProposalPromptBuilder(Set.of(), MachineModel.LINUX32, false),

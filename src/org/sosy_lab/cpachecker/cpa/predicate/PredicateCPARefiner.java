@@ -291,9 +291,39 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
       // find new invariants (this is a noop if no invariants should be used/generated)
       invariantsManager.findInvariants(allStatesTrace, abstractionStatesTrace, pfmgr, solver);
 
-      CounterexampleTraceInfo counterexample =
-          checkCounterexample(
-              allStatesTrace, abstractionStatesTrace, formulas, repeatedCounterexample);
+      CounterexampleTraceInfo counterexample;
+      try {
+        counterexample =
+            checkCounterexample(
+                allStatesTrace, abstractionStatesTrace, formulas, repeatedCounterexample);
+      } catch (RefinementFailedException e) {
+        if (e.getReason() != Reason.InterpolationFailed
+            || vGuideBridge == null
+            || repeatedCounterexample
+            || (stopAfter >= 0 && refinements > stopAfter)
+            || invariantsManager.addToPrecision()
+            || usePathInvariants
+            || useNewtonRefinement
+            || useUCBRefinement
+            || !vGuideBridge.isNativeInterpolationRecoveryEnabled()) {
+          throw e;
+        }
+        try {
+          counterexample =
+              interpolationManager.buildCounterexampleTraceWithoutInterpolation(
+                  formulas, Optional.of(allStatesTrace));
+        } catch (CPAException ignored) {
+          throw e;
+        }
+        if (counterexample.isSpurious()
+            && vGuideBridge.recoverFromInterpolationFailure(
+                refinements, allStatesTrace, abstractionStatesTrace, formulas, counterexample, pReached)) {
+          return CounterexampleInfo.spurious();
+        }
+        if (counterexample.isSpurious()) {
+          throw e;
+        }
+      }
 
       // if error is spurious refine
       if (counterexample.isSpurious() && (stopAfter < 0 || refinements <= stopAfter)) {
