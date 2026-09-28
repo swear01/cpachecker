@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import org.sosy_lab.cpachecker.cfa.ast.AExpressionAssignmentStatement;
+import org.sosy_lab.cpachecker.cfa.ast.AAssignment;
 import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
 import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
@@ -170,7 +170,7 @@ final class StructuredCounterexampleBuilder {
         structuredCounterexample.substring(0, structuredCounterexample.length() - UNAVAILABLE_SUFFIX.length());
     return prefix
         + steps
-        + ",\"relations_may_be_truncated\":true"
+        + ",\"relations_bounded_by_caps\":true"
         + ",\"proof_steps_selection\":\"most_recent_bounded_suffix_of_assumes_and_assignments\""
         + (omitted == 0 ? "" : ",\"proof_steps_omitted\":" + omitted)
         + ",\"unavailable\":["
@@ -207,8 +207,7 @@ final class StructuredCounterexampleBuilder {
           .append(escape(assume.getExpression().getExpressionType().toString()))
           .append('"');
     } else {
-      AExpressionAssignmentStatement assignment =
-          (AExpressionAssignmentStatement) ((CStatementEdge) edge).getStatement();
+      AAssignment assignment = (AAssignment) ((CStatementEdge) edge).getStatement();
       step.append(",\"kind\":\"assignment\",\"lhs\":\"")
           .append(escape(assignment.getLeftHandSide().toASTString()))
           .append("\",\"rhs\":\"")
@@ -234,7 +233,7 @@ final class StructuredCounterexampleBuilder {
 
   private static boolean isAssignment(CFAEdge edge) {
     return edge instanceof CStatementEdge statement
-        && statement.getStatement() instanceof AExpressionAssignmentStatement;
+        && statement.getStatement() instanceof AAssignment;
   }
 
   private static void appendEdgeLocation(StringBuilder out, CFAEdge edge) {
@@ -245,7 +244,7 @@ final class StructuredCounterexampleBuilder {
         .append(edge.getSuccessor().getNodeNumber());
     if (location != null && location.isRealLocation()) {
       out.append(",\"source\":{\"file\":\"")
-          .append(escape(location.getFileName().toString()))
+          .append(escape(location.getFileName().toString().replace('\\', '/')))
           .append("\",\"line\":")
           .append(location.getStartingLineInOrigin())
           .append(",\"end_line\":")

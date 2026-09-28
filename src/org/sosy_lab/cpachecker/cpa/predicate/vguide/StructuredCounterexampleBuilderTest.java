@@ -102,6 +102,47 @@ public class StructuredCounterexampleBuilderTest {
   }
 
   @Test
+  public void proofStepsKeepParsedFunctionCallAssignmentsAndNormalizeSourcePaths() throws Exception {
+    Path source = java.nio.file.Files.createTempFile("vguide_call_assignment_", ".c");
+    source.toFile().deleteOnExit();
+    java.nio.file.Files.writeString(
+        source, "extern int external_foo(void); int main(){int x; x = external_foo(); return x;}\n");
+    CFA cfa =
+        new CFACreator(
+                TestDataTools.configurationForTest().build(),
+                LogManager.createTestLogManager(),
+                ShutdownNotifier.createDummy())
+            .parseFileAndCreateCFA(ImmutableList.of(source.toString()));
+    CStatementEdge assignment =
+        CFAUtils.allEdges(cfa)
+            .filter(CStatementEdge.class)
+            .filter(edge -> edge.getRawStatement().contains("x = external_foo"))
+            .first()
+            .get();
+    CStatementEdge windowsPathAssignment =
+        new CStatementEdge(
+            assignment.getRawStatement(),
+            assignment.getStatement(),
+            new FileLocation(Path.of("C:\\work\\input.c"), 0, 1, 1, 1, 1, 1),
+            newDummyCFANode("main"),
+            newDummyCFANode("main"));
+
+    JsonNode parsed =
+        new ObjectMapper()
+            .readTree(
+                StructuredCounterexampleBuilder.withProofSteps(
+                    StructuredCounterexampleBuilder.build("", ImmutableList.of(), ImmutableList.of(), ""),
+                    ImmutableList.of(windowsPathAssignment),
+                    ImmutableList.of(),
+                    Optional.empty()));
+
+    JsonNode step = parsed.path("proof_steps").get(0);
+    assertThat(step.path("lhs").asText()).isEqualTo("x");
+    assertThat(step.path("rhs").asText()).isEqualTo("external_foo()");
+    assertThat(step.path("source").path("file").asText()).isEqualTo("C:/work/input.c");
+  }
+
+  @Test
   public void proofStepsKeepASuffixWithoutFillingHolesBeforeAnOversizedStep() throws Exception {
     Path source = java.nio.file.Files.createTempFile("vguide_long_steps_", ".c");
     source.toFile().deleteOnExit();
