@@ -126,6 +126,8 @@ final class StructuredCounterexampleBuilder {
     List<String> selectedSteps = new ArrayList<>();
     int selectedChars = 2;
     int omitted = 0;
+    boolean hasAssume = false;
+    boolean hasAssignment = false;
     for (int index = pathEdges.size() - 1; index >= 0; index--) {
       CFAEdge edge = pathEdges.get(index);
       if (!(edge instanceof CAssumeEdge) && !isAssignment(edge)) {
@@ -139,20 +141,14 @@ final class StructuredCounterexampleBuilder {
       }
       selectedSteps.add(step);
       selectedChars += separator + step.length();
+      if (edge instanceof CAssumeEdge) {
+        hasAssume = true;
+      } else {
+        hasAssignment = true;
+      }
     }
     Collections.reverse(selectedSteps);
-    StringBuilder steps = new StringBuilder("\"proof_steps\":[");
-    for (int index = 0; index < selectedSteps.size(); index++) {
-      if (index > 0) {
-        steps.append(',');
-      }
-      steps.append(selectedSteps.get(index));
-    }
-    steps.append(']');
-    boolean hasAssume =
-        selectedSteps.stream().anyMatch(step -> step.contains("\"kind\":\"assume\""));
-    boolean hasAssignment =
-        selectedSteps.stream().anyMatch(step -> step.contains("\"kind\":\"assignment\""));
+    String steps = "\"proof_steps\":[" + String.join(",", selectedSteps) + "]";
     String prefix =
         structuredCounterexample
             .substring(0, structuredCounterexample.length() - suffix.length())
