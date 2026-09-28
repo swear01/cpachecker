@@ -23,6 +23,18 @@
   The control applies only to dynamic post-validation injection; source-prior/initial-precision
   injection is outside its scope.
 
+- **Native interpolation recovery (#300).** When the normal interpolation call alone fails, the
+  active non-source-prior LLM route may first prove the same trace UNSAT without interpolation.
+  Only then may validated `PRECISION_ONLY` native-C candidates with a strictly nonempty precision
+  delta be installed at the first noninitial abstraction state and its affected ARG subtree
+  re-explored. Feasible fallback traces stay on the ordinary counterexample path. Repeated paths,
+  exhausted refinement limits, disabled/no-client/max-zero LLM routes, rejected or duplicate
+  candidates, missing context, and an uncheckable fallback preserve the original interpolation
+  failure; recovery neither fabricates interpolants nor converts that failure to a proof result.
+  Recovery dump rows record `native_recovery=true`, `native_delta=0`, and the separate
+  `recovery_precision_delta`, which counts fresh head/formula entries after global, function, and
+  local availability checks; instance-only entries do not suppress a recovery candidate.
+
 > Tacit knowledge an agent can't infer from reading code.
 
 ## Gotchas

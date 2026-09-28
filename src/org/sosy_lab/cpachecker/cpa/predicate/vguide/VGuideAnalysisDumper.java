@@ -157,6 +157,60 @@ public final class VGuideAnalysisDumper {
       boolean usefulnessGateEnabled,
       PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision,
       CfaPrecisionCompiler.@Nullable Result precisionCompilerResult) {
+    recordRefinement(
+        refinementIndex,
+        llmCalled,
+        llmSkipReason,
+        llmRoundIndex,
+        ceSummaryInPrompt,
+        pack,
+        abstractionStatesTrace,
+        formulas,
+        counterexample,
+        precisionBefore,
+        reachedAfter,
+        validatedPredicates,
+        injectedPredicates,
+        candidateRejections,
+        ceHistorySnapshot,
+        refinementOutcomeLine,
+        nativeContext,
+        llmPrecisionRemoved,
+        llmPrecisionRetained,
+        usefulnessGateEnabled,
+        usefulnessGateDecision,
+        precisionCompilerResult,
+        false,
+        -1,
+        -1);
+  }
+
+  public void recordRefinement(
+      int refinementIndex,
+      boolean llmCalled,
+      @Nullable String llmSkipReason,
+      @Nullable Integer llmRoundIndex,
+      @Nullable String ceSummaryInPrompt,
+      ContextPack pack,
+      List<ARGState> abstractionStatesTrace,
+      BlockFormulas formulas,
+      CounterexampleTraceInfo counterexample,
+      @Nullable ObjectNode precisionBefore,
+      @Nullable ARGReachedSet reachedAfter,
+      @Nullable List<DumpValidatedPredicate> validatedPredicates,
+      @Nullable List<DumpValidatedPredicate> injectedPredicates,
+      @Nullable List<CandidateRejection> candidateRejections,
+      CeHistoryStore.@Nullable Snapshot ceHistorySnapshot,
+      @Nullable String refinementOutcomeLine,
+      NativePredicateContextBuilder.@Nullable Context nativeContext,
+      int llmPrecisionRemoved,
+      int llmPrecisionRetained,
+      boolean usefulnessGateEnabled,
+      PredicateUsefulnessGate.@Nullable Decision usefulnessGateDecision,
+      CfaPrecisionCompiler.@Nullable Result precisionCompilerResult,
+      boolean nativeRecovery,
+      int nativeDelta,
+      int recoveryPrecisionDelta) {
     if (llmCalled && llmRoundIndex != null) {
       llmRoundCount = Math.max(llmRoundCount, llmRoundIndex);
     }
@@ -166,6 +220,11 @@ public final class VGuideAnalysisDumper {
     row.put("bridge_index", bridgeIndex);
     row.put("refinement_index", refinementIndex);
     row.put("llm_called", llmCalled);
+    row.put("native_recovery", nativeRecovery);
+    row.put("native_delta", nativeDelta);
+    if (recoveryPrecisionDelta >= 0) {
+      row.put("recovery_precision_delta", recoveryPrecisionDelta);
+    }
     row.put("replay_injection_mode", options.getReplayInjectionMode().name());
     row.put("replay_injection_selector_fingerprint", options.replayInjectionSelectorFingerprint());
     row.set("replay_injection_selectors", stringArray(options.replayInjectionSelectors()));
