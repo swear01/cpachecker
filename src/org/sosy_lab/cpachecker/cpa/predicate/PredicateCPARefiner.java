@@ -318,6 +318,7 @@ final class PredicateCPARefiner implements ARGBasedRefiner, StatisticsProvider {
         if (counterexample.isSpurious()
             && vGuideBridge.recoverFromInterpolationFailure(
                 refinements, allStatesTrace, abstractionStatesTrace, formulas, counterexample, pReached)) {
+          lastErrorPaths.remove(errorPath);
           return CounterexampleInfo.spurious();
         }
         if (counterexample.isSpurious()) {
