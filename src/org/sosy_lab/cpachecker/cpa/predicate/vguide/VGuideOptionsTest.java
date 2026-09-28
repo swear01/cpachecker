@@ -60,6 +60,17 @@ public class VGuideOptionsTest {
   }
 
   @Test
+  public void proofStepContextIsOptIn() throws InvalidConfigurationException {
+    VGuideOptions defaults = new VGuideOptions(Configuration.defaultConfiguration());
+    VGuideOptions enabled =
+        new VGuideOptions(
+            Configuration.builder().setOption("vguide.proofStepContext", "true").build());
+
+    assertThat(defaults.isProofStepContextEnabled()).isFalse();
+    assertThat(enabled.isProofStepContextEnabled()).isTrue();
+  }
+
+  @Test
   public void defaultPredicateBudgetUsesEstablishedRange() throws InvalidConfigurationException {
     PredicateBudget budget =
         new VGuideOptions(Configuration.defaultConfiguration()).getPredicateBudget();

@@ -6025,6 +6025,10 @@ vguide.nativePredicateContext = false
 # every_n / interval trigger. 0 = off.
 vguide.peelLoopHeadThreshold = 0
 
+# Expose bounded authoritative ARG proof steps in the LLM counterexample
+# context
+vguide.proofStepContext = false
+
 # Expose bounded CEGAR refinement outcomes (visits, interpolants, LLM
 # outcome, native precision delta) to the LLM as read-only context (Issue #7)
 vguide.refinementOutcomeContext = false

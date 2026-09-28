@@ -52,6 +52,12 @@ public class VGuideOptions {
   @Option(
       secure = true,
       description =
+          "Expose bounded authoritative ARG proof steps in the LLM counterexample context")
+  private boolean proofStepContext = false;
+
+  @Option(
+      secure = true,
+      description =
           "Process-wide hard cap on LLM rounds across all VGuide bridges in this JVM. 0 ="
               + " unlimited.")
   @IntegerOption(min = 0)
@@ -294,6 +300,10 @@ public class VGuideOptions {
 
   public boolean isPrecisionCompilerEnabled() {
     return enablePrecisionCompiler;
+  }
+
+  public boolean isProofStepContextEnabled() {
+    return proofStepContext;
   }
 
   public boolean needsLlmClient() {

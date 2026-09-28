@@ -489,6 +489,9 @@ public final class VGuideRefinementBridge {
             counterexample,
             fullPath.asStatesList(),
             abstractionStatesTrace);
+    if (options.isProofStepContextEnabled()) {
+      pack = ContextPackBuilder.withProofSteps(pack, fullPath, cfa);
+    }
     int loopHeadVisits = countLoopHeadVisits(abstractionStatesTrace, pack.loopHeads());
     refinementOutcomeStore.recordStarted(
         refinementIndex,

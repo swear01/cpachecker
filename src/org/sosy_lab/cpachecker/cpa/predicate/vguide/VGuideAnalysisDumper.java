@@ -28,7 +28,6 @@ import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -621,7 +620,7 @@ public final class VGuideAnalysisDumper {
 
   private ArrayNode validatedPredicatesJson(List<DumpValidatedPredicate> preds) {
     ArrayNode arr = JSON.createArrayNode();
-    Map<BooleanFormula, String> blockFormulaDumps = new IdentityHashMap<>();
+    IdentityHashMap<BooleanFormula, String> blockFormulaDumps = new IdentityHashMap<>();
     for (DumpValidatedPredicate p : preds) {
       arr.add(validatedPredicateJson(p, blockFormulaDumps));
     }
@@ -629,7 +628,7 @@ public final class VGuideAnalysisDumper {
   }
 
   private ObjectNode validatedPredicateJson(
-      DumpValidatedPredicate p, Map<BooleanFormula, String> blockFormulaDumps) {
+      DumpValidatedPredicate p, IdentityHashMap<BooleanFormula, String> blockFormulaDumps) {
     ObjectNode o = JSON.createObjectNode();
     o.put("predicate_id", p.predicateId());
     o.put("raw_string", p.rawString());
