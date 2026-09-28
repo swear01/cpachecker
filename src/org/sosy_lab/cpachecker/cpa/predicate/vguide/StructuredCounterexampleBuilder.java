@@ -7,6 +7,7 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -111,18 +112,27 @@ final class StructuredCounterexampleBuilder {
       String structuredCounterexample,
       List<CFAEdge> pathEdges,
       ImmutableList<LoopHeadInfo> loopHeads,
-      Optional<LoopStructure> loopStructure,
-      boolean pathUnavailable) {
+      Optional<LoopStructure> loopStructure) {
     String suffix = "\"unavailable\":[\"branch_conditions\",\"ssa_values\",\"assignments\"]}";
     if (!structuredCounterexample.endsWith(suffix)) {
-      return structuredCounterexample;
-    }
-    if (pathUnavailable) {
       return structuredCounterexample;
     }
     if (pathEdges.isEmpty()) {
       return structuredCounterexample;
     }
+    Map<CFANode, LoopHeadInfo> heads =
+        loopHeads.stream()
+            .collect(Collectors.toMap(LoopHeadInfo::node, head -> head, (first, ignored) -> first));
+    ImmutableListMultimap.Builder<CFANode, LoopStructure.Loop> loopsByHead =
+        ImmutableListMultimap.builder();
+    if (loopStructure.isPresent()) {
+      for (LoopStructure.Loop loop : loopStructure.orElseThrow().getAllLoops()) {
+        for (CFANode head : loop.getLoopHeads()) {
+          loopsByHead.put(head, loop);
+        }
+      }
+    }
+    var loops = loopsByHead.build();
     List<String> selectedSteps = new ArrayList<>();
     int selectedChars = 2;
     int omitted = 0;
@@ -133,7 +143,7 @@ final class StructuredCounterexampleBuilder {
       if (!(edge instanceof CAssumeEdge) && !isAssignment(edge)) {
         continue;
       }
-      String step = proofStep(index, edge, loopHeads, loopStructure);
+      String step = proofStep(index, edge, heads, loops);
       int separator = selectedSteps.isEmpty() ? 0 : 1;
       if (selectedChars + separator + step.length() > MAX_PROOF_STEP_CHARS) {
         omitted++;
@@ -150,11 +160,10 @@ final class StructuredCounterexampleBuilder {
     Collections.reverse(selectedSteps);
     String steps = "\"proof_steps\":[" + String.join(",", selectedSteps) + "]";
     String prefix =
-        structuredCounterexample
-            .substring(0, structuredCounterexample.length() - suffix.length())
-            .replace("\"relations\":", "\"relations_hint_may_be_truncated\":");
+        structuredCounterexample.substring(0, structuredCounterexample.length() - suffix.length());
     return prefix
         + steps
+        + ",\"relations_may_be_truncated\":true"
         + ",\"proof_steps_selection\":\"most_recent_bounded_subset\""
         + (omitted == 0 ? "" : ",\"proof_steps_omitted\":" + omitted)
         + ",\"unavailable\":["
@@ -165,11 +174,23 @@ final class StructuredCounterexampleBuilder {
   private static String proofStep(
       int index,
       CFAEdge edge,
-      ImmutableList<LoopHeadInfo> loopHeads,
-      Optional<LoopStructure> loopStructure) {
+      Map<CFANode, LoopHeadInfo> heads,
+      ImmutableListMultimap<CFANode, LoopStructure.Loop> loops) {
     StringBuilder step = new StringBuilder("{\"occurrence\":").append(index + 1);
     appendEdgeLocation(step, edge);
-    appendHeadRelation(step, edge, loopHeads, loopStructure);
+    step.append(",\"head_relations\":[");
+    LoopHeadInfo predecessor = heads.get(edge.getPredecessor());
+    LoopHeadInfo successor = heads.get(edge.getSuccessor());
+    if (predecessor != null) {
+      appendHeadRelation(step, edge, predecessor, loops.get(predecessor.node()));
+    }
+    if (successor != null && !edge.getSuccessor().equals(edge.getPredecessor())) {
+      if (predecessor != null) {
+        step.append(',');
+      }
+      appendHeadRelation(step, edge, successor, loops.get(successor.node()));
+    }
+    step.append(']');
     if (edge instanceof CAssumeEdge assume) {
       step.append(",\"kind\":\"assume\",\"taken\":")
           .append(assume.getTruthAssumption())
@@ -229,33 +250,16 @@ final class StructuredCounterexampleBuilder {
   }
 
   private static void appendHeadRelation(
-      StringBuilder out,
-      CFAEdge edge,
-      ImmutableList<LoopHeadInfo> loopHeads,
-      Optional<LoopStructure> loopStructure) {
-    for (LoopHeadInfo head : loopHeads) {
-      if (edge.getSuccessor().equals(head.node()) || edge.getPredecessor().equals(head.node())) {
-        out.append(",\"head\":\"")
-            .append(escape(head.label()))
-            .append('"')
-            .append(",\"head_relation\":\"")
-            .append(headRelation(edge, head.node(), loopStructure))
-            .append('"');
-        return;
-      }
-    }
+      StringBuilder out, CFAEdge edge, LoopHeadInfo head, List<LoopStructure.Loop> loops) {
+    out.append("{\"head\":\"")
+        .append(escape(head.label()))
+        .append("\",\"relation\":\"")
+        .append(headRelation(edge, head.node(), loops))
+        .append("\"}");
   }
 
   private static String headRelation(
-      CFAEdge edge, CFANode head, Optional<LoopStructure> loopStructure) {
-    List<LoopStructure.Loop> loops =
-        loopStructure
-            .map(
-                structure ->
-                    structure.getAllLoops().stream()
-                        .filter(loop -> loop.getLoopHeads().contains(head))
-                        .toList())
-            .orElse(List.of());
+      CFAEdge edge, CFANode head, List<LoopStructure.Loop> loops) {
     if (loops.isEmpty()) {
       return "unknown";
     }

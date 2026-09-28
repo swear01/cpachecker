@@ -138,7 +138,6 @@ public final class ContextPackBuilder {
 
   static ContextPack withProofSteps(ContextPack pack, ARGPath path, CFA cfa) {
     var fullPath = path.getFullPath();
-    boolean unavailable = fullPath.isEmpty() && !path.getInnerEdges().isEmpty();
     return new ContextPack(
         pack.refinementIndex(),
         pack.sourceCode(),
@@ -149,7 +148,7 @@ public final class ContextPackBuilder {
         pack.blockFormulas(),
         pack.interpolants(),
         StructuredCounterexampleBuilder.withProofSteps(
-            pack.ceSummary(), fullPath, pack.loopHeads(), cfa.getLoopStructure(), unavailable),
+            pack.ceSummary(), fullPath, pack.loopHeads(), cfa.getLoopStructure()),
         pack.traceSummary());
   }
 

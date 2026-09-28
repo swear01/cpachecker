@@ -71,16 +71,22 @@ public class StructuredCounterexampleBuilderTest {
         StructuredCounterexampleBuilder.withProofSteps(
             StructuredCounterexampleBuilder.build("", ImmutableList.of(), ImmutableList.of(), ""),
             path.getFullPath(),
-            ImmutableList.of(new LoopHeadInfo(falseEdge.getSuccessor(), "H", "main")),
-            Optional.empty(),
-            false);
+            ImmutableList.of(
+                new LoopHeadInfo(falseEdge.getPredecessor(), "Before", "main"),
+                new LoopHeadInfo(falseEdge.getSuccessor(), "After", "main")),
+            Optional.empty());
 
     JsonNode parsed = new ObjectMapper().readTree(json);
+    assertThat(parsed.has("relations")).isTrue();
     assertThat(parsed.path("proof_steps").size()).isEqualTo(2);
     assertThat(parsed.path("proof_steps").get(0).path("taken").asBoolean()).isFalse();
     assertThat(parsed.path("proof_steps").get(1).path("rhs").asText()).isEqualTo("2");
-    assertThat(parsed.path("proof_steps").get(0).path("head_relation").asText())
-        .isEqualTo("unknown");
+    JsonNode headRelations = parsed.path("proof_steps").get(0).path("head_relations");
+    assertThat(headRelations.size()).isEqualTo(2);
+    assertThat(headRelations.get(0).path("head").asText()).isEqualTo("Before");
+    assertThat(headRelations.get(1).path("head").asText()).isEqualTo("After");
+    assertThat(headRelations.get(0).path("relation").asText()).isEqualTo("unknown");
+    assertThat(headRelations.get(1).path("relation").asText()).isEqualTo("unknown");
     assertThat(json).doesNotContain("123456789");
     assertThat(json).doesNotContain("\"branch_conditions\"");
     assertThat(json).contains("\"unavailable\":[\"ssa_values\"]");
@@ -89,7 +95,7 @@ public class StructuredCounterexampleBuilderTest {
         StructuredCounterexampleBuilder.build("", ImmutableList.of(), ImmutableList.of(), "");
     assertThat(
             StructuredCounterexampleBuilder.withProofSteps(
-                unavailable, ImmutableList.of(), ImmutableList.of(), Optional.empty(), true))
+                unavailable, ImmutableList.of(), ImmutableList.of(), Optional.empty()))
         .isEqualTo(unavailable);
   }
 
@@ -134,8 +140,7 @@ public class StructuredCounterexampleBuilderTest {
                         "", ImmutableList.of(), ImmutableList.of(), ""),
                     path,
                     ImmutableList.of(),
-                    cfa.getLoopStructure(),
-                    false));
+                    cfa.getLoopStructure()));
 
     assertThat(parsed.path("proof_steps_omitted").asInt()).isGreaterThan(0);
     assertThat(parsed.path("proof_steps").toString().length())
