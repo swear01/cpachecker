@@ -14,7 +14,9 @@ import org.sosy_lab.common.log.LogManager;
 import org.sosy_lab.cpachecker.cfa.CFA;
 import org.sosy_lab.cpachecker.cfa.CParser;
 import org.sosy_lab.cpachecker.cfa.CProgramScope;
+import org.sosy_lab.cpachecker.cfa.ast.c.CExpression;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
+import org.sosy_lab.cpachecker.cfa.types.c.CProblemType;
 import org.sosy_lab.cpachecker.exceptions.CPATransferException;
 import org.sosy_lab.cpachecker.exceptions.CParserException;
 import org.sosy_lab.cpachecker.util.CFAUtils;
@@ -75,6 +77,12 @@ final class NativeCExpressionEncoder {
       if (!visible.contains(declaration)) {
         throw new IllegalArgumentException(
             "C identifier is unavailable or ambiguous at head: " + id.getName());
+      }
+    }
+    for (CExpression cExpression : CFAUtils.traverseRecursively(expression)) {
+      if (cExpression.getExpressionType() instanceof CProblemType) {
+        throw new IllegalArgumentException(
+            "unresolved C expression type: " + cExpression.toASTString());
       }
     }
     PathFormula encoded =

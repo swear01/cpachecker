@@ -35,6 +35,7 @@ import org.sosy_lab.cpachecker.cfa.ast.c.CExpression;
 import org.sosy_lab.cpachecker.cfa.ast.c.CExpressionStatement;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
 import org.sosy_lab.cpachecker.cfa.model.c.CAssumeEdge;
+import org.sosy_lab.cpachecker.cfa.types.c.CNumericTypes;
 import org.sosy_lab.cpachecker.core.AnalysisDirection;
 import org.sosy_lab.cpachecker.core.algorithm.invariants.InvariantSupplier.TrivialInvariantSupplier;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
@@ -217,6 +218,7 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
             }
             """);
     BooleanFormula candidate = encode(f, "c < 255");
+    assertThat(parseExpression(f, "~c").getExpressionType()).isEqualTo(CNumericTypes.SIGNED_INT);
     assertMatchesCfa(f, candidate);
     var variables = mgrv.extractVariables(candidate);
     assertThat(variables).containsKey("main::c");
@@ -427,6 +429,41 @@ public final class NativePredicateEncodingQualificationTest extends SolverViewBa
     var head = f.condition().getPredecessor();
     var empty = f.pfmgr().makeEmptyPathFormula();
     assertThrows(IllegalArgumentException.class, () -> encoder.encode("a[x] < 3", head, empty));
+  }
+
+  @Test
+  public void savedNativeCandidateAndItsNeighborEncodeWithIntegerPromotion() throws Exception {
+    Fixture f =
+        fixture(
+            "int main(void) { unsigned char state_59; unsigned char state_97;"
+                + " unsigned char state_145; state_59++; state_97++; state_145++;"
+                + " while (state_145 < 2 && state_59 == state_97) { state_145++; }"
+                + " return 0; }");
+    var pipeline = new PredicateValidationPipeline(logger, solver, mgrv, false, nativeEncoder(f));
+    var candidates =
+        ImmutableList.<LoopHeadCandidate>builder()
+            .addAll(response(f, "c: state_145 == 1"))
+            .addAll(response(f, "c: ((~state_145 & state_59 & state_97) == 0)"))
+            .build();
+
+    var outcome =
+        pipeline.validateCandidates(
+            pack(f, f.prefix()), candidates, List.of(state(f, f.prefix())));
+
+    assertThat(outcome.rejections()).isEmpty();
+    assertThat(outcome.validation().validated()).hasSize(2);
+  }
+
+  @Test
+  public void invalidUnaryOperandReachesProblemTypeGuard() throws Exception {
+    Fixture f = fixture("int main(void) { float f = 0; while (f < 3) { f++; } return 0; }");
+    var outcome =
+        new PredicateValidationPipeline(logger, solver, mgrv, false, nativeEncoder(f))
+            .validateCandidates(
+                pack(f, f.prefix()), response(f, "c: ~f == 0"), List.of(state(f, f.prefix())));
+
+    assertThat(getOnlyElement(outcome.rejections()).reason()).isEqualTo("native_c_rejected");
+    assertThat(getOnlyElement(outcome.rejections()).detail()).contains("unresolved C expression type");
   }
 
   @Test

@@ -1695,11 +1695,15 @@ class ASTConverter {
           // because CDT only makes the operand long if there is a 'L' at the end
           // => we cannot use e.getExpressionType() here!
 
-          // now do not forget: operand should get promoted to int if its type is smaller than int:
+          // The operand is promoted to int if its type is smaller than int.
           type =
               CTypes.isIntegerType(innerType)
                   ? machineModel.applyIntegerPromotion(innerType)
                   : innerType;
+        } else if (e.getOperator() == IASTUnaryExpression.op_tilde
+            && operandType.getCanonicalType() instanceof CSimpleType innerType
+            && CTypes.isIntegerType(innerType)) {
+          type = machineModel.applyIntegerPromotion(innerType);
         } else {
           type = typeConverter.convert(e.getExpressionType());
         }
