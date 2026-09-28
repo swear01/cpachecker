@@ -102,13 +102,14 @@ public class StructuredCounterexampleBuilderTest {
   }
 
   @Test
-  public void proofStepsKeepTheLatestWholeItemsAfterALongPathPrefix() throws Exception {
+  public void proofStepsKeepASuffixWithoutFillingHolesBeforeAnOversizedStep() throws Exception {
     Path source = java.nio.file.Files.createTempFile("vguide_long_steps_", ".c");
     source.toFile().deleteOnExit();
     java.nio.file.Files.writeString(
         source,
-        "int main(){int x=0;if(x<1)return 123456789;else{"
+        "int main(){char *s;int x=0;if(x<1)return 123456789;else{"
             + "x=x+1;".repeat(200)
+            + "s=\"" + "a".repeat(20_000) + "\";"
             + "x=2;}return x;}\n");
     CFA cfa =
         new CFACreator(
@@ -144,7 +145,8 @@ public class StructuredCounterexampleBuilderTest {
                     ImmutableList.of(),
                     cfa.getLoopStructure()));
 
-    assertThat(parsed.path("proof_steps_omitted").asInt()).isGreaterThan(0);
+    assertThat(parsed.path("proof_steps_omitted").asInt()).isEqualTo(202);
+    assertThat(parsed.path("proof_steps").size()).isEqualTo(1);
     assertThat(parsed.path("proof_steps").toString().length())
         .isAtMost(StructuredCounterexampleBuilder.MAX_PROOF_STEP_CHARS);
     assertThat(parsed.path("proof_steps").get(0).path("occurrence").asInt()).isGreaterThan(1);

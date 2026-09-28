@@ -30,6 +30,8 @@ final class StructuredCounterexampleBuilder {
 
   static final String SCHEMA_VERSION = "structured-ce-v2";
   static final int MAX_PROOF_STEP_CHARS = 16_000;
+  private static final String UNAVAILABLE_SUFFIX =
+      "\"unavailable\":[\"branch_conditions\",\"ssa_values\",\"assignments\"]}";
 
   private StructuredCounterexampleBuilder() {}
 
@@ -104,7 +106,8 @@ final class StructuredCounterexampleBuilder {
     }
     return out.append("],\"relations\":\"")
         .append(escape(relationSummary == null ? "" : relationSummary.strip()))
-        .append("\",\"unavailable\":[\"branch_conditions\",\"ssa_values\",\"assignments\"]}")
+        .append("\",")
+        .append(UNAVAILABLE_SUFFIX)
         .toString();
   }
 
@@ -113,8 +116,7 @@ final class StructuredCounterexampleBuilder {
       List<CFAEdge> pathEdges,
       ImmutableList<LoopHeadInfo> loopHeads,
       Optional<LoopStructure> loopStructure) {
-    String suffix = "\"unavailable\":[\"branch_conditions\",\"ssa_values\",\"assignments\"]}";
-    if (!structuredCounterexample.endsWith(suffix)) {
+    if (!structuredCounterexample.endsWith(UNAVAILABLE_SUFFIX)) {
       return structuredCounterexample;
     }
     if (pathEdges.isEmpty()) {
@@ -146,8 +148,13 @@ final class StructuredCounterexampleBuilder {
       String step = proofStep(index, edge, heads, loops);
       int separator = selectedSteps.isEmpty() ? 0 : 1;
       if (selectedChars + separator + step.length() > MAX_PROOF_STEP_CHARS) {
-        omitted++;
-        continue;
+        for (int remaining = index; remaining >= 0; remaining--) {
+          CFAEdge remainingEdge = pathEdges.get(remaining);
+          if (remainingEdge instanceof CAssumeEdge || isAssignment(remainingEdge)) {
+            omitted++;
+          }
+        }
+        break;
       }
       selectedSteps.add(step);
       selectedChars += separator + step.length();
@@ -160,11 +167,11 @@ final class StructuredCounterexampleBuilder {
     Collections.reverse(selectedSteps);
     String steps = "\"proof_steps\":[" + String.join(",", selectedSteps) + "]";
     String prefix =
-        structuredCounterexample.substring(0, structuredCounterexample.length() - suffix.length());
+        structuredCounterexample.substring(0, structuredCounterexample.length() - UNAVAILABLE_SUFFIX.length());
     return prefix
         + steps
         + ",\"relations_may_be_truncated\":true"
-        + ",\"proof_steps_selection\":\"most_recent_bounded_subset\""
+        + ",\"proof_steps_selection\":\"most_recent_bounded_suffix_of_assumes_and_assignments\""
         + (omitted == 0 ? "" : ",\"proof_steps_omitted\":" + omitted)
         + ",\"unavailable\":["
         + unavailableProofStepCategories(hasAssume, hasAssignment)
