@@ -7,22 +7,28 @@
 package org.sosy_lab.cpachecker.cpa.predicate.vguide;
 
 import com.google.common.collect.ImmutableList;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
-import java.nio.file.Path;
+import org.sosy_lab.cpachecker.cfa.ast.AExpressionAssignmentStatement;
 import org.sosy_lab.cpachecker.cfa.ast.FileLocation;
 import org.sosy_lab.cpachecker.cfa.model.CFAEdge;
 import org.sosy_lab.cpachecker.cfa.model.CFANode;
-
+import org.sosy_lab.cpachecker.cfa.model.c.CAssumeEdge;
+import org.sosy_lab.cpachecker.cfa.model.c.CStatementEdge;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractStateWithLocation;
+import org.sosy_lab.cpachecker.util.LoopStructure;
 
 /** Serializes authoritative CEGAR trace facts into the versioned prompt artifact. */
 final class StructuredCounterexampleBuilder {
 
   static final String SCHEMA_VERSION = "structured-ce-v2";
+  static final int MAX_PROOF_STEP_CHARS = 16_000;
 
   private StructuredCounterexampleBuilder() {}
 
@@ -59,18 +65,21 @@ final class StructuredCounterexampleBuilder {
         segments.add(next);
       }
     }
-    StringBuilder out = new StringBuilder("{\"schema_version\":\"")
-        .append(SCHEMA_VERSION)
-        .append("\",\"assertion\":\"")
-        .append(escape(assertion))
-        .append("\",\"trace\":[");
+    StringBuilder out =
+        new StringBuilder("{\"schema_version\":\"")
+            .append(SCHEMA_VERSION)
+            .append("\",\"assertion\":\"")
+            .append(escape(assertion))
+            .append("\",\"trace\":[");
     for (int i = 0; i < segments.size(); i++) {
       if (i > 0) {
         out.append(',');
       }
       TraceSegment segment = segments.get(i);
-      out.append("{\"node\":").append(segment.nodeNumber())
-          .append(",\"function\":\"").append(escape(segment.functionName()))
+      out.append("{\"node\":")
+          .append(segment.nodeNumber())
+          .append(",\"function\":\"")
+          .append(escape(segment.functionName()))
           .append("\",\"loop_head\":");
       if (segment.loopHead().isEmpty()) {
         out.append("null");
@@ -82,9 +91,12 @@ final class StructuredCounterexampleBuilder {
       if (source == null) {
         out.append(",\"source\":null");
       } else {
-        out.append(",\"source\":{\"file\":\"").append(escape(source.file()))
-            .append("\",\"line\":").append(source.startLine())
-            .append(",\"end_line\":").append(source.endLine())
+        out.append(",\"source\":{\"file\":\"")
+            .append(escape(source.file()))
+            .append("\",\"line\":")
+            .append(source.startLine())
+            .append(",\"end_line\":")
+            .append(source.endLine())
             .append('}');
       }
       out.append('}');
@@ -93,6 +105,174 @@ final class StructuredCounterexampleBuilder {
         .append(escape(relationSummary == null ? "" : relationSummary.strip()))
         .append("\",\"unavailable\":[\"branch_conditions\",\"ssa_values\",\"assignments\"]}")
         .toString();
+  }
+
+  static String withProofSteps(
+      String structuredCounterexample,
+      List<CFAEdge> pathEdges,
+      ImmutableList<LoopHeadInfo> loopHeads,
+      Optional<LoopStructure> loopStructure,
+      boolean pathUnavailable) {
+    String suffix = "\"unavailable\":[\"branch_conditions\",\"ssa_values\",\"assignments\"]}";
+    if (!structuredCounterexample.endsWith(suffix)) {
+      return structuredCounterexample;
+    }
+    if (pathUnavailable) {
+      return structuredCounterexample;
+    }
+    if (pathEdges.isEmpty()) {
+      return structuredCounterexample;
+    }
+    List<String> selectedSteps = new ArrayList<>();
+    int selectedChars = 2;
+    int omitted = 0;
+    for (int index = pathEdges.size() - 1; index >= 0; index--) {
+      CFAEdge edge = pathEdges.get(index);
+      if (!(edge instanceof CAssumeEdge) && !isAssignment(edge)) {
+        continue;
+      }
+      String step = proofStep(index, edge, loopHeads, loopStructure);
+      int separator = selectedSteps.isEmpty() ? 0 : 1;
+      if (selectedChars + separator + step.length() > MAX_PROOF_STEP_CHARS) {
+        omitted++;
+        continue;
+      }
+      selectedSteps.add(step);
+      selectedChars += separator + step.length();
+    }
+    Collections.reverse(selectedSteps);
+    StringBuilder steps = new StringBuilder("\"proof_steps\":[");
+    for (int index = 0; index < selectedSteps.size(); index++) {
+      if (index > 0) {
+        steps.append(',');
+      }
+      steps.append(selectedSteps.get(index));
+    }
+    steps.append(']');
+    boolean hasAssume =
+        selectedSteps.stream().anyMatch(step -> step.contains("\"kind\":\"assume\""));
+    boolean hasAssignment =
+        selectedSteps.stream().anyMatch(step -> step.contains("\"kind\":\"assignment\""));
+    String prefix =
+        structuredCounterexample
+            .substring(0, structuredCounterexample.length() - suffix.length())
+            .replace("\"relations\":", "\"relations_hint_may_be_truncated\":");
+    return prefix
+        + steps
+        + ",\"proof_steps_selection\":\"most_recent_bounded_subset\""
+        + (omitted == 0 ? "" : ",\"proof_steps_omitted\":" + omitted)
+        + ",\"unavailable\":["
+        + unavailableProofStepCategories(hasAssume, hasAssignment)
+        + "]}";
+  }
+
+  private static String proofStep(
+      int index,
+      CFAEdge edge,
+      ImmutableList<LoopHeadInfo> loopHeads,
+      Optional<LoopStructure> loopStructure) {
+    StringBuilder step = new StringBuilder("{\"occurrence\":").append(index + 1);
+    appendEdgeLocation(step, edge);
+    appendHeadRelation(step, edge, loopHeads, loopStructure);
+    if (edge instanceof CAssumeEdge assume) {
+      step.append(",\"kind\":\"assume\",\"taken\":")
+          .append(assume.getTruthAssumption())
+          .append(",\"expression\":\"")
+          .append(escape(assume.getExpression().toASTString()))
+          .append("\",\"expression_type\":\"")
+          .append(escape(assume.getExpression().getExpressionType().toString()))
+          .append('"');
+    } else {
+      AExpressionAssignmentStatement assignment =
+          (AExpressionAssignmentStatement) ((CStatementEdge) edge).getStatement();
+      step.append(",\"kind\":\"assignment\",\"lhs\":\"")
+          .append(escape(assignment.getLeftHandSide().toASTString()))
+          .append("\",\"rhs\":\"")
+          .append(escape(assignment.getRightHandSide().toASTString()))
+          .append("\",\"lhs_type\":\"")
+          .append(escape(assignment.getLeftHandSide().getExpressionType().toString()))
+          .append('"');
+    }
+    return step.append('}').toString();
+  }
+
+  private static String unavailableProofStepCategories(boolean hasAssume, boolean hasAssignment) {
+    List<String> unavailable = new ArrayList<>();
+    if (!hasAssume) {
+      unavailable.add("\"branch_conditions\"");
+    }
+    unavailable.add("\"ssa_values\"");
+    if (!hasAssignment) {
+      unavailable.add("\"assignments\"");
+    }
+    return String.join(",", unavailable);
+  }
+
+  private static boolean isAssignment(CFAEdge edge) {
+    return edge instanceof CStatementEdge statement
+        && statement.getStatement() instanceof AExpressionAssignmentStatement;
+  }
+
+  private static void appendEdgeLocation(StringBuilder out, CFAEdge edge) {
+    FileLocation location = edge.getFileLocation();
+    out.append(",\"from_node\":")
+        .append(edge.getPredecessor().getNodeNumber())
+        .append(",\"to_node\":")
+        .append(edge.getSuccessor().getNodeNumber());
+    if (location != null && location.isRealLocation()) {
+      out.append(",\"source\":{\"file\":\"")
+          .append(escape(location.getFileName().toString()))
+          .append("\",\"line\":")
+          .append(location.getStartingLineInOrigin())
+          .append(",\"end_line\":")
+          .append(location.getEndingLineInOrigin())
+          .append('}');
+    } else {
+      out.append(",\"source\":null");
+    }
+  }
+
+  private static void appendHeadRelation(
+      StringBuilder out,
+      CFAEdge edge,
+      ImmutableList<LoopHeadInfo> loopHeads,
+      Optional<LoopStructure> loopStructure) {
+    for (LoopHeadInfo head : loopHeads) {
+      if (edge.getSuccessor().equals(head.node()) || edge.getPredecessor().equals(head.node())) {
+        out.append(",\"head\":\"")
+            .append(escape(head.label()))
+            .append('"')
+            .append(",\"head_relation\":\"")
+            .append(headRelation(edge, head.node(), loopStructure))
+            .append('"');
+        return;
+      }
+    }
+  }
+
+  private static String headRelation(
+      CFAEdge edge, CFANode head, Optional<LoopStructure> loopStructure) {
+    List<LoopStructure.Loop> loops =
+        loopStructure
+            .map(
+                structure ->
+                    structure.getAllLoops().stream()
+                        .filter(loop -> loop.getLoopHeads().contains(head))
+                        .toList())
+            .orElse(List.of());
+    if (loops.isEmpty()) {
+      return "unknown";
+    }
+    if (edge.getSuccessor().equals(head)) {
+      boolean allInside =
+          loops.stream().allMatch(loop -> loop.getLoopNodes().contains(edge.getPredecessor()));
+      boolean allOutside =
+          loops.stream().noneMatch(loop -> loop.getLoopNodes().contains(edge.getPredecessor()));
+      return allInside ? "back_edge" : allOutside ? "entry" : "unknown";
+    }
+    return loops.stream().allMatch(loop -> !loop.getLoopNodes().contains(edge.getSuccessor()))
+        ? "exit"
+        : "unknown";
   }
 
   private static String escape(String value) {

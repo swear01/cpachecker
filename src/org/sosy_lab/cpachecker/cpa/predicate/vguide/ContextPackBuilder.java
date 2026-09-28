@@ -28,6 +28,7 @@ import org.sosy_lab.cpachecker.cfa.model.c.CDeclarationEdge;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractState;
 import org.sosy_lab.cpachecker.core.interfaces.AbstractStateWithLocation;
 import org.sosy_lab.cpachecker.cpa.arg.ARGState;
+import org.sosy_lab.cpachecker.cpa.arg.path.ARGPath;
 import org.sosy_lab.cpachecker.cpa.predicate.BlockFormulaStrategy.BlockFormulas;
 import org.sosy_lab.cpachecker.util.AbstractStates;
 import org.sosy_lab.cpachecker.util.LoopStructure.Loop;
@@ -133,6 +134,23 @@ public final class ContextPackBuilder {
                         && relation.getCVariableBindings(head.node()).isPresent())
             .collect(ImmutableList.toImmutableList());
     return withHeads(pack, heads);
+  }
+
+  static ContextPack withProofSteps(ContextPack pack, ARGPath path, CFA cfa) {
+    var fullPath = path.getFullPath();
+    boolean unavailable = fullPath.isEmpty() && !path.getInnerEdges().isEmpty();
+    return new ContextPack(
+        pack.refinementIndex(),
+        pack.sourceCode(),
+        pack.assertion(),
+        pack.loopHeads(),
+        pack.varContract(),
+        pack.encodedVars(),
+        pack.blockFormulas(),
+        pack.interpolants(),
+        StructuredCounterexampleBuilder.withProofSteps(
+            pack.ceSummary(), fullPath, pack.loopHeads(), cfa.getLoopStructure(), unavailable),
+        pack.traceSummary());
   }
 
   private static ContextPack withHeads(ContextPack pack, ImmutableList<LoopHeadInfo> heads) {
