@@ -83,8 +83,10 @@ public class StructuredCounterexampleBuilderTest {
     assertThat(parsed.path("proof_steps").get(1).path("rhs").asText()).isEqualTo("2");
     JsonNode headRelations = parsed.path("proof_steps").get(0).path("head_relations");
     assertThat(headRelations.size()).isEqualTo(2);
-    assertThat(headRelations.get(0).path("head").asText()).isEqualTo("Before");
-    assertThat(headRelations.get(1).path("head").asText()).isEqualTo("After");
+    assertThat(headRelations.get(0).path("head").asText())
+        .isEqualTo("N" + falseEdge.getPredecessor().getNodeNumber());
+    assertThat(headRelations.get(1).path("head").asText())
+        .isEqualTo("N" + falseEdge.getSuccessor().getNodeNumber());
     assertThat(headRelations.get(0).path("relation").asText()).isEqualTo("unknown");
     assertThat(headRelations.get(1).path("relation").asText()).isEqualTo("unknown");
     assertThat(json).doesNotContain("123456789");
